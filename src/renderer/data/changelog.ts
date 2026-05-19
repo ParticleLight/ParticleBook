@@ -10,7 +10,7 @@ export interface ChangelogEntry {
 export const changelog: ChangelogEntry[] = [
   {
     version: '2.0.0',
-    date: '2026-05-18',
+    date: '2026-05-19',
     changes: [
       { type: 'feature', text: '架构重写：从 Electron + Node.js 移植为 C++ Win32 原生应用 + WebView2 前端' },
       { type: 'feature', text: 'C++ 原生窗口替代 Electron BrowserWindow，启动速度提升 3x+，内存占用减少 60%+' },
@@ -52,7 +52,8 @@ export const changelog: ChangelogEntry[] = [
       { type: 'feature', text: 'NSIS 安装包：首次可选安装目录，后续更新自动沿用无需重选' },
       { type: 'feature', text: '书源导入功能（Legado JSON 格式）：原生文件对话框 + 自动解析入库' },
       { type: 'feature', text: '从 Electron 旧版更新后自动清理残留文件（Chromium DLL / locales / resources）' },
-      { type: 'fix', text: '修复检查更新转圈/卡 0% （checkUpdate 未 await + downloadUpdate 未传 URL）' },
+      { type: 'fix', text: '修复更新下载 UI 冻结 — URLDownloadToFileW 主线程阻塞改后台线程下载 + PostMessage 通知' },
+      { type: 'fix', text: '修复更新下载后无提示 — 下载完成绿色横幅显示"立即重启"，批处理等待退出后静默安装' },
       { type: 'fix', text: '修复更新检测改用 latest.yml（不消耗 GitHub API 配额，避免限流 403）' },
       { type: 'fix', text: '修复 Z-Library 默认线路不可用时工具栏不显示 + 自动切换镜像 + 死循环拦截' },
       { type: 'fix', text: '修复 Z-Library 工具栏在非 ZL 页面显示 + 错误页不显示问题' },
