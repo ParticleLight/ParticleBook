@@ -5,8 +5,8 @@ IDI_MAIN_ICON ICON "..\\assets\\app.ico"
 
 // Version info
 VS_VERSION_INFO VERSIONINFO
-FILEVERSION     2,0,0,0
-PRODUCTVERSION  2,0,0,0
+FILEVERSION     2,0,1,0
+PRODUCTVERSION  2,0,1,0
 FILEFLAGSMASK   VS_FFI_FILEFLAGSMASK
 FILEFLAGS       0
 FILEOS          VOS_NT_WINDOWS32
@@ -19,12 +19,12 @@ BEGIN
         BEGIN
             VALUE "CompanyName",      "ParticleLight"
             VALUE "FileDescription",  "ParticleBook - Z-Library E-Book Reader"
-            VALUE "FileVersion",      "2.0.0.0"
+            VALUE "FileVersion",      "2.0.1.0"
             VALUE "InternalName",     "ParticleBook"
             VALUE "LegalCopyright",   "Copyright 2026 ParticleLight"
             VALUE "OriginalFilename", "ParticleBook.exe"
             VALUE "ProductName",      "ParticleBook"
-            VALUE "ProductVersion",   "2.0.0"
+            VALUE "ProductVersion",   "2.0.1"
         END
     END
     BLOCK "VarFileInfo"
