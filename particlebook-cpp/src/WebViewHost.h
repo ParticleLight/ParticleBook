@@ -1,6 +1,9 @@
 #pragma once
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+
+// Custom messages for cross-thread communication
+#define WM_UPDATE_DOWNLOAD_DONE (WM_USER + 15)
 #include <string>
 #include <vector>
 #include <functional>
@@ -43,8 +46,15 @@ public:
     using DownloadFailCb = std::function<void(const std::string& fileName, const std::string& reason)>;
     void SetDownloadFailCallback(DownloadFailCb cb) { m_dlFailCb = std::move(cb); }
 
+    using UpdateDoneCb = std::function<void(bool success, const std::string& path_or_error)>;
+    void SetUpdateDoneCallback(UpdateDoneCb cb) { m_updateDoneCb = std::move(cb); }
+
     using MessageHandler = std::function<void(const std::string&)>;
     void SetMessageHandler(MessageHandler handler) { m_msgHandler = std::move(handler); }
+
+    void PostMessageToMainThread(UINT msg, WPARAM wp, LPARAM lp) {
+        if (m_hwnd) PostMessage(m_hwnd, msg, wp, lp);
+    }
 
 private:
     static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp);
@@ -65,5 +75,6 @@ private:
     DownloadProgressCb m_dlProgressCb;
     ImportCallback m_importCb;
     DownloadFailCb m_dlFailCb;
+    UpdateDoneCb m_updateDoneCb;
     std::vector<std::string> m_pendingScripts;
 };

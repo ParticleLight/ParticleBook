@@ -40,6 +40,13 @@ void App::Init(HINSTANCE hInstance)
     m_webview->SetMessageHandler([this](const std::string& msg) {
         m_bridge->HandleMessage(msg);
     });
+    m_webview->SetUpdateDoneCallback([this](bool success, const std::string& path_or_error) {
+        if (success) {
+            m_bridge->EmitEvent("app:updateDownloaded", {{"success", true}, {"path", path_or_error}});
+        } else {
+            m_bridge->EmitEvent("app:updateError", {{"error", path_or_error}});
+        }
+    });
 
     // 4. Inject bridge script BEFORE WebView2 navigates
     m_webview->InjectBridgeScript(BridgeServer::GenerateBridgeScript());

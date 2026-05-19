@@ -14,6 +14,7 @@
 #include <shellapi.h>
 #include <cstring>
 #include <cstdio>
+#include <thread>
 #include <ctime>
 #include <mutex>
 
@@ -666,44 +667,103 @@ void RegisterFileHandlers(BridgeServer* bridge, DatabaseService* db, ContentCach
         return json(nullptr);
     });
 
-    bridge->RegisterMethod("app:downloadUpdate", [](const json& p) -> json {
+    bridge->RegisterMethod("app:downloadUpdate", [bridge](const json& p) -> json {
         std::string downloadUrl = p.value("url", "");
         if (downloadUrl.empty()) return json(nullptr);
 
-        // Use URLDownloadToFileW (handles redirects automatically)
-        int wlen = MultiByteToWideChar(CP_UTF8, 0, downloadUrl.c_str(), -1, nullptr, 0);
-	    std::wstring wUrl(wlen, L'\0');
-	    MultiByteToWideChar(CP_UTF8, 0, downloadUrl.c_str(), -1, &wUrl[0], wlen);
-	    while (!wUrl.empty() && wUrl.back() == L'\0') wUrl.pop_back();
-
-        wchar_t tmpPath[MAX_PATH];
-        GetTempPathW(MAX_PATH, tmpPath);
-        std::wstring exePath = std::wstring(tmpPath) + L"ParticleBook-Update.exe";
-        DeleteFileW(exePath.c_str());
-
-        HRESULT hr = URLDownloadToFileW(nullptr, wUrl.c_str(), exePath.c_str(), 0, nullptr);
-        if (FAILED(hr)) {
+        // Download in background to avoid blocking UI thread
+        HWND hwnd = bridge->GetWebViewHost() ? bridge->GetWebViewHost()->GetHwnd() : nullptr;
+        if (!hwnd) {
             // Fallback: open in browser
+            int wlen = MultiByteToWideChar(CP_UTF8, 0, downloadUrl.c_str(), -1, nullptr, 0);
+            std::wstring wUrl(wlen, L'\0');
+            MultiByteToWideChar(CP_UTF8, 0, downloadUrl.c_str(), -1, &wUrl[0], wlen);
+            while (!wUrl.empty() && wUrl.back() == L'\0') wUrl.pop_back();
             ShellExecuteW(nullptr, L"open", wUrl.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
             return json(true);
         }
 
-        // Run installer silently
-        std::wstring cmdLine = L"\"" + exePath + L"\" /S";
-        STARTUPINFOW si = { sizeof(si) };
-        PROCESS_INFORMATION pi = {};
-        if (CreateProcessW(nullptr, cmdLine.data(), nullptr, nullptr, FALSE, 0, nullptr, nullptr, &si, &pi)) {
-            CloseHandle(pi.hProcess);
-            CloseHandle(pi.hThread);
-            // Schedule cleanup of old temp file after a delay
-            // (installer might still be running in /S mode)
-        }
+        std::thread([hwnd, downloadUrl]() {
+            int wlen = MultiByteToWideChar(CP_UTF8, 0, downloadUrl.c_str(), -1, nullptr, 0);
+            std::wstring wUrl(wlen, L'\0');
+            MultiByteToWideChar(CP_UTF8, 0, downloadUrl.c_str(), -1, &wUrl[0], wlen);
+            while (!wUrl.empty() && wUrl.back() == L'\0') wUrl.pop_back();
 
-        return json(true);
+            wchar_t tmpPath[MAX_PATH];
+            GetTempPathW(MAX_PATH, tmpPath);
+            std::wstring exePath = std::wstring(tmpPath) + L"ParticleBook-Update.exe";
+            DeleteFileW(exePath.c_str());
+
+            HRESULT hr = URLDownloadToFileW(nullptr, wUrl.c_str(), exePath.c_str(), 0, nullptr);
+            if (FAILED(hr)) {
+                auto* errStr = new std::string("下载失败");
+                PostMessage(hwnd, WM_UPDATE_DOWNLOAD_DONE, 0, (LPARAM)errStr);
+                return;
+            }
+
+            // Pass path back to main thread (will be stored for quitAndInstall)
+            int pathLen = WideCharToMultiByte(CP_UTF8, 0, exePath.c_str(), -1, nullptr, 0, nullptr, nullptr);
+            auto* pathStr = new std::string(pathLen, '\0');
+            WideCharToMultiByte(CP_UTF8, 0, exePath.c_str(), -1, &(*pathStr)[0], pathLen, nullptr, nullptr);
+            while (!pathStr->empty() && pathStr->back() == '\0') pathStr->pop_back();
+            PostMessage(hwnd, WM_UPDATE_DOWNLOAD_DONE, 1, (LPARAM)pathStr);
+        }).detach();
+
+        return json("started");
     });
 
     bridge->RegisterMethod("app:quitAndInstall", [](const json&) -> json {
-        PostQuitMessage(0); return json(nullptr);
+        wchar_t tmpPath[MAX_PATH];
+        GetTempPathW(MAX_PATH, tmpPath);
+        std::wstring batPath = std::wstring(tmpPath) + L"ParticleBook-Update.bat";
+        std::wstring exePath = std::wstring(tmpPath) + L"ParticleBook-Update.exe";
+
+        DWORD pid = GetCurrentProcessId();
+        char pidStr[32];
+        snprintf(pidStr, sizeof(pidStr), "%lu", pid);
+
+        // Build batch content: wait for this PID to exit, then install silently & clean up
+        std::string bat;
+        bat += "@echo off\r\n";
+        bat += ":loop\r\n";
+        bat += "tasklist /fi \"PID eq " + std::string(pidStr) + "\" 2>nul | find \"" + std::string(pidStr) + "\" >nul\r\n";
+        bat += "if not errorlevel 1 (\r\n";
+        bat += "    ping -n 2 127.0.0.1 >nul\r\n";
+        bat += "    goto loop\r\n";
+        bat += ")\r\n";
+
+        // Convert exePath to narrow string for batch
+        int nlen = WideCharToMultiByte(CP_ACP, 0, exePath.c_str(), -1, nullptr, 0, nullptr, nullptr);
+        std::string exePathNarrow(nlen, '\0');
+        WideCharToMultiByte(CP_ACP, 0, exePath.c_str(), -1, &exePathNarrow[0], nlen, nullptr, nullptr);
+        while (!exePathNarrow.empty() && exePathNarrow.back() == '\0') exePathNarrow.pop_back();
+
+        bat += "start \"\" /wait \"" + exePathNarrow + "\" /S\r\n";
+        bat += "del \"" + exePathNarrow + "\"\r\n";
+        bat += "del \"%~f0\"\r\n";
+
+        // Write batch file
+        HANDLE hFile = CreateFileW(batPath.c_str(), GENERIC_WRITE, 0, nullptr,
+            CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (hFile != INVALID_HANDLE_VALUE) {
+            DWORD written;
+            WriteFile(hFile, bat.c_str(), (DWORD)bat.size(), &written, nullptr);
+            CloseHandle(hFile);
+
+            // Run batch file detached, hidden
+            STARTUPINFOW si = { sizeof(si) };
+            si.dwFlags = STARTF_USESHOWWINDOW;
+            si.wShowWindow = SW_HIDE;
+            PROCESS_INFORMATION pi = {};
+            std::wstring cmdLine = L"cmd.exe /c \"" + batPath + L"\"";
+            CreateProcessW(nullptr, cmdLine.data(), nullptr, nullptr, FALSE,
+                CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi);
+            if (pi.hProcess) CloseHandle(pi.hProcess);
+            if (pi.hThread) CloseHandle(pi.hThread);
+        }
+
+        PostQuitMessage(0);
+        return json(true);
     });
 
     bridge->RegisterMethod("bookSource:importFile", [db](const json&) -> json {

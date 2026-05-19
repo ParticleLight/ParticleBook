@@ -158,6 +158,21 @@ LRESULT CALLBACK WebViewHost::WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
         }
         return 0;
 
+    case WM_UPDATE_DOWNLOAD_DONE:
+        if (self->m_updateDoneCb) {
+            auto* str = reinterpret_cast<std::string*>(lp);
+            if (wp != 0) {
+                std::string path = str ? std::move(*str) : "";
+                delete str;
+                self->m_updateDoneCb(true, path);
+            } else {
+                std::string err = str ? std::move(*str) : "未知错误";
+                delete str;
+                self->m_updateDoneCb(false, err);
+            }
+        }
+        return 0;
+
     case WM_MOVE:
         if (self->m_moveCb) self->m_moveCb();
         return 0;

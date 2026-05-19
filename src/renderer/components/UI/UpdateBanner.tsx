@@ -16,6 +16,12 @@ export function UpdateBanner() {
 
     const unsubs = [
       window.electronAPI.onUpdateAvailable(onUpdate),
+      window.electronAPI.onUpdateDownloaded(() => {
+        setUpdateInfo(null); setDownloading(false)
+      }),
+      window.electronAPI.onUpdateError(() => {
+        setDownloading(false)
+      }),
     ]
     return () => {
       unsubs.forEach((u) => u())
@@ -28,9 +34,10 @@ export function UpdateBanner() {
     setUpdateInfo(null); setDownloading(false)
   }
 
-  const handleDownload = () => {
+  const handleDownload = async () => {
     setDownloading(true)
-    window.electronAPI.downloadUpdate(updateInfo?.downloadUrl || '')
+    const result = await window.electronAPI.downloadUpdate(updateInfo?.downloadUrl || '')
+    if (!result) setDownloading(false)
   }
 
   if (!updateInfo) return null

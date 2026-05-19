@@ -100,9 +100,14 @@ export function GlobalSettings({ onBack }: GlobalSettingsProps) {
     }
   }
 
-  const handleDownloadUpdate = () => {
+  const handleDownloadUpdate = async () => {
     setUpdateStatus('downloading')
-    window.electronAPI.downloadUpdate(updateInfo?.downloadUrl || '')
+    setErrorMessage('')
+    const result = await window.electronAPI.downloadUpdate(updateInfo?.downloadUrl || '')
+    if (!result) {
+      setErrorMessage('无法启动下载')
+      setUpdateStatus('error')
+    }
   }
 
   const handleQuitAndInstall = () => {

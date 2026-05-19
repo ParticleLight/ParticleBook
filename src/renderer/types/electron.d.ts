@@ -92,10 +92,10 @@ interface ElectronAPI {
   onMenuShowAbout: (callback: () => void) => () => void
 
   // Auto Updater
-  checkUpdate: () => Promise<void>
+  checkUpdate: () => Promise<any>
   getAppVersion: () => Promise<string>
-  downloadUpdate: () => Promise<void>
-  quitAndInstall: () => Promise<void>
+  downloadUpdate: (url: string) => Promise<any>
+  quitAndInstall: () => Promise<any>
   onUpdateAvailable: (callback: (info: any) => void) => () => void
   onUpdateNotAvailable: (callback: () => void) => () => void
   onUpdateDownloaded: (callback: () => void) => () => void
@@ -107,3 +107,4 @@ declare interface Window {
   electronAPI: ElectronAPI
   __refreshLibrary?: () => void
   _droppedFiles?: { name: string; path: string }[]
+}
