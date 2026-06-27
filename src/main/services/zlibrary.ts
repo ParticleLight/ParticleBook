@@ -12,7 +12,7 @@ const FALLBACK_MIRRORS = [
   'https://zh.singlelogin.rs/',
 ]
 
-const MIRROR_INDEX_URL = 'https://z.wwwnav.com/'
+const MIRROR_INDEX_URL = 'https://zz.ggonav.com/'
 
 export class ZLibraryService {
   private view: WebContentsView | null = null

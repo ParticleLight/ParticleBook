@@ -71,6 +71,9 @@ interface ElectronAPI {
   zlibSwitchMirror: (index: number) => Promise<void>
   zlibGetMirrorInfo: () => Promise<{ index: number; url: string; mirrors: string[] }>
   zlibShowMirrorMenu: () => Promise<void>
+  zlibSetDownloadPath: (path: string) => Promise<void>
+  zlibGetDownloadPath: () => Promise<{ path: string }>
+  zlibPickDownloadFolder: () => Promise<{ path: string } | null>
   onZlibDownloadProgress: (callback: (progress: any) => void) => () => void
   onZlibDownloadComplete: (callback: (data: any) => void) => () => void
   onZlibImportComplete: (callback: (data: any) => void) => () => void

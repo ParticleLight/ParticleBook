@@ -362,6 +362,251 @@ body {
   }
 }
 
+/* ═══════════════════════════════════════════════════════════════
+   Accent Color System
+   ═══════════════════════════════════════════════════════════════ */
+
+[data-accent="purple"] {
+  --accent: #c084fc;
+  --accent-hover: #d8b4fe;
+  --accent-text: #0d0d0d;
+  --border-focus: #c084fc;
+  --color-indigo: #c084fc;
+  --color-indigo-bg: rgba(192, 132, 252, 0.12);
+}
+.light[data-accent="purple"],
+[data-accent="purple"] .light {
+  --accent: #7c3aed;
+  --accent-hover: #8b5cf6;
+  --accent-text: #ffffff;
+  --border-focus: #7c3aed;
+  --color-indigo: #6d28d9;
+  --color-indigo-bg: rgba(124, 58, 237, 0.10);
+}
+.sepia[data-accent="purple"],
+[data-accent="purple"] .sepia {
+  --accent: #a78bfa;
+  --accent-hover: #c4b5fd;
+  --border-focus: #a78bfa;
+  --color-indigo: #c4b5fd;
+  --color-indigo-bg: rgba(167, 139, 250, 0.15);
+}
+
+[data-accent="green"] {
+  --accent: #4ade80;
+  --accent-hover: #86efac;
+  --accent-text: #0d0d0d;
+  --border-focus: #4ade80;
+  --color-indigo: #4ade80;
+  --color-indigo-bg: rgba(74, 222, 128, 0.12);
+}
+.light[data-accent="green"],
+[data-accent="green"] .light {
+  --accent: #16a34a;
+  --accent-hover: #22c55e;
+  --accent-text: #ffffff;
+  --border-focus: #16a34a;
+  --color-indigo: #15803d;
+  --color-indigo-bg: rgba(22, 163, 74, 0.10);
+}
+.sepia[data-accent="green"],
+[data-accent="green"] .sepia {
+  --accent: #a3e635;
+  --accent-hover: #bef264;
+  --border-focus: #a3e635;
+  --color-indigo: #a3e635;
+  --color-indigo-bg: rgba(163, 230, 53, 0.15);
+}
+
+[data-accent="orange"] {
+  --accent: #fb923c;
+  --accent-hover: #fdba74;
+  --accent-text: #0d0d0d;
+  --border-focus: #fb923c;
+  --color-indigo: #fb923c;
+  --color-indigo-bg: rgba(251, 146, 60, 0.12);
+}
+.light[data-accent="orange"],
+[data-accent="orange"] .light {
+  --accent: #ea580c;
+  --accent-hover: #f97316;
+  --accent-text: #ffffff;
+  --border-focus: #ea580c;
+  --color-indigo: #c2410c;
+  --color-indigo-bg: rgba(234, 88, 12, 0.10);
+}
+.sepia[data-accent="orange"],
+[data-accent="orange"] .sepia {
+  --accent: #fdba74;
+  --accent-hover: #fed7aa;
+  --border-focus: #fdba74;
+  --color-indigo: #fdba74;
+  --color-indigo-bg: rgba(253, 186, 116, 0.15);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   Win11 Settings Controls
+   ═══════════════════════════════════════════════════════════════ */
+
+/* Toggle Switch */
+.settings-toggle {
+  position: relative;
+  width: 40px;
+  height: 20px;
+  border-radius: 10px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s;
+  flex-shrink: 0;
+}
+.settings-toggle::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--text-secondary);
+  transition: transform 0.2s, background 0.2s;
+}
+.settings-toggle.active {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.settings-toggle.active::after {
+  transform: translateX(20px);
+  background: var(--accent-text);
+}
+
+/* Segmented Control */
+.settings-segment {
+  display: inline-flex;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 3px;
+  gap: 2px;
+}
+.settings-segment-btn {
+  padding: 6px 14px;
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+  font-weight: 500;
+}
+.settings-segment-btn:hover {
+  color: var(--text-primary);
+  background: var(--surface-hover);
+}
+.settings-segment-btn.active {
+  color: var(--text-primary);
+  background: var(--bg-secondary);
+  box-shadow: var(--shadow-sm);
+}
+
+/* Settings Card */
+.settings-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 20px;
+}
+.settings-card + .settings-card {
+  margin-top: 12px;
+}
+
+/* Settings Row — label left, control right */
+.settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 0;
+}
+.settings-row + .settings-row {
+  border-top: 1px solid var(--border);
+}
+.settings-row-label {
+  font-size: 14px;
+  color: var(--text-primary);
+}
+.settings-row-desc {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  margin-top: 2px;
+}
+
+/* Settings Nav Item */
+.settings-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all 0.15s;
+  color: var(--text-secondary);
+  font-size: 14px;
+  font-weight: 500;
+  border: none;
+  background: transparent;
+  width: 100%;
+  text-align: left;
+}
+.settings-nav-item:hover {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+.settings-nav-item.active {
+  background: var(--surface-active);
+  color: var(--text-primary);
+}
+.settings-nav-item.active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 16px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+
+/* Range Slider Win11 polish */
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--bg-tertiary);
+  outline: none;
+}
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid var(--bg-secondary);
+  box-shadow: 0 1px 4px rgba(0,0,0,0.3);
+  cursor: pointer;
+  transition: transform 0.1s;
+}
+input[type="range"]::-webkit-slider-thumb:hover {
+  transform: scale(1.15);
+}
+input[type="range"]::-webkit-slider-thumb:active {
+  transform: scale(0.95);
+}
+
 .reader-content {
   line-height: 1.8;
   font-size: 18px;

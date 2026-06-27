@@ -5,6 +5,8 @@
 #include <chrono>
 #include <fstream>
 #include <sstream>
+#include <filesystem>
+#include <ctime>
 
 void BridgeServer::RegisterMethod(const std::string& name, MethodHandler handler)
 {

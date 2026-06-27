@@ -1,6 +1,7 @@
 #include <windows.h>
 
 // Application icon
+#define IDI_MAIN_ICON 101
 IDI_MAIN_ICON ICON "..\\assets\\app.ico"
 
 // Version info

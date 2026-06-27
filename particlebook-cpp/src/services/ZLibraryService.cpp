@@ -45,8 +45,16 @@ static std::string ToNarrow(LPCWSTR w) {
 }
 
 static const std::vector<std::string> FALLBACK_MIRRORS = {
-    "https://zh.101fbiwarning.ru/","https://zh.zzz101.ru/","https://zh.1lib.sk/",
-    "https://zh.z-library.sk/","https://zh.singlelogin.rs/",
+    "https://zh.dfj101.ru/",
+    "https://zlib.re/",
+    "https://z-lib.by/",
+    "https://zh.zlib0.ru/",
+    "https://zh.z-library.sk/",
+    "https://zh.z-lib.gd/",
+    "https://zh.101fbiwarning.ru/",
+    "https://zh.zzz101.ru/",
+    "https://zh.1lib.sk/",
+    "https://zh.singlelogin.rs/",
 };
 
 // Permanent blocklist: domains that were Z-Library mirrors but are now adult sites
@@ -68,10 +76,14 @@ static bool IsZlibHost(const std::string& host) {
     if (host.find("z-lib") != std::string::npos) return true;
     if (host.find("z-library") != std::string::npos) return true;
     if (host.find("zlibrary") != std::string::npos) return true;
+    if (host.find("zlib") != std::string::npos) return true;
     if (host.find("1lib") != std::string::npos) return true;
     if (host.find("singlelogin") != std::string::npos) return true;
     if (host.find("fbiwarning") != std::string::npos) return true;
+    if (host.find("dfj101") != std::string::npos) return true;
     if (host.find("bookfi") != std::string::npos) return true;
+    if (host.find("zzz") != std::string::npos) return true;
+    if (host.find("jiaoyuan") != std::string::npos) return true;
     return false;
 }
 
@@ -101,9 +113,15 @@ ZLibraryService::ZLibraryService(BridgeServer* bridge) : m_bridge(bridge), m_mir
 ZLibraryService::~ZLibraryService() {}
 
 json ZLibraryService::FetchMirrors() {
-    std::string html = FetchUrl("https://z.wwwnav.com/");
-    if (html.empty()) { json r; r["mirrors"] = m_mirrors; r["current"] = m_currentMirror; return r; }
+    std::string html = FetchUrl("https://zz.ggonav.com/");
+
+    if (html.empty()) {
+        json r; r["mirrors"] = m_mirrors; r["current"] = m_currentMirror; return r;
+    }
+
     std::vector<std::string> found;
+
+    // Parse href links
     std::regex linkRe("href=\"(https?://[^\"]+)\"", std::regex::icase);
     for (auto it = std::sregex_iterator(html.begin(), html.end(), linkRe); it != std::sregex_iterator(); ++it) {
         std::string u = (*it)[1];
@@ -116,7 +134,33 @@ json ZLibraryService::FetchMirrors() {
             if (std::find(found.begin(), found.end(), u) == found.end()) found.push_back(u);
         }
     }
-    if (!found.empty()) { m_mirrors = found; m_currentMirror = 0; }
+
+    // Also search for Z-Library URLs in text content (not just href)
+    std::regex urlRe("(https?://[a-zA-Z0-9.-]+\\.[a-z]{2,}[/])", std::regex::icase);
+    for (auto it = std::sregex_iterator(html.begin(), html.end(), urlRe); it != std::sregex_iterator(); ++it) {
+        std::string u = (*it)[1];
+        size_t ss = u.find("://");
+        size_t hs = ss != std::string::npos ? ss + 3 : 0;
+        size_t ps = u.find('/', hs);
+        std::string host = ps != std::string::npos ? u.substr(hs, ps - hs) : u.substr(hs);
+        if (IsZlibHost(host)) {
+            if (u.back() != '/') u += '/';
+            if (std::find(found.begin(), found.end(), u) == found.end()) found.push_back(u);
+        }
+    }
+
+    if (!found.empty()) {
+        // Start with fallback list, append any new mirrors from parsed list
+        std::vector<std::string> merged = FALLBACK_MIRRORS;
+        for (const auto& m : found) {
+            if (std::find(merged.begin(), merged.end(), m) == merged.end()) {
+                merged.push_back(m);
+            }
+        }
+        m_mirrors = merged;
+        m_currentMirror = 0;
+    }
+
     json r; r["mirrors"] = m_mirrors; r["current"] = m_currentMirror; return r;
 }
 
@@ -137,6 +181,7 @@ json ZLibraryService::SwitchMirror(int index) {
 
 json ZLibraryService::Show() {
     m_zlibActive = true;
+    m_navRetryCount = 0;  // reset retry counter on new show
     SetupDownloadHandler();
 
     // Load saved download path from database settings
@@ -155,20 +200,6 @@ json ZLibraryService::Show() {
     }
 
     std::wstring url = ToWide(m_mirrors[m_currentMirror]);
-    std::string urlNarrow = m_mirrors[m_currentMirror];
-
-    wchar_t exePath[MAX_PATH];
-    GetModuleFileNameW(nullptr, exePath, MAX_PATH);
-    auto logPath = std::filesystem::path(exePath).parent_path() / "debug.log";
-    FILE* lf = _wfopen(logPath.c_str(), L"a");
-    if (lf) {
-        time_t now = time(nullptr);
-        char timeBuf[32];
-        strftime(timeBuf, sizeof(timeBuf), "%H:%M:%S", localtime(&now));
-        fprintf(lf, "[%s] ZLibraryService::Show() navigating to: %s (mirror %d/%d)\n",
-                timeBuf, urlNarrow.c_str(), m_currentMirror, (int)m_mirrors.size());
-        fclose(lf);
-    }
 
     wv->Navigate(url.c_str());
     m_bridge->EmitEvent("zlib:mirrorChanged", GetMirrorInfo());
@@ -349,19 +380,6 @@ void ZLibraryService::SetupDownloadHandler()
                     std::string uri = ToNarrow(uriRaw);
                     CoTaskMemFree(uriRaw);
 
-                    // Debug log
-                    wchar_t exePath[MAX_PATH];
-                    GetModuleFileNameW(nullptr, exePath, MAX_PATH);
-                    auto logPath = std::filesystem::path(exePath).parent_path() / "debug.log";
-                    FILE* lf = _wfopen(logPath.c_str(), L"a");
-                    if (lf) {
-                        time_t now = time(nullptr);
-                        char timeBuf[32];
-                        strftime(timeBuf, sizeof(timeBuf), "%H:%M:%S", localtime(&now));
-                        fprintf(lf, "[%s] NavigationStarting: %s\n", timeBuf, uri.c_str());
-                        fclose(lf);
-                    }
-
                     // Also allow URLs that match known mirror domains from FetchMirrors
                     bool isZlib = uri.find("z-lib") != std::string::npos
                                || uri.find("zlib") != std::string::npos
@@ -395,7 +413,7 @@ void ZLibraryService::SetupDownloadHandler()
                         args->get_WebErrorStatus(&err);
 
                         // Auto-retry next mirror on failure (max one full cycle)
-                        if (!success && err != COREWEBVIEW2_WEB_ERROR_STATUS_UNKNOWN) {
+                        if (!success) {
                             if (m_navRetryCount < (int)m_mirrors.size()) {
                                 m_navRetryCount++;
                                 m_currentMirror = (m_currentMirror + 1) % (int)m_mirrors.size();

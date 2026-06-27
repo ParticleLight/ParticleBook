@@ -78,6 +78,7 @@ void App::Init(HINSTANCE hInstance)
         // Mirror selection popup
         "var _mp=null;"
         "document.getElementById('zb-mirror').onclick=function(){"
+        "console.log('[PB] mirror btn clicked, electronAPI=',!!window.electronAPI,'getMirrorInfo=',!!(window.electronAPI&&window.electronAPI.zlibGetMirrorInfo));"
         "if(_mp){_mp.remove();_mp=null;return;}"
         "if(!window.electronAPI||!window.electronAPI.zlibGetMirrorInfo)return;"
         "window.electronAPI.zlibGetMirrorInfo().then(function(info){"

@@ -70,6 +70,13 @@ void WebViewHost::CreateMainWindow(HINSTANCE hInstance)
         nullptr, nullptr, hInstance, this
     );
 
+    // Set window icon from embedded resource
+    HICON hIcon = LoadIconW(hInstance, MAKEINTRESOURCEW(101));
+    if (hIcon) {
+        SendMessageW(m_hwnd, WM_SETICON, ICON_BIG, (LPARAM)hIcon);
+        SendMessageW(m_hwnd, WM_SETICON, ICON_SMALL, (LPARAM)hIcon);
+    }
+
     ShowWindow(m_hwnd, SW_SHOW);
     UpdateWindow(m_hwnd);
 }
@@ -242,8 +249,25 @@ void WebViewHost::OnWebViewCreated(HRESULT hr, ICoreWebView2Controller* controll
 
     // Settings
     m_webview->get_Settings(&m_settings);
-    m_settings->put_AreDevToolsEnabled(FALSE);
+    m_settings->put_AreDevToolsEnabled(TRUE);
     m_settings->put_IsScriptEnabled(TRUE);
+
+    // Set user agent to match Chrome (avoid blocking by Z-Library)
+    ComPtr<ICoreWebView2Settings2> settings2;
+    if (SUCCEEDED(m_settings.As(&settings2))) {
+        settings2->put_UserAgent(L"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36");
+    }
+
+    // Ignore SSL certificate errors for Z-Library mirrors
+    ComPtr<ICoreWebView2_14> wv14;
+    if (SUCCEEDED(m_webview.As(&wv14))) {
+        wv14->add_ServerCertificateErrorDetected(
+            Callback<ICoreWebView2ServerCertificateErrorDetectedEventHandler>(
+                [](ICoreWebView2*, ICoreWebView2ServerCertificateErrorDetectedEventArgs* args) -> HRESULT {
+                    args->put_Action(COREWEBVIEW2_SERVER_CERTIFICATE_ERROR_ACTION_ALWAYS_ALLOW);
+                    return S_OK;
+                }).Get(), nullptr);
+    }
 
     // Resize to fill window
     RECT bounds;
