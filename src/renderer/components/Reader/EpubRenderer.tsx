@@ -183,42 +183,44 @@ export function EpubRenderer({ book, content, bookId }: EpubRendererProps) {
     })
 
     // Fix iframe sandbox, enable text selection, and forward mousemove
+    const hookedDocs = new WeakSet<Document>()
+    const contentCleanupFns: Array<() => void> = []
     rendition.hooks.content.register((contents: any) => {
       const iframe = viewerRef.current?.querySelector('iframe')
       if (iframe) {
         iframe.sandbox = 'allow-same-origin allow-scripts allow-popups'
       }
       const doc = contents.document
-      if (doc) {
-        doc.body.style.userSelect = 'text'
-        doc.body.style.webkitUserSelect = 'text'
+      if (!doc || hookedDocs.has(doc)) return
+      hookedDocs.add(doc)
 
-        // Inject CSS highlight styles into iframe
-        if (!doc.getElementById('pb-search-styles')) {
-          const st = doc.createElement('style')
-          st.id = 'pb-search-styles'
-          st.textContent = '::highlight(pb-search){background-color:rgba(251,191,36,0.3);color:inherit}::highlight(pb-search-active){background-color:rgba(251,191,36,0.55);outline:2px solid rgba(251,191,36,0.8);outline-offset:1px}'
-          doc.head?.appendChild(st)
-        }
+      doc.body.style.userSelect = 'text'
+      doc.body.style.webkitUserSelect = 'text'
 
-        doc.addEventListener('mousemove', () => {
-          window.dispatchEvent(new MouseEvent('mousemove'))
-        })
+      // Inject CSS highlight styles into iframe
+      if (!doc.getElementById('pb-search-styles')) {
+        const st = doc.createElement('style')
+        st.id = 'pb-search-styles'
+        st.textContent = '::highlight(pb-search){background-color:rgba(251,191,36,0.3);color:inherit}::highlight(pb-search-active){background-color:rgba(251,191,36,0.55);outline:2px solid rgba(251,191,36,0.8);outline-offset:1px}'
+        doc.head?.appendChild(st)
+      }
 
-        // Forward wheel events to parent window for page turning
-        doc.addEventListener('wheel', (e: WheelEvent) => {
-          window.dispatchEvent(new WheelEvent('wheel', {
-            deltaY: e.deltaY,
-            deltaX: e.deltaX,
-            ctrlKey: e.ctrlKey,
-            shiftKey: e.shiftKey,
-            altKey: e.altKey,
-            bubbles: true,
-          }))
-        })
+      const onMousemove = () => window.dispatchEvent(new MouseEvent('mousemove'))
+      const onWheel = (e: WheelEvent) => {
+        window.dispatchEvent(new WheelEvent('wheel', {
+          deltaY: e.deltaY, deltaX: e.deltaX,
+          ctrlKey: e.ctrlKey, shiftKey: e.shiftKey, altKey: e.altKey, bubbles: true,
+        }))
+      }
+      doc.addEventListener('mousemove', onMousemove)
+      doc.addEventListener('wheel', onWheel)
+      contentCleanupFns.push(() => {
+        doc.removeEventListener('mousemove', onMousemove)
+        doc.removeEventListener('wheel', onWheel)
+      })
 
-        // Fallback: detect selection via mouseup if 'selected' event doesn't fire
-        doc.addEventListener('mouseup', () => {
+      // Fallback: detect selection via mouseup if 'selected' event doesn't fire
+      doc.addEventListener('mouseup', () => {
           setTimeout(() => {
             const sel = doc.getSelection()
             if (!sel || sel.isCollapsed) return
@@ -243,10 +245,17 @@ export function EpubRenderer({ book, content, bookId }: EpubRendererProps) {
             }
           }, 10)
         })
-      }
     })
 
     return () => {
+      contentCleanupFns.forEach(fn => fn())
+      // Remove injected search styles from all iframes
+      document.querySelectorAll('iframe').forEach(iframe => {
+        try {
+          const style = iframe.contentDocument?.getElementById('pb-search-styles')
+          style?.remove()
+        } catch {}
+      })
       epubBook.destroy()
       bookRef.current = null
       renditionRef.current = null

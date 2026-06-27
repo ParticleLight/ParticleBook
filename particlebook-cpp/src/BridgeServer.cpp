@@ -94,7 +94,6 @@ json BridgeServer::InvokeMethod(const std::string& method, const json& params)
 
 void BridgeServer::ProcessInvoke(int id, const std::string& method, const json& params)
 {
-    m_pendingReload = false;
 
     json response = {
         {"type", "response"},
@@ -115,19 +114,6 @@ void BridgeServer::ProcessInvoke(int id, const std::string& method, const json& 
     if (m_webview) {
         m_webview->PostMessageToRenderer(response.dump());
     }
-
-    if (m_pendingReload && m_webview) {
-        std::thread([host = m_webview]() {
-            std::this_thread::sleep_for(std::chrono::milliseconds(500));
-            host->ReloadPage();
-        }).detach();
-        m_pendingReload = false;
-    }
-}
-
-void BridgeServer::ScheduleReload(int delayMs)
-{
-    m_pendingReload = true;
 }
 
 void BridgeServer::ProcessSubscribe(const std::string& event) {}

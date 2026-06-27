@@ -49,9 +49,10 @@ static std::string WideToUtf8(LPCWSTR w)
 static std::wstring Utf8ToWide(const std::string& s)
 {
     if (s.empty()) return L"";
-    int len = MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, nullptr, 0);
+    int len = MultiByteToWideChar(CP_UTF8, 0, s.c_str(), (int)s.size(), nullptr, 0);
+    if (len <= 0) return L"";
     std::wstring w(len, L'\0');
-    MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, &w[0], len);
+    MultiByteToWideChar(CP_UTF8, 0, s.c_str(), (int)s.size(), &w[0], len);
     return w;
 }
 
@@ -228,7 +229,8 @@ bool LibraryService::ExtractEpubMetadata(const std::string& filePath, ExtractedM
     if (lf) {
         time_t now = time(nullptr);
         char timeBuf[32];
-        strftime(timeBuf, sizeof(timeBuf), "%H:%M:%S", localtime(&now));
+        tm localTm; localtime_s(&localTm, &now);
+        strftime(timeBuf, sizeof(timeBuf), "%H:%M:%S", &localTm);
         fprintf(lf, "[%s] ExtractEpubMetadata: opfPath=%s coverFile=%s\n",
                 timeBuf, opfPath.c_str(), meta.coverFile.c_str());
         fclose(lf);

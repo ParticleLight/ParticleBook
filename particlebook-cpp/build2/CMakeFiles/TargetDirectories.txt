@@ -1,6 +1,0 @@
-F:/VScode/Read/particlebook-cpp/build2/CMakeFiles/ParticleBook.dir
-F:/VScode/Read/particlebook-cpp/build2/CMakeFiles/edit_cache.dir
-F:/VScode/Read/particlebook-cpp/build2/CMakeFiles/rebuild_cache.dir
-F:/VScode/Read/particlebook-cpp/build2/CMakeFiles/list_install_components.dir
-F:/VScode/Read/particlebook-cpp/build2/CMakeFiles/install.dir
-F:/VScode/Read/particlebook-cpp/build2/CMakeFiles/install/local.dir

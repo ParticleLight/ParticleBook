@@ -148,12 +148,12 @@ export function ReaderView({ bookId, onClose }: ReaderViewProps) {
     }
   }, [bookId])
 
-  // Update reading time display every second
+  // Update reading time display every 10 seconds (reduces store updates)
   useEffect(() => {
     if (!bookContent) return
     const interval = setInterval(() => {
       updateReadingTime()
-    }, 1000)
+    }, 10000)
 
     return () => clearInterval(interval)
   }, [bookContent])

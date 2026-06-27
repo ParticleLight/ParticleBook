@@ -21,6 +21,18 @@ BookSourceService::BookSourceService(DatabaseService* db, BridgeServer* bridge)
         m_threads.emplace_back(&BookSourceService::WorkerThread, this);
 }
 
+BookSourceService::~BookSourceService()
+{
+    {
+        std::lock_guard<std::mutex> lock(m_jobMutex);
+        m_running = false;
+    }
+    m_jobCV.notify_all();
+    for (auto& t : m_threads) {
+        if (t.joinable()) t.join();
+    }
+}
+
 // ── HTTP ──────────────────────────────────────────────────────────
 
 std::string BookSourceService::FetchUrl(const std::string& url, const std::string& headers)
@@ -45,13 +57,15 @@ std::string BookSourceService::FetchUrl(const std::string& url, const std::strin
         path = "/";
     }
 
-    int wlen = MultiByteToWideChar(CP_UTF8, 0, host.c_str(), -1, nullptr, 0);
+    int wlen = MultiByteToWideChar(CP_UTF8, 0, host.c_str(), (int)host.size(), nullptr, 0);
+    if (wlen <= 0) return "";
     std::wstring whost(wlen, L'\0');
-    MultiByteToWideChar(CP_UTF8, 0, host.c_str(), -1, &whost[0], wlen);
+    MultiByteToWideChar(CP_UTF8, 0, host.c_str(), (int)host.size(), &whost[0], wlen);
 
-    wlen = MultiByteToWideChar(CP_UTF8, 0, path.c_str(), -1, nullptr, 0);
+    wlen = MultiByteToWideChar(CP_UTF8, 0, path.c_str(), (int)path.size(), nullptr, 0);
+    if (wlen <= 0) return "";
     std::wstring wpath(wlen, L'\0');
-    MultiByteToWideChar(CP_UTF8, 0, path.c_str(), -1, &wpath[0], wlen);
+    MultiByteToWideChar(CP_UTF8, 0, path.c_str(), (int)path.size(), &wpath[0], wlen);
 
     HINTERNET hSession = WinHttpOpen(L"ParticleBook/1.9",
         WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, nullptr, nullptr, 0);

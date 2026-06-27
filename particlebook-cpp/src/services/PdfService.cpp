@@ -25,9 +25,10 @@ static std::string WideToUtf8(LPCWSTR w)
 static std::wstring Utf8ToWide(const std::string& s)
 {
     if (s.empty()) return L"";
-    int len = MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, nullptr, 0);
+    int len = MultiByteToWideChar(CP_UTF8, 0, s.c_str(), (int)s.size(), nullptr, 0);
+    if (len <= 0) return L"";
     std::wstring w(len, L'\0');
-    MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, &w[0], len);
+    MultiByteToWideChar(CP_UTF8, 0, s.c_str(), (int)s.size(), &w[0], len);
     return w;
 }
 
@@ -193,7 +194,10 @@ bool PdfService::RunMutool(const std::string& args, std::string& output, int tim
         return false;
     }
 
-    WaitForSingleObject(pi.hProcess, timeoutMs);
+    if (WaitForSingleObject(pi.hProcess, timeoutMs) == WAIT_TIMEOUT) {
+        TerminateProcess(pi.hProcess, 1);
+        WaitForSingleObject(pi.hProcess, INFINITE);
+    }
     CloseHandle(pi.hProcess);
     CloseHandle(pi.hThread);
 
@@ -236,7 +240,8 @@ PdfOpenResult PdfService::Open(const std::string& filePath)
         if (lf) {
             time_t now = time(nullptr);
             char timeBuf[32];
-            strftime(timeBuf, sizeof(timeBuf), "%H:%M:%S", localtime(&now));
+            tm localTm; localtime_s(&localTm, &now);
+            strftime(timeBuf, sizeof(timeBuf), "%H:%M:%S", &localTm);
             fprintf(lf, "[%s] PdfService::Open: %s\n", timeBuf, msg);
             fclose(lf);
         }

@@ -16,6 +16,7 @@ class BridgeServer;
 class BookSourceService {
 public:
     BookSourceService(DatabaseService* db, BridgeServer* bridge);
+    ~BookSourceService();
 
     // Search
     json SearchAll(const std::string& keyword, int page = 1);

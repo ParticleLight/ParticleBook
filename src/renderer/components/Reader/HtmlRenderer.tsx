@@ -90,13 +90,18 @@ export function HtmlRenderer({ book, content, bookId }: HtmlRendererProps) {
   useEffect(() => {
     if (!containerRef.current) return
     const container = containerRef.current
+    let scrollTimer: ReturnType<typeof setTimeout> | null = null
 
     const handleScroll = () => {
-      const scrollTop = container.scrollTop
-      const scrollHeight = container.scrollHeight - container.clientHeight
-      const progressPercent = scrollHeight > 0 ? (scrollTop / scrollHeight) * 100 : 0
-      setProgress({ progress: progressPercent, scrollPosition: scrollTop })
-      saveProgress()
+      if (scrollTimer) return
+      scrollTimer = setTimeout(() => {
+        scrollTimer = null
+        const scrollTop = container.scrollTop
+        const scrollHeight = container.scrollHeight - container.clientHeight
+        const progressPercent = scrollHeight > 0 ? (scrollTop / scrollHeight) * 100 : 0
+        setProgress({ progress: progressPercent, scrollPosition: scrollTop })
+        saveProgress()
+      }, 150)
     }
 
     container.addEventListener('scroll', handleScroll)
@@ -105,7 +110,10 @@ export function HtmlRenderer({ book, content, bookId }: HtmlRendererProps) {
       container.scrollTop = progress.scrollPosition
     }
 
-    return () => container.removeEventListener('scroll', handleScroll)
+    return () => {
+      container.removeEventListener('scroll', handleScroll)
+      if (scrollTimer) clearTimeout(scrollTimer)
+    }
   }, [htmlContent])
 
   useEffect(() => {

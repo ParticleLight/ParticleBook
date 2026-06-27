@@ -28,9 +28,6 @@ public:
     // Directly invoke a registered method (used for cross-service calls)
     json InvokeMethod(const std::string& method, const json& params);
 
-    // Call after sending response to schedule a page reload
-    void ScheduleReload(int delayMs = 300);
-
 private:
     void ProcessInvoke(int id, const std::string& method, const json& params);
     void ProcessSubscribe(const std::string& event);
@@ -39,5 +36,4 @@ private:
     std::unordered_map<std::string, MethodHandler> m_methods;
     std::unordered_map<std::string, std::set<int>> m_subscribers;
     WebViewHost* m_webview = nullptr;
-    bool m_pendingReload = false;
 };

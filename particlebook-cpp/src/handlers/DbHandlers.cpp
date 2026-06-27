@@ -26,7 +26,6 @@ void RegisterDbHandlers(BridgeServer* bridge, DatabaseService* db)
         int id = p.value("id", -1);
         if (id < 0) return json::object();
         db->DeleteBook(id);
-        db->FlushSync();
         return json::object();
     });
 
@@ -34,45 +33,14 @@ void RegisterDbHandlers(BridgeServer* bridge, DatabaseService* db)
     bridge->RegisterMethod("db:updateProgress", [db](const json& p) {
         int bid = p["bookId"].get<int>();
         auto prog = p.value("progress", json::object());
-        double pc = prog.value("progress", -1.0);
-        int pn = prog.value("page", -1);
-        auto progStr = prog.dump();
-        wchar_t exePath[MAX_PATH];
-        GetModuleFileNameW(nullptr, exePath, MAX_PATH);
-        auto logPath = std::filesystem::path(exePath).parent_path() / "debug.log";
-        FILE* lf = _wfopen(logPath.c_str(), L"a");
-        if (lf) {
-            time_t now = time(nullptr);
-            char timeBuf[32];
-            strftime(timeBuf, sizeof(timeBuf), "%H:%M:%S", localtime(&now));
-            fprintf(lf, "[%s] db:updateProgress bookId=%d progress=%.2f page=%d json=%s\n",
-                    timeBuf, bid, pc, pn, progStr.c_str());
-            fclose(lf);
-        }
         db->UpsertProgress(bid, prog);
-        db->FlushSync();
         return json::object();
     });
 
     bridge->RegisterMethod("db:getProgress", [db](const json& p) {
         int bid = p["bookId"].get<int>();
         auto r = db->GetProgress(bid);
-        auto result = r.is_null() ? json::object() : r;
-        // Dump entire reading_progress array for diagnosis
-        auto all = db->DumpProgress();
-        wchar_t exePath[MAX_PATH];
-        GetModuleFileNameW(nullptr, exePath, MAX_PATH);
-        auto logPath = std::filesystem::path(exePath).parent_path() / "debug.log";
-        FILE* lf = _wfopen(logPath.c_str(), L"a");
-        if (lf) {
-            time_t now = time(nullptr);
-            char timeBuf[32];
-            strftime(timeBuf, sizeof(timeBuf), "%H:%M:%S", localtime(&now));
-            fprintf(lf, "[%s] db:getProgress bookId=%d result=%s all=%s\n",
-                    timeBuf, bid, result.dump().c_str(), all.c_str());
-            fclose(lf);
-        }
-        return result;
+        return r.is_null() ? json::object() : r;
     });
 
     // ── Bookmarks ───────────────────────────────────

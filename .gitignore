@@ -5,3 +5,4 @@ dist/
 .claude/
 *.exe
 *.blockmap
+particlebook-cpp/build2/

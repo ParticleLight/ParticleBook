@@ -33,8 +33,9 @@ struct DLFail { std::string fn; std::string reason; };
 
 static std::wstring ToWide(const std::string& s) {
     if (s.empty()) return L"";
-    int len = MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, nullptr, 0);
-    std::wstring w(len, L'\0'); MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, &w[0], len); return w;
+    int len = MultiByteToWideChar(CP_UTF8, 0, s.c_str(), (int)s.size(), nullptr, 0);
+    if (len <= 0) return L"";
+    std::wstring w(len, L'\0'); MultiByteToWideChar(CP_UTF8, 0, s.c_str(), (int)s.size(), &w[0], len); return w;
 }
 static std::string ToNarrow(LPCWSTR w) {
     if (!w) return "";
@@ -109,7 +110,10 @@ static std::string FetchUrl(const std::string& url) {
     WinHttpCloseHandle(hR); WinHttpCloseHandle(hC); WinHttpCloseHandle(hS); return r;
 }
 
-ZLibraryService::ZLibraryService(BridgeServer* bridge) : m_bridge(bridge), m_mirrors(FALLBACK_MIRRORS) { FetchMirrors(); }
+ZLibraryService::ZLibraryService(BridgeServer* bridge) : m_bridge(bridge), m_mirrors(FALLBACK_MIRRORS) {
+    // Fetch mirrors in background to avoid blocking UI thread
+    std::thread([this]() { FetchMirrors(); }).detach();
+}
 ZLibraryService::~ZLibraryService() {}
 
 json ZLibraryService::FetchMirrors() {
@@ -122,7 +126,7 @@ json ZLibraryService::FetchMirrors() {
     std::vector<std::string> found;
 
     // Parse href links
-    std::regex linkRe("href=\"(https?://[^\"]+)\"", std::regex::icase);
+    static const std::regex linkRe("href=\"(https?://[^\"]+)\"", std::regex::icase);
     for (auto it = std::sregex_iterator(html.begin(), html.end(), linkRe); it != std::sregex_iterator(); ++it) {
         std::string u = (*it)[1];
         size_t ss = u.find("://");
@@ -136,7 +140,7 @@ json ZLibraryService::FetchMirrors() {
     }
 
     // Also search for Z-Library URLs in text content (not just href)
-    std::regex urlRe("(https?://[a-zA-Z0-9.-]+\\.[a-z]{2,}[/])", std::regex::icase);
+    static const std::regex urlRe("(https?://[a-zA-Z0-9.-]+\\.[a-z]{2,}[/])", std::regex::icase);
     for (auto it = std::sregex_iterator(html.begin(), html.end(), urlRe); it != std::sregex_iterator(); ++it) {
         std::string u = (*it)[1];
         size_t ss = u.find("://");

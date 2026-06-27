@@ -9,6 +9,38 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
   {
+    version: '2.0.2',
+    date: '2026-06-27',
+    changes: [
+      { type: 'feature', text: '全局设置页面全面重构为 Win11 风格：左侧导航 + 右侧卡片布局，支持外观/阅读/书架/Z-Library/关于五个分组' },
+      { type: 'feature', text: '新增主题色系统：蓝色（默认）、紫色、绿色、橙色四种强调色，全局生效' },
+      { type: 'feature', text: '新增阅读设置：翻页方式（点击/滚动）、自动保存进度开关、阅读时间显示开关' },
+      { type: 'feature', text: '新增书架设置：默认视图（网格/列表）、默认排序方式（最近阅读/添加时间/书名/作者）' },
+      { type: 'feature', text: 'Z-Library 镜像改为从 zz.ggonav.com 实时动态获取，支持自动合并 fallback 列表' },
+      { type: 'feature', text: 'Z-Library 进入时显示加载动画，解决点击后无反馈的问题' },
+      { type: 'feature', text: 'Z-Library 镜像导航失败时自动切换到下一个线路' },
+      { type: 'improve', text: 'Z-Library SSL 证书错误仅对 Z-Library 域名忽略，不再全局跳过验证' },
+      { type: 'improve', text: 'Z-Library WebView2 设置 Chrome User Agent，避免被镜像站拦截' },
+      { type: 'improve', text: 'Z-Library 入口改为直接调用 C++ 后端导航，移除 Electron 遗留组件' },
+      { type: 'fix', text: '修复窗口图标不显示的问题（从 exe 资源加载 IDI_MAIN_ICON）' },
+      { type: 'fix', text: '修复 MOBI 文件打开时命令行被截断的问题（UTF-8→Wide 转换 null 终止符处理）' },
+      { type: 'fix', text: '修复 ToUtf8 返回含嵌入 null 字节的字符串，可能导致 JSON 解析失败' },
+      { type: 'fix', text: '修复 BookSourceService 线程池无析构函数，进程退出时可能崩溃' },
+      { type: 'fix', text: '修复版本号比较使用字典序导致 "2.10.0" < "2.9.0" 的问题（改为语义化比较）' },
+      { type: 'fix', text: '修复 mutool/PDF 渲染超时后子进程未终止，变成孤儿进程消耗系统资源' },
+      { type: 'fix', text: '修复多处 localtime() 非线程安全调用（改为 localtime_s）' },
+      { type: 'fix', text: '修复 EPUB 翻页时 iframe 事件监听器累积泄漏，导致内存持续增长' },
+      { type: 'fix', text: '修复 HtmlRenderer 滚动事件每秒 60+ 次 store 更新导致卡顿（添加 150ms 防抖）' },
+      { type: 'fix', text: '修复 EPUB 搜索注入的样式在组件卸载时未清理' },
+      { type: 'fix', text: '修复翻页时同步写磁盘和 debug.log 导致 UI 卡顿（移除热路径 FlushSync）' },
+      { type: 'fix', text: '修复 FetchMirrors 网络请求阻塞 UI 线程导致启动卡顿（改为后台线程）' },
+      { type: 'fix', text: '修复删除书籍和导入书籍时同步刷盘导致 UI 冻结' },
+      { type: 'improve', text: 'ReadingTime 显示更新频率从每秒改为每 10 秒，减少不必要的 store 更新' },
+      { type: 'improve', text: '正则表达式改为 static const 编译，避免每次 FetchMirrors 重复编译' },
+      { type: 'improve', text: '清除 WebView2 缓存修复网络连接问题' },
+    ],
+  },
+  {
     version: '2.0.0',
     date: '2026-05-19',
     changes: [

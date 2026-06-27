@@ -10,10 +10,10 @@ const std::vector<uint8_t>* ContentCache::Get(const std::string& path)
 
     // Check if file has been modified since cache
     WIN32_FILE_ATTRIBUTE_DATA attrs;
-    int wlen = MultiByteToWideChar(CP_UTF8, 0, path.c_str(), -1, nullptr, 0);
+    int wlen = MultiByteToWideChar(CP_UTF8, 0, path.c_str(), (int)path.size(), nullptr, 0);
     if (wlen <= 0) return nullptr;
     std::wstring wpath(wlen, L'\0');
-    MultiByteToWideChar(CP_UTF8, 0, path.c_str(), -1, &wpath[0], wlen);
+    MultiByteToWideChar(CP_UTF8, 0, path.c_str(), (int)path.size(), &wpath[0], wlen);
 
     if (!GetFileAttributesExW(wpath.c_str(), GetFileExInfoStandard, &attrs))
         return nullptr;

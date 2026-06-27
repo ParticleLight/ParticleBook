@@ -24,9 +24,10 @@
 static std::wstring Utf8ToWide(const std::string& s)
 {
     if (s.empty()) return L"";
-    int len = MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, nullptr, 0);
+    int len = MultiByteToWideChar(CP_UTF8, 0, s.c_str(), (int)s.size(), nullptr, 0);
+    if (len <= 0) return L"";
     std::wstring w(len, L'\0');
-    MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, &w[0], len);
+    MultiByteToWideChar(CP_UTF8, 0, s.c_str(), (int)s.size(), &w[0], len);
     return w;
 }
 
@@ -75,7 +76,10 @@ static std::string ConvertMobiToText(const std::string& filePath)
                          nullptr, nullptr, &si, &pi))
         return "";
 
-    WaitForSingleObject(pi.hProcess, 30000);
+    if (WaitForSingleObject(pi.hProcess, 30000) == WAIT_TIMEOUT) {
+        TerminateProcess(pi.hProcess, 1);
+        WaitForSingleObject(pi.hProcess, INFINITE);
+    }
     CloseHandle(pi.hProcess);
     CloseHandle(pi.hThread);
 
@@ -166,10 +170,10 @@ static std::string GetFileName(const std::string& path)
 static int64_t GetFileSizeSafe(const std::string& path)
 {
     // Use Win32 API directly to avoid codepage issues with std::filesystem
-    int len = MultiByteToWideChar(CP_UTF8, 0, path.c_str(), -1, nullptr, 0);
+    int len = MultiByteToWideChar(CP_UTF8, 0, path.c_str(), (int)path.size(), nullptr, 0);
     if (len <= 0) return 0;
     std::wstring wpath(len, L'\0');
-    MultiByteToWideChar(CP_UTF8, 0, path.c_str(), -1, &wpath[0], len);
+    MultiByteToWideChar(CP_UTF8, 0, path.c_str(), (int)path.size(), &wpath[0], len);
 
     WIN32_FILE_ATTRIBUTE_DATA attrs;
     if (!GetFileAttributesExW(wpath.c_str(), GetFileExInfoStandard, &attrs)) return 0;
@@ -202,7 +206,8 @@ static void DebugLog(const char* msg)
     if (f) {
         time_t now = time(nullptr);
         char timeBuf[32];
-        strftime(timeBuf, sizeof(timeBuf), "%H:%M:%S", localtime(&now));
+        tm localTm; localtime_s(&localTm, &now);
+        strftime(timeBuf, sizeof(timeBuf), "%H:%M:%S", &localTm);
         fprintf(f, "[%s] %s\n", timeBuf, msg);
         fclose(f);
     }
@@ -269,10 +274,10 @@ void RegisterFileHandlers(BridgeServer* bridge, DatabaseService* db, ContentCach
         std::string format = DetectFormat(path);
         bool isLarge = false;
         {
-            int wl = MultiByteToWideChar(CP_UTF8, 0, path.c_str(), -1, nullptr, 0);
+            int wl = MultiByteToWideChar(CP_UTF8, 0, path.c_str(), (int)path.size(), nullptr, 0);
             if (wl > 0) {
                 std::wstring wp(wl, L'\0');
-                MultiByteToWideChar(CP_UTF8, 0, path.c_str(), -1, &wp[0], wl);
+                MultiByteToWideChar(CP_UTF8, 0, path.c_str(), (int)path.size(), &wp[0], wl);
                 WIN32_FILE_ATTRIBUTE_DATA attrs;
                 if (GetFileAttributesExW(wp.c_str(), GetFileExInfoStandard, &attrs)) {
                     ULONGLONG sz = ((ULONGLONG)attrs.nFileSizeHigh << 32) | attrs.nFileSizeLow;
@@ -308,10 +313,10 @@ void RegisterFileHandlers(BridgeServer* bridge, DatabaseService* db, ContentCach
         std::string mobiText = ConvertMobiToText(path);
         if (!mobiText.empty()) {
             int64_t ft = 0;
-            int wl = MultiByteToWideChar(CP_UTF8, 0, path.c_str(), -1, nullptr, 0);
+            int wl = MultiByteToWideChar(CP_UTF8, 0, path.c_str(), (int)path.size(), nullptr, 0);
             if (wl > 0) {
                 std::wstring wp(wl, L'\0');
-                MultiByteToWideChar(CP_UTF8, 0, path.c_str(), -1, &wp[0], wl);
+                MultiByteToWideChar(CP_UTF8, 0, path.c_str(), (int)path.size(), &wp[0], wl);
                 WIN32_FILE_ATTRIBUTE_DATA attrs;
                 if (GetFileAttributesExW(wp.c_str(), GetFileExInfoStandard, &attrs)) {
                     ft = (static_cast<int64_t>(attrs.ftLastWriteTime.dwHighDateTime) << 32)
@@ -324,10 +329,10 @@ void RegisterFileHandlers(BridgeServer* bridge, DatabaseService* db, ContentCach
         }
 
         // Convert UTF-8 path to wide for Windows API
-        int wlen = MultiByteToWideChar(CP_UTF8, 0, path.c_str(), -1, nullptr, 0);
+        int wlen = MultiByteToWideChar(CP_UTF8, 0, path.c_str(), (int)path.size(), nullptr, 0);
         if (wlen <= 0) return json(nullptr);
         std::wstring wpath(wlen, L'\0');
-        MultiByteToWideChar(CP_UTF8, 0, path.c_str(), -1, &wpath[0], wlen);
+        MultiByteToWideChar(CP_UTF8, 0, path.c_str(), (int)path.size(), &wpath[0], wlen);
 
         HANDLE hFile = CreateFileW(wpath.c_str(), GENERIC_READ, FILE_SHARE_READ,
                                    nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
@@ -449,7 +454,6 @@ void RegisterFileHandlers(BridgeServer* bridge, DatabaseService* db, ContentCach
         }
         snprintf(debugBuf, sizeof(debugBuf), "book:import: returning %zu books", result.size());
         DebugLog(debugBuf);
-        db->FlushSync();
         return result;
     });
 
@@ -483,10 +487,10 @@ void RegisterFileHandlers(BridgeServer* bridge, DatabaseService* db, ContentCach
 
         // Try cached cover first
         if (!coverPath.empty()) {
-            int wlen = MultiByteToWideChar(CP_UTF8, 0, coverPath.c_str(), -1, nullptr, 0);
+            int wlen = MultiByteToWideChar(CP_UTF8, 0, coverPath.c_str(), (int)coverPath.size(), nullptr, 0);
             if (wlen > 0) {
                 std::wstring wpath(wlen, L'\0');
-                MultiByteToWideChar(CP_UTF8, 0, coverPath.c_str(), -1, &wpath[0], wlen);
+                MultiByteToWideChar(CP_UTF8, 0, coverPath.c_str(), (int)coverPath.size(), &wpath[0], wlen);
                 HANDLE hFile = CreateFileW(wpath.c_str(), GENERIC_READ, FILE_SHARE_READ,
                                            nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
                 if (hFile != INVALID_HANDLE_VALUE) {
@@ -527,10 +531,10 @@ void RegisterFileHandlers(BridgeServer* bridge, DatabaseService* db, ContentCach
                 newCover = lib.ExtractPdfCover(filePath);
             }
             if (!newCover.empty()) {
-                int wl = MultiByteToWideChar(CP_UTF8, 0, newCover.c_str(), -1, nullptr, 0);
+                int wl = MultiByteToWideChar(CP_UTF8, 0, newCover.c_str(), (int)newCover.size(), nullptr, 0);
                 if (wl > 0) {
                     std::wstring wp(wl, L'\0');
-                    MultiByteToWideChar(CP_UTF8, 0, newCover.c_str(), -1, &wp[0], wl);
+                    MultiByteToWideChar(CP_UTF8, 0, newCover.c_str(), (int)newCover.size(), &wp[0], wl);
                     HANDLE hf = CreateFileW(wp.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
                     if (hf != INVALID_HANDLE_VALUE) {
                         LARGE_INTEGER sz; GetFileSizeEx(hf, &sz);
@@ -552,7 +556,7 @@ void RegisterFileHandlers(BridgeServer* bridge, DatabaseService* db, ContentCach
     });
 
     // ── Update checker ─────────────────────────────────────────
-    bridge->RegisterMethod("app:getVersion", [](const json&) -> json { return json("2.0.0"); });
+    bridge->RegisterMethod("app:getVersion", [](const json&) -> json { return json("2.0.2"); });
 
     bridge->RegisterMethod("app:checkUpdate", [](const json&) -> json {
         // Fetch latest.yml from GitHub Releases (no API rate limit)
@@ -656,7 +660,21 @@ void RegisterFileHandlers(BridgeServer* bridge, DatabaseService* db, ContentCach
 
         if (latestVer.empty() || dlUrl.empty()) return json(nullptr);
 
-        if (latestVer > "2.0.0") {
+        // Semantic version comparison
+        auto versionGreater = [](const std::string& a, const std::string& b) -> bool {
+            auto split = [](const std::string& v) -> std::tuple<int,int,int> {
+                int major = 0, minor = 0, patch = 0;
+                sscanf(v.c_str(), "%d.%d.%d", &major, &minor, &patch);
+                return {major, minor, patch};
+            };
+            auto [a1,a2,a3] = split(a);
+            auto [b1,b2,b3] = split(b);
+            if (a1 != b1) return a1 > b1;
+            if (a2 != b2) return a2 > b2;
+            return a3 > b3;
+        };
+
+        if (versionGreater(latestVer, "2.0.2")) {
             json result;
             result["version"] = latestVer;
             result["fileName"] = fileName;
