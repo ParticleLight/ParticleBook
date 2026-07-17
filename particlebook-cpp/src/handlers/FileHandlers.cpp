@@ -712,9 +712,57 @@ void RegisterFileHandlers(BridgeServer* bridge, DatabaseService* db, ContentCach
             std::wstring exePath = std::wstring(tmpPath) + L"ParticleBook-Update.exe";
             DeleteFileW(exePath.c_str());
 
-            HRESULT hr = URLDownloadToFileW(nullptr, wUrl.c_str(), exePath.c_str(), 0, nullptr);
+            // WinHTTP fetch with up to 5 redirects (GitHub release → objects.githubusercontent.com)
+            auto fetchWithWinHttp = [](const std::wstring& url, const std::wstring& out) -> bool {
+                std::wstring cur = url;
+                for (int redir = 0; redir < 8; redir++) {
+                    size_t se = cur.find(L"://"); if (se == std::wstring::npos) return false;
+                    bool https = (cur.substr(0, se) == L"https");
+                    size_t hs = se + 3;
+                    size_t ps = cur.find(L'/', hs);
+                    std::wstring host, path;
+                    if (ps != std::wstring::npos) { host = cur.substr(hs, ps - hs); path = cur.substr(ps); }
+                    else { host = cur.substr(hs); path = L"/"; }
+                    HINTERNET hS = WinHttpOpen(L"ParticleBook/2.0 Updater", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, nullptr, nullptr, 0);
+                    if (!hS) return false;
+                    HINTERNET hC = WinHttpConnect(hS, host.c_str(), https ? 443 : 80, 0);
+                    if (!hC) { WinHttpCloseHandle(hS); return false; }
+                    HINTERNET hR = WinHttpOpenRequest(hC, L"GET", path.c_str(), nullptr, nullptr, nullptr, https ? WINHTTP_FLAG_SECURE : 0);
+                    if (!hR) { WinHttpCloseHandle(hC); WinHttpCloseHandle(hS); return false; }
+                    BOOL sent = WinHttpSendRequest(hR, nullptr, 0, nullptr, 0, 0, 0) && WinHttpReceiveResponse(hR, nullptr);
+                    if (!sent) { WinHttpCloseHandle(hR); WinHttpCloseHandle(hC); WinHttpCloseHandle(hS); return false; }
+                    DWORD sc = 0, sz = sizeof(sc);
+                    WinHttpQueryHeaders(hR, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER, nullptr, &sc, &sz, nullptr);
+                    if (sc == 301 || sc == 302 || sc == 303 || sc == 307) {
+                        WCHAR loc[2048] = {}; DWORD ls = sizeof(loc);
+                        if (WinHttpQueryHeaders(hR, WINHTTP_QUERY_LOCATION, nullptr, loc, &ls, nullptr)) {
+                            cur = loc;
+                            WinHttpCloseHandle(hR); WinHttpCloseHandle(hC); WinHttpCloseHandle(hS);
+                            continue;
+                        }
+                        WinHttpCloseHandle(hR); WinHttpCloseHandle(hC); WinHttpCloseHandle(hS);
+                        return false;
+                    }
+                    if (sc >= 400) { WinHttpCloseHandle(hR); WinHttpCloseHandle(hC); WinHttpCloseHandle(hS); return false; }
+                    HANDLE hFile = CreateFileW(out.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+                    if (hFile == INVALID_HANDLE_VALUE) { WinHttpCloseHandle(hR); WinHttpCloseHandle(hC); WinHttpCloseHandle(hS); return false; }
+                    char buf[65536]; DWORD br;
+                    while (WinHttpReadData(hR, buf, sizeof(buf), &br) && br > 0) { DWORD wr; WriteFile(hFile, buf, br, &wr, nullptr); }
+                    CloseHandle(hFile);
+                    WinHttpCloseHandle(hR); WinHttpCloseHandle(hC); WinHttpCloseHandle(hS);
+                    return true;
+                }
+                return false;
+            };
+
+            bool ok = fetchWithWinHttp(wUrl, exePath);
+            HRESULT hr = ok ? S_OK : E_FAIL;
             if (FAILED(hr)) {
-                auto* errStr = new std::string("下载失败");
+                // Fallback: urlmon (some networks handle it better)
+                hr = URLDownloadToFileW(nullptr, wUrl.c_str(), exePath.c_str(), 0, nullptr);
+            }
+            if (FAILED(hr)) {
+                auto* errStr = new std::string("下载失败（请检查网络后重试）");
                 PostMessage(hwnd, WM_UPDATE_DOWNLOAD_DONE, 0, (LPARAM)errStr);
                 return;
             }

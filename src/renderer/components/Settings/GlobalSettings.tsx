@@ -440,7 +440,7 @@ function AboutPage() {
       }),
       window.electronAPI.onUpdateDownloaded(() => { setUpdateStatus('downloaded') }),
       window.electronAPI.onUpdateError((msg) => {
-        setErrorMessage(msg); setUpdateStatus('error')
+        setErrorMessage(typeof msg === 'string' ? msg : (msg?.error || '更新失败')); setUpdateStatus('error')
         if (idleTimerRef.current) clearTimeout(idleTimerRef.current)
         idleTimerRef.current = setTimeout(() => { setUpdateStatus('idle') }, 5000)
       }),
