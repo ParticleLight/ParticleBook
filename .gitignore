@@ -6,3 +6,4 @@ dist/
 *.exe
 *.blockmap
 particlebook-cpp/build2/
+debug.log

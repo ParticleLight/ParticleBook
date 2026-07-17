@@ -1,25 +1,20 @@
 {
   "name": "particle-book",
   "version": "2.0.3",
-  "description": "ParticleBook - 内置 Z-Library 的全功能电子书阅读器",
+  "description": "ParticleBook - 内置 Z-Library 的全功能电子书阅读器（C++ Win32 + WebView2 版，Electron 版已废弃）",
   "author": "ParticleLight",
   "contributors": [
     "ParticleLight",
     "Claude <noreply@anthropic.com> (https://claude.ai)"
   ],
-  "main": "out/main/index.js",
+  "private": true,
   "scripts": {
-    "dev": "electron-vite dev",
     "build": "electron-vite build",
-    "preview": "electron-vite preview",
-    "start": "cross-env ELECTRON_RUN_AS_NODE= electron .",
-    "package": "electron-vite build && electron-builder --win",
-    "package:dir": "electron-vite build && electron-builder --win --dir",
-    "postinstall": "electron-builder install-app-deps"
+    "start:cpp": "f:/VScode/Read/particlebook-cpp/build2/ParticleBook.exe",
+    "rebuild:cpp": "npm run build && cd particlebook-cpp/build2 && nmake"
   },
   "dependencies": {
     "cheerio": "^1.0.0",
-    "electron-updater": "^6.8.3",
     "epubjs": "^0.3.93",
     "fast-xml-parser": "^4.5.3",
     "get-caller-file": "^2.0.5",
@@ -38,12 +33,11 @@
     "@types/react-dom": "^19.1.2",
     "@vitejs/plugin-react": "^4.4.1",
     "autoprefixer": "^10.4.21",
-    "electron": "^33.4.11",
-    "electron-builder": "^25.1.8",
     "electron-vite": "^3.1.0",
     "postcss": "^8.5.3",
     "tailwindcss": "^3.4.17",
     "typescript": "^5.8.3",
     "vite": "^6.3.4"
-  }
+  },
+  "_note": "build 脚本用 electron-vite 构建 React 前端到 out/renderer，C++ 后端通过 CMake POST_BUILD 拷贝到 build2/renderer。start:cpp 直接启动 C++ 版可执行文件。Electron (electron/electron-builder/electron-updater/cross-env) 已移除——本项目现为 C++ Win32 + WebView2 原生应用。"
 }

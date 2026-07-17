@@ -82,35 +82,37 @@
 | JSZip | CBZ/CBR 解压 |
 | JSON 文件数据库 | 数据持久化（%APPDATA%/particle-book/） |
 
-## 与 Electron 版对比
-
-| | Electron 版 | C++ 版 |
-|------|------------|--------|
-| 安装包大小 | ~150 MB | **~25 MB** |
-| 启动速度 | 3-5 秒 | **<1 秒** |
-| 内存占用 | 300+ MB | **~100 MB** |
-| PDF 引擎 | pdf.js (JS) | **MuPDF (C)** |
-| 更新方式 | electron-updater | NSIS 一键更新 |
-
 ## 开发
 
-```bash
-# 前端开发
-npm install
-npm run dev
+> **本项目现为 C++ Win32 + WebView2 原生应用，Electron 版已废弃并从仓库移除。**
+> 不要运行 `npm start` / `npm run dev` —— 那些是已删除的 Electron 入口。
+> 启动应用请用 `npm run start:cpp`（直接打开编译好的 ParticleBook.exe）。
 
-# 构建前端
+```bash
+# 安装前端依赖
+npm install
+
+# 构建前端（React → out/renderer，C++ 后端会通过 CMake 自动拷贝到 build2/renderer）
 npm run build
 
-# C++ 构建（需要 Visual Studio 2022 + CMake 3.25+）
-cd particlebook-cpp
-cmake -B build2 -G "Visual Studio 17 2022"
-cmake --build build2 --config Release
+# 启动 C++ 版应用（需先完成 C++ 构建）
+npm run start:cpp
+
+# 一键重建前端 + C++
+npm run rebuild:cpp
+
+# C++ 构建（需要 Visual Studio 2022 Build Tools + CMake 3.25+）
+cd particlebook-cpp/build2
+cmake .. -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=Release
+# 在 VS2022 x64 开发命令提示符下（或调用 vcvarsall.bat x64）：
+nmake
 
 # 打包安装包（需要 NSIS）
 cd particlebook-cpp/scripts
 makensis installer.nsi
 ```
+
+> 历史对比：旧 Electron 版安装包 ~150MB / 启动 3-5 秒；现 C++ 版 ~25MB / 启动 <1 秒 / 内存 ~100MB。
 
 ## 项目结构
 
