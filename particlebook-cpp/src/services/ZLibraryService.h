@@ -1,6 +1,7 @@
 #pragma once
 #include <string>
 #include <vector>
+#include <mutex>
 #include "nlohmann/json.hpp"
 #include <wrl/client.h>
 #include <WebView2.h>
@@ -47,15 +48,16 @@ private:
     DatabaseService* m_db = nullptr;
     std::vector<std::string> m_mirrors;
     int m_currentMirror = 0;
+    std::string m_pendingDownloadUri;
     std::string m_currentUrl;
     std::string m_downloadPath;
     HWND m_hwnd = nullptr;
     bool m_zlibActive = false;
     bool m_downloadRegistered = false;
     bool m_zlibDlInProgress = false;
-    bool m_zlibDlNavigating = false;
-    std::string m_zlibUrlBefore;
     int m_navRetryCount = 0;
+    int m_retryMirrorCount = 0;   // snapshot of mirror count at Show() — bounds retry to one full cycle
+    std::mutex m_mirrorMutex;
     EventRegistrationToken m_downloadToken = {};
     EventRegistrationToken m_navToken = {};
 };

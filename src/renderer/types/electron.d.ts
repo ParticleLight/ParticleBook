@@ -70,7 +70,6 @@ interface ElectronAPI {
   zlibLogout: () => Promise<void>
   zlibSwitchMirror: (index: number) => Promise<void>
   zlibGetMirrorInfo: () => Promise<{ index: number; url: string; mirrors: string[] }>
-  zlibShowMirrorMenu: () => Promise<void>
   zlibSetDownloadPath: (path: string) => Promise<void>
   zlibGetDownloadPath: () => Promise<{ path: string }>
   zlibPickDownloadFolder: () => Promise<{ path: string } | null>
@@ -78,9 +77,8 @@ interface ElectronAPI {
   onZlibDownloadComplete: (callback: (data: any) => void) => () => void
   onZlibImportComplete: (callback: (data: any) => void) => () => void
   onZlibImportError: (callback: (data: any) => void) => () => void
-  onZlibUrlChanged: (callback: (url: string) => void) => () => void
-  onZlibTitleChanged: (callback: (title: string) => void) => () => void
   onZlibMirrorChanged: (callback: (info: { index: number; url: string; mirrors: string[] }) => void) => () => void
+  onZlibAllMirrorsFailed: (callback: () => void) => () => void
 
   // Reading Sessions
   startReadingSession: (bookId: number) => Promise<number>

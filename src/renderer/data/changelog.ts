@@ -9,6 +9,23 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
   {
+    version: '2.0.3',
+    date: '2026-07-17',
+    changes: [
+      { type: 'fix', text: '修复 Z-Library 所有镜像都无法进入的致命问题：镜像站会重定向到 msn101.ru 等不含 zlib 关键词的中转域，原白名单将其一刀斩断导致全部失败' },
+      { type: 'improve', text: 'Z-Library 会话内放行所有重定向导航，仅拦截 file:/javascript:/data: 等危险协议，不再因中转域关键词缺失而误杀' },
+      { type: 'improve', text: 'SSL 证书错误一律放行，避免 Z-Library 中转/镜像域证书被拦导致加载失败' },
+      { type: 'fix', text: '修复 Z-Library 镜像自动重试无限循环：后台获取到新镜像后列表扩容导致重试计数永不到顶，改为快照上限，轮一遍即停并通知前端' },
+      { type: 'fix', text: '修复进入 Z-Library 卡死在"正在连接..."转圈：遮罩层无可靠回退路径，改为监听镜像切换事件收起 + 4 秒安全超时' },
+      { type: 'fix', text: '修复镜像列表数据竞争：后台 FetchMirrors 线程无锁覆盖 m_mirrors 与 UI 线程读写形成竞争，新增 mutex 保护并保留用户当前选中镜像' },
+      { type: 'fix', text: '修复 m_zlibDlNavigating 状态永久卡死导致域名保护被绕过：改为 m_pendingDownloadUri 一次性定向放行机制' },
+      { type: 'fix', text: '修复 NavigationStarting 域名白名单与 IsZlibHost 两处各写一份且关键词遗漏（缺 dfj101/jiaoyuan/bookfi 等）' },
+      { type: 'fix', text: '修复全部镜像连不上时无反馈：新增 zlib:allMirrorsFailed 事件，前端订阅并显示顶部红色提示横幅，6 秒自隐' },
+      { type: 'improve', text: '删除 NavigationCompleted 兜底工具栏注入，统一由主工具栏（setInterval 轮询重建）承载选线路弹窗，消除两套语义分叉' },
+      { type: 'improve', text: '清理死代码：删除未引用的 ZLibraryView.tsx、从未 emit 的 onZlibUrlChanged/onZlibTitleChanged、遗留的 m_zlibUrlBefore 字段' },
+    ],
+  },
+  {
     version: '2.0.2',
     date: '2026-06-27',
     changes: [

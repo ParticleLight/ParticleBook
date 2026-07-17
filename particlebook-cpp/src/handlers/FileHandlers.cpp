@@ -556,7 +556,7 @@ void RegisterFileHandlers(BridgeServer* bridge, DatabaseService* db, ContentCach
     });
 
     // ── Update checker ─────────────────────────────────────────
-    bridge->RegisterMethod("app:getVersion", [](const json&) -> json { return json("2.0.2"); });
+    bridge->RegisterMethod("app:getVersion", [](const json&) -> json { return json("2.0.3"); });
 
     bridge->RegisterMethod("app:checkUpdate", [](const json&) -> json {
         // Fetch latest.yml from GitHub Releases (no API rate limit)
@@ -674,7 +674,7 @@ void RegisterFileHandlers(BridgeServer* bridge, DatabaseService* db, ContentCach
             return a3 > b3;
         };
 
-        if (versionGreater(latestVer, "2.0.2")) {
+        if (versionGreater(latestVer, "2.0.3")) {
             json result;
             result["version"] = latestVer;
             result["fileName"] = fileName;

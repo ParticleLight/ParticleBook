@@ -7,12 +7,12 @@ SetCompressor /SOLID lzma
 SetCompressorDictSize 64
 
 !define PRODUCT_NAME "ParticleBook"
-!define PRODUCT_VERSION "2.0.0"
+!define PRODUCT_VERSION "2.0.3"
 !define PRODUCT_PUBLISHER "ParticleLight"
 !define REG_KEY "Software\ParticleBook"
 
 Name "${PRODUCT_NAME} v${PRODUCT_VERSION}"
-OutFile "..\build2\ParticleBook-Setup-v2.0.0.exe"
+OutFile "..\build2\ParticleBook-Setup-v2.0.3.exe"
 Icon "..\assets\app.ico"
 InstallDir "$LOCALAPPDATA\Programs\ParticleBook"
 BrandingText " "
@@ -74,18 +74,18 @@ Section "Install"
     SetOutPath "$INSTDIR"
 
     ; Core application
-    File "..\build2\Release\ParticleBook.exe"
-    File "..\build2\Release\mutool.exe"
-    File "..\build2\Release\WebView2Loader.dll"
+    File "..\build2\ParticleBook.exe"
+    File "..\build2\mutool.exe"
+    File "..\build2\WebView2Loader.dll"
 
     ; Renderer
     SetOutPath "$INSTDIR\renderer"
-    File "..\build2\Release\renderer\index.html"
-    File /nonfatal "..\build2\Release\renderer\pdf.worker.min.mjs"
+    File "..\build2\renderer\index.html"
+    File /nonfatal "..\build2\renderer\pdf.worker.min.mjs"
 
     SetOutPath "$INSTDIR\renderer\assets"
-    File "..\build2\Release\renderer\assets\*.js"
-    File "..\build2\Release\renderer\assets\*.css"
+    File "..\build2\renderer\assets\*.js"
+    File "..\build2\renderer\assets\*.css"
 
     SetOutPath "$INSTDIR"
 

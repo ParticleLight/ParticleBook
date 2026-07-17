@@ -44,11 +44,6 @@ void BridgeServer::HandleMessage(const std::string& rawJson)
             if (it != m_methods.end()) {
                 try { it->second(json::object()); } catch (...) {}
             }
-        } else if (type == "zlibShowMirror") {
-            auto it = m_methods.find("zlib:showMirrorMenu");
-            if (it != m_methods.end()) {
-                try { it->second(json::object()); } catch (...) {}
-            }
         } else if (type == "zlibSwitchTo") {
             auto it = m_methods.find("zlib:switchMirror");
             if (it != m_methods.end()) {
@@ -252,7 +247,6 @@ std::string BridgeServer::GenerateBridgeScript()
     zlibLogout: function()    { return invoke('zlib:logout'); },
     zlibSwitchMirror: function(i){ return invoke('zlib:switchMirror', {index:i}); },
     zlibGetMirrorInfo: function(){ return invoke('zlib:getMirrorInfo'); },
-    zlibShowMirrorMenu: function(){ return invoke('zlib:showMirrorMenu'); },
     zlibSetDownloadPath: function(p) { return invoke('zlib:setDownloadPath', {path:p}); },
     zlibGetDownloadPath: function()  { return invoke('zlib:getDownloadPath'); },
     zlibPickDownloadFolder: function() { return invoke('zlib:pickDownloadFolder'); },
@@ -260,9 +254,8 @@ std::string BridgeServer::GenerateBridgeScript()
     onZlibDownloadComplete: function(cb) { return onEvent('zlib:downloadComplete', cb); },
     onZlibImportComplete: function(cb)   { return onEvent('zlib:importComplete', cb); },
     onZlibImportError: function(cb)      { return onEvent('zlib:importError', cb); },
-    onZlibUrlChanged: function(cb)       { return onEvent('zlib:urlChanged', cb); },
-    onZlibTitleChanged: function(cb)     { return onEvent('zlib:titleChanged', cb); },
     onZlibMirrorChanged: function(cb)    { return onEvent('zlib:mirrorChanged', cb); },
+    onZlibAllMirrorsFailed: function(cb) { return onEvent('zlib:allMirrorsFailed', cb); },
 
     onMenuImportBooks: function(cb) { return onEvent('menu:importBooks', cb); },
     onMenuShowAbout: function(cb)   { return onEvent('menu:showAbout', cb); },

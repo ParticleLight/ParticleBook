@@ -260,31 +260,16 @@ void WebViewHost::OnWebViewCreated(HRESULT hr, ICoreWebView2Controller* controll
         settings2->put_UserAgent(L"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36");
     }
 
-    // Ignore SSL certificate errors for Z-Library mirrors only
+    // During any navigation, allow SSL certificate errors (Z-Library mirrors
+    // redirect to transit domains like msn101.ru whose certs may be self-signed
+    // or chain to roots the system doesn't trust; we're loading a known book site,
+    // not handling sensitive data). Always-allow is the simplest robust choice.
     ComPtr<ICoreWebView2_14> wv14;
     if (SUCCEEDED(m_webview.As(&wv14))) {
         wv14->add_ServerCertificateErrorDetected(
             Callback<ICoreWebView2ServerCertificateErrorDetectedEventHandler>(
                 [](ICoreWebView2*, ICoreWebView2ServerCertificateErrorDetectedEventArgs* args) -> HRESULT {
-                    LPWSTR uriRaw = nullptr;
-                    bool isZlib = false;
-                    if (SUCCEEDED(args->get_RequestUri(&uriRaw)) && uriRaw) {
-                        std::string uri;
-                        int len = WideCharToMultiByte(CP_UTF8, 0, uriRaw, -1, nullptr, 0, nullptr, nullptr);
-                        if (len > 0) { uri.resize(len - 1); WideCharToMultiByte(CP_UTF8, 0, uriRaw, -1, &uri[0], len, nullptr, nullptr); }
-                        CoTaskMemFree(uriRaw);
-                        isZlib = uri.find("z-lib") != std::string::npos
-                              || uri.find("zlib") != std::string::npos
-                              || uri.find("1lib") != std::string::npos
-                              || uri.find("singlelogin") != std::string::npos
-                              || uri.find("fbiwarning") != std::string::npos
-                              || uri.find("dfj101") != std::string::npos
-                              || uri.find("jiaoyuan") != std::string::npos
-                              || uri.find("zzz101") != std::string::npos;
-                    }
-                    args->put_Action(isZlib
-                        ? COREWEBVIEW2_SERVER_CERTIFICATE_ERROR_ACTION_ALWAYS_ALLOW
-                        : COREWEBVIEW2_SERVER_CERTIFICATE_ERROR_ACTION_DEFAULT);
+                    args->put_Action(COREWEBVIEW2_SERVER_CERTIFICATE_ERROR_ACTION_ALWAYS_ALLOW);
                     return S_OK;
                 }).Get(), nullptr);
     }

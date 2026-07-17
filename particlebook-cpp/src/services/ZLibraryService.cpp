@@ -45,6 +45,8 @@ static std::string ToNarrow(LPCWSTR w) {
     while (!s.empty() && s.back() == '\0') s.pop_back(); return s;
 }
 
+
+
 static const std::vector<std::string> FALLBACK_MIRRORS = {
     "https://zh.dfj101.ru/",
     "https://zlib.re/",
@@ -120,6 +122,7 @@ json ZLibraryService::FetchMirrors() {
     std::string html = FetchUrl("https://zz.ggonav.com/");
 
     if (html.empty()) {
+        std::lock_guard<std::mutex> lk(m_mirrorMutex);
         json r; r["mirrors"] = m_mirrors; r["current"] = m_currentMirror; return r;
     }
 
@@ -161,23 +164,35 @@ json ZLibraryService::FetchMirrors() {
                 merged.push_back(m);
             }
         }
+        std::lock_guard<std::mutex> lk(m_mirrorMutex);
+        // Preserve current selection if that URL still exists in new list
+        std::string oldUrl = m_mirrors[m_currentMirror];
         m_mirrors = merged;
-        m_currentMirror = 0;
+        auto it = std::find(m_mirrors.begin(), m_mirrors.end(), oldUrl);
+        m_currentMirror = (it != m_mirrors.end()) ? (int)(it - m_mirrors.begin()) : 0;
     }
 
+    std::lock_guard<std::mutex> lk(m_mirrorMutex);
     json r; r["mirrors"] = m_mirrors; r["current"] = m_currentMirror; return r;
 }
 
 json ZLibraryService::GetMirrorInfo() {
+    std::lock_guard<std::mutex> lk(m_mirrorMutex);
     json r; r["index"] = m_currentMirror;
     r["url"] = m_currentMirror < (int)m_mirrors.size() ? m_mirrors[m_currentMirror] : "";
     r["mirrors"] = m_mirrors; return r;
 }
 
 json ZLibraryService::SwitchMirror(int index) {
-    if (index >= 0 && index < (int)m_mirrors.size()) m_currentMirror = index;
+    std::string url;
+    {
+        std::lock_guard<std::mutex> lk(m_mirrorMutex);
+        if (index >= 0 && index < (int)m_mirrors.size()) m_currentMirror = index;
+        m_navRetryCount = 0;
+        url = m_mirrors[m_currentMirror];
+    }
     if (m_host && m_host->GetWebView())
-        m_host->GetWebView()->Navigate(ToWide(m_mirrors[m_currentMirror]).c_str());
+        m_host->GetWebView()->Navigate(ToWide(url).c_str());
     m_bridge->EmitEvent("zlib:mirrorChanged", GetMirrorInfo());
     return GetMirrorInfo();
 }
@@ -185,7 +200,8 @@ json ZLibraryService::SwitchMirror(int index) {
 
 json ZLibraryService::Show() {
     m_zlibActive = true;
-    m_navRetryCount = 0;  // reset retry counter on new show
+    m_zlibDlInProgress = false;
+    m_pendingDownloadUri.clear();
     SetupDownloadHandler();
 
     // Load saved download path from database settings
@@ -197,15 +213,20 @@ json ZLibraryService::Show() {
     }
 
     auto* wv = m_host ? m_host->GetWebView() : nullptr;
+    std::string url;
+    {
+        std::lock_guard<std::mutex> lk(m_mirrorMutex);
+        m_navRetryCount = 0;
+        m_retryMirrorCount = (int)m_mirrors.size();
+        url = m_mirrors[m_currentMirror];
+    }
     if (!wv) {
-        ShellExecuteW(nullptr, L"open", ToWide(m_mirrors[m_currentMirror]).c_str(),
+        ShellExecuteW(nullptr, L"open", ToWide(url).c_str(),
                       nullptr, nullptr, SW_SHOWNORMAL);
         return json(nullptr);
     }
 
-    std::wstring url = ToWide(m_mirrors[m_currentMirror]);
-
-    wv->Navigate(url.c_str());
+    wv->Navigate(ToWide(url).c_str());
     m_bridge->EmitEvent("zlib:mirrorChanged", GetMirrorInfo());
     return json(nullptr);
 }
@@ -236,8 +257,11 @@ json ZLibraryService::GetURL() {
 json ZLibraryService::SetBounds(int, int, int, int) { return json(nullptr); }
 json ZLibraryService::Logout() {
     m_zlibActive = false;
-    if (m_host && m_host->GetWebView())
-        m_host->GetWebView()->Navigate(ToWide(m_mirrors[m_currentMirror]).c_str());
+    if (m_host && m_host->GetWebView()) {
+        std::string url;
+        { std::lock_guard<std::mutex> lk(m_mirrorMutex); url = m_mirrors[m_currentMirror]; }
+        m_host->GetWebView()->Navigate(ToWide(url).c_str());
+    }
     return json(nullptr);
 }
 
@@ -362,8 +386,8 @@ void ZLibraryService::SetupDownloadHandler()
                     LPWSTR uriRaw = nullptr;
                     if (FAILED(args->get_Uri(&uriRaw)) || !uriRaw) return S_OK;
                     args->put_Handled(TRUE); // cancel popup
-                    // Allow the download URL past NavigationStarting
-                    m_zlibDlNavigating = true;
+                    // Store pending URL for one-shot pass through NavigationStarting
+                    m_pendingDownloadUri = ToNarrow(uriRaw);
                     // Navigate main window — DownloadStarting will intercept
                     if (m_host && m_host->GetWebView())
                         m_host->GetWebView()->Navigate(uriRaw);
@@ -372,38 +396,39 @@ void ZLibraryService::SetupDownloadHandler()
                 }).Get(), nullptr);
     }
 
-    // ── NavigationStarting — prevent leaving Z-Library domains ──
+    // ── NavigationStarting — during a Z-Library session, follow all redirects ──
+    // (mirrors redirect to unlabeled transit domains like msn101.ru; allow them.
+    //  Only block dangerous schemes (file:, javascript:, etc.) to prevent injection.)
     ComPtr<ICoreWebView2_2> wv2nav;
     if (SUCCEEDED(wv->QueryInterface(IID_PPV_ARGS(&wv2nav)))) {
         wv2nav->add_NavigationStarting(
             Callback<ICoreWebView2NavigationStartingEventHandler>(
                 [this](ICoreWebView2*, ICoreWebView2NavigationStartingEventArgs* args) -> HRESULT {
-                    if (!m_zlibActive || m_zlibDlNavigating) return S_OK;
+                    if (!m_zlibActive) return S_OK;
                     LPWSTR uriRaw = nullptr;
                     if (FAILED(args->get_Uri(&uriRaw)) || !uriRaw) return S_OK;
                     std::string uri = ToNarrow(uriRaw);
                     CoTaskMemFree(uriRaw);
 
-                    // Also allow URLs that match known mirror domains from FetchMirrors
-                    bool isZlib = uri.find("z-lib") != std::string::npos
-                               || uri.find("zlib") != std::string::npos
-                               || uri.find("1lib") != std::string::npos
-                               || uri.find("zzz") != std::string::npos
-                               || uri.find("singlelogin") != std::string::npos
-                               || uri.find("fbiwarning") != std::string::npos
-                               || uri.find("bookfi") != std::string::npos;
-                    // Also check against our mirror list
-                    for (auto& m : m_mirrors) {
-                        if (uri.find(m.substr(0, m.size() - 1)) != std::string::npos) { isZlib = true; break; }
+                    // One-shot pass for pending download URL from NewWindowRequested
+                    if (!m_pendingDownloadUri.empty()) {
+                        if (uri == m_pendingDownloadUri) {
+                            m_pendingDownloadUri.clear();
+                            return S_OK;
+                        }
                     }
-                    if (!isZlib) {
+
+                    // Allow http/https (including mirror redirects to transit domains).
+                    // Block everything else (file:, javascript:, data:, ...) as a safety net.
+                    bool safe = (uri.rfind("http://", 0) == 0) || (uri.rfind("https://", 0) == 0);
+                    if (!safe) {
                         args->put_Cancel(TRUE);
                     }
                     return S_OK;
                 }).Get(), &m_navToken);
     }
 
-    // ── NavigationCompleted — reinject toolbar if missing (error pages) ──
+    // ── NavigationCompleted — auto-retry on failure, stop after one full cycle ──
     {
         ComPtr<ICoreWebView2_2> wv2comp;
         if (SUCCEEDED(wv->QueryInterface(IID_PPV_ARGS(&wv2comp)))) {
@@ -413,39 +438,35 @@ void ZLibraryService::SetupDownloadHandler()
                         if (!m_zlibActive) return S_OK;
                         BOOL success = TRUE;
                         args->get_IsSuccess(&success);
-                        COREWEBVIEW2_WEB_ERROR_STATUS err;
-                        args->get_WebErrorStatus(&err);
 
-                        // Auto-retry next mirror on failure (max one full cycle)
+
                         if (!success) {
-                            if (m_navRetryCount < (int)m_mirrors.size()) {
-                                m_navRetryCount++;
-                                m_currentMirror = (m_currentMirror + 1) % (int)m_mirrors.size();
-                                auto* wvSelf = m_host ? m_host->GetWebView() : nullptr;
-                                if (wvSelf) {
-                                    wvSelf->Navigate(ToWide(m_mirrors[m_currentMirror]).c_str());
-                                    m_bridge->EmitEvent("zlib:mirrorChanged", GetMirrorInfo());
-                                    return S_OK;
+                            std::string nextUrl;
+                            bool retry = false;
+                            {
+                                std::lock_guard<std::mutex> lk(m_mirrorMutex);
+                                if (m_navRetryCount < m_retryMirrorCount && m_navRetryCount < (int)m_mirrors.size()) {
+                                    m_navRetryCount++;
+                                    m_currentMirror = (m_currentMirror + 1) % (int)m_mirrors.size();
+                                    nextUrl = m_mirrors[m_currentMirror];
+                                    retry = true;
                                 }
                             }
-                        } else {
-                            m_navRetryCount = 0; // reset on success
+                            if (retry) {
+                                auto* wvSelf = m_host ? m_host->GetWebView() : nullptr;
+                                if (wvSelf) {
+                                    wvSelf->Navigate(ToWide(nextUrl).c_str());
+                                    m_bridge->EmitEvent("zlib:mirrorChanged", GetMirrorInfo());
+                                }
+                            } else {
+                                // All mirrors exhausted — notify frontend
+                                m_bridge->EmitEvent("zlib:allMirrorsFailed", json::object());
+                            }
+                            return S_OK;
                         }
-
-                        // All mirrors failed or page loaded — ensure toolbar is present
-                        auto* wvSelf = m_host ? m_host->GetWebView() : nullptr;
-                        if (wvSelf) {
-                            wvSelf->ExecuteScript(
-                                L"setTimeout(function(){"
-                                L"if(document.getElementById('zlib-bar')&&document.getElementById('zlib-bar').style.display!=='none')return;"
-                                L"var b=document.getElementById('zlib-bar');"
-                                L"if(!b){b=document.createElement('div');b.id='zlib-bar';b.style.cssText='display:flex;position:fixed;bottom:16px;right:16px;z-index:2147483647;align-items:center;gap:2px;background:rgba(30,30,30,0.9);backdrop-filter:blur(20px);border-radius:24px;padding:6px 10px;border:1px solid rgba(255,255,255,0.1);box-shadow:0 4px 24px rgba(0,0,0,0.5)';"
-                                L"b.innerHTML='<button id=zb-mirror-fb style=\"font-size:11px;padding:4px 8px;border-radius:6px;width:auto;height:28px;background:transparent;border:none;color:#fff;cursor:pointer\">"
-                                L"线路</button>';"
-                                L"document.documentElement.appendChild(b);"
-                                L"document.getElementById('zb-mirror-fb').onclick=function(){window.chrome.webview.postMessage(JSON.stringify({type:'zlibShowMirror'}));};"
-                                L"}}"
-                                L"},300)", nullptr);
+                        {
+                            std::lock_guard<std::mutex> lk(m_mirrorMutex);
+                            m_navRetryCount = 0;
                         }
                         return S_OK;
                     }).Get(), nullptr);
@@ -461,7 +482,7 @@ void ZLibraryService::SetupDownloadHandler()
                     if (!m_zlibActive) return S_OK;
                     if (m_zlibDlInProgress) { args->put_Handled(TRUE); return S_OK; }
                     m_zlibDlInProgress = true;
-                    m_zlibDlNavigating = false;
+                    m_pendingDownloadUri.clear();
 
                     ComPtr<ICoreWebView2DownloadOperation> op;
                     if (FAILED(args->get_DownloadOperation(&op))) { m_zlibDlInProgress = false; return S_OK; }
@@ -696,10 +717,6 @@ void RegisterZlibHandlers(BridgeServer* bridge, ZLibraryService* zlib) {
         auto b = p["bounds"]; return zlib->SetBounds(b.value("x",0),b.value("y",0),b.value("width",0),b.value("height",0));
     });
     bridge->RegisterMethod("zlib:logout",         [zlib](const json&)   { return zlib->Logout(); });
-    bridge->RegisterMethod("zlib:showMirrorMenu", [zlib](const json&) -> json {
-        auto info = zlib->GetMirrorInfo(); int t = (int)info["mirrors"].size();
-        return zlib->SwitchMirror((info["index"].get<int>()+1)%(t>0?t:1));
-    });
     bridge->RegisterMethod("zlib:setDownloadPath", [zlib](const json& p) {
         return zlib->SetDownloadPath(p.value("path", ""));
     });
