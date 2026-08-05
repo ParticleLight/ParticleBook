@@ -10,8 +10,8 @@
   "private": true,
   "scripts": {
     "build": "electron-vite build",
-    "start:cpp": "f:/VScode/Read/particlebook-cpp/build2/ParticleBook.exe",
-    "rebuild:cpp": "npm run build && cd particlebook-cpp/build2 && nmake"
+    "start:cpp": "particlebook-cpp/build2/ParticleBook.exe",
+    "rebuild:cpp": "npm run build && xcopy /E /Y /I out\\renderer particlebook-cpp\\build2\\renderer >nul && cd particlebook-cpp\\build2 && nmake"
   },
   "dependencies": {
     "cheerio": "^1.0.0",

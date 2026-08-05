@@ -4,12 +4,31 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
+# ── Generated version (single source of truth: project VERSION above) ──────
+configure_file("${CMAKE_SOURCE_DIR}/src/pb_version.h.in"   "${CMAKE_BINARY_DIR}/src/pb_version.h"   @ONLY)
+configure_file("${CMAKE_SOURCE_DIR}/src/ParticleBook.rc.in" "${CMAKE_BINARY_DIR}/src/ParticleBook.rc" @ONLY)
+
 # ── Dependencies (header-only) ──────────────────────────────────
 add_library(nlohmann_json INTERFACE)
 target_include_directories(nlohmann_json INTERFACE "${CMAKE_SOURCE_DIR}/third_party")
 
 # WebView2 SDK
 set(WV2_ROOT "${CMAKE_SOURCE_DIR}/third_party/WebView2/build/native")
+
+# ── Ensure mutool.exe exists (PDF rendering) ─────────────────────
+# The extracted mupdf-1.25.0-windows/ directory is not committed (mutool.exe
+# matched by *.exe in .gitignore), so unpack it from the bundled zip on a
+# fresh clone.
+if(NOT EXISTS "${CMAKE_SOURCE_DIR}/third_party/mupdf-1.25.0-windows/mutool.exe")
+    message(STATUS "mutool.exe not found — unpacking mupdf-windows.zip")
+    execute_process(COMMAND "${CMAKE_COMMAND}" -E tar xzf
+        "${CMAKE_SOURCE_DIR}/third_party/mupdf-windows.zip"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/third_party"
+        RESULT_VARIABLE _mupdf_unpack)
+    if(NOT _mupdf_unpack EQUAL 0)
+        message(FATAL_ERROR "Failed to unpack mupdf-windows.zip — PDF rendering unavailable")
+    endif()
+endif()
 
 # Main executable
 add_executable(ParticleBook WIN32
@@ -30,7 +49,7 @@ add_executable(ParticleBook WIN32
     third_party/miniz.c
     third_party/miniz_tdef.c
     third_party/miniz_tinfl.c
-    src/ParticleBook.rc
+    "${CMAKE_BINARY_DIR}/src/ParticleBook.rc"
 )
 
 # Enable /EHa so catch(...) can handle SEH exceptions (access violations etc.)
@@ -40,6 +59,7 @@ target_compile_options(ParticleBook PRIVATE /EHa /utf-8)
 
 target_include_directories(ParticleBook PRIVATE
     src/
+    "${CMAKE_BINARY_DIR}/src/"  # generated pb_version.h
     "${WV2_ROOT}/include"
     "${CMAKE_SOURCE_DIR}/third_party"
 )
@@ -86,4 +106,5 @@ add_custom_command(TARGET ParticleBook POST_BUILD
 
 # ── Install ─────────────────────────────────────────────────────
 install(TARGETS ParticleBook RUNTIME DESTINATION .)
+install(FILES "${CMAKE_SOURCE_DIR}/third_party/mupdf-1.25.0-windows/mutool.exe" DESTINATION .)
 install(DIRECTORY "$<TARGET_FILE_DIR:ParticleBook>/renderer" DESTINATION renderer)

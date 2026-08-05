@@ -7,12 +7,14 @@ SetCompressor /SOLID lzma
 SetCompressorDictSize 64
 
 !define PRODUCT_NAME "ParticleBook"
-!define PRODUCT_VERSION "2.0.3"
+!ifndef PRODUCT_VERSION
+!define PRODUCT_VERSION "2.0.3"   ; override via: makensis /DPRODUCT_VERSION=2.0.4
+!endif
 !define PRODUCT_PUBLISHER "ParticleLight"
 !define REG_KEY "Software\ParticleBook"
 
 Name "${PRODUCT_NAME} v${PRODUCT_VERSION}"
-OutFile "..\build2\ParticleBook-Setup-v2.0.3.exe"
+OutFile "..\build2\ParticleBook-Setup-v${PRODUCT_VERSION}.exe"
 Icon "..\assets\app.ico"
 InstallDir "$LOCALAPPDATA\Programs\ParticleBook"
 BrandingText " "
@@ -37,6 +39,14 @@ BrandingText " "
 Var AlreadyInstalled
 
 Function .onInit
+    ; Detect a running app to avoid a half-updated install (locked exe/dll).
+    ; Class name matches WebViewHost.cpp "ParticleBook_MainWindow".
+    FindWindow $0 "" "ParticleBook_MainWindow"
+    StrCmp $0 0 notrunning
+    MessageBox MB_OK|MB_ICONEXCLAMATION "ParticleBook 正在运行。请先关闭应用，再运行安装程序。"
+    Abort
+notrunning:
+
     IfSilent 0 +2
     SetAutoClose true
 

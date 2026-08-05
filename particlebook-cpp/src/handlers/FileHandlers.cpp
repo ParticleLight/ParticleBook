@@ -2,6 +2,7 @@
 #include "BridgeServer.h"
 #include "WebViewHost.h"
 #include "App.h"
+#include "pb_version.h"  // generated from CMake project VERSION
 #include "services/DatabaseService.h"
 #include "services/LibraryService.h"
 #include "services/ContentCache.h"
@@ -413,7 +414,7 @@ static json CheckUpdateImpl()
         return a3 > b3;
     };
 
-    if (versionGreater(latestVer, "2.0.3")) {
+    if (versionGreater(latestVer, PB_VERSION_STRING)) {
         json result;
         result["version"] = latestVer;
         result["fileName"] = fileName;
@@ -768,7 +769,7 @@ void RegisterFileHandlers(BridgeServer* bridge, DatabaseService* db, ContentCach
     });
 
     // ── Update checker ─────────────────────────────────────────
-    bridge->RegisterMethod("app:getVersion", [](const json&) -> json { return json("2.0.3"); });
+    bridge->RegisterMethod("app:getVersion", [](const json&) -> json { return json(PB_VERSION_STRING); });
 
     bridge->RegisterMethod("app:checkUpdate", [bridge](const json&) -> json {
         // Run the blocking WinHTTP check on a background thread so startup
