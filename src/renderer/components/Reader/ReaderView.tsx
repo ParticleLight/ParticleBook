@@ -41,6 +41,8 @@ interface ReaderViewProps {
 
 function ReadingTimeDisplay() {
   const currentReadingTime = useReaderStore((s) => s.currentReadingTime)
+  const showReadingTime = useSettingsStore((s) => s.showReadingTime)
+  if (!showReadingTime) return null
   return (
     <span title="本次阅读时长">
       <svg className="w-3 h-3 inline mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -148,12 +150,13 @@ export function ReaderView({ bookId, onClose }: ReaderViewProps) {
     }
   }, [bookId])
 
-  // Update reading time display every 10 seconds (reduces store updates)
+  // Update the reading-time display every second (was 10s — that read as
+  // "not realtime" since it jumped 0→10→20 instead of ticking up smoothly).
   useEffect(() => {
     if (!bookContent) return
     const interval = setInterval(() => {
       updateReadingTime()
-    }, 10000)
+    }, 1000)
 
     return () => clearInterval(interval)
   }, [bookContent])
