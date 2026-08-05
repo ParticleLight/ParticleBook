@@ -712,7 +712,7 @@ void RegisterFileHandlers(BridgeServer* bridge, DatabaseService* db, ContentCach
             std::wstring exePath = std::wstring(tmpPath) + L"ParticleBook-Update.exe";
             DeleteFileW(exePath.c_str());
 
-            // WinHTTP fetch with up to 5 redirects (GitHub release → objects.githubusercontent.com)
+            // WinHTTP fetch with up to 8 redirects (GitHub release → objects.githubusercontent.com)
             auto fetchWithWinHttp = [](const std::wstring& url, const std::wstring& out) -> bool {
                 std::wstring cur = url;
                 for (int redir = 0; redir < 8; redir++) {
