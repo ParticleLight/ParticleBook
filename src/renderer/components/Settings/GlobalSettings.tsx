@@ -9,6 +9,7 @@ interface UpdateInfo {
   version: string
   downloadUrl?: string
   fileName?: string
+  sha512?: string
 }
 
 type NavKey = 'appearance' | 'reading' | 'library' | 'zlibrary' | 'about'
@@ -501,7 +502,7 @@ function AboutPage() {
         {updateStatus === 'available' && updateInfo && (
           <div className="p-3 rounded-lg mb-3" style={{ background: 'var(--notify-success-bg)', color: 'var(--notify-success-text)' }}>
             <p className="text-sm font-medium mb-2">发现新版本 v{updateInfo.version}</p>
-            <button onClick={() => { setUpdateStatus('downloading'); window.electronAPI.downloadUpdate(updateInfo?.downloadUrl || '') }} className="btn-primary text-xs px-3 py-1.5">下载更新</button>
+            <button onClick={() => { setUpdateStatus('downloading'); window.electronAPI.downloadUpdate(updateInfo?.downloadUrl || '', updateInfo?.sha512 || '') }} className="btn-primary text-xs px-3 py-1.5">下载更新</button>
           </div>
         )}
         {updateStatus === 'downloading' && (
@@ -536,7 +537,7 @@ function AboutPage() {
         <SectionTitle>致谢</SectionTitle>
         <div className="text-sm leading-relaxed space-y-1" style={{ color: 'var(--text-secondary)' }}>
           <p>作者：<span style={{ color: 'var(--text-primary)' }}>ParticleLight</span></p>
-          <p>框架：Electron + React + TypeScript + Zustand</p>
+          <p>框架：C++ Win32 + WebView2 + React + TypeScript + Zustand</p>
           <p>PDF 引擎：MuPDF</p>
           <p>许可证：MIT</p>
         </div>

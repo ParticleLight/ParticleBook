@@ -69,12 +69,18 @@ void DatabaseService::Load(const std::string& path)
         if (f.is_open()) {
             try {
                 m_data = json::parse(f);
+                if (!m_data.is_object()) {
+                    // Valid JSON but not the object shape we expect (e.g. an
+                    // array) — backup + reset instead of crashing on the
+                    // string-key operator[] below.
+                    BackupCorruptFile(path);
+                    m_data = json::object();
+                }
             } catch (...) {
                 // Corrupt file: back it up before resetting so the user's data
-                // isn't silently discarded (a crash mid-write used to leave a
-                // half-written JSON that this catch swallowed → total data loss).
+                // isn't silently discarded.
                 BackupCorruptFile(path);
-                EnsureDefaults();
+                m_data = json::object();
             }
         }
     }
@@ -101,6 +107,13 @@ bool DatabaseService::WriteAtomic(const json& data)
         if (!f.is_open()) return false;
         f << data.dump(2);
         f.flush();
+        if (f.fail()) {
+            // Disk full / I/O error — never replace the good file with a
+            // truncated one.
+            f.close();
+            DeleteFileW(Utf8ToWide(tmpPath).c_str());
+            return false;
+        }
     }
 
     if (!MoveFileExW(Utf8ToWide(tmpPath).c_str(), Utf8ToWide(m_path).c_str(),
@@ -156,23 +169,22 @@ void DatabaseService::ScheduleWrite()
 void DatabaseService::WriterThread()
 {
     while (true) {
-        json data;
-        {
-            std::unique_lock<std::mutex> lock(m_mutex);
-            m_cv.wait_for(lock, m_debounce, [this]{ return m_dirty; });
-            if (!m_running) break;
-            if (!m_dirty) continue;
-            m_dirty = false;
-            data = m_data;  // copy under the lock, write off the lock
+        std::unique_lock<std::mutex> lock(m_mutex);
+        m_cv.wait_for(lock, m_debounce, [this]{ return m_dirty; });
+        if (!m_running) {
+            // Final flush on shutdown: a pending write must not be dropped.
+            if (m_dirty) WriteAtomic(m_data);
+            break;
         }
-
-        if (!WriteAtomic(data)) {
-            // A failed flush must not drop the last update — mark dirty again
-            // and retry on the next round.
-            {
-                std::lock_guard<std::mutex> lk(m_mutex);
-                m_dirty = true;
-            }
+        if (!m_dirty) continue;
+        // Write while holding the lock — serializes with FlushSync so a stale
+        // snapshot can never overwrite a newer one (off-lock writes raced:
+        // WriterThread's old snapshot could rename over FlushSync's new data).
+        if (WriteAtomic(m_data)) {
+            m_dirty = false;
+        } else {
+            // Keep dirty so we retry on the next round (disk full / locked).
+            m_dirty = true;
             std::this_thread::sleep_for(std::chrono::milliseconds(500));
         }
     }

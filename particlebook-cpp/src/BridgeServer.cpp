@@ -45,11 +45,13 @@ namespace {
     }
 
     // Methods an external (Z-Library mirror) page may invoke. Kept minimal: the
-    // injected floating toolbar needs mirror info + navigation only.
+    // injected floating toolbar needs mirror info + navigation only. Deliberately
+    // excludes zlib:getURL / zlib:getDownloadPath (leak the current URL and the
+    // local download directory to any untrusted mirror page).
     const std::unordered_set<std::string>& ExternalAllowedMethods() {
         static const std::unordered_set<std::string> s = {
             "zlib:getMirrorInfo", "zlib:switchMirror", "zlib:navigate",
-            "zlib:getURL", "zlib:logout", "zlib:fetchMirrors", "zlib:getDownloadPath",
+            "zlib:logout", "zlib:fetchMirrors",
         };
         return s;
     }

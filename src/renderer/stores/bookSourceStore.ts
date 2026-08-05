@@ -88,16 +88,30 @@ export const useBookSourceStore = create<BookSourceState>((set, get) => ({
 
   startDownload: async (sourceId, bookUrl, bookName, format = 'txt') => {
     set({ isDownloading: true, downloadProgress: null })
-    const unsubscribe = window.electronAPI.onDownloadProgress((progress: DownloadProgress) => {
-      set({ downloadProgress: progress })
+    // The C++ side runs the download on a background thread and returns
+    // "started" immediately, so keep the listener alive until it reports
+    // done/error — unsubscribing on the immediate return would drop every
+    // progress/completion event (regression fixed here).
+    await new Promise<void>((resolve) => {
+      let settled = false
+      let unsub: (() => void) | null = null
+      let timer: ReturnType<typeof setTimeout> | null = null
+      const finish = () => {
+        if (settled) return
+        settled = true
+        if (timer) clearTimeout(timer)
+        if (unsub) unsub()
+        resolve()
+      }
+      unsub = window.electronAPI.onDownloadProgress((progress: DownloadProgress) => {
+        set({ downloadProgress: progress })
+        if (progress.status === 'done' || progress.status === 'error') finish()
+      })
+      // Safety net: never hang forever if the download thread dies silently.
+      timer = setTimeout(finish, 10 * 60 * 1000)
+      window.electronAPI.downloadBook(sourceId, bookUrl, bookName, format).catch(() => finish())
     })
-    try {
-      const bookId = await window.electronAPI.downloadBook(sourceId, bookUrl, bookName, format)
-      return bookId
-    } finally {
-      unsubscribe()
-      set({ isDownloading: false })
-    }
+    set({ isDownloading: false })
   },
 
   resetDownload: () => set({ downloadProgress: null, isDownloading: false }),

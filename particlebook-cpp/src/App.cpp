@@ -26,11 +26,11 @@ void App::Init(HINSTANCE hInstance)
     m_hInstance = hInstance;
 
     // 1. Database
-    m_db = std::make_unique<DatabaseService>();
+    m_db = std::make_shared<DatabaseService>();
     m_db->Load(UserDataPath() + "/data/reader.json");
 
     // 2. Bridge (message dispatch)
-    m_bridge = std::make_unique<BridgeServer>();
+    m_bridge = std::make_shared<BridgeServer>();
 
     // 3. WebView host (window + browser)
     m_webview = std::make_unique<WebViewHost>();
@@ -187,7 +187,7 @@ void App::Init(HINSTANCE hInstance)
 
     // 5. Services
     m_pdf = std::make_unique<PdfService>();
-    m_bookSource = std::make_shared<BookSourceService>(m_db.get(), m_bridge.get());
+    m_bookSource = std::make_shared<BookSourceService>(m_db, m_bridge);
     m_zlib = std::make_shared<ZLibraryService>(m_bridge.get());
     m_zlib->SetHost(m_webview.get());
     m_zlib->SetDatabase(m_db.get());

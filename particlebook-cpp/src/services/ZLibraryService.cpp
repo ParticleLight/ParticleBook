@@ -565,7 +565,19 @@ void ZLibraryService::SetupDownloadHandler()
 
 void ZLibraryService::StartDownloadThread(const std::string& startUrl, const std::string& fileName, const std::string& cookies)
 {
-    std::string fn = fileName.empty() ? "download" : fileName;
+    // Sanitize the server-provided file name: strip separators / reserved chars
+    // and any ".." segments so a hostile filename= can't write outside the
+    // download directory (path traversal).
+    std::string fn;
+    for (char c : fileName.empty() ? std::string("download") : fileName) {
+        if (c == '\\' || c == '/' || c == ':' || c == '*' || c == '?' ||
+            c == '"' || c == '<' || c == '>' || c == '|') continue;
+        fn += c;
+    }
+    if (fn.empty()) fn = "download";
+    size_t pos;
+    while ((pos = fn.find("..")) != std::string::npos) fn.erase(pos, 2);
+
     std::string downloadPath = GetDownloadPath() + "\\" + fn;
     std::filesystem::create_directories(GetDownloadPath(), std::error_code{});
 

@@ -11,7 +11,8 @@
   "scripts": {
     "build": "electron-vite build",
     "start:cpp": "particlebook-cpp/build2/ParticleBook.exe",
-    "rebuild:cpp": "npm run build && xcopy /E /Y /I out\\renderer particlebook-cpp\\build2\\renderer >nul && cd particlebook-cpp\\build2 && nmake"
+    "rebuild:cpp": "npm run build && xcopy /E /Y /I out\\renderer particlebook-cpp\\build2\\renderer >nul && cd particlebook-cpp\\build2 && nmake",
+    "package": "npm run build && xcopy /E /Y /I out\\renderer particlebook-cpp\\build2\\renderer >nul && cd particlebook-cpp\\scripts && makensis /DPRODUCT_VERSION=%npm_package_version% installer.nsi"
   },
   "dependencies": {
     "cheerio": "^1.0.0",

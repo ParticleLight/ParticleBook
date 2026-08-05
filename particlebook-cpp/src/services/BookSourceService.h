@@ -6,6 +6,7 @@
 #include <mutex>
 #include <condition_variable>
 #include <queue>
+#include <memory>
 #include "nlohmann/json.hpp"
 
 using json = nlohmann::json;
@@ -15,7 +16,9 @@ class BridgeServer;
 
 class BookSourceService {
 public:
-    BookSourceService(DatabaseService* db, BridgeServer* bridge);
+    // Takes shared_ptr so the background download thread (which captures a
+    // shared_ptr of this service) keeps the DB/bridge alive until it finishes.
+    BookSourceService(std::shared_ptr<DatabaseService> db, std::shared_ptr<BridgeServer> bridge);
     ~BookSourceService();
 
     // Search
@@ -45,8 +48,8 @@ private:
     struct ParsedSelector { std::string tag; std::string cls; std::string id; std::string attr; };
     ParsedSelector ParseSelector(const std::string& sel);
 
-    DatabaseService* m_db;
-    BridgeServer* m_bridge;
+    std::shared_ptr<DatabaseService> m_db;
+    std::shared_ptr<BridgeServer> m_bridge;
 
     // Thread pool
     struct Job { std::function<void()> work; };

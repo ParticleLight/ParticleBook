@@ -41,8 +41,13 @@ void RegisterDbHandlers(BridgeServer* bridge, DatabaseService* db)
         db->DeleteBook(id);
         if (!book.is_null()) {
             std::string fp = book.value("file_path", "");
-            std::string droppedPrefix = App::Instance().UserDataPath() + "/dropped/";
-            if (fp.rfind(droppedPrefix, 0) == 0) {
+            // writeDroppedFile stores UserDataPath() + "/dropped" + "\\" + name —
+            // mixed separators. Match either separator right after "/dropped".
+            std::string droppedPrefix = App::Instance().UserDataPath() + "/dropped";
+            bool inDropped = fp.rfind(droppedPrefix, 0) == 0 &&
+                             fp.size() > droppedPrefix.size() &&
+                             (fp[droppedPrefix.size()] == '/' || fp[droppedPrefix.size()] == '\\');
+            if (inDropped) {
                 DeleteFileW(Utf8ToWide(fp).c_str());
             }
         }

@@ -30,8 +30,8 @@ private:
     App() = default;
     HINSTANCE m_hInstance = nullptr;
 
-    std::unique_ptr<DatabaseService> m_db;
-    std::unique_ptr<BridgeServer> m_bridge;
+    std::shared_ptr<DatabaseService> m_db;
+    std::shared_ptr<BridgeServer> m_bridge;
     std::unique_ptr<WebViewHost> m_webview;
     std::unique_ptr<PdfService> m_pdf;
     std::shared_ptr<BookSourceService> m_bookSource;

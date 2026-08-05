@@ -55,7 +55,11 @@ static std::string Base64Encode(const void* data, size_t len)
 
 // ── Constructor / Destructor ─────────────────────────────────────────
 
-PdfService::PdfService() = default;
+PdfService::PdfService() : m_nextId(static_cast<int>(GetTickCount() & 0x7FFFFFFF))
+{
+    // Randomize the per-session document-id base so rendered PNG files
+    // (doc_<id>_page_<n>.png) never collide with a previous run's cache.
+}
 PdfService::~PdfService()
 {
     // Clean up temp dirs

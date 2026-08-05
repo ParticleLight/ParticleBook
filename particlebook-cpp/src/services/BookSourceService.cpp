@@ -22,8 +22,8 @@ static std::wstring Utf8ToWide(const std::string& s) {
     return w;
 }
 
-BookSourceService::BookSourceService(DatabaseService* db, BridgeServer* bridge)
-    : m_db(db), m_bridge(bridge)
+BookSourceService::BookSourceService(std::shared_ptr<DatabaseService> db, std::shared_ptr<BridgeServer> bridge)
+    : m_db(std::move(db)), m_bridge(std::move(bridge))
 {
     // Start worker threads for downloads
     unsigned n = std::thread::hardware_concurrency();
