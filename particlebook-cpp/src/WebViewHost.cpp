@@ -191,6 +191,12 @@ LRESULT CALLBACK WebViewHost::WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
         }
         return 0;
 
+    case WM_UPDATE_DOWNLOAD_PROGRESS:
+        if (self->m_updateDownloadProgressCb) {
+            self->m_updateDownloadProgressCb(static_cast<int>(wp));
+        }
+        return 0;
+
     case WM_MOVE:
         if (self->m_moveCb) self->m_moveCb();
         return 0;

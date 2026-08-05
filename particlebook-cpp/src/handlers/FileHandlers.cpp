@@ -820,7 +820,7 @@ void RegisterFileHandlers(BridgeServer* bridge, DatabaseService* db, ContentCach
             DeleteFileW(exePath.c_str());
 
             // WinHTTP fetch with up to 8 redirects (GitHub release → objects.githubusercontent.com)
-            auto fetchWithWinHttp = [](const std::wstring& url, const std::wstring& out) -> bool {
+            auto fetchWithWinHttp = [hwnd](const std::wstring& url, const std::wstring& out) -> bool {
                 std::wstring cur = url;
                 for (int redir = 0; redir < 8; redir++) {
                     size_t se = cur.find(L"://"); if (se == std::wstring::npos) return false;
@@ -853,8 +853,20 @@ void RegisterFileHandlers(BridgeServer* bridge, DatabaseService* db, ContentCach
                     if (sc >= 400) { WinHttpCloseHandle(hR); WinHttpCloseHandle(hC); WinHttpCloseHandle(hS); return false; }
                     HANDLE hFile = CreateFileW(out.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
                     if (hFile == INVALID_HANDLE_VALUE) { WinHttpCloseHandle(hR); WinHttpCloseHandle(hC); WinHttpCloseHandle(hS); return false; }
-                    char buf[65536]; DWORD br;
-                    while (WinHttpReadData(hR, buf, sizeof(buf), &br) && br > 0) { DWORD wr; WriteFile(hFile, buf, br, &wr, nullptr); }
+                    // Report download progress to the UI thread (~1MB steps)
+                    DWORD total = 0; DWORD tsz = sizeof(total);
+                    WinHttpQueryHeaders(hR, WINHTTP_QUERY_CONTENT_LENGTH | WINHTTP_QUERY_FLAG_NUMBER, nullptr, &total, &tsz, nullptr);
+                    char buf[65536]; DWORD br; DWORD received = 0;
+                    DWORD nextReport = 1024 * 1024;
+                    while (WinHttpReadData(hR, buf, sizeof(buf), &br) && br > 0) {
+                        DWORD wr; WriteFile(hFile, buf, br, &wr, nullptr);
+                        received += br;
+                        if (total > 0 && received >= nextReport) {
+                            int percent = (int)((int64_t)received * 100 / total);
+                            PostMessage(hwnd, WM_UPDATE_DOWNLOAD_PROGRESS, (WPARAM)percent, 0);
+                            nextReport += 1024 * 1024;
+                        }
+                    }
                     CloseHandle(hFile);
                     WinHttpCloseHandle(hR); WinHttpCloseHandle(hC); WinHttpCloseHandle(hS);
                     return true;

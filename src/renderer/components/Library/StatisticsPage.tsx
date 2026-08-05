@@ -53,9 +53,17 @@ function BookRow({ book, readingTime, progress }: { book: Book; readingTime: num
 export function StatisticsPage({ onBack }: StatisticsPageProps) {
   const readingTimeMap = useLibraryStore((s) => s.readingTimeMap)
   const readingProgressMap = useLibraryStore((s) => s.readingProgressMap)
+  const loadReadingTime = useLibraryStore((s) => s.loadReadingTime)
+  const loadReadingProgress = useLibraryStore((s) => s.loadReadingProgress)
   const [allBooks, setAllBooks] = useState<Book[]>([])
 
-  useEffect(() => { window.electronAPI.getBooks().then((books) => setAllBooks(books as Book[])) }, [])
+  // Refresh stats on mount — reading sessions finish async (endReadingSession)
+  // so the values loaded at Library mount can be stale by the time we get here.
+  useEffect(() => {
+    loadReadingTime()
+    loadReadingProgress()
+    window.electronAPI.getBooks().then((books) => setAllBooks(books as Book[]))
+  }, [loadReadingTime, loadReadingProgress])
 
   const totalTime = Object.values(readingTimeMap).reduce((sum, t) => sum + t, 0)
   const booksWithProgress = Object.keys(readingProgressMap).length

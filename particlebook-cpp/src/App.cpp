@@ -55,6 +55,9 @@ void App::Init(HINSTANCE hInstance)
             m_bridge->EmitEvent("app:updateChecked", json(nullptr));
         }
     });
+    m_webview->SetUpdateDownloadProgressCallback([this](int percent) {
+        m_bridge->EmitEvent("app:downloadProgress", {{"percent", percent}});
+    });
 
     // 4. Inject bridge script BEFORE WebView2 navigates
     m_webview->InjectBridgeScript(BridgeServer::GenerateBridgeScript());

@@ -1,14 +1,25 @@
 #include "BookSourceService.h"
 #include "services/DatabaseService.h"
 #include "BridgeServer.h"
+#include "App.h"
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <winhttp.h>
 #include <algorithm>
 #include <cctype>
 #include <sstream>
+#include <filesystem>
 
 #pragma comment(lib, "winhttp.lib")
+
+static std::wstring Utf8ToWide(const std::string& s) {
+    if (s.empty()) return L"";
+    int len = MultiByteToWideChar(CP_UTF8, 0, s.c_str(), (int)s.size(), nullptr, 0);
+    if (len <= 0) return L"";
+    std::wstring w(len, L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, s.c_str(), (int)s.size(), &w[0], len);
+    return w;
+}
 
 BookSourceService::BookSourceService(DatabaseService* db, BridgeServer* bridge)
     : m_db(db), m_bridge(bridge)
@@ -484,7 +495,54 @@ int BookSourceService::DownloadBook(int sourceId, const std::string& bookUrl,
         Sleep(100);
     }
 
-    return totalChapters;
+    // ── Assemble into a text file & import to the bookshelf ─────────
+    // Chapters live only in memory here — without persisting + importing, a
+    // "download" finishes but nothing ever appears in the library.
+    std::string text;
+    text.reserve(64 * 1024);
+    for (int i = 0; i < totalChapters; i++) {
+        std::string name = chapters[i].value("name", "第" + std::to_string(i + 1) + "章");
+        text += "# " + name + "\n\n" + chapterContents[i] + "\n\n";
+    }
+    if (text.empty()) return -1;
+
+    // Sanitize file name
+    std::string safeName;
+    for (char c : bookName) {
+        if (c == '\\' || c == '/' || c == ':' || c == '*' || c == '?' ||
+            c == '"' || c == '<' || c == '>' || c == '|') continue;
+        safeName += c;
+    }
+    if (safeName.empty()) safeName = "book";
+    safeName += ".txt";
+
+    std::string dir = App::Instance().UserDataPath() + "/booksource";
+    std::filesystem::create_directories(Utf8ToWide(dir));
+
+    std::string filePath = dir + "\\" + safeName;
+    HANDLE hFile = CreateFileW(Utf8ToWide(filePath).c_str(), GENERIC_WRITE, 0, nullptr,
+                               CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (hFile == INVALID_HANDLE_VALUE) return -1;
+    DWORD written = 0;
+    WriteFile(hFile, text.data(), (DWORD)text.size(), &written, nullptr);
+    CloseHandle(hFile);
+    if (written != text.size()) return -1;
+
+    // Import into the library (reuses the normal import path & dedup)
+    json params;
+    params["paths"] = json::array({filePath});
+    json imported = m_bridge->InvokeMethod("book:import", params);
+    int bookId = -1;
+    if (imported.is_array() && !imported.empty()) {
+        bookId = imported[0].value("id", -1);
+    }
+
+    m_bridge->EmitEvent("bookSource:downloadProgress",
+                        {{"status", bookId > 0 ? "done" : "error"},
+                         {"bookId", bookId},
+                         {"current", totalChapters},
+                         {"total", totalChapters}});
+    return bookId;
 }
 
 // ── Thread Pool ───────────────────────────────────────────────────

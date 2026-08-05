@@ -31,6 +31,8 @@ export function ComicRenderer({ book, content, bookId }: ComicRendererProps) {
   const clearNavigateTarget = useReaderStore((s) => s.clearNavigateTarget)
   const turnPageDelta = useReaderStore((s) => s.turnPageDelta)
   const clearTurnPage = useReaderStore((s) => s.clearTurnPage)
+  const seekTarget = useReaderStore((s) => s.seekTarget)
+  const clearSeekTarget = useReaderStore((s) => s.clearSeekTarget)
 
   // Load zip and extract file entries (not blobs)
   useEffect(() => {
@@ -123,6 +125,14 @@ export function ComicRenderer({ book, content, bookId }: ComicRendererProps) {
     setCurrentIndex((i) => Math.max(0, Math.min(i + turnPageDelta, totalPages - 1)))
     clearTurnPage()
   }, [turnPageDelta])
+
+  // Progress-bar seek (drag the ReaderControls range input)
+  useEffect(() => {
+    if (seekTarget === null || totalPages === 0) return
+    const idx = Math.max(0, Math.min(Math.round((seekTarget / 100) * (totalPages - 1)), totalPages - 1))
+    setCurrentIndex(idx)
+    clearSeekTarget()
+  }, [seekTarget, totalPages, clearSeekTarget])
 
   useEffect(() => {
     if (totalPages === 0) return

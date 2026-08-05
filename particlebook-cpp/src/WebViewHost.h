@@ -3,8 +3,9 @@
 #include <windows.h>
 
 // Custom messages for cross-thread communication
-#define WM_UPDATE_DOWNLOAD_DONE (WM_USER + 15)
-#define WM_UPDATE_CHECK_DONE    (WM_USER + 16)
+#define WM_UPDATE_DOWNLOAD_DONE     (WM_USER + 15)
+#define WM_UPDATE_CHECK_DONE        (WM_USER + 16)
+#define WM_UPDATE_DOWNLOAD_PROGRESS (WM_USER + 17)
 #include <string>
 #include <vector>
 #include <functional>
@@ -53,6 +54,9 @@ public:
     using UpdateCheckCb = std::function<void(const std::string& resultJson)>;
     void SetUpdateCheckCallback(UpdateCheckCb cb) { m_updateCheckCb = std::move(cb); }
 
+    using UpdateDownloadProgressCb = std::function<void(int percent)>;
+    void SetUpdateDownloadProgressCallback(UpdateDownloadProgressCb cb) { m_updateDownloadProgressCb = std::move(cb); }
+
     using MessageHandler = std::function<void(const std::string& msg, const std::string& source)>;
     void SetMessageHandler(MessageHandler handler) { m_msgHandler = std::move(handler); }
 
@@ -81,5 +85,6 @@ private:
     DownloadFailCb m_dlFailCb;
     UpdateDoneCb m_updateDoneCb;
     UpdateCheckCb m_updateCheckCb;
+    UpdateDownloadProgressCb m_updateDownloadProgressCb;
     std::vector<std::string> m_pendingScripts;
 };
