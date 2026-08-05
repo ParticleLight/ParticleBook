@@ -349,7 +349,17 @@ void WebViewHost::OnWebMessageReceived(ICoreWebView2* sender, ICoreWebView2WebMe
     std::string msg = ToUtf8(raw);
     CoTaskMemFree(raw);
 
+    // Capture the message's source (page URL) for origin-based access control:
+    // the app page vs. external pages (Z-Library mirrors) must not get the same
+    // set of bridge methods.
+    LPWSTR src = nullptr;
+    std::string source;
+    if (SUCCEEDED(args->get_Source(&src)) && src) {
+        source = ToUtf8(src);
+        CoTaskMemFree(src);
+    }
+
     if (m_msgHandler) {
-        m_msgHandler(msg);
+        m_msgHandler(msg, source);
     }
 }

@@ -37,8 +37,8 @@ void App::Init(HINSTANCE hInstance)
 
     // Wire bridge <-> WebView
     m_bridge->SetWebView(m_webview.get());
-    m_webview->SetMessageHandler([this](const std::string& msg) {
-        m_bridge->HandleMessage(msg);
+    m_webview->SetMessageHandler([this](const std::string& msg, const std::string& source) {
+        m_bridge->HandleMessage(msg, source);
     });
     m_webview->SetUpdateDoneCallback([this](bool success, const std::string& path_or_error) {
         if (success) {

@@ -95,7 +95,7 @@ interface ElectronAPI {
   // Auto Updater
   checkUpdate: () => Promise<any>
   getAppVersion: () => Promise<string>
-  downloadUpdate: (url: string) => Promise<any>
+  downloadUpdate: (url: string, sha512?: string) => Promise<any>
   quitAndInstall: () => Promise<any>
   onUpdateAvailable: (callback: (info: any) => void) => () => void
   onUpdateNotAvailable: (callback: () => void) => () => void

@@ -99,7 +99,7 @@ export function EpubRenderer({ book, content, bookId }: EpubRendererProps) {
       height: '100%',
       spread: 'none',
       flow: 'paginated',
-      allowScriptedContent: true,
+      allowScriptedContent: false,
     })
 
     renditionRef.current = rendition
@@ -183,12 +183,15 @@ export function EpubRenderer({ book, content, bookId }: EpubRendererProps) {
     })
 
     // Fix iframe sandbox, enable text selection, and forward mousemove
+    // NOTE: allow-scripts is intentionally omitted — EPUB content is untrusted
+    // (a malicious <script> inside a chapter would run on the app origin which
+    // owns the electronAPI bridge). Selection/highlighting doesn't need it.
     const hookedDocs = new WeakSet<Document>()
     const contentCleanupFns: Array<() => void> = []
     rendition.hooks.content.register((contents: any) => {
       const iframe = viewerRef.current?.querySelector('iframe')
       if (iframe) {
-        iframe.sandbox = 'allow-same-origin allow-scripts allow-popups'
+        iframe.sandbox = 'allow-same-origin allow-popups'
       }
       const doc = contents.document
       if (!doc || hookedDocs.has(doc)) return

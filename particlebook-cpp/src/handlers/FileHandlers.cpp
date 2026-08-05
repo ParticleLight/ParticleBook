@@ -12,6 +12,7 @@
 #include <urlmon.h>
 #include <winhttp.h>
 #include <shellapi.h>
+#include <bcrypt.h>
 #include <cstring>
 #include <cstdio>
 #include <thread>
@@ -20,6 +21,7 @@
 
 #pragma comment(lib, "urlmon.lib")
 #pragma comment(lib, "winhttp.lib")
+#pragma comment(lib, "bcrypt.lib")
 
 static std::wstring Utf8ToWide(const std::string& s)
 {
@@ -211,6 +213,44 @@ static void DebugLog(const char* msg)
         fprintf(f, "[%s] %s\n", timeBuf, msg);
         fclose(f);
     }
+}
+
+// ── SHA-512 of a file (BCrypt) — for update package integrity check ──────
+static bool ComputeFileSha512(const std::wstring& path, std::string& outHex)
+{
+    HANDLE hFile = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ,
+                               nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (hFile == INVALID_HANDLE_VALUE) return false;
+
+    BCRYPT_ALG_HANDLE hAlg = nullptr;
+    BCRYPT_HASH_HANDLE hHash = nullptr;
+    bool ok = false;
+    do {
+        if (!BCRYPT_SUCCESS(BCryptOpenAlgorithmProvider(&hAlg, BCRYPT_SHA512_ALGORITHM, nullptr, 0))) break;
+        if (!BCRYPT_SUCCESS(BCryptCreateHash(hAlg, &hHash, nullptr, 0, nullptr, 0, 0))) break;
+        char buf[65536];
+        DWORD br = 0;
+        bool readOk = true;
+        while (ReadFile(hFile, buf, sizeof(buf), &br, nullptr) && br > 0) {
+            if (!BCRYPT_SUCCESS(BCryptHashData(hHash, (PUCHAR)buf, br, 0))) { readOk = false; break; }
+        }
+        if (!readOk) break;
+        UCHAR hash[64];
+        if (!BCRYPT_SUCCESS(BCryptFinishHash(hHash, hash, sizeof(hash), 0))) break;
+        static const char* hexc = "0123456789abcdef";
+        outHex.clear();
+        outHex.reserve(128);
+        for (int i = 0; i < 64; i++) {
+            outHex += hexc[hash[i] >> 4];
+            outHex += hexc[hash[i] & 0xF];
+        }
+        ok = true;
+    } while (false);
+
+    if (hHash) BCryptDestroyHash(hHash);
+    if (hAlg) BCryptCloseAlgorithmProvider(hAlg, 0);
+    CloseHandle(hFile);
+    return ok;
 }
 
 
@@ -602,6 +642,7 @@ void RegisterFileHandlers(BridgeServer* bridge, DatabaseService* db, ContentCach
         std::string dlUrl;
         std::string fileName;
         size_t size = 0;
+        std::string sha512;
 
         // Parse latest.yml: "version: X.Y.Z\nfiles:\n  - url: ...\n    sha512: ...\n    size: N"
         size_t vp = body.find("version:");
@@ -631,6 +672,19 @@ void RegisterFileHandlers(BridgeServer* bridge, DatabaseService* db, ContentCach
                 if (se != std::string::npos) {
                     try { size = std::stoull(body.substr(sp, se - sp)); } catch (...) {}
                 }
+            }
+
+            // Find sha512 (for update package integrity verification)
+            size_t hp = body.find("sha512:");
+            if (hp != std::string::npos) {
+                hp += 7;
+                while (hp < body.size() && body[hp] == ' ') hp++;
+                size_t he = body.find('\n', hp);
+                if (he != std::string::npos) sha512 = body.substr(hp, he - hp);
+                while (!sha512.empty() &&
+                       (sha512.back() == '\r' || sha512.back() == ' ' || sha512.back() == '"'))
+                    sha512.pop_back();
+                while (!sha512.empty() && sha512.front() == '"') sha512.erase(sha512.begin());
             }
 
             // Build download URL from file name
@@ -680,6 +734,7 @@ void RegisterFileHandlers(BridgeServer* bridge, DatabaseService* db, ContentCach
             result["fileName"] = fileName;
             result["downloadUrl"] = dlUrl;
             result["size"] = size;
+            result["sha512"] = sha512;
             return result;
         }
         return json(nullptr);
@@ -687,7 +742,14 @@ void RegisterFileHandlers(BridgeServer* bridge, DatabaseService* db, ContentCach
 
     bridge->RegisterMethod("app:downloadUpdate", [bridge](const json& p) -> json {
         std::string downloadUrl = p.value("url", "");
+        std::string sha512 = p.value("sha512", "");
         if (downloadUrl.empty()) return json(nullptr);
+
+        // Integrity + trust: only accept official GitHub release URLs. Combined
+        // with the origin gate in HandleMessage, this prevents any page from
+        // making us download an arbitrary binary.
+        const char* kOfficialPrefix = "https://github.com/ParticleLight/ParticleBook/releases/download/";
+        if (downloadUrl.rfind(kOfficialPrefix, 0) != 0) return json(nullptr);
 
         // Download in background to avoid blocking UI thread
         HWND hwnd = bridge->GetWebViewHost() ? bridge->GetWebViewHost()->GetHwnd() : nullptr;
@@ -701,7 +763,7 @@ void RegisterFileHandlers(BridgeServer* bridge, DatabaseService* db, ContentCach
             return json(true);
         }
 
-        std::thread([hwnd, downloadUrl]() {
+        std::thread([hwnd, downloadUrl, sha512]() {
             int wlen = MultiByteToWideChar(CP_UTF8, 0, downloadUrl.c_str(), -1, nullptr, 0);
             std::wstring wUrl(wlen, L'\0');
             MultiByteToWideChar(CP_UTF8, 0, downloadUrl.c_str(), -1, &wUrl[0], wlen);
@@ -765,6 +827,20 @@ void RegisterFileHandlers(BridgeServer* bridge, DatabaseService* db, ContentCach
                 auto* errStr = new std::string("下载失败（请检查网络后重试）");
                 PostMessage(hwnd, WM_UPDATE_DOWNLOAD_DONE, 0, (LPARAM)errStr);
                 return;
+            }
+
+            // Integrity check: verify SHA-512 against the value published in
+            // latest.yml. Skip when the published value is missing or still the
+            // placeholder "dummy" (legacy releases); real values are added from
+            // the next release onward.
+            if (!sha512.empty() && sha512 != "dummy") {
+                std::string actual;
+                if (!ComputeFileSha512(exePath, actual) || _stricmp(actual.c_str(), sha512.c_str()) != 0) {
+                    DeleteFileW(exePath.c_str());
+                    auto* errStr = new std::string("更新包校验失败（哈希不匹配），已中止安装");
+                    PostMessage(hwnd, WM_UPDATE_DOWNLOAD_DONE, 0, (LPARAM)errStr);
+                    return;
+                }
             }
 
             // Pass path back to main thread (will be stored for quitAndInstall)

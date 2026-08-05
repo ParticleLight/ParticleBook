@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 
-interface UpdateInfo { version: string; releaseDate?: string; releaseNotes?: string; downloadUrl?: string; fileName?: string }
+interface UpdateInfo { version: string; releaseDate?: string; releaseNotes?: string; downloadUrl?: string; fileName?: string; sha512?: string }
 
 export function UpdateBanner() {
   const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null)
@@ -37,7 +37,7 @@ export function UpdateBanner() {
 
   const handleDownload = async () => {
     setDownloading(true)
-    const result = await window.electronAPI.downloadUpdate(updateInfo?.downloadUrl || '')
+    const result = await window.electronAPI.downloadUpdate(updateInfo?.downloadUrl || '', updateInfo?.sha512 || '')
     if (!result) setDownloading(false)
   }
 

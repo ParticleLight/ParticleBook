@@ -7,28 +7,84 @@
 #include <sstream>
 #include <filesystem>
 #include <ctime>
+#include <unordered_set>
 
 void BridgeServer::RegisterMethod(const std::string& name, MethodHandler handler)
 {
     m_methods[name] = std::move(handler);
 }
 
-void BridgeServer::HandleMessage(const std::string& rawJson)
+namespace {
+    // Origin classification for incoming web messages.
+    //
+    // The bridge script (window.electronAPI) is injected into EVERY document via
+    // AddScriptToExecuteOnDocumentCreated — including external Z-Library mirror
+    // pages and untrusted in-app documents (e.g. EPUB iframes). Without source
+    // checks, any such page could call privileged methods (file:read, db:*,
+    // app:downloadUpdate + quitAndInstall → arbitrary code execution).
+    //
+    // Z-Library mirror URLs drift dynamically (they redirect to unlabeled transit
+    // domains), so we must NOT lock navigation or certificates to a domain list.
+    // Instead we only gate the *message layer*: external pages get a small
+    // allowlist of toolbar methods (back/forward/reload/switch mirror), which is
+    // all the injected floating toolbar needs. Downloads & auto-import never use
+    // this layer (they run via WebView2 download events + C++-side InvokeMethod),
+    // so they are unaffected.
+    enum class MsgOrigin { App, External, Unknown };
+
+    MsgOrigin ClassifyOrigin(const std::string& source) {
+        // App page (virtual host) — exact prefix so particlebook.app.evil.com
+        // doesn't match.
+        if (source == "http://particlebook.app" ||
+            source.rfind("http://particlebook.app/", 0) == 0) return MsgOrigin::App;
+        // Any other http(s) origin (Z-Library mirrors / transit domains).
+        if (source.rfind("http://", 0) == 0 || source.rfind("https://", 0) == 0)
+            return MsgOrigin::External;
+        // blob: / data: / about: / file: etc. (e.g. injected EPUB iframe) → reject.
+        return MsgOrigin::Unknown;
+    }
+
+    // Methods an external (Z-Library mirror) page may invoke. Kept minimal: the
+    // injected floating toolbar needs mirror info + navigation only.
+    const std::unordered_set<std::string>& ExternalAllowedMethods() {
+        static const std::unordered_set<std::string> s = {
+            "zlib:getMirrorInfo", "zlib:switchMirror", "zlib:navigate",
+            "zlib:getURL", "zlib:logout", "zlib:fetchMirrors", "zlib:getDownloadPath",
+        };
+        return s;
+    }
+
+    bool IsAllowedForExternal(const std::string& method) {
+        return ExternalAllowedMethods().count(method) > 0;
+    }
+}
+
+void BridgeServer::HandleMessage(const std::string& rawJson, const std::string& source)
 {
     try {
         auto msg = json::parse(rawJson);
         std::string type = msg.value("type", "");
+        MsgOrigin origin = ClassifyOrigin(source);
 
         if (type == "invoke") {
             int id = msg.value("id", 0);
             std::string method = msg.value("method", "");
             json params = msg.value("params", json::object());
+
+            // Unknown-scheme sources (untrusted iframes) get nothing.
+            if (origin == MsgOrigin::Unknown) return;
+            // External pages may only call the toolbar allowlist.
+            if (origin == MsgOrigin::External && !IsAllowedForExternal(method)) return;
+
             ProcessInvoke(id, method, params);
         } else if (type == "reload") {
+            // Only the app page may reload the whole WebView.
+            if (origin != MsgOrigin::App) return;
             if (m_webview && m_webview->GetWebView()) {
                 m_webview->GetWebView()->ExecuteScript(L"location.reload()", nullptr);
             }
         } else if (type == "zlibNavigate") {
+            if (origin == MsgOrigin::Unknown) return;
             std::string action = msg.value("action", "");
             if (action == "back" && m_webview && m_webview->GetWebView()) {
                 BOOL can = FALSE; m_webview->GetWebView()->get_CanGoBack(&can);
@@ -40,11 +96,13 @@ void BridgeServer::HandleMessage(const std::string& rawJson)
                 m_webview->GetWebView()->Reload();
             }
         } else if (type == "zlibClose") {
+            if (origin == MsgOrigin::Unknown) return;
             auto it = m_methods.find("zlib:hide");
             if (it != m_methods.end()) {
                 try { it->second(json::object()); } catch (...) {}
             }
         } else if (type == "zlibSwitchTo") {
+            if (origin == MsgOrigin::Unknown) return;
             auto it = m_methods.find("zlib:switchMirror");
             if (it != m_methods.end()) {
                 int idx = msg.value("index", 0);
@@ -53,8 +111,10 @@ void BridgeServer::HandleMessage(const std::string& rawJson)
                 try { it->second(params); } catch (...) {}
             }
         } else if (type == "subscribe") {
+            if (origin != MsgOrigin::App) return;
             ProcessSubscribe(msg.value("event", ""));
         } else if (type == "unsubscribe") {
+            if (origin != MsgOrigin::App) return;
             ProcessUnsubscribe(msg.value("event", ""));
         }
     } catch (const std::exception& e) {
@@ -262,7 +322,7 @@ std::string BridgeServer::GenerateBridgeScript()
 
     checkUpdate: function()    { return invoke('app:checkUpdate'); },
     getAppVersion: function()  { return invoke('app:getVersion'); },
-    downloadUpdate: function(url) { return invoke('app:downloadUpdate', {url:url||''}); },
+    downloadUpdate: function(url, sha512) { return invoke('app:downloadUpdate', {url:url||'', sha512:sha512||''}); },
     quitAndInstall: function() { return invoke('app:quitAndInstall'); },
     onUpdateAvailable: function(cb)        { return onEvent('app:updateAvailable', cb); },
     onUpdateNotAvailable: function(cb)     { return onEvent('app:updateNotAvailable', cb); },

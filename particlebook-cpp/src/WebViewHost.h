@@ -49,7 +49,7 @@ public:
     using UpdateDoneCb = std::function<void(bool success, const std::string& path_or_error)>;
     void SetUpdateDoneCallback(UpdateDoneCb cb) { m_updateDoneCb = std::move(cb); }
 
-    using MessageHandler = std::function<void(const std::string&)>;
+    using MessageHandler = std::function<void(const std::string& msg, const std::string& source)>;
     void SetMessageHandler(MessageHandler handler) { m_msgHandler = std::move(handler); }
 
     void PostMessageToMainThread(UINT msg, WPARAM wp, LPARAM lp) {

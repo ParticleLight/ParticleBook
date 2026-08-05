@@ -15,7 +15,7 @@ public:
     using MethodHandler = std::function<json(const json& params)>;
 
     void RegisterMethod(const std::string& name, MethodHandler handler);
-    void HandleMessage(const std::string& rawJson);
+    void HandleMessage(const std::string& rawJson, const std::string& source);
 
     void EmitEvent(const std::string& event, const json& data);
 

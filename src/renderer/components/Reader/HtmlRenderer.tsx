@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef } from 'react'
 import MarkdownIt from 'markdown-it'
 import { XMLParser } from 'fast-xml-parser'
+import DOMPurify from 'dompurify'
 import { useReaderStore } from '../../stores/readerStore'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { highlightTextInDOM } from '../../utils/domSearch'
@@ -72,15 +73,19 @@ export function HtmlRenderer({ book, content, bookId }: HtmlRendererProps) {
   useEffect(() => {
     const text = new TextDecoder('utf-8').decode(content)
 
+    // DOMPurify strips scripts/event-handlers/javascript: URLs from untrusted
+    // book content before it reaches dangerouslySetInnerHTML below. Book files
+    // are attacker-controlled input rendered on the app origin (which owns the
+    // full electronAPI bridge), so sanitization is mandatory for every format.
     switch (book.format) {
       case 'markdown':
-        setHtmlContent(md.render(text))
+        setHtmlContent(DOMPurify.sanitize(md.render(text)))
         break
       case 'fb2':
-        setHtmlContent(parseFb2(text))
+        setHtmlContent(DOMPurify.sanitize(parseFb2(text)))
         break
       case 'html':
-        setHtmlContent(text)
+        setHtmlContent(DOMPurify.sanitize(text))
         break
       default:
         setHtmlContent(`<pre style="white-space: pre-wrap; font-family: inherit;">${escapeHtml(text)}</pre>`)
