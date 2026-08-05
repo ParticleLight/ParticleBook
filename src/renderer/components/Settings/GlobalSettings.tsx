@@ -431,13 +431,21 @@ function AboutPage() {
   useEffect(() => {
     window.electronAPI.getAppVersion().then((v) => setAppVersion(v))
 
-    const unsubs = [
-      window.electronAPI.onUpdateAvailable((info) => { setUpdateInfo(info); setUpdateStatus('available') }),
-      window.electronAPI.onUpdateNotAvailable(() => {
+    // checkUpdate runs on a C++ background thread and emits app:updateChecked
+    // with the result. Both the startup auto-check and the manual button below
+    // funnel through this event (the invoke itself returns immediately).
+    const handleChecked = (info: any) => {
+      if (info?.version) {
+        setUpdateInfo(info); setUpdateStatus('available')
+      } else {
         setUpdateStatus('not-available')
         if (idleTimerRef.current) clearTimeout(idleTimerRef.current)
         idleTimerRef.current = setTimeout(() => { setUpdateStatus('idle') }, 3000)
-      }),
+      }
+    }
+
+    const unsubs = [
+      window.electronAPI.onUpdateChecked(handleChecked),
       window.electronAPI.onUpdateDownloaded(() => { setUpdateStatus('downloaded') }),
       window.electronAPI.onUpdateError((msg) => {
         setErrorMessage(typeof msg === 'string' ? msg : (msg?.error || '更新失败')); setUpdateStatus('error')
@@ -449,17 +457,10 @@ function AboutPage() {
     return () => { unsubs.forEach((u) => u()); if (idleTimerRef.current) clearTimeout(idleTimerRef.current) }
   }, [])
 
-  const handleCheckUpdate = async () => {
+  const handleCheckUpdate = () => {
     setUpdateStatus('checking'); setErrorMessage('')
-    try {
-      const info = await window.electronAPI.checkUpdate()
-      if (info?.version) { setUpdateInfo(info); setUpdateStatus('available') }
-      else {
-        setUpdateStatus('not-available')
-        if (idleTimerRef.current) clearTimeout(idleTimerRef.current)
-        idleTimerRef.current = setTimeout(() => { setUpdateStatus('idle') }, 3000)
-      }
-    } catch { setErrorMessage('检查更新失败'); setUpdateStatus('error') }
+    // Background check — the result arrives via the app:updateChecked event.
+    window.electronAPI.checkUpdate().catch(() => setErrorMessage('检查更新失败'))
   }
 
   return (

@@ -86,7 +86,7 @@ private:
     void ScheduleWrite();
     void WriterThread();
     void EnsureDefaults();
-    void WriteAtomic(const json& data);
+    bool WriteAtomic(const json& data);
     void BackupCorruptFile(const std::string& path);
 
     mutable std::mutex m_mutex;

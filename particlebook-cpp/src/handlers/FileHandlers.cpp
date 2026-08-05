@@ -221,7 +221,8 @@ static std::vector<uint8_t> Base64Decode(const std::string& in)
 {
     std::vector<uint8_t> out;
     out.reserve(in.size() / 4 * 3);
-    int val = 0, valb = -8;
+    unsigned int val = 0;
+    int valb = -8;
     for (unsigned char c : in) {
         uint8_t d;
         if (c >= 'A' && c <= 'Z') d = static_cast<uint8_t>(c - 'A');
@@ -1057,6 +1058,22 @@ void RegisterFileHandlers(BridgeServer* bridge, DatabaseService* db, ContentCach
         std::filesystem::create_directories(Utf8ToWide(dir));
 
         std::string filePath = dir + "\\" + safeName;
+        // Avoid silently overwriting a previously-dropped file with the same
+        // name: append a numeric suffix so two different books that happen to
+        // share a filename each get their own file.
+        if (GetFileAttributesW(Utf8ToWide(filePath).c_str()) != INVALID_FILE_ATTRIBUTES) {
+            size_t dot = safeName.rfind('.');
+            std::string stem = (dot != std::string::npos) ? safeName.substr(0, dot) : safeName;
+            std::string ext = (dot != std::string::npos) ? safeName.substr(dot) : "";
+            for (int i = 1; i < 1000; i++) {
+                std::string cand = dir + "\\" + stem + " (" + std::to_string(i) + ")" + ext;
+                if (GetFileAttributesW(Utf8ToWide(cand).c_str()) == INVALID_FILE_ATTRIBUTES) {
+                    filePath = cand;
+                    break;
+                }
+            }
+        }
+
         HANDLE hFile = CreateFileW(Utf8ToWide(filePath).c_str(), GENERIC_WRITE, 0, nullptr,
                                    CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
         if (hFile == INVALID_HANDLE_VALUE) return json(nullptr);

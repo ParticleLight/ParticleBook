@@ -142,7 +142,6 @@ static std::string PatchMobiEncoding(const std::string& filePath)
 
     // Rename to keep original extension so mutool detects format
     DeleteFileW(tmpFile);
-    std::wstring patchedWithExt = Utf8ToWide(patchedPath + ext);
     // Unique temp name per patch: a per-process counter prevents two MOBIs
     // patched in the same session from overwriting each other's file
     // (previously a fixed pb_mobi_<pid><ext> collided → wrong book rendered).

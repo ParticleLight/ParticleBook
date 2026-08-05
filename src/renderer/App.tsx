@@ -62,7 +62,7 @@ export default function App() {
       }
     }
     const unsub = window.electronAPI.onUpdateChecked(onChecked)
-    const t = setTimeout(() => { window.electronAPI.checkUpdate() }, 2000)
+    const t = setTimeout(() => { window.electronAPI.checkUpdate().catch(() => {}) }, 2000)
     return () => { cancelled = true; clearTimeout(t); unsub() }
   }, [])
 

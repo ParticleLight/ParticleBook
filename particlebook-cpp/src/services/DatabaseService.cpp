@@ -1,6 +1,7 @@
 #include "DatabaseService.h"
 #include <fstream>
 #include <filesystem>
+#include <atomic>
 #include <chrono>
 #include <ctime>
 #include <cstdio>
@@ -84,17 +85,20 @@ void DatabaseService::Load(const std::string& path)
 }
 
 // ── Atomic persist ───────────────────────────────────────────────
-// Write to a temp file then atomically replace the real one. A crash at any
-// point leaves either the previous intact file or the tmp file — never a
-// truncated JSON that Load() would treat as empty.
-void DatabaseService::WriteAtomic(const json& data)
+// Write to a uniquely-named temp file then atomically replace the real one.
+// A crash at any point leaves either the previous intact file or a tmp file —
+// never a truncated JSON that Load() would treat as empty. The unique tmp name
+// lets WriterThread write off-lock while FlushSync writes concurrently without
+// corrupting each other (each rename is atomic; last one wins).
+bool DatabaseService::WriteAtomic(const json& data)
 {
-    if (m_path.empty()) return;
-    std::string tmpPath = m_path + ".tmp";
+    if (m_path.empty()) return false;
+    static std::atomic<int> seq{0};
+    std::string tmpPath = m_path + ".tmp." + std::to_string(seq++);
 
     {
         std::ofstream f(tmpPath, std::ios::binary | std::ios::trunc);
-        if (!f.is_open()) return;
+        if (!f.is_open()) return false;
         f << data.dump(2);
         f.flush();
     }
@@ -102,7 +106,9 @@ void DatabaseService::WriteAtomic(const json& data)
     if (!MoveFileExW(Utf8ToWide(tmpPath).c_str(), Utf8ToWide(m_path).c_str(),
                      MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
         DeleteFileW(Utf8ToWide(tmpPath).c_str());
+        return false;
     }
+    return true;
 }
 
 void DatabaseService::BackupCorruptFile(const std::string& path)
@@ -135,8 +141,9 @@ void DatabaseService::EnsureDefaults()
 void DatabaseService::FlushSync()
 {
     std::lock_guard<std::mutex> lock(m_mutex);
-    m_dirty = false;  // this write supersedes any pending debounced write
-    WriteAtomic(m_data);
+    // Only clear the pending-write flag once the data actually hit disk, so a
+    // failed final flush (disk full / file locked) doesn't silently lose data.
+    if (WriteAtomic(m_data)) m_dirty = false;
 }
 
 void DatabaseService::ScheduleWrite()
@@ -149,16 +156,25 @@ void DatabaseService::ScheduleWrite()
 void DatabaseService::WriterThread()
 {
     while (true) {
-        std::unique_lock<std::mutex> lock(m_mutex);
-        m_cv.wait_for(lock, m_debounce, [this]{ return m_dirty; });
-        if (!m_running) break;
-        if (!m_dirty) continue;
-        m_dirty = false;
+        json data;
+        {
+            std::unique_lock<std::mutex> lock(m_mutex);
+            m_cv.wait_for(lock, m_debounce, [this]{ return m_dirty; });
+            if (!m_running) break;
+            if (!m_dirty) continue;
+            m_dirty = false;
+            data = m_data;  // copy under the lock, write off the lock
+        }
 
-        // Write while holding the lock: serializes with FlushSync so the two
-        // never write the same file concurrently (the old code unlocked before
-        // ofstream, allowing interleaved/truncated writes on shutdown).
-        WriteAtomic(m_data);
+        if (!WriteAtomic(data)) {
+            // A failed flush must not drop the last update — mark dirty again
+            // and retry on the next round.
+            {
+                std::lock_guard<std::mutex> lk(m_mutex);
+                m_dirty = true;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(500));
+        }
     }
 }
 
