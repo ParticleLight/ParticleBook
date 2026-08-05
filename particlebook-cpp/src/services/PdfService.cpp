@@ -3,6 +3,7 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <atomic>
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
 #include <sstream>
@@ -455,6 +456,14 @@ void PdfService::Close(int id)
             // Clean up temp PNG files
             for (auto& f : it->tempFiles) {
                 DeleteFileW(Utf8ToWide(f).c_str());
+            }
+            // Clean up the MOBI patch temp file if this doc was patched
+            // (PatchMobiEncoding wrote pb_mobi_<pid>_<seq><ext>).
+            std::wstring fname = std::filesystem::path(Utf8ToWide(it->filePath)).filename().wstring();
+            if (fname.rfind(L"pb_mobi_", 0) == 0) {
+                DeleteFileW(Utf8ToWide(it->filePath).c_str());
+                m_tempFiles.erase(std::remove(m_tempFiles.begin(), m_tempFiles.end(), it->filePath),
+                                  m_tempFiles.end());
             }
             // Clean up legacy mutool_tmp dir
             std::error_code ec;

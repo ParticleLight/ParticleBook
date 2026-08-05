@@ -8,6 +8,11 @@ import { useLibraryStore } from './stores/libraryStore'
 const GlobalSettings = lazy(() => import('./components/Settings/GlobalSettings').then(m => ({ default: m.GlobalSettings })))
 const StatisticsPage = lazy(() => import('./components/Library/StatisticsPage').then(m => ({ default: m.StatisticsPage })))
 
+// Only auto-check for updates once per app session — the check useEffect below
+// runs on every App mount, and going in/out of Z-Library reloads the page (and
+// thus remounts App), which would otherwise re-trigger the check each time.
+let autoCheckFired = false
+
 type Page = 'library' | 'settings' | 'statistics'
 
 const PageLoader = () => (
@@ -55,6 +60,8 @@ export default function App() {
   // thread and the result arrives via the app:updateChecked event (the invoke
   // itself returns immediately, so startup never blocks on GitHub).
   useEffect(() => {
+    if (autoCheckFired) return
+    autoCheckFired = true
     let cancelled = false
     const onChecked = (info: any) => {
       if (!cancelled && info?.version) {

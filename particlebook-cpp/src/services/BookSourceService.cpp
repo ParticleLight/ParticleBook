@@ -9,6 +9,7 @@
 #include <cctype>
 #include <sstream>
 #include <filesystem>
+#include <memory>
 
 #pragma comment(lib, "winhttp.lib")
 
@@ -565,7 +566,7 @@ void BookSourceService::WorkerThread()
 // ── Handler Registration ─────────────────────────────────────────
 
 class BridgeServer;
-void RegisterBookSourceHandlers(BridgeServer* bridge, BookSourceService* svc)
+void RegisterBookSourceHandlers(BridgeServer* bridge, std::shared_ptr<BookSourceService> svc)
 {
     bridge->RegisterMethod("bookSource:search", [svc](const json& p) -> json {
         return svc->SearchAll(p.value("keyword", ""), p.value("page", 1));
@@ -580,7 +581,16 @@ void RegisterBookSourceHandlers(BridgeServer* bridge, BookSourceService* svc)
         return svc->GetChapterList(p["sourceId"].get<int>(), p["tocUrl"].get<std::string>());
     });
     bridge->RegisterMethod("bookSource:download", [svc](const json& p) -> json {
-        return svc->DownloadBook(p["sourceId"].get<int>(), p["bookUrl"].get<std::string>(),
-                                  p["bookName"].get<std::string>(), p.value("format", "txt"));
+        int sourceId = p["sourceId"].get<int>();
+        std::string bookUrl = p["bookUrl"].get<std::string>();
+        std::string bookName = p["bookName"].get<std::string>();
+        std::string format = p.value("format", "txt");
+        // Run the whole download off the UI thread — a large book takes minutes
+        // and the previous synchronous handler froze the window. Capturing svc
+        // (shared_ptr) keeps the service alive until the download finishes.
+        std::thread([svc, sourceId, bookUrl, bookName, format]() {
+            svc->DownloadBook(sourceId, bookUrl, bookName, format);
+        }).detach();
+        return json("started");
     });
 }

@@ -16,7 +16,7 @@
 class BridgeServer;
 class BookSourceService;
 class ZLibraryService;
-void RegisterBookSourceHandlers(BridgeServer* bridge, BookSourceService* svc);
+void RegisterBookSourceHandlers(BridgeServer* bridge, std::shared_ptr<BookSourceService> svc);
 void RegisterZlibHandlers(BridgeServer* bridge, ZLibraryService* zlib);
 
 App& App::Instance() { static App app; return app; }
@@ -199,7 +199,7 @@ void App::Init(HINSTANCE hInstance)
     RegisterDbHandlers(m_bridge.get(), m_db.get());
     RegisterFileHandlers(m_bridge.get(), m_db.get(), m_cache.get());
     RegisterPdfHandlers(m_bridge.get(), m_pdf.get());
-    RegisterBookSourceHandlers(m_bridge.get(), m_bookSource.get());
+    RegisterBookSourceHandlers(m_bridge.get(), m_bookSource);
     RegisterZlibHandlers(m_bridge.get(), m_zlib.get());
 }
 

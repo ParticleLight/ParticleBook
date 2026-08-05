@@ -17,6 +17,7 @@
 #include <bcrypt.h>
 #include <cstring>
 #include <cstdio>
+#include <atomic>
 #include <thread>
 #include <ctime>
 #include <mutex>
@@ -772,13 +773,20 @@ void RegisterFileHandlers(BridgeServer* bridge, DatabaseService* db, ContentCach
     bridge->RegisterMethod("app:getVersion", [](const json&) -> json { return json(PB_VERSION_STRING); });
 
     bridge->RegisterMethod("app:checkUpdate", [bridge](const json&) -> json {
+        // Only one in-flight check at a time — the startup auto-check and the
+        // manual Settings button would otherwise each spawn a WinHTTP thread
+        // and emit duplicate app:updateChecked events.
+        static std::atomic<bool> checkInFlight{false};
+        if (checkInFlight.exchange(true)) return json(nullptr);
+
         // Run the blocking WinHTTP check on a background thread so startup
         // never freezes when GitHub is slow/unreachable. The result is surfaced
         // to the frontend via the 'app:updateChecked' event.
         HWND hwnd = bridge->GetWebViewHost() ? bridge->GetWebViewHost()->GetHwnd() : nullptr;
-        if (!hwnd) return json(nullptr);
+        if (!hwnd) { checkInFlight = false; return json(nullptr); }
         std::thread([hwnd]() {
             json result = CheckUpdateImpl();
+            checkInFlight = false;  // allow the next check before delivering
             auto* resultStr = new std::string(result.dump());
             PostMessage(hwnd, WM_UPDATE_CHECK_DONE, 0, reinterpret_cast<LPARAM>(resultStr));
         }).detach();

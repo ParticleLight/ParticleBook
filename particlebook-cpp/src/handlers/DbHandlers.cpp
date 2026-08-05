@@ -1,11 +1,21 @@
 #include "DbHandlers.h"
 #include "BridgeServer.h"
 #include "WebViewHost.h"
+#include "App.h"
 #include "services/DatabaseService.h"
 #include <windows.h>
 #include <filesystem>
 #include <cstdio>
 #include <ctime>
+
+static std::wstring Utf8ToWide(const std::string& s) {
+    if (s.empty()) return L"";
+    int len = MultiByteToWideChar(CP_UTF8, 0, s.c_str(), (int)s.size(), nullptr, 0);
+    if (len <= 0) return L"";
+    std::wstring w(len, L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, s.c_str(), (int)s.size(), &w[0], len);
+    return w;
+}
 
 void RegisterDbHandlers(BridgeServer* bridge, DatabaseService* db)
 {
@@ -25,7 +35,17 @@ void RegisterDbHandlers(BridgeServer* bridge, DatabaseService* db)
     bridge->RegisterMethod("db:deleteBook", [db](const json& p) {
         int id = p.value("id", -1);
         if (id < 0) return json::object();
+        // Also remove the physical file for drag-and-drop imported books (written
+        // to %APPDATA%/particle-book/dropped/) — otherwise they orphan forever.
+        auto book = db->GetBook(id);
         db->DeleteBook(id);
+        if (!book.is_null()) {
+            std::string fp = book.value("file_path", "");
+            std::string droppedPrefix = App::Instance().UserDataPath() + "/dropped/";
+            if (fp.rfind(droppedPrefix, 0) == 0) {
+                DeleteFileW(Utf8ToWide(fp).c_str());
+            }
+        }
         return json::object();
     });
 
