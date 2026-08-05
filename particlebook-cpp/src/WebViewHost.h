@@ -4,6 +4,7 @@
 
 // Custom messages for cross-thread communication
 #define WM_UPDATE_DOWNLOAD_DONE (WM_USER + 15)
+#define WM_UPDATE_CHECK_DONE    (WM_USER + 16)
 #include <string>
 #include <vector>
 #include <functional>
@@ -49,6 +50,9 @@ public:
     using UpdateDoneCb = std::function<void(bool success, const std::string& path_or_error)>;
     void SetUpdateDoneCallback(UpdateDoneCb cb) { m_updateDoneCb = std::move(cb); }
 
+    using UpdateCheckCb = std::function<void(const std::string& resultJson)>;
+    void SetUpdateCheckCallback(UpdateCheckCb cb) { m_updateCheckCb = std::move(cb); }
+
     using MessageHandler = std::function<void(const std::string& msg, const std::string& source)>;
     void SetMessageHandler(MessageHandler handler) { m_msgHandler = std::move(handler); }
 
@@ -76,5 +80,6 @@ private:
     ImportCallback m_importCb;
     DownloadFailCb m_dlFailCb;
     UpdateDoneCb m_updateDoneCb;
+    UpdateCheckCb m_updateCheckCb;
     std::vector<std::string> m_pendingScripts;
 };

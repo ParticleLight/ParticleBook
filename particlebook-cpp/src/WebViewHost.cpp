@@ -182,6 +182,15 @@ LRESULT CALLBACK WebViewHost::WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
         }
         return 0;
 
+    case WM_UPDATE_CHECK_DONE:
+        if (self->m_updateCheckCb) {
+            auto* str = reinterpret_cast<std::string*>(lp);
+            std::string result = str ? std::move(*str) : "{}";
+            delete str;
+            self->m_updateCheckCb(result);
+        }
+        return 0;
+
     case WM_MOVE:
         if (self->m_moveCb) self->m_moveCb();
         return 0;

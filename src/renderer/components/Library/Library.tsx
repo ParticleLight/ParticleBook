@@ -9,6 +9,17 @@ import { safeText } from '../../utils/safeText'
 const ChangelogPanel = lazy(() => import('./ChangelogPanel').then(m => ({ default: m.ChangelogPanel })))
 const BookSourcePanel = lazy(() => import('./BookSourcePanel').then(m => ({ default: m.BookSourcePanel })))
 
+// WebView2 File objects have no .path — convert bytes to base64 to hand to C++.
+function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer)
+  let binary = ''
+  const chunk = 0x8000
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk) as unknown as number[])
+  }
+  return btoa(binary)
+}
+
 interface LibraryProps { onOpenBook: (bookId: number) => void; onOpenSettings: () => void; onOpenZLibrary: () => void; onOpenStatistics: () => void }
 
 function BookPickerDialog({ books, shelfName, shelfBookIds, onAdd, onClose }: { books: Book[]; shelfName: string; shelfBookIds: number[]; onAdd: (ids: number[]) => void; onClose: () => void }) {
@@ -87,8 +98,6 @@ function BookPickerDialog({ books, shelfName, shelfBookIds, onAdd, onClose }: { 
 }
 
 export function Library({ onOpenBook, onOpenSettings, onOpenZLibrary, onOpenStatistics }: LibraryProps) {
-  // localBooks bypasses zustand for WebView2 compatibility (Promise .then() not firing)
-  const [localBooks, setLocalBooks] = useState<Book[] | null>(null)
   const books = useLibraryStore((s) => s.books)
   const isLoading = useLibraryStore((s) => s.isLoading)
   const viewMode = useLibraryStore((s) => s.viewMode)
@@ -117,18 +126,19 @@ export function Library({ onOpenBook, onOpenSettings, onOpenZLibrary, onOpenStat
 
   useEffect(() => { loadBookshelves(); loadReadingTime(); loadReadingProgress() }, [loadBookshelves, loadReadingTime, loadReadingProgress])
 
-  // Register global refresh function for bridge script to call after import/delete
+  // Register global refresh function for bridge script to call after import/delete.
+  // Goes through the zustand store so the active-bookshelf filter is respected
+  // (the old code wrote *all* books into a localBooks state, which permanently
+  // broke bookshelf filtering after the first import/delete).
   useEffect(() => {
     window.__refreshLibrary = () => {
-      window.electronAPI.getBooks().then((bks) => setLocalBooks(bks)).catch(() => {})
+      useLibraryStore.getState().loadBooks()
     }
     return () => { delete window.__refreshLibrary }
   }, [])
 
-  const effectiveBooks = localBooks !== null ? localBooks : books
-
   const sortedBooks = useMemo(() => {
-    const filtered = effectiveBooks.filter((book) => {
+    const filtered = books.filter((book) => {
       if (!searchQuery) return true
       const q = searchQuery.toLowerCase()
       return safeText(book.title).toLowerCase().includes(q) || safeText(book.author).toLowerCase().includes(q)
@@ -136,7 +146,7 @@ export function Library({ onOpenBook, onOpenSettings, onOpenZLibrary, onOpenStat
     return [...filtered].sort((a, b) => {
       switch (sortBy) { case 'title': return safeText(a.title).localeCompare(safeText(b.title)); case 'author': return safeText(a.author).localeCompare(safeText(b.author)); case 'added_at': return new Date(b.added_at).getTime() - new Date(a.added_at).getTime(); case 'last_opened': return new Date(b.last_opened || 0).getTime() - new Date(a.last_opened || 0).getTime(); default: return 0 }
     })
-  }, [effectiveBooks, searchQuery, sortBy])
+  }, [books, searchQuery, sortBy])
 
   const handleImport = useCallback(async () => { const filePath = await window.electronAPI.openFile(); if (filePath) await importBooks([filePath]) }, [importBooks])
 
@@ -144,8 +154,28 @@ export function Library({ onOpenBook, onOpenSettings, onOpenZLibrary, onOpenStat
 
   const handleDrop = useCallback(async (e: React.DragEvent) => {
     e.preventDefault(); dragCounterRef.current = 0; setIsDragOver(false)
+    const files = Array.from(e.dataTransfer.files)
+    if (files.length === 0) return
     const filePaths: string[] = []
-    for (const file of Array.from(e.dataTransfer.files)) { try { const p = window.electronAPI.getFilePath(file); if (p) filePaths.push(p) } catch (e) { console.warn('Failed to get file path:', e) } }
+    for (const file of files) {
+      try {
+        // WebView2 File objects carry no filesystem path. If getFilePath can't
+        // resolve one (the normal case), read the content here and hand the
+        // bytes to C++ via base64.
+        const p = window.electronAPI.getFilePath(file)
+        if (p) { filePaths.push(p); continue }
+        if (file.size > 50 * 1024 * 1024) {
+          alert(`「${file.name}」超过 50MB，拖放导入不支持超大文件，请改用「导入」按钮`)
+          continue
+        }
+        const buf = await file.arrayBuffer()
+        const b64 = arrayBufferToBase64(buf)
+        const res = await window.electronAPI.writeDroppedFile(file.name, b64)
+        if (res?.path) filePaths.push(res.path)
+      } catch (err) {
+        console.warn('Failed to import dropped file:', err)
+      }
+    }
     if (filePaths.length > 0) await importBooks(filePaths)
   }, [importBooks])
 

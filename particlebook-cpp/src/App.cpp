@@ -47,6 +47,14 @@ void App::Init(HINSTANCE hInstance)
             m_bridge->EmitEvent("app:updateError", {{"error", path_or_error}});
         }
     });
+    m_webview->SetUpdateCheckCallback([this](const std::string& resultJson) {
+        try {
+            json result = json::parse(resultJson);
+            m_bridge->EmitEvent("app:updateChecked", result);
+        } catch (...) {
+            m_bridge->EmitEvent("app:updateChecked", json(nullptr));
+        }
+    });
 
     // 4. Inject bridge script BEFORE WebView2 navigates
     m_webview->InjectBridgeScript(BridgeServer::GenerateBridgeScript());
@@ -177,9 +185,11 @@ void App::Init(HINSTANCE hInstance)
     // 5. Services
     m_pdf = std::make_unique<PdfService>();
     m_bookSource = std::make_shared<BookSourceService>(m_db.get(), m_bridge.get());
-    m_zlib = std::make_unique<ZLibraryService>(m_bridge.get());
+    m_zlib = std::make_shared<ZLibraryService>(m_bridge.get());
     m_zlib->SetHost(m_webview.get());
     m_zlib->SetDatabase(m_db.get());
+    // Background mirror prefetch (shared_ptr keeps the service alive)
+    m_zlib->StartMirrorFetch(m_zlib);
     m_cache = std::make_unique<ContentCache>();
 
     // 6. Register IPC handlers

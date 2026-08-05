@@ -28,6 +28,15 @@ namespace {
         std::filesystem::create_directories(p, ec);
         return filePath;
     }
+
+    std::wstring Utf8ToWide(const std::string& s) {
+        if (s.empty()) return L"";
+        int len = MultiByteToWideChar(CP_UTF8, 0, s.c_str(), (int)s.size(), nullptr, 0);
+        if (len <= 0) return L"";
+        std::wstring w(len, L'\0');
+        MultiByteToWideChar(CP_UTF8, 0, s.c_str(), (int)s.size(), &w[0], len);
+        return w;
+    }
 }
 
 DatabaseService::DatabaseService()
@@ -60,6 +69,10 @@ void DatabaseService::Load(const std::string& path)
             try {
                 m_data = json::parse(f);
             } catch (...) {
+                // Corrupt file: back it up before resetting so the user's data
+                // isn't silently discarded (a crash mid-write used to leave a
+                // half-written JSON that this catch swallowed → total data loss).
+                BackupCorruptFile(path);
                 EnsureDefaults();
             }
         }
@@ -68,6 +81,39 @@ void DatabaseService::Load(const std::string& path)
 
     // Start background writer
     m_writeThread = std::thread(&DatabaseService::WriterThread, this);
+}
+
+// ── Atomic persist ───────────────────────────────────────────────
+// Write to a temp file then atomically replace the real one. A crash at any
+// point leaves either the previous intact file or the tmp file — never a
+// truncated JSON that Load() would treat as empty.
+void DatabaseService::WriteAtomic(const json& data)
+{
+    if (m_path.empty()) return;
+    std::string tmpPath = m_path + ".tmp";
+
+    {
+        std::ofstream f(tmpPath, std::ios::binary | std::ios::trunc);
+        if (!f.is_open()) return;
+        f << data.dump(2);
+        f.flush();
+    }
+
+    if (!MoveFileExW(Utf8ToWide(tmpPath).c_str(), Utf8ToWide(m_path).c_str(),
+                     MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+        DeleteFileW(Utf8ToWide(tmpPath).c_str());
+    }
+}
+
+void DatabaseService::BackupCorruptFile(const std::string& path)
+{
+    char ts[32];
+    time_t now = time(nullptr);
+    tm localTm;
+    localtime_s(&localTm, &now);
+    strftime(ts, sizeof(ts), "%Y%m%d-%H%M%S", &localTm);
+    CopyFileW(Utf8ToWide(path).c_str(),
+              Utf8ToWide(path + ".corrupt-" + ts).c_str(), FALSE);
 }
 
 void DatabaseService::EnsureDefaults()
@@ -89,10 +135,8 @@ void DatabaseService::EnsureDefaults()
 void DatabaseService::FlushSync()
 {
     std::lock_guard<std::mutex> lock(m_mutex);
-    std::ofstream f(m_path);
-    if (f.is_open()) {
-        f << m_data.dump(2);
-    }
+    m_dirty = false;  // this write supersedes any pending debounced write
+    WriteAtomic(m_data);
 }
 
 void DatabaseService::ScheduleWrite()
@@ -111,13 +155,10 @@ void DatabaseService::WriterThread()
         if (!m_dirty) continue;
         m_dirty = false;
 
-        json data = m_data;  // copy
-        lock.unlock();
-
-        std::ofstream f(m_path);
-        if (f.is_open()) {
-            f << data.dump(2);
-        }
+        // Write while holding the lock: serializes with FlushSync so the two
+        // never write the same file concurrently (the old code unlocked before
+        // ofstream, allowing interleaved/truncated writes on shutdown).
+        WriteAtomic(m_data);
     }
 }
 

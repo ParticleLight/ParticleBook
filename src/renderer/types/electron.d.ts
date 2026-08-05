@@ -4,6 +4,7 @@ interface ElectronAPI {
   readFile: (filePath: string) => Promise<Buffer>
   getBookMetadata: (filePath: string) => Promise<any>
   importBooks: (filePaths: string[]) => Promise<any[]>
+  writeDroppedFile: (name: string, dataB64: string) => Promise<{ path: string; size: number } | null>
   getCoverImage: (bookId: number) => Promise<string | null>
 
   getBooks: () => Promise<any[]>
@@ -98,6 +99,7 @@ interface ElectronAPI {
   downloadUpdate: (url: string, sha512?: string) => Promise<any>
   quitAndInstall: () => Promise<any>
   onUpdateAvailable: (callback: (info: any) => void) => () => void
+  onUpdateChecked: (callback: (info: any) => void) => () => void
   onUpdateNotAvailable: (callback: () => void) => () => void
   onUpdateDownloaded: (callback: () => void) => () => void
   onUpdateError: (callback: (message: string) => void) => () => void

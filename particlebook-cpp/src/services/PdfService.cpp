@@ -2,6 +2,7 @@
 #include "BridgeServer.h"
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#include <atomic>
 #include <cstdio>
 #include <cstring>
 #include <sstream>
@@ -142,9 +143,13 @@ static std::string PatchMobiEncoding(const std::string& filePath)
     // Rename to keep original extension so mutool detects format
     DeleteFileW(tmpFile);
     std::wstring patchedWithExt = Utf8ToWide(patchedPath + ext);
-    // Remove random suffix, use fixed name
+    // Unique temp name per patch: a per-process counter prevents two MOBIs
+    // patched in the same session from overwriting each other's file
+    // (previously a fixed pb_mobi_<pid><ext> collided → wrong book rendered).
+    static std::atomic<int> g_mobiSeq{0};
     std::wstring tmpDir = tmpPath;
-    std::wstring fixedName = L"pb_mobi_" + std::to_wstring(GetCurrentProcessId()) + Utf8ToWide(ext);
+    std::wstring fixedName = L"pb_mobi_" + std::to_wstring(GetCurrentProcessId())
+                           + L"_" + std::to_wstring(g_mobiSeq++) + Utf8ToWide(ext);
     patchedPath = WideToUtf8((tmpDir + fixedName).c_str());
 
     HANDLE hOut = CreateFileW((tmpDir + fixedName).c_str(), GENERIC_WRITE, 0, nullptr,

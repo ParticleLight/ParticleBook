@@ -1,6 +1,7 @@
 #include "FileHandlers.h"
 #include "BridgeServer.h"
 #include "WebViewHost.h"
+#include "App.h"
 #include "services/DatabaseService.h"
 #include "services/LibraryService.h"
 #include "services/ContentCache.h"
@@ -215,6 +216,30 @@ static void DebugLog(const char* msg)
     }
 }
 
+// ── Base64 decode — for drag & drop file transfer ────────────────────────
+static std::vector<uint8_t> Base64Decode(const std::string& in)
+{
+    std::vector<uint8_t> out;
+    out.reserve(in.size() / 4 * 3);
+    int val = 0, valb = -8;
+    for (unsigned char c : in) {
+        uint8_t d;
+        if (c >= 'A' && c <= 'Z') d = static_cast<uint8_t>(c - 'A');
+        else if (c >= 'a' && c <= 'z') d = static_cast<uint8_t>(c - 'a' + 26);
+        else if (c >= '0' && c <= '9') d = static_cast<uint8_t>(c - '0' + 52);
+        else if (c == '+') d = 62;
+        else if (c == '/') d = 63;
+        else continue;  // skip whitespace / padding
+        val = (val << 6) | d;
+        valb += 6;
+        if (valb >= 0) {
+            out.push_back(static_cast<uint8_t>((val >> valb) & 0xFF));
+            valb -= 8;
+        }
+    }
+    return out;
+}
+
 // ── SHA-512 of a file (BCrypt) — for update package integrity check ──────
 static bool ComputeFileSha512(const std::wstring& path, std::string& outHex)
 {
@@ -251,6 +276,152 @@ static bool ComputeFileSha512(const std::wstring& path, std::string& outHex)
     if (hAlg) BCryptCloseAlgorithmProvider(hAlg, 0);
     CloseHandle(hFile);
     return ok;
+}
+
+// ── Update check (runs on a background thread) ──────────────────────────
+// Returns the update info json, or json(nullptr) when no update is available
+// or the check failed. Blocking WinHTTP — never call on the UI thread.
+static json CheckUpdateImpl()
+{
+    // Fetch latest.yml from GitHub Releases (no API rate limit)
+    HINTERNET hS = WinHttpOpen(L"PB/2.0", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, nullptr, nullptr, 0);
+    if (!hS) return json(nullptr);
+
+    HINTERNET hC = WinHttpConnect(hS, L"github.com", 443, 0);
+    if (!hC) { WinHttpCloseHandle(hS); return json(nullptr); }
+
+    // Try latest.yml from releases/latest/download/ (redirects handled by WinHTTP)
+    HINTERNET hR = WinHttpOpenRequest(hC, L"GET",
+        L"/ParticleLight/ParticleBook/releases/latest/download/latest.yml",
+        nullptr, nullptr, nullptr, WINHTTP_FLAG_SECURE);
+    if (!hR) { WinHttpCloseHandle(hC); WinHttpCloseHandle(hS); return json(nullptr); }
+
+    WinHttpAddRequestHeaders(hR, L"User-Agent: ParticleBook/2.0\r\n", (DWORD)-1, WINHTTP_ADDREQ_FLAG_ADD);
+
+    if (!WinHttpSendRequest(hR, nullptr, 0, nullptr, 0, 0, 0) || !WinHttpReceiveResponse(hR, nullptr)) {
+        // Fallback to API
+        WinHttpCloseHandle(hR); WinHttpCloseHandle(hC); WinHttpCloseHandle(hS);
+
+        hS = WinHttpOpen(L"PB/2.0", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, nullptr, nullptr, 0);
+        if (!hS) return json(nullptr);
+        hC = WinHttpConnect(hS, L"api.github.com", 443, 0);
+        if (!hC) { WinHttpCloseHandle(hS); return json(nullptr); }
+        hR = WinHttpOpenRequest(hC, L"GET", L"/repos/ParticleLight/ParticleBook/releases/latest",
+            nullptr, nullptr, nullptr, WINHTTP_FLAG_SECURE);
+        if (!hR) { WinHttpCloseHandle(hC); WinHttpCloseHandle(hS); return json(nullptr); }
+        WinHttpAddRequestHeaders(hR, L"User-Agent: ParticleBook/2.0\r\nAccept: application/vnd.github+json\r\n", (DWORD)-1, WINHTTP_ADDREQ_FLAG_ADD);
+        if (!WinHttpSendRequest(hR, nullptr, 0, nullptr, 0, 0, 0) || !WinHttpReceiveResponse(hR, nullptr)) {
+            WinHttpCloseHandle(hR); WinHttpCloseHandle(hC); WinHttpCloseHandle(hS);
+            return json(nullptr);
+        }
+    }
+
+    std::string body;
+    DWORD br; char buf[8192];
+    while (WinHttpReadData(hR, buf, sizeof(buf), &br) && br > 0) body.append(buf, br);
+    WinHttpCloseHandle(hR); WinHttpCloseHandle(hC); WinHttpCloseHandle(hS);
+
+    // Try YAML format first (latest.yml)
+    std::string latestVer;
+    std::string dlUrl;
+    std::string fileName;
+    size_t size = 0;
+    std::string sha512;
+
+    // Parse latest.yml: "version: X.Y.Z\nfiles:\n  - url: ...\n    sha512: ...\n    size: N"
+    size_t vp = body.find("version:");
+    if (vp != std::string::npos) {
+        vp += 8;
+        while (vp < body.size() && body[vp] == ' ') vp++;
+        size_t ve = body.find('\n', vp);
+        if (ve != std::string::npos) latestVer = body.substr(vp, ve - vp);
+        while (!latestVer.empty() && (latestVer.back() == '\r' || latestVer.back() == ' ')) latestVer.pop_back();
+
+        // Find url
+        size_t up = body.find("url:");
+        if (up != std::string::npos) {
+            up += 4;
+            while (up < body.size() && body[up] == ' ') up++;
+            size_t ue = body.find('\n', up);
+            if (ue != std::string::npos) fileName = body.substr(up, ue - up);
+            while (!fileName.empty() && (fileName.back() == '\r' || fileName.back() == ' ')) fileName.pop_back();
+        }
+
+        // Find size
+        size_t sp = body.find("size:");
+        if (sp != std::string::npos) {
+            sp += 5;
+            while (sp < body.size() && body[sp] == ' ') sp++;
+            size_t se = body.find('\n', sp);
+            if (se != std::string::npos) {
+                try { size = std::stoull(body.substr(sp, se - sp)); } catch (...) {}
+            }
+        }
+
+        // Find sha512 (for update package integrity verification)
+        size_t hp = body.find("sha512:");
+        if (hp != std::string::npos) {
+            hp += 7;
+            while (hp < body.size() && body[hp] == ' ') hp++;
+            size_t he = body.find('\n', hp);
+            if (he != std::string::npos) sha512 = body.substr(hp, he - hp);
+            while (!sha512.empty() &&
+                   (sha512.back() == '\r' || sha512.back() == ' ' || sha512.back() == '"'))
+                sha512.pop_back();
+            while (!sha512.empty() && sha512.front() == '"') sha512.erase(sha512.begin());
+        }
+
+        // Build download URL from file name
+        if (!latestVer.empty() && !fileName.empty()) {
+            dlUrl = "https://github.com/ParticleLight/ParticleBook/releases/download/v"
+                  + latestVer + "/" + fileName;
+        }
+    } else {
+        // Try JSON format (GitHub API response)
+        try {
+            auto release = json::parse(body);
+            std::string tag = release.value("tag_name", "");
+            if (!tag.empty()) {
+                latestVer = (tag[0] == 'v') ? tag.substr(1) : tag;
+                for (auto& asset : release["assets"]) {
+                    std::string name = asset.value("name", "");
+                    if (name.find("-Setup-") != std::string::npos && name.find(".exe") != std::string::npos) {
+                        fileName = name;
+                        dlUrl = asset.value("browser_download_url", "");
+                        size = asset.value("size", 0);
+                        break;
+                    }
+                }
+            }
+        } catch (...) {}
+    }
+
+    if (latestVer.empty() || dlUrl.empty()) return json(nullptr);
+
+    // Semantic version comparison
+    auto versionGreater = [](const std::string& a, const std::string& b) -> bool {
+        auto split = [](const std::string& v) -> std::tuple<int,int,int> {
+            int major = 0, minor = 0, patch = 0;
+            sscanf(v.c_str(), "%d.%d.%d", &major, &minor, &patch);
+            return {major, minor, patch};
+        };
+        auto [a1,a2,a3] = split(a);
+        auto [b1,b2,b3] = split(b);
+        if (a1 != b1) return a1 > b1;
+        if (a2 != b2) return a2 > b2;
+        return a3 > b3;
+    };
+
+    if (versionGreater(latestVer, "2.0.3")) {
+        json result;
+        result["version"] = latestVer;
+        result["fileName"] = fileName;
+        result["downloadUrl"] = dlUrl;
+        result["size"] = size;
+        result["sha512"] = sha512;
+        return result;
+    }
+    return json(nullptr);
 }
 
 
@@ -598,145 +769,17 @@ void RegisterFileHandlers(BridgeServer* bridge, DatabaseService* db, ContentCach
     // ── Update checker ─────────────────────────────────────────
     bridge->RegisterMethod("app:getVersion", [](const json&) -> json { return json("2.0.3"); });
 
-    bridge->RegisterMethod("app:checkUpdate", [](const json&) -> json {
-        // Fetch latest.yml from GitHub Releases (no API rate limit)
-        HINTERNET hS = WinHttpOpen(L"PB/2.0", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, nullptr, nullptr, 0);
-        if (!hS) return json(nullptr);
-
-        HINTERNET hC = WinHttpConnect(hS, L"github.com", 443, 0);
-        if (!hC) { WinHttpCloseHandle(hS); return json(nullptr); }
-
-        // Try latest.yml from releases/latest/download/ (redirects handled by WinHTTP)
-        HINTERNET hR = WinHttpOpenRequest(hC, L"GET",
-            L"/ParticleLight/ParticleBook/releases/latest/download/latest.yml",
-            nullptr, nullptr, nullptr, WINHTTP_FLAG_SECURE);
-        if (!hR) { WinHttpCloseHandle(hC); WinHttpCloseHandle(hS); return json(nullptr); }
-
-        WinHttpAddRequestHeaders(hR, L"User-Agent: ParticleBook/2.0\r\n", (DWORD)-1, WINHTTP_ADDREQ_FLAG_ADD);
-
-        if (!WinHttpSendRequest(hR, nullptr, 0, nullptr, 0, 0, 0) || !WinHttpReceiveResponse(hR, nullptr)) {
-            // Fallback to API
-            WinHttpCloseHandle(hR); WinHttpCloseHandle(hC); WinHttpCloseHandle(hS);
-
-            hS = WinHttpOpen(L"PB/2.0", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, nullptr, nullptr, 0);
-            if (!hS) return json(nullptr);
-            hC = WinHttpConnect(hS, L"api.github.com", 443, 0);
-            if (!hC) { WinHttpCloseHandle(hS); return json(nullptr); }
-            hR = WinHttpOpenRequest(hC, L"GET", L"/repos/ParticleLight/ParticleBook/releases/latest",
-                nullptr, nullptr, nullptr, WINHTTP_FLAG_SECURE);
-            if (!hR) { WinHttpCloseHandle(hC); WinHttpCloseHandle(hS); return json(nullptr); }
-            WinHttpAddRequestHeaders(hR, L"User-Agent: ParticleBook/2.0\r\nAccept: application/vnd.github+json\r\n", (DWORD)-1, WINHTTP_ADDREQ_FLAG_ADD);
-            if (!WinHttpSendRequest(hR, nullptr, 0, nullptr, 0, 0, 0) || !WinHttpReceiveResponse(hR, nullptr)) {
-                WinHttpCloseHandle(hR); WinHttpCloseHandle(hC); WinHttpCloseHandle(hS);
-                return json(nullptr);
-            }
-        }
-
-        std::string body;
-        DWORD br; char buf[8192];
-        while (WinHttpReadData(hR, buf, sizeof(buf), &br) && br > 0) body.append(buf, br);
-        WinHttpCloseHandle(hR); WinHttpCloseHandle(hC); WinHttpCloseHandle(hS);
-
-        // Try YAML format first (latest.yml)
-        std::string latestVer;
-        std::string dlUrl;
-        std::string fileName;
-        size_t size = 0;
-        std::string sha512;
-
-        // Parse latest.yml: "version: X.Y.Z\nfiles:\n  - url: ...\n    sha512: ...\n    size: N"
-        size_t vp = body.find("version:");
-        if (vp != std::string::npos) {
-            vp += 8;
-            while (vp < body.size() && body[vp] == ' ') vp++;
-            size_t ve = body.find('\n', vp);
-            if (ve != std::string::npos) latestVer = body.substr(vp, ve - vp);
-            while (!latestVer.empty() && (latestVer.back() == '\r' || latestVer.back() == ' ')) latestVer.pop_back();
-
-            // Find url
-            size_t up = body.find("url:");
-            if (up != std::string::npos) {
-                up += 4;
-                while (up < body.size() && body[up] == ' ') up++;
-                size_t ue = body.find('\n', up);
-                if (ue != std::string::npos) fileName = body.substr(up, ue - up);
-                while (!fileName.empty() && (fileName.back() == '\r' || fileName.back() == ' ')) fileName.pop_back();
-            }
-
-            // Find size
-            size_t sp = body.find("size:");
-            if (sp != std::string::npos) {
-                sp += 5;
-                while (sp < body.size() && body[sp] == ' ') sp++;
-                size_t se = body.find('\n', sp);
-                if (se != std::string::npos) {
-                    try { size = std::stoull(body.substr(sp, se - sp)); } catch (...) {}
-                }
-            }
-
-            // Find sha512 (for update package integrity verification)
-            size_t hp = body.find("sha512:");
-            if (hp != std::string::npos) {
-                hp += 7;
-                while (hp < body.size() && body[hp] == ' ') hp++;
-                size_t he = body.find('\n', hp);
-                if (he != std::string::npos) sha512 = body.substr(hp, he - hp);
-                while (!sha512.empty() &&
-                       (sha512.back() == '\r' || sha512.back() == ' ' || sha512.back() == '"'))
-                    sha512.pop_back();
-                while (!sha512.empty() && sha512.front() == '"') sha512.erase(sha512.begin());
-            }
-
-            // Build download URL from file name
-            if (!latestVer.empty() && !fileName.empty()) {
-                dlUrl = "https://github.com/ParticleLight/ParticleBook/releases/download/v"
-                      + latestVer + "/" + fileName;
-            }
-        } else {
-            // Try JSON format (GitHub API response)
-            try {
-                auto release = json::parse(body);
-                std::string tag = release.value("tag_name", "");
-                if (!tag.empty()) {
-                    latestVer = (tag[0] == 'v') ? tag.substr(1) : tag;
-                    for (auto& asset : release["assets"]) {
-                        std::string name = asset.value("name", "");
-                        if (name.find("-Setup-") != std::string::npos && name.find(".exe") != std::string::npos) {
-                            fileName = name;
-                            dlUrl = asset.value("browser_download_url", "");
-                            size = asset.value("size", 0);
-                            break;
-                        }
-                    }
-                }
-            } catch (...) {}
-        }
-
-        if (latestVer.empty() || dlUrl.empty()) return json(nullptr);
-
-        // Semantic version comparison
-        auto versionGreater = [](const std::string& a, const std::string& b) -> bool {
-            auto split = [](const std::string& v) -> std::tuple<int,int,int> {
-                int major = 0, minor = 0, patch = 0;
-                sscanf(v.c_str(), "%d.%d.%d", &major, &minor, &patch);
-                return {major, minor, patch};
-            };
-            auto [a1,a2,a3] = split(a);
-            auto [b1,b2,b3] = split(b);
-            if (a1 != b1) return a1 > b1;
-            if (a2 != b2) return a2 > b2;
-            return a3 > b3;
-        };
-
-        if (versionGreater(latestVer, "2.0.3")) {
-            json result;
-            result["version"] = latestVer;
-            result["fileName"] = fileName;
-            result["downloadUrl"] = dlUrl;
-            result["size"] = size;
-            result["sha512"] = sha512;
-            return result;
-        }
+    bridge->RegisterMethod("app:checkUpdate", [bridge](const json&) -> json {
+        // Run the blocking WinHTTP check on a background thread so startup
+        // never freezes when GitHub is slow/unreachable. The result is surfaced
+        // to the frontend via the 'app:updateChecked' event.
+        HWND hwnd = bridge->GetWebViewHost() ? bridge->GetWebViewHost()->GetHwnd() : nullptr;
+        if (!hwnd) return json(nullptr);
+        std::thread([hwnd]() {
+            json result = CheckUpdateImpl();
+            auto* resultStr = new std::string(result.dump());
+            PostMessage(hwnd, WM_UPDATE_CHECK_DONE, 0, reinterpret_cast<LPARAM>(resultStr));
+        }).detach();
         return json(nullptr);
     });
 
@@ -986,5 +1029,48 @@ void RegisterFileHandlers(BridgeServer* bridge, DatabaseService* db, ContentCach
         } catch (...) {
             return json(nullptr);
         }
+    });
+
+    // ── Drag & drop import ──────────────────────────────────────────
+    // WebView2 File objects carry no filesystem path, so the renderer reads the
+    // file bytes and hands them over as base64. We persist to a user-data folder
+    // and return the path; the frontend then runs the normal import flow.
+    bridge->RegisterMethod("book:writeDroppedFile", [](const json& p) -> json {
+        std::string name = p.value("name", "");
+        std::string b64 = p.value("data", "");
+        if (name.empty() || b64.empty()) return json(nullptr);
+
+        // Sanitize to a plain file name (no separators / reserved chars)
+        std::string safeName;
+        for (char c : name) {
+            if (c == '\\' || c == '/' || c == ':' || c == '*' || c == '?' ||
+                c == '"' || c == '<' || c == '>' || c == '|') continue;
+            safeName += c;
+        }
+        if (safeName.empty()) safeName = "dropped-book";
+        if (safeName.size() > 120) safeName.resize(120);
+
+        std::vector<uint8_t> bytes = Base64Decode(b64);
+        if (bytes.empty()) return json(nullptr);
+
+        std::string dir = App::Instance().UserDataPath() + "/dropped";
+        std::filesystem::create_directories(Utf8ToWide(dir));
+
+        std::string filePath = dir + "\\" + safeName;
+        HANDLE hFile = CreateFileW(Utf8ToWide(filePath).c_str(), GENERIC_WRITE, 0, nullptr,
+                                   CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (hFile == INVALID_HANDLE_VALUE) return json(nullptr);
+        DWORD written = 0;
+        WriteFile(hFile, bytes.data(), (DWORD)bytes.size(), &written, nullptr);
+        CloseHandle(hFile);
+        if (written != bytes.size()) {
+            DeleteFileW(Utf8ToWide(filePath).c_str());
+            return json(nullptr);
+        }
+
+        json result;
+        result["path"] = filePath;
+        result["size"] = bytes.size();
+        return result;
     });
 }

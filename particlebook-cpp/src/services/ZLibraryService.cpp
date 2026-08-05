@@ -113,10 +113,16 @@ static std::string FetchUrl(const std::string& url) {
 }
 
 ZLibraryService::ZLibraryService(BridgeServer* bridge) : m_bridge(bridge), m_mirrors(FALLBACK_MIRRORS) {
-    // Fetch mirrors in background to avoid blocking UI thread
-    std::thread([this]() { FetchMirrors(); }).detach();
 }
 ZLibraryService::~ZLibraryService() {}
+
+void ZLibraryService::StartMirrorFetch(std::shared_ptr<ZLibraryService> self)
+{
+    // Fetch mirrors in background without blocking the UI thread. Capturing
+    // `self` (not `this`) keeps the service alive until the fetch finishes,
+    // so a shutdown that destroys the service mid-fetch can't use-after-free.
+    std::thread([self]() { self->FetchMirrors(); }).detach();
+}
 
 json ZLibraryService::FetchMirrors() {
     std::string html = FetchUrl("https://zz.ggonav.com/");

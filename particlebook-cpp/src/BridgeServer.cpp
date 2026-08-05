@@ -240,6 +240,7 @@ std::string BridgeServer::GenerateBridgeScript()
     readFile: async function(path) { var r = await invoke('file:read', {path:path}); if (r && r._pb_url) { var resp = await fetch(r._pb_url); var buf = await resp.arrayBuffer(); return new Uint8Array(buf); } return r; },
     getBookMetadata: function(p)   { return invoke('book:metadata', {path:p}); },
     importBooks: function(p)       { return invoke('book:import', {paths:p}); },
+    writeDroppedFile: function(name, dataB64) { return invoke('book:writeDroppedFile', {name:name, data:dataB64}); },
     getCoverImage: function(id)    { return invoke('book:cover', {id:id}); },
 
     getBooks: function()       { return invoke('db:getBooks'); },
@@ -325,6 +326,7 @@ std::string BridgeServer::GenerateBridgeScript()
     downloadUpdate: function(url, sha512) { return invoke('app:downloadUpdate', {url:url||'', sha512:sha512||''}); },
     quitAndInstall: function() { return invoke('app:quitAndInstall'); },
     onUpdateAvailable: function(cb)        { return onEvent('app:updateAvailable', cb); },
+    onUpdateChecked: function(cb)          { return onEvent('app:updateChecked', cb); },
     onUpdateNotAvailable: function(cb)     { return onEvent('app:updateNotAvailable', cb); },
     onUpdateDownloaded: function(cb)       { return onEvent('app:updateDownloaded', cb); },
     onUpdateError: function(cb)            { return onEvent('app:updateError', cb); },

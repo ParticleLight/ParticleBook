@@ -2,6 +2,7 @@
 #include <string>
 #include <vector>
 #include <mutex>
+#include <memory>
 #include "nlohmann/json.hpp"
 #include <wrl/client.h>
 #include <WebView2.h>
@@ -20,6 +21,11 @@ public:
     json GetMirrorInfo();
     json SwitchMirror(int index);
     json FetchMirrors();
+
+    // Start the mirror-prefetch worker thread. Called from App::Init with the
+    // service's own shared_ptr so the object stays alive for the (detached)
+    // thread's lifetime — avoids use-after-free on shutdown.
+    void StartMirrorFetch(std::shared_ptr<ZLibraryService> self);
 
     // Browser methods (use main WebView2)
     json Show();

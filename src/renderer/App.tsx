@@ -51,19 +51,19 @@ export default function App() {
 
   useEffect(() => { loadBooks() }, [loadBooks])
 
-  // Auto check for updates on startup
+  // Auto check for updates on startup — checkUpdate runs on a C++ background
+  // thread and the result arrives via the app:updateChecked event (the invoke
+  // itself returns immediately, so startup never blocks on GitHub).
   useEffect(() => {
     let cancelled = false
-    const check = async () => {
-      try {
-        const info = await window.electronAPI.checkUpdate()
-        if (!cancelled && info?.version) {
-          window.dispatchEvent(new CustomEvent('pb:updateAvailable', { detail: info }))
-        }
-      } catch {}
+    const onChecked = (info: any) => {
+      if (!cancelled && info?.version) {
+        window.dispatchEvent(new CustomEvent('pb:updateAvailable', { detail: info }))
+      }
     }
-    const t = setTimeout(check, 2000)
-    return () => { cancelled = true; clearTimeout(t) }
+    const unsub = window.electronAPI.onUpdateChecked(onChecked)
+    const t = setTimeout(() => { window.electronAPI.checkUpdate() }, 2000)
+    return () => { cancelled = true; clearTimeout(t); unsub() }
   }, [])
 
   useEffect(() => {

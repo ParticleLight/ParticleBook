@@ -35,6 +35,6 @@ private:
     std::unique_ptr<WebViewHost> m_webview;
     std::unique_ptr<PdfService> m_pdf;
     std::shared_ptr<BookSourceService> m_bookSource;
-    std::unique_ptr<ZLibraryService> m_zlib;
+    std::shared_ptr<ZLibraryService> m_zlib;
     std::unique_ptr<ContentCache> m_cache;
 };
