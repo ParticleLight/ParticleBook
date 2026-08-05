@@ -155,6 +155,11 @@ export function PdfRenderer({ book, content: _content, bookId }: PdfRendererProp
     clearSeekTarget()
   }, [seekTarget, totalPages, clearSeekTarget])
 
+  // Restore to the last-read page once the document is open. Must NOT depend on
+  // progress.page: the IntersectionObserver below updates progress.page while
+  // scrolling, which would re-trigger this scrollIntoView and fight the user's
+  // scroll — for pages shorter than the viewport this loops, auto-scrolling all
+  // the way to the bottom.
   useEffect(() => {
     if (totalPages === 0 || !containerRef.current) return
     requestAnimationFrame(() => {
@@ -165,7 +170,8 @@ export function PdfRenderer({ book, content: _content, bookId }: PdfRendererProp
         setTimeout(() => { initialScrollDone.current = true }, 500)
       }
     })
-  }, [totalPages, progress.page])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [totalPages])
 
   // Keyboard zoom
   useEffect(() => {
