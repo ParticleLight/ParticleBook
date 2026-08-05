@@ -105,31 +105,41 @@ export function PdfRenderer({ book, content: _content, bookId }: PdfRendererProp
     }
   }, [pageBounds, fitScale, pageImages])
 
-  // IntersectionObserver for lazy rendering
+  // Lazy rendering + exact current-page tracking via IntersectionObserver.
+  // The most-visible page (highest intersectionRatio) is the current page. This
+  // avoids the +1 drift (a neighbouring page also intersecting) and the
+  // offsetTop-in-lazy-render pitfall (unrendered pages can report a bogus 0).
   useEffect(() => {
-    if (!containerRef.current || totalPages === 0) return
+    const el = containerRef.current
+    if (!el || totalPages === 0) return
     const observer = new IntersectionObserver((entries) => {
+      let best = 0
+      let bestRatio = -1
       for (const entry of entries) {
-        if (entry.isIntersecting) {
-          const pageNum = Number(entry.target.getAttribute('data-page'))
-          if (!pageNum) continue
-          setVisiblePage((prev) => {
-            if (prev !== pageNum) {
-              setProgress({ progress: (pageNum / totalPages) * 100, page: pageNum })
-              if (initialScrollDone.current) saveProgress()
-            }
-            return pageNum
-          })
-          renderPage(pageNum)
-          if (pageNum > 1) renderPage(pageNum - 1)
-          if (pageNum < totalPages) renderPage(pageNum + 1)
+        if (!entry.isIntersecting) continue
+        const pageNum = Number(entry.target.getAttribute('data-page'))
+        if (!pageNum) continue
+        // lazy-render current ±1
+        renderPage(pageNum)
+        if (pageNum > 1) renderPage(pageNum - 1)
+        if (pageNum < totalPages) renderPage(pageNum + 1)
+        // track the most visible page for progress
+        if (entry.intersectionRatio > bestRatio) {
+          bestRatio = entry.intersectionRatio
+          best = pageNum
         }
       }
-    }, { root: containerRef.current, threshold: 0.1 })
-    const els = containerRef.current.querySelectorAll('[data-page]')
-    els.forEach((el) => observer.observe(el))
+      if (best && best !== visiblePageRef.current) {
+        visiblePageRef.current = best
+        setVisiblePage(best)
+        setProgress({ progress: (best / totalPages) * 100, page: best })
+        if (initialScrollDone.current) saveProgress()
+      }
+    }, { root: el, threshold: [0, 0.1, 0.25, 0.5, 0.75, 1] })
+    const els = el.querySelectorAll('[data-page]')
+    els.forEach((n) => observer.observe(n))
     return () => observer.disconnect()
-  }, [totalPages, renderPage, setProgress])
+  }, [totalPages, renderPage, setProgress, saveProgress, setVisiblePage])
 
   // Navigation
   useEffect(() => {
@@ -155,15 +165,13 @@ export function PdfRenderer({ book, content: _content, bookId }: PdfRendererProp
     clearSeekTarget()
   }, [seekTarget, totalPages, clearSeekTarget])
 
-  // Restore to the last-read page once the document is open. Must NOT depend on
-  // progress.page: the IntersectionObserver below updates progress.page while
-  // scrolling, which would re-trigger this scrollIntoView and fight the user's
-  // scroll — for pages shorter than the viewport this loops, auto-scrolling all
-  // the way to the bottom.
+  // Restore to the last-read page once the document is open. Reads the latest
+  // store value at restore time (not a stale closure) and clamps to a valid page.
   useEffect(() => {
     if (totalPages === 0 || !containerRef.current) return
     requestAnimationFrame(() => {
-      const targetPage = progress.page || 1
+      const savedPage = useReaderStore.getState().progress.page
+      const targetPage = Math.max(1, Math.min(savedPage || 1, totalPages))
       const el = containerRef.current?.querySelector(`[data-page="${targetPage}"]`)
       if (el) {
         el.scrollIntoView({ block: 'start' })
