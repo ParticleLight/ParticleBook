@@ -1,4 +1,4 @@
-; ParticleBook NSIS Installer
+﻿; ParticleBook NSIS Installer
 ; First install: choose directory. Update: auto-detect existing path.
 
 Unicode true

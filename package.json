@@ -1,6 +1,6 @@
 {
   "name": "particle-book",
-  "version": "2.0.3",
+  "version": "2.1.0",
   "description": "ParticleBook - 内置 Z-Library 的全功能电子书阅读器（C++ Win32 + WebView2 版，Electron 版已废弃）",
   "author": "ParticleLight",
   "contributors": [

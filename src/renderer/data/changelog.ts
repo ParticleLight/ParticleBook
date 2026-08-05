@@ -9,6 +9,25 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
   {
+    version: '2.1.0',
+    date: '2026-08-05',
+    changes: [
+      { type: 'fix', text: '安全加固：桥接消息来源校验——外部 Z-Library 页面不再能调用本地特权方法（任意文件读取/删库/下载执行），仅保留工具栏白名单；阅读器 HTML/FB2/Markdown 统一 DOMPurify 消毒、EPUB 关闭脚本执行，杜绝恶意电子书注入' },
+      { type: 'fix', text: '安全加固：更新下载增加 SHA-512 完整性校验 + URL 白名单，安装包被篡改/替换时中止安装' },
+      { type: 'fix', text: '数据库改原子写（临时文件+替换）并备份损坏文件，崩溃不再导致书库数据全部丢失；写线程不再阻塞界面' },
+      { type: 'fix', text: '修复 PDF 阅读自动滚到底部、位置恢复漂移（每次重开 +1 页/跳到别处），现精确恢复到上次阅读页' },
+      { type: 'feature', text: '书源下载完整化：章节下载后自动组装为文本并导入书架，下载进度 → 完成 → 书架出现新书' },
+      { type: 'feature', text: '拖放导入可用：直接把电子书拖进窗口即可导入书架（WebView2 下自动读文件内容）' },
+      { type: 'feature', text: '更新下载显示真实进度百分比，漫画支持进度条拖动跳页' },
+      { type: 'fix', text: '修复书柜过滤失效（点书柜显示全部书）、阅读统计过期不刷新、阅读时间不实时显示且开关无效' },
+      { type: 'fix', text: '书源下载移出 UI 线程，大书下载不再冻结界面；退出应用不再因后台线程崩溃' },
+      { type: 'fix', text: '修复 MOBI 连续打开互相覆盖内容、补丁临时文件不清理；Z-Library 下载文件名路径穿越' },
+      { type: 'fix', text: '修复数据库损坏（合法 JSON 数组）导致应用无法启动；删除拖放导入的书时清理物理文件' },
+      { type: 'improve', text: '版本号收敛到单一来源，升级不再因漏改版本导致更新检测失效；全新 clone 自动解压 mutool 即可构建' },
+      { type: 'improve', text: '仓库瘦身（移除 MuPDF 源码树/多余架构库，约 200MB）、安装器增加运行中检测、设置页致谢更新' },
+    ],
+  },
+  {
     version: '2.0.3',
     date: '2026-07-17',
     changes: [
