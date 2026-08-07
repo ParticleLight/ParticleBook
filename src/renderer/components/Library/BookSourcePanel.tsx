@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useBookSourceStore } from '../../stores/bookSourceStore'
 import type { SearchResult, DownloadProgress } from '../../types/bookSource'
 
@@ -10,6 +11,7 @@ interface BookSourcePanelProps {
 type Tab = 'search' | 'sources'
 
 export function BookSourcePanel({ onClose, isClosing }: BookSourcePanelProps) {
+  const { t } = useTranslation()
   const [tab, setTab] = useState<Tab>('search')
   const {
     sources, isLoading, searchResults, isSearching, searchError, downloadProgress, isDownloading,
@@ -41,7 +43,7 @@ export function BookSourcePanel({ onClose, isClosing }: BookSourcePanelProps) {
   const handleImport = async () => {
     const result = await importSources()
     if (result.total > 0) {
-      alert(`成功导入 ${result.imported} 个书源（共 ${result.total} 个）`)
+      alert(t('成功导入 {{imported}} 个书源（共 {{total}} 个）', { imported: result.imported, total: result.total }))
     }
   }
 
@@ -52,12 +54,12 @@ export function BookSourcePanel({ onClose, isClosing }: BookSourcePanelProps) {
 
   const getStatusText = (p: DownloadProgress) => {
     switch (p.status) {
-      case 'fetching_toc': return '正在获取目录...'
-      case 'downloading': return `下载中 ${p.current}/${p.total}${p.chapterName ? `: ${p.chapterName}` : ''}`
-      case 'assembling': return '正在组装文件...'
-      case 'importing': return '正在导入书架...'
-      case 'done': return '下载完成！'
-      case 'error': return `下载失败: ${p.error}`
+      case 'fetching_toc': return t('正在获取目录...')
+      case 'downloading': return t('下载中 {{current}}/{{total}}{{suffix}}', { current: p.current, total: p.total, suffix: p.chapterName ? `: ${p.chapterName}` : '' })
+      case 'assembling': return t('正在组装文件...')
+      case 'importing': return t('正在导入书架...')
+      case 'done': return t('下载完成！')
+      case 'error': return t('下载失败: {{error}}', { error: p.error })
       default: return ''
     }
   }
@@ -68,13 +70,13 @@ export function BookSourcePanel({ onClose, isClosing }: BookSourcePanelProps) {
       <div className={`relative bg-[var(--reader-bg)] rounded-2xl shadow-2xl w-[900px] max-h-[85vh] flex flex-col overflow-hidden border border-[var(--reader-border)] ${isClosing ? 'animate-scale-out' : 'animate-scale-in'}`}>
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--reader-border)]">
-          <h2 className="text-lg font-bold text-[var(--reader-text)]">书源管理</h2>
+          <h2 className="text-lg font-bold text-[var(--reader-text)]">{t('书源管理')}</h2>
           <div className="flex items-center gap-3">
             <button
               onClick={handleImport}
               className="px-3 py-1.5 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-500 transition-colors"
             >
-              导入 JSON
+              {t('导入 JSON')}
             </button>
             <button
               onClick={onClose}
@@ -98,7 +100,7 @@ export function BookSourcePanel({ onClose, isClosing }: BookSourcePanelProps) {
             }`}
             style={tab === 'search' ? { color: 'var(--color-indigo)', borderColor: 'var(--color-indigo)' } : undefined}
           >
-            搜索
+            {t('搜索')}
           </button>
           <button
             onClick={() => setTab('sources')}
@@ -109,7 +111,7 @@ export function BookSourcePanel({ onClose, isClosing }: BookSourcePanelProps) {
             }`}
             style={tab === 'sources' ? { color: 'var(--color-indigo)', borderColor: 'var(--color-indigo)' } : undefined}
           >
-            源管理 ({sources.length})
+            {t('源管理 ({{count}})', { count: sources.length })}
           </button>
         </div>
 
@@ -124,7 +126,7 @@ export function BookSourcePanel({ onClose, isClosing }: BookSourcePanelProps) {
                   value={keyword}
                   onChange={(e) => setKeyword(e.target.value)}
                   onKeyDown={(e) => { if (e.key === 'Enter') handleSearch() }}
-                  placeholder="搜索书名..."
+                  placeholder={t('搜索书名...')}
                   className="flex-1 px-4 py-2.5 bg-[var(--reader-sidebar)] border border-[var(--reader-border)] rounded-lg text-sm text-[var(--reader-text)] placeholder-gray-500 focus:outline-none focus:border-indigo-500"
                 />
                 <button
@@ -132,7 +134,7 @@ export function BookSourcePanel({ onClose, isClosing }: BookSourcePanelProps) {
                   disabled={isSearching || !keyword.trim()}
                   className="px-6 py-2.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
                 >
-                  {isSearching ? '搜索中...' : '搜索'}
+                  {isSearching ? t('搜索中...') : t('搜索')}
                 </button>
               </div>
 
@@ -154,7 +156,7 @@ export function BookSourcePanel({ onClose, isClosing }: BookSourcePanelProps) {
                     </div>
                   )}
                   {downloadProgress.status === 'done' && (
-                    <p className="text-sm mt-1" style={{ color: 'var(--color-green)' }}>已成功导入书架</p>
+                    <p className="text-sm mt-1" style={{ color: 'var(--color-green)' }}>{t('已成功导入书架')}</p>
                   )}
                 </div>
               )}
@@ -162,7 +164,7 @@ export function BookSourcePanel({ onClose, isClosing }: BookSourcePanelProps) {
               {/* Search results */}
               {searchResults.length > 0 ? (
                 <div className="space-y-2">
-                  <p className="text-sm text-[var(--reader-text)] opacity-50">找到 {searchResults.length} 个结果</p>
+                  <p className="text-sm text-[var(--reader-text)] opacity-50">{t('找到 {{count}} 个结果', { count: searchResults.length })}</p>
                   {searchResults.map((result, i) => {
                     const key = `${result.sourceId}-${result.bookUrl}`
                     const isItemDownloading = downloadingId === key
@@ -188,11 +190,11 @@ export function BookSourcePanel({ onClose, isClosing }: BookSourcePanelProps) {
                         <div className="flex-1 min-w-0">
                           <div className="text-sm text-[var(--reader-text)] font-medium truncate">{result.name}</div>
                           <div className="text-xs text-[var(--reader-text)] opacity-50 truncate">
-                            {result.author || '未知作者'} · {result.sourceName}
+                            {result.author || t('未知作者')} · {result.sourceName}
                           </div>
                           {result.lastChapter && (
                             <div className="text-xs text-[var(--reader-text)] opacity-40 truncate mt-0.5">
-                              最新: {result.lastChapter}
+                              {t('最新: {{chapter}}', { chapter: result.lastChapter })}
                             </div>
                           )}
                         </div>
@@ -203,7 +205,7 @@ export function BookSourcePanel({ onClose, isClosing }: BookSourcePanelProps) {
                           disabled={isDownloading}
                           className="px-4 py-2 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"
                         >
-                          {isItemDownloading ? '下载中...' : '下载'}
+                          {isItemDownloading ? t('下载中...') : t('下载')}
                         </button>
                       </div>
                     )
@@ -213,15 +215,15 @@ export function BookSourcePanel({ onClose, isClosing }: BookSourcePanelProps) {
                 <div className="text-center py-12 text-[var(--reader-text)] opacity-40">
                   {searchError ? (
                     <div className="text-left max-w-lg mx-auto">
-                      <p className="font-medium mb-2" style={{ color: 'var(--color-red)' }}>搜索出错</p>
+                      <p className="font-medium mb-2" style={{ color: 'var(--color-red)' }}>{t('搜索出错')}</p>
                       <pre className="text-xs text-left whitespace-pre-wrap bg-[var(--reader-sidebar)] rounded-lg p-4 border border-[var(--reader-border)]" style={{ color: 'var(--color-red)', opacity: 0.8 }}>
                         {searchError}
                       </pre>
                     </div>
                   ) : (
                     <>
-                      <p>未找到结果</p>
-                      <p className="text-sm mt-1">请检查关键词或启用更多书源</p>
+                      <p>{t('未找到结果')}</p>
+                      <p className="text-sm mt-1">{t('请检查关键词或启用更多书源')}</p>
                     </>
                   )}
                 </div>
@@ -230,11 +232,11 @@ export function BookSourcePanel({ onClose, isClosing }: BookSourcePanelProps) {
                   <svg className="w-16 h-16 mx-auto mb-4 opacity-30" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                   </svg>
-                  <p>输入书名开始搜索</p>
+                  <p>{t('输入书名开始搜索')}</p>
                   <p className="text-sm mt-1">
                     {sources.filter((s) => s.enabled).length > 0
-                      ? `当前有 ${sources.filter((s) => s.enabled).length} 个启用的书源`
-                      : '请先在"源管理"中导入并启用书源'}
+                      ? t('当前有 {{count}} 个启用的书源', { count: sources.filter((s) => s.enabled).length })
+                      : t('请先在"源管理"中导入并启用书源')}
                   </p>
                 </div>
               ) : null}
@@ -246,12 +248,12 @@ export function BookSourcePanel({ onClose, isClosing }: BookSourcePanelProps) {
                 <div className="flex justify-end">
                   <button
                     onClick={() => {
-                      if (confirm('确定清空所有书源？此操作不可撤销。')) clearAllSources()
+                      if (confirm(t('确定清空所有书源？此操作不可撤销。'))) clearAllSources()
                     }}
                     className="px-3 py-1.5 text-xs rounded-lg transition-colors"
                     style={{ color: 'var(--color-red)' }}
                   >
-                    全部清空
+                    {t('全部清空')}
                   </button>
                 </div>
               )}
@@ -260,8 +262,8 @@ export function BookSourcePanel({ onClose, isClosing }: BookSourcePanelProps) {
                   <svg className="w-16 h-16 mx-auto mb-4 opacity-30" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
                   </svg>
-                  <p>暂无书源</p>
-                  <p className="text-sm mt-1">点击右上角"导入 JSON"添加书源</p>
+                  <p>{t('暂无书源')}</p>
+                  <p className="text-sm mt-1">{t('点击右上角"导入 JSON"添加书源')}</p>
                 </div>
               ) : (
                 sources.map((source) => (
@@ -286,7 +288,7 @@ export function BookSourcePanel({ onClose, isClosing }: BookSourcePanelProps) {
                     {/* Info */}
                     <div className="flex-1 min-w-0">
                       <div className="text-sm text-[var(--reader-text)] font-medium truncate">
-                        {source.bookSourceName || '未命名'}
+                        {source.bookSourceName || t('未命名')}
                       </div>
                       <div className="text-xs text-[var(--reader-text)] opacity-40 truncate">
                         {source.bookSourceUrl}
@@ -301,7 +303,7 @@ export function BookSourcePanel({ onClose, isClosing }: BookSourcePanelProps) {
                     }`}
                     style={source.enabled ? { color: 'var(--color-green)', backgroundColor: 'var(--color-green-bg)' } : undefined}
                     >
-                      {source.enabled ? '启用' : '禁用'}
+                      {source.enabled ? t('启用') : t('禁用')}
                     </span>
 
                     {/* Delete */}

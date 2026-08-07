@@ -1,6 +1,8 @@
 import { createPortal } from 'react-dom'
 import type { Book } from '../../stores/libraryStore'
 import { safeText } from '../../utils/safeText'
+import { useTranslation } from 'react-i18next'
+import i18n from '../../i18n'
 
 interface BookDetailDialogProps {
   book: Book
@@ -18,25 +20,26 @@ function formatDate(dateStr: string): string {
   try {
     const d = new Date(dateStr)
     if (isNaN(d.getTime())) return dateStr
-    return d.toLocaleString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+    return d.toLocaleString(i18n.language, { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
   } catch {
     return dateStr
   }
 }
 
 export function BookDetailDialog({ book, onClose }: BookDetailDialogProps) {
+  const { t } = useTranslation()
   const fields: { label: string; value: string }[] = [
-    { label: '书名', value: safeText(book.title) },
-    { label: '作者', value: safeText(book.author) || '-' },
-    { label: '格式', value: book.format.toUpperCase() },
-    { label: '语言', value: book.language || '-' },
+    { label: t('书名'), value: safeText(book.title) },
+    { label: t('作者'), value: safeText(book.author) || '-' },
+    { label: t('格式'), value: book.format.toUpperCase() },
+    { label: t('语言'), value: book.language || '-' },
     { label: 'ISBN', value: book.isbn || '-' },
-    { label: '出版社', value: book.publisher || '-' },
-    { label: '简介', value: book.description || '-' },
-    { label: '文件路径', value: book.file_path },
-    { label: '文件大小', value: formatFileSize(book.file_size) },
-    { label: '添加时间', value: formatDate(book.added_at) },
-    { label: '最后阅读', value: formatDate(book.last_opened || '') },
+    { label: t('出版社'), value: book.publisher || '-' },
+    { label: t('简介'), value: book.description || '-' },
+    { label: t('文件路径'), value: book.file_path },
+    { label: t('文件大小'), value: formatFileSize(book.file_size) },
+    { label: t('添加时间'), value: formatDate(book.added_at) },
+    { label: t('最后阅读'), value: formatDate(book.last_opened || '') },
   ]
 
   return createPortal(
@@ -46,7 +49,7 @@ export function BookDetailDialog({ book, onClose }: BookDetailDialogProps) {
         style={{ background: 'var(--acrylic-bg)', backdropFilter: 'blur(24px)', border: '1px solid var(--acrylic-border)' }}
         onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-base font-semibold" style={{ color: 'var(--text-primary)' }}>书籍详情</h3>
+          <h3 className="text-base font-semibold" style={{ color: 'var(--text-primary)' }}>{t('书籍详情')}</h3>
           <button onClick={onClose} className="w-7 h-7 rounded flex items-center justify-center transition-colors hover:bg-white/10" style={{ color: 'var(--text-tertiary)' }}>
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
           </button>
@@ -60,7 +63,7 @@ export function BookDetailDialog({ book, onClose }: BookDetailDialogProps) {
           ))}
         </div>
         <div className="mt-4 pt-3 border-t flex justify-end" style={{ borderColor: 'var(--acrylic-border)' }}>
-          <button onClick={onClose} className="btn-secondary text-sm">关闭</button>
+          <button onClick={onClose} className="btn-secondary text-sm">{t('关闭')}</button>
         </div>
       </div>
     </div>,

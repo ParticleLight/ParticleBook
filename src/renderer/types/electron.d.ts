@@ -29,6 +29,7 @@ interface ElectronAPI {
 
   getSettings: () => Promise<any>
   updateSettings: (settings: any) => Promise<void>
+  setLanguage: (lang: string) => Promise<any>
   getBookSettings: (bookId: number) => Promise<any>
   updateBookSettings: (bookId: number, settings: any) => Promise<void>
   deleteBookSettings: (bookId: number) => Promise<void>
@@ -108,6 +109,7 @@ interface ElectronAPI {
 
 declare interface Window {
   electronAPI: ElectronAPI
+  __pbLang?: string
   __refreshLibrary?: () => void
   _droppedFiles?: { name: string; path: string }[]
 }

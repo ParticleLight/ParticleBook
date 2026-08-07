@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef, useCallback, lazy, Suspense } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useReaderStore } from '../../stores/readerStore'
 import { useSettingsStore } from '../../stores/settingsStore'
 
@@ -40,20 +41,22 @@ interface ReaderViewProps {
 }
 
 function ReadingTimeDisplay() {
+  const { t } = useTranslation()
   const currentReadingTime = useReaderStore((s) => s.currentReadingTime)
   const showReadingTime = useSettingsStore((s) => s.showReadingTime)
   if (!showReadingTime) return null
   return (
-    <span title="本次阅读时长">
+    <span title={t('本次阅读时长')}>
       <svg className="w-3 h-3 inline mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
       </svg>
-      {formatReadingTime(currentReadingTime)}
+      {t('阅读 {{time}}', { time: formatReadingTime(currentReadingTime) })}
     </span>
   )
 }
 
 export function ReaderView({ bookId, onClose }: ReaderViewProps) {
+  const { t } = useTranslation()
   const [book, setBook] = useState<Book | null>(null)
   const [bookContent, setBookContent] = useState<Uint8Array | null>(null)
   const [showSettings, setShowSettings] = useState(false)
@@ -303,7 +306,7 @@ export function ReaderView({ bookId, onClose }: ReaderViewProps) {
         <button
           onClick={(e) => { e.stopPropagation(); turnPage(-1) }}
           className={`absolute left-2 top-1/2 -translate-y-1/2 z-20 p-3 rounded-full bg-black/30 hover:bg-black/50 text-white/60 hover:text-white transition-all duration-300 backdrop-blur-sm ${showArrows ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
-          title="上一页"
+          title={t('上一页')}
         >
           <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
@@ -312,7 +315,7 @@ export function ReaderView({ bookId, onClose }: ReaderViewProps) {
         <button
           onClick={(e) => { e.stopPropagation(); turnPage(1) }}
           className={`absolute right-2 top-1/2 -translate-y-1/2 z-20 p-3 rounded-full bg-black/30 hover:bg-black/50 text-white/60 hover:text-white transition-all duration-300 backdrop-blur-sm ${showArrows ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
-          title="下一页"
+          title={t('下一页')}
         >
           <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
@@ -326,7 +329,7 @@ export function ReaderView({ bookId, onClose }: ReaderViewProps) {
 
         {/* Page indicator */}
         <div className="absolute bottom-3 right-3 z-10 bg-black/40 backdrop-blur-sm text-white/70 text-xs px-3 py-1.5 rounded-full flex items-center gap-3">
-          <span>{['txt','mobi','fb2','html','markdown'].includes(book.format) ? `${(progress.progress || 0).toFixed(2)}%` : progress.page != null ? `第 ${progress.page} 页` : `${Math.round(progress.progress || 0)}%`}</span>
+          <span>{['txt','mobi','fb2','html','markdown'].includes(book.format) ? `${(progress.progress || 0).toFixed(2)}%` : progress.page != null ? t('第 {{page}} 页', { page: progress.page }) : `${Math.round(progress.progress || 0)}%`}</span>
           <span className="opacity-70">|</span>
           <ReadingTimeDisplay />
         </div>

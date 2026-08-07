@@ -1,10 +1,20 @@
+import i18n from '../i18n'
+
+// Reading time returns a bare duration ("30 分钟" / "30 minutes") — callers
+// that need a verb (ReaderView "阅读 {{time}}") add it themselves so that
+// wrapping contexts like BookCard "已读 {{time}}" or the "总阅读时间" stat
+// don't double the verb. Uses i18next plural variants ('…_one'/'…_other' in
+// the en dictionary); zh falls back to the key itself.
 export function formatReadingTime(seconds: number): string {
-  if (seconds < 60) return `${seconds}秒`
+  if (seconds < 60) return i18n.t('{{count}} 秒', { count: seconds })
   const minutes = Math.floor(seconds / 60)
-  if (minutes < 60) return `${minutes}分钟`
+  if (minutes < 60) return i18n.t('{{count}} 分钟', { count: minutes })
   const hours = Math.floor(minutes / 60)
   const remainingMinutes = minutes % 60
-  return remainingMinutes > 0 ? `${hours}小时${remainingMinutes}分钟` : `${hours}小时`
+  if (remainingMinutes > 0) {
+    return i18n.t('{{hours}} 小时 {{minutes}} 分钟', { hours, minutes: remainingMinutes })
+  }
+  return i18n.t('{{count}} 小时', { count: hours })
 }
 
 export async function extractTextPreview(filePath: string, maxLength = 120): Promise<string | null> {

@@ -889,7 +889,8 @@ void RegisterFileHandlers(BridgeServer* bridge, DatabaseService* db, ContentCach
                 hr = URLDownloadToFileW(nullptr, wUrl.c_str(), exePath.c_str(), 0, nullptr);
             }
             if (FAILED(hr)) {
-                auto* errStr = new std::string("下载失败（请检查网络后重试）");
+                // Error code (localized by the frontend) — not a user-facing string
+                auto* errStr = new std::string("download_failed_network");
                 PostMessage(hwnd, WM_UPDATE_DOWNLOAD_DONE, 0, (LPARAM)errStr);
                 return;
             }
@@ -902,7 +903,8 @@ void RegisterFileHandlers(BridgeServer* bridge, DatabaseService* db, ContentCach
                 std::string actual;
                 if (!ComputeFileSha512(exePath, actual) || _stricmp(actual.c_str(), sha512.c_str()) != 0) {
                     DeleteFileW(exePath.c_str());
-                    auto* errStr = new std::string("更新包校验失败（哈希不匹配），已中止安装");
+                    // Error code (localized by the frontend)
+                    auto* errStr = new std::string("hash_mismatch");
                     PostMessage(hwnd, WM_UPDATE_DOWNLOAD_DONE, 0, (LPARAM)errStr);
                     return;
                 }
@@ -980,12 +982,13 @@ void RegisterFileHandlers(BridgeServer* bridge, DatabaseService* db, ContentCach
                                       IID_PPV_ARGS(&pDialog));
         if (FAILED(hr) || !pDialog) return json(nullptr);
 
+        const bool en = App::Instance().GetLanguage() == "en";
         COMDLG_FILTERSPEC filters[] = {
-            { L"Legado 书源文件 (*.json)", L"*.json" },
-            { L"所有文件 (*.*)", L"*.*" }
+            { en ? L"Legado source file (*.json)" : L"Legado 书源文件 (*.json)", L"*.json" },
+            { en ? L"All files (*.*)" : L"所有文件 (*.*)", L"*.*" }
         };
         pDialog->SetFileTypes(2, filters);
-        pDialog->SetTitle(L"导入 Legado 书源文件");
+        pDialog->SetTitle(en ? L"Import Legado source file" : L"导入 Legado 书源文件");
 
         hr = pDialog->Show(nullptr);
         if (FAILED(hr)) { pDialog->Release(); return json(nullptr); }

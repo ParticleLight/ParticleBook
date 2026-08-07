@@ -5,6 +5,7 @@ import { BookGrid } from './BookGrid'
 import { BookList } from './BookList'
 import { BookShelfPanel } from './BookShelfPanel'
 import { safeText } from '../../utils/safeText'
+import { useTranslation } from 'react-i18next'
 
 const ChangelogPanel = lazy(() => import('./ChangelogPanel').then(m => ({ default: m.ChangelogPanel })))
 const BookSourcePanel = lazy(() => import('./BookSourcePanel').then(m => ({ default: m.BookSourcePanel })))
@@ -25,6 +26,7 @@ interface LibraryProps { onOpenBook: (bookId: number) => void; onOpenSettings: (
 function BookPickerDialog({ books, shelfName, shelfBookIds, onAdd, onClose }: { books: Book[]; shelfName: string; shelfBookIds: number[]; onAdd: (ids: number[]) => void; onClose: () => void }) {
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const [search, setSearch] = useState('')
+  const { t } = useTranslation()
 
   const filtered = books.filter((b) => {
     if (!search) return true
@@ -46,8 +48,8 @@ function BookPickerDialog({ books, shelfName, shelfBookIds, onAdd, onClose }: { 
         onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 py-3.5" style={{ borderBottom: '1px solid var(--border)' }}>
           <div>
-            <h3 className="text-base font-semibold" style={{ color: 'var(--text-primary)' }}>添加到「{shelfName}」</h3>
-            <p className="text-xs mt-0.5" style={{ color: 'var(--text-tertiary)' }}>从全部书籍中选择，已选 {selected.size} 本</p>
+            <h3 className="text-base font-semibold" style={{ color: 'var(--text-primary)' }}>{t('添加到「{{shelfName}}」', { shelfName })}</h3>
+            <p className="text-xs mt-0.5" style={{ color: 'var(--text-tertiary)' }}>{t('从全部书籍中选择，已选 {{count}} 本', { count: selected.size })}</p>
           </div>
           <button onClick={onClose} className="p-1 rounded-md transition-colors" style={{ color: 'var(--text-tertiary)' }}
             onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--text-primary)'; e.currentTarget.style.background = 'var(--surface-hover)' }}
@@ -56,12 +58,12 @@ function BookPickerDialog({ books, shelfName, shelfBookIds, onAdd, onClose }: { 
           </button>
         </div>
         <div className="px-5 py-3" style={{ borderBottom: '1px solid var(--border)' }}>
-          <input type="text" placeholder="搜索书籍..." value={search} onChange={(e) => setSearch(e.target.value)}
+          <input type="text" placeholder={t('搜索书籍...')} value={search} onChange={(e) => setSearch(e.target.value)}
             className="w-full input" autoFocus />
         </div>
         <div className="flex-1 overflow-y-auto p-2">
           {filtered.length === 0 ? (
-            <p className="text-center py-8 text-sm" style={{ color: 'var(--text-tertiary)' }}>{search ? '无匹配结果' : '没有可添加的书籍'}</p>
+            <p className="text-center py-8 text-sm" style={{ color: 'var(--text-tertiary)' }}>{search ? t('无匹配结果') : t('没有可添加的书籍')}</p>
           ) : filtered.map((book) => {
             const alreadyIn = shelfBookIds.includes(book.id)
             return (
@@ -82,15 +84,15 @@ function BookPickerDialog({ books, shelfName, shelfBookIds, onAdd, onClose }: { 
               )}
               <div className="flex-1 min-w-0">
                 <p className="text-sm truncate" style={{ color: alreadyIn ? 'var(--text-tertiary)' : 'var(--text-primary)' }}>{safeText(book.title)}</p>
-                <p className="text-xs truncate" style={{ color: 'var(--text-tertiary)' }}>{safeText(book.author) || '未知作者'}{alreadyIn && ' · 已添加'}</p>
+                <p className="text-xs truncate" style={{ color: 'var(--text-tertiary)' }}>{safeText(book.author) || t('未知作者')}{alreadyIn && t(' · 已添加')}</p>
               </div>
               <span className="text-[11px] font-semibold text-white px-1.5 py-0.5 rounded-full" style={{ background: alreadyIn ? 'var(--text-tertiary)' : 'var(--text-tertiary)' }}>{book.format.toUpperCase()}</span>
             </div>
           )})}
         </div>
         <div className="flex justify-end gap-2 px-5 py-3.5" style={{ borderTop: '1px solid var(--border)' }}>
-          <button onClick={onClose} className="btn-secondary">取消</button>
-          <button onClick={() => onAdd(Array.from(selected))} disabled={selected.size === 0} className="btn-primary" style={selected.size === 0 ? { opacity: 0.5, cursor: 'not-allowed' } : undefined}>添加 {selected.size > 0 ? `(${selected.size})` : ''}</button>
+          <button onClick={onClose} className="btn-secondary">{t('取消')}</button>
+          <button onClick={() => onAdd(Array.from(selected))} disabled={selected.size === 0} className="btn-primary" style={selected.size === 0 ? { opacity: 0.5, cursor: 'not-allowed' } : undefined}>{t('添加')} {selected.size > 0 ? `(${selected.size})` : ''}</button>
         </div>
       </div>
     </div>
@@ -123,6 +125,7 @@ export function Library({ onOpenBook, onOpenSettings, onOpenZLibrary, onOpenStat
   const [showBookPicker, setShowBookPicker] = useState(false)
   const dragCounterRef = useRef(0)
   const moreBtnRef = useRef<HTMLButtonElement>(null)
+  const { t } = useTranslation()
 
   useEffect(() => { loadBookshelves(); loadReadingTime(); loadReadingProgress() }, [loadBookshelves, loadReadingTime, loadReadingProgress])
 
@@ -165,7 +168,7 @@ export function Library({ onOpenBook, onOpenSettings, onOpenZLibrary, onOpenStat
         const p = window.electronAPI.getFilePath(file)
         if (p) { filePaths.push(p); continue }
         if (file.size > 50 * 1024 * 1024) {
-          alert(`「${file.name}」超过 50MB，拖放导入不支持超大文件，请改用「导入」按钮`)
+          alert(t('「{{name}}」超过 50MB，拖放导入不支持超大文件，请改用「导入」按钮', { name: file.name }))
           continue
         }
         const buf = await file.arrayBuffer()
@@ -189,7 +192,7 @@ export function Library({ onOpenBook, onOpenSettings, onOpenZLibrary, onOpenStat
   const handleDragOver = useCallback((e: React.DragEvent) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy' }, [])
   const handleDragLeave = useCallback(() => { dragCounterRef.current--; if (dragCounterRef.current <= 0) { dragCounterRef.current = 0; setIsDragOver(false) } }, [])
 
-  const shelfName = activeShelfId !== null ? bookshelves.find((s) => s.id === activeShelfId)?.name : '全部书籍'
+  const shelfName = activeShelfId !== null ? bookshelves.find((s) => s.id === activeShelfId)?.name : t('全部书籍')
 
   return (
     <div className="h-screen flex flex-col" style={{ background: 'var(--bg)' }}
@@ -208,7 +211,7 @@ export function Library({ onOpenBook, onOpenSettings, onOpenZLibrary, onOpenStat
         {/* Center: search */}
         <div className="no-drag flex-1 max-w-lg mx-auto relative">
           <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" style={{ color: 'var(--text-tertiary)' }}><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
-          <input type="text" placeholder="搜索书名或作者..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
+          <input type="text" placeholder={t('搜索书名或作者...')} value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full pl-9 pr-3 py-1.5 text-sm rounded-lg transition-all duration-150"
             style={{ background: 'var(--bg-tertiary)', color: 'var(--text-primary)', border: '1px solid transparent' }}
             onFocus={(e) => e.currentTarget.style.borderColor = 'var(--border-focus)'}
@@ -220,26 +223,26 @@ export function Library({ onOpenBook, onOpenSettings, onOpenZLibrary, onOpenStat
         <div className="no-drag flex items-center gap-1">
           <select value={sortBy} onChange={(e) => setSortBy(e.target.value as any)}
             className="px-2 py-1.5 text-xs rounded-md" style={{ background: 'var(--bg-tertiary)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}>
-            <option value="last_opened">最近</option><option value="added_at">添加</option><option value="title">书名</option><option value="author">作者</option>
+            <option value="last_opened">{t('最近')}</option><option value="added_at">{t('添加', { context: 'sort' })}</option><option value="title">{t('书名')}</option><option value="author">{t('作者')}</option>
           </select>
 
           <div className="flex rounded-md overflow-hidden ml-1" style={{ border: '1px solid var(--border)' }}>
-            <button onClick={() => setViewMode('grid')} aria-label="网格视图" className="p-1.5 transition-colors" style={{ background: viewMode === 'grid' ? 'var(--accent)' : 'transparent', color: viewMode === 'grid' ? '#fff' : 'var(--text-tertiary)' }}>
+            <button onClick={() => setViewMode('grid')} aria-label={t('网格视图')} className="p-1.5 transition-colors" style={{ background: viewMode === 'grid' ? 'var(--accent)' : 'transparent', color: viewMode === 'grid' ? '#fff' : 'var(--text-tertiary)' }}>
               <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 16 16"><path d="M1 2.5A1.5 1.5 0 012.5 1h3A1.5 1.5 0 017 2.5v3A1.5 1.5 0 015.5 7h-3A1.5 1.5 0 011 5.5v-3zm8 0A1.5 1.5 0 0110.5 1h3A1.5 1.5 0 0115 2.5v3A1.5 1.5 0 0113.5 7h-3A1.5 1.5 0 019 5.5v-3zm-8 8A1.5 1.5 0 012.5 9h3A1.5 1.5 0 017 10.5v3A1.5 1.5 0 015.5 15h-3A1.5 1.5 0 011 13.5v-3zm8 0A1.5 1.5 0 0110.5 9h3a1.5 1.5 0 011.5 1.5v3a1.5 1.5 0 01-1.5 1.5h-3A1.5 1.5 0 019 13.5v-3z" /></svg>
             </button>
-            <button onClick={() => setViewMode('list')} aria-label="列表视图" className="p-1.5 transition-colors" style={{ background: viewMode === 'list' ? 'var(--accent)' : 'transparent', color: viewMode === 'list' ? '#fff' : 'var(--text-tertiary)' }}>
+            <button onClick={() => setViewMode('list')} aria-label={t('列表视图')} className="p-1.5 transition-colors" style={{ background: viewMode === 'list' ? 'var(--accent)' : 'transparent', color: viewMode === 'list' ? '#fff' : 'var(--text-tertiary)' }}>
               <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 16 16"><path fillRule="evenodd" d="M2.5 12a.5.5 0 01.5-.5h10a.5.5 0 010 1H3a.5.5 0 01-.5-.5zm0-4a.5.5 0 01.5-.5h10a.5.5 0 010 1H3a.5.5 0 01-.5-.5zm0-4a.5.5 0 01.5-.5h10a.5.5 0 010 1H3a.5.5 0 01-.5-.5z" /></svg>
             </button>
           </div>
 
-          <button onClick={handleImport} className="btn-primary flex items-center gap-1.5 ml-1 text-xs" aria-label="导入书籍">
+          <button onClick={handleImport} className="btn-primary flex items-center gap-1.5 ml-1 text-xs" aria-label={t('导入书籍')}>
             <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
-            导入
+            {t('导入')}
           </button>
 
           {/* More menu */}
           <div className="relative ml-0.5">
-            <button ref={moreBtnRef} onClick={() => setShowMore(!showMore)} aria-label="更多操作"
+            <button ref={moreBtnRef} onClick={() => setShowMore(!showMore)} aria-label={t('更多操作')}
               className="p-1.5 rounded-md transition-colors" style={{ color: 'var(--text-secondary)' }}
               onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--text-primary)'; e.currentTarget.style.background = 'var(--surface-hover)' }}
               onMouseLeave={(e) => { if (!showMore) { e.currentTarget.style.color = 'var(--text-secondary)'; e.currentTarget.style.background = 'transparent' } }}>
@@ -249,19 +252,19 @@ export function Library({ onOpenBook, onOpenSettings, onOpenZLibrary, onOpenStat
               <div className="absolute right-0 top-full mt-1 rounded-lg overflow-hidden shadow-win-lg animate-scale-in z-50 min-w-[180px]"
                 style={{ background: 'var(--acrylic-bg)', backdropFilter: 'blur(24px)', border: '1px solid var(--acrylic-border)' }}>
 <button onClick={() => { loadBooks(); setShowMore(false) }} className="w-full text-left px-4 py-2 text-sm flex items-center gap-2 whitespace-nowrap transition-colors" style={{ color: 'var(--text-primary)' }} onMouseEnter={(e) => e.currentTarget.style.background = 'var(--surface-hover)'} onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
-                  <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg> 刷新书架
+                  <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg> {t('刷新书架')}
                 </button>
                 <button onClick={() => { onOpenStatistics(); setShowMore(false) }} className="w-full text-left px-4 py-2 text-sm flex items-center gap-2 whitespace-nowrap transition-colors" style={{ color: 'var(--text-primary)' }} onMouseEnter={(e) => e.currentTarget.style.background = 'var(--surface-hover)'} onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
-                  <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg> 阅读统计
+                  <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg> {t('阅读统计')}
                 </button>
                 <button onClick={() => { setShowChangelog(true); setShowMore(false) }} className="w-full text-left px-4 py-2 text-sm flex items-center gap-2 whitespace-nowrap transition-colors" style={{ color: 'var(--text-primary)' }} onMouseEnter={(e) => e.currentTarget.style.background = 'var(--surface-hover)'} onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
-                  <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg> 更新日志
+                  <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg> {t('更新日志')}
                 </button>
               </div>
             )}
           </div>
 
-          <button onClick={onOpenSettings} aria-label="全局设置"
+          <button onClick={onOpenSettings} aria-label={t('全局设置')}
             className="p-1.5 rounded-md transition-colors ml-0.5" style={{ color: 'var(--text-secondary)' }}
             onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--text-primary)'; e.currentTarget.style.background = 'var(--surface-hover)' }}
             onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-secondary)'; e.currentTarget.style.background = 'transparent' }}>
@@ -277,7 +280,7 @@ export function Library({ onOpenBook, onOpenSettings, onOpenZLibrary, onOpenStat
           {/* Sidebar header */}
           <div className="px-4 pt-4 pb-1.5">
             <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--text-tertiary)' }}>{shelfName}</p>
-            <p className="text-xs mt-0.5" style={{ color: 'var(--text-tertiary)' }}>{books.length} 本书</p>
+            <p className="text-xs mt-0.5" style={{ color: 'var(--text-tertiary)' }}>{t('{{count}} 本书', { count: books.length })}</p>
           </div>
           <div className="flex-1">
             <BookShelfPanel onOpenBookSource={() => setShowBookSource(true)} onOpenZLibrary={onOpenZLibrary} onAddFromAll={() => setShowBookPicker(true)} />
@@ -293,8 +296,8 @@ export function Library({ onOpenBook, onOpenSettings, onOpenZLibrary, onOpenStat
                 <svg className="w-20 h-20 mx-auto mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" style={{ color: 'var(--accent)' }}>
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
                 </svg>
-                <p className="text-xl font-semibold" style={{ color: 'var(--accent)' }}>拖放电子书文件到此处</p>
-                <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>支持 EPUB、PDF、MOBI、TXT、FB2、CBZ/CBR、HTML、Markdown</p>
+                <p className="text-xl font-semibold" style={{ color: 'var(--accent)' }}>{t('拖放电子书文件到此处')}</p>
+                <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>{t('支持 EPUB、PDF、MOBI、TXT、FB2、CBZ/CBR、HTML、Markdown')}</p>
               </div>
             </div>
           )}
@@ -306,9 +309,9 @@ export function Library({ onOpenBook, onOpenSettings, onOpenZLibrary, onOpenStat
               <div className="w-32 h-32 rounded-full flex items-center justify-center mb-6" style={{ background: 'var(--bg-tertiary)' }}>
                 <svg className="w-16 h-16 opacity-30" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" /></svg>
               </div>
-              <p className="text-xl font-semibold mb-1" style={{ color: 'var(--text-secondary)' }}>开始你的阅读之旅</p>
-              <p className="text-sm mb-4" style={{ color: 'var(--text-tertiary)' }}>点击「导入」或拖放文件到此处</p>
-              <button onClick={handleImport} className="btn-primary">导入第一本书</button>
+              <p className="text-xl font-semibold mb-1" style={{ color: 'var(--text-secondary)' }}>{t('开始你的阅读之旅')}</p>
+              <p className="text-sm mb-4" style={{ color: 'var(--text-tertiary)' }}>{t('点击「导入」或拖放文件到此处')}</p>
+              <button onClick={handleImport} className="btn-primary">{t('导入第一本书')}</button>
             </div>
           ) : viewMode === 'grid' ? (
             <BookGrid books={sortedBooks} onOpenBook={onOpenBook} />

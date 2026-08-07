@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useReaderStore } from '../../stores/readerStore'
 import type { Book } from '../../stores/libraryStore'
 
@@ -16,6 +17,7 @@ interface ImageEntry {
 const CACHE_RANGE = 2
 
 export function ComicRenderer({ book, content, bookId }: ComicRendererProps) {
+  const { t } = useTranslation()
   const [totalPages, setTotalPages] = useState(0)
   const [currentIndex, setCurrentIndex] = useState(0)
   const [isLoading, setIsLoading] = useState(true)
@@ -162,7 +164,7 @@ export function ComicRenderer({ book, content, bookId }: ComicRendererProps) {
       <div className="h-full flex items-center justify-center bg-[var(--reader-bg)]">
         <div className="text-center">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-500 mx-auto mb-4"></div>
-          <p className="text-[var(--reader-text)] opacity-50">正在解压漫画...</p>
+          <p className="text-[var(--reader-text)] opacity-50">{t('正在解压漫画...')}</p>
         </div>
       </div>
     )
@@ -171,7 +173,7 @@ export function ComicRenderer({ book, content, bookId }: ComicRendererProps) {
   if (totalPages === 0) {
     return (
       <div className="h-full flex items-center justify-center bg-[var(--reader-bg)]">
-        <p className="text-[var(--reader-text)] opacity-50">未找到图片</p>
+        <p className="text-[var(--reader-text)] opacity-50">{t('未找到图片')}</p>
       </div>
     )
   }
@@ -191,7 +193,7 @@ export function ComicRenderer({ book, content, bookId }: ComicRendererProps) {
             <img
               key={index}
               src={url}
-              alt={`第 ${index + 1} 页`}
+              alt={t('第 {{page}} 页', { page: index + 1 })}
               className="w-full"
             />
           ) : (

@@ -19,6 +19,16 @@ class ZLibraryService;
 void RegisterBookSourceHandlers(BridgeServer* bridge, std::shared_ptr<BookSourceService> svc);
 void RegisterZlibHandlers(BridgeServer* bridge, ZLibraryService* zlib);
 
+static std::wstring Utf8ToWide(const std::string& s)
+{
+    if (s.empty()) return L"";
+    int len = MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, nullptr, 0);
+    std::wstring w(len, L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, &w[0], len);
+    while (!w.empty() && w.back() == L'\0') w.pop_back();
+    return w;
+}
+
 App& App::Instance() { static App app; return app; }
 
 void App::Init(HINSTANCE hInstance)
@@ -28,6 +38,8 @@ void App::Init(HINSTANCE hInstance)
     // 1. Database
     m_db = std::make_shared<DatabaseService>();
     m_db->Load(UserDataPath() + "/data/reader.json");
+    // Restore persisted UI language (must be set before toolbar scripts are injected)
+    m_language = m_db->GetSettings().value("language", "zh") == "en" ? "en" : "zh";
 
     // 2. Bridge (message dispatch)
     m_bridge = std::make_shared<BridgeServer>();
@@ -61,6 +73,8 @@ void App::Init(HINSTANCE hInstance)
 
     // 4. Inject bridge script BEFORE WebView2 navigates
     m_webview->InjectBridgeScript(BridgeServer::GenerateBridgeScript());
+    // UI language anchor — toolbar / download-card scripts read window.__pbLang
+    m_webview->InjectBridgeScript("window.__pbLang='" + m_language + "';");
     // Z-Library floating toolbar
     m_webview->InjectBridgeScript(
         "(function(){"
@@ -73,7 +87,7 @@ void App::Init(HINSTANCE hInstance)
         "+'<button id=zb-fwd><svg width=16 height=16 viewBox=\"0 0 24 24\" fill=none stroke=currentColor stroke-width=2><path d=\"M9 5l7 7-7 7\"/></svg></button>'"
         "+'<button id=zb-reload><svg width=16 height=16 viewBox=\"0 0 24 24\" fill=none stroke=currentColor stroke-width=2><path d=\"M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15\"/></svg></button>'"
         "+'<span class=sep></span><span class=u id=zb-url></span><span class=sep></span>'"
-        "+'<button id=zb-mirror style=font-size:11px;padding:4px 8px;border-radius:6px;width:auto;height:28px>线路</button>'"
+        "+'<button id=zb-mirror style=font-size:11px;padding:4px 8px;border-radius:6px;width:auto;height:28px>'+(window.__pbLang==='en'?'Line':'线路')+'</button>'"
         "+'<span class=sep></span><button id=zb-close style=color:rgba(255,100,100,0.8)>'"
         "+'<svg width=16 height=16 viewBox=\"0 0 24 24\" fill=none stroke=currentColor stroke-width=2><path d=\"M6 18L18 6M6 6l12 12\"/></svg></button>'}"
         "var b=document.createElement('div');b.id='zlib-bar';b.style.display='flex';b.innerHTML=_svgs();"
@@ -106,6 +120,7 @@ void App::Init(HINSTANCE hInstance)
         "root.appendChild(p);_mp=p;"
         "setTimeout(function(){var h=function(e){if(_mp&&!_mp.contains(e.target)){_mp.remove();_mp=null;document.removeEventListener('click',h)}};document.addEventListener('click',h)},100);"
         "}).catch(function(){});};"
+        "window.__pbRefreshToolbar=function(){var b=document.getElementById('zb-mirror');if(b)b.textContent=(window.__pbLang==='en'?'Line':'线路');};"
         "}},100)}"
         ")()"
     );
@@ -151,30 +166,30 @@ void App::Init(HINSTANCE hInstance)
         "setTimeout(function(){if(c.parentNode)c.parentNode.removeChild(c);},400);}_hideTimer=null;},ms);}"
         "function _h(m){var d=m.data||{};var ev=m.event;"
         "if(ev==='zlib:downloadStart'){if(_hideTimer){clearTimeout(_hideTimer);_hideTimer=null;}"
-        "_ensure();_icon(_spin());_setText('_pbdl-title',d.fileName||'下载中...');"
-        "_setText('_pbdl-status','准备下载...','rgba(255,255,255,0.6)');_setText('_pbdl-bytes','');"
+        "_ensure();_icon(_spin());_setText('_pbdl-title',d.fileName||(window.__pbLang==='en'?'Downloading...':'下载中...'));"
+        "_setText('_pbdl-status',(window.__pbLang==='en'?'Preparing...':'准备下载...'),'rgba(255,255,255,0.6)');_setText('_pbdl-bytes','');"
         "_setFill('0%','linear-gradient(90deg,#60a5fa,#818cf8)');}"
         "else if(ev==='zlib:downloadProgress'){_ensure();_icon(_spin());"
         "var pct=d.total>0?Math.round(d.received/d.total*100):0;"
         "if(d.fileName)_setText('_pbdl-title',d.fileName);"
-        "_setText('_pbdl-status',(d.total>0?pct+'% · ':'')+'下载中','rgba(255,255,255,0.6)');"
+        "_setText('_pbdl-status',(d.total>0?pct+'% · ':'')+(window.__pbLang==='en'?'Downloading':'下载中'),'rgba(255,255,255,0.6)');"
         "_setText('_pbdl-bytes',d.total>0?_fmt(d.received)+' / '+_fmt(d.total):_fmt(d.received));"
         "_setFill((d.total>0?pct:8)+'%');}"
         "else if(ev==='zlib:downloadComplete'){_ensure();"
-        "_setText('_pbdl-status','下载完成','rgba(255,255,255,0.6)');_setFill('100%');}"
+        "_setText('_pbdl-status',(window.__pbLang==='en'?'Download complete':'下载完成'),'rgba(255,255,255,0.6)');_setFill('100%');}"
         "else if(ev==='zlib:importStart'){_ensure();_icon(_spin());"
         "if(d.fileName)_setText('_pbdl-title',d.fileName);"
-        "_setText('_pbdl-status','正在导入到书架...','rgba(255,255,255,0.6)');_setText('_pbdl-bytes','');"
+        "_setText('_pbdl-status',(window.__pbLang==='en'?'Importing to library...':'正在导入到书架...'),'rgba(255,255,255,0.6)');_setText('_pbdl-bytes','');"
         "_setFill('100%','linear-gradient(90deg,#a78bfa,#818cf8)');}"
         "else if(ev==='zlib:importComplete'){_ensure();_icon(_chk());"
         "if(d.fileName)_setText('_pbdl-title',d.fileName);"
-        "_setText('_pbdl-status','已加入书架','#4ade80');_setText('_pbdl-bytes','');"
+        "_setText('_pbdl-status',(window.__pbLang==='en'?'Added to library':'已加入书架'),'#4ade80');_setText('_pbdl-bytes','');"
         "_setFill('100%','#4ade80');_hideAfter(3500);}"
         "else if(ev==='zlib:downloadError'||ev==='zlib:importError'){_ensure();_icon(_err());"
         "if(d.fileName)_setText('_pbdl-title',d.fileName);"
-        "var lbl=ev==='zlib:downloadError'?'下载失败':'导入失败';"
-        "var emap={invalid_url:'链接无效',http_open_failed:'网络初始化失败',connect_failed:'无法连接服务器',request_failed:'请求创建失败',network_error:'网络异常',file_create_failed:'无法写入本地文件',empty_response:'服务器返回空内容',too_many_redirects:'重定向过多',import_failed:'导入失败'};"
-        "var msg='';if(d.error){if(emap[d.error])msg=emap[d.error];else if(d.error.indexOf('http_')===0)msg='服务器错误 '+d.error.substring(5);else if(d.error.indexOf('import_exception:')===0)msg='导入异常';else msg=d.error;}"
+        "var lbl=ev==='zlib:downloadError'?(window.__pbLang==='en'?'Download failed':'下载失败'):(window.__pbLang==='en'?'Import failed':'导入失败');"
+        "var emap=(window.__pbLang==='en')?{invalid_url:'Invalid URL',http_open_failed:'Network init failed',connect_failed:'Cannot connect to server',request_failed:'Request failed',network_error:'Network error',file_create_failed:'Cannot write local file',empty_response:'Empty server response',too_many_redirects:'Too many redirects',import_failed:'Import failed'}:{invalid_url:'链接无效',http_open_failed:'网络初始化失败',connect_failed:'无法连接服务器',request_failed:'请求创建失败',network_error:'网络异常',file_create_failed:'无法写入本地文件',empty_response:'服务器返回空内容',too_many_redirects:'重定向过多',import_failed:'导入失败'};"
+        "var msg='';if(d.error){if(emap[d.error])msg=emap[d.error];else if(d.error.indexOf('http_')===0)msg=(window.__pbLang==='en'?'Server error ':'服务器错误 ')+d.error.substring(5);else if(d.error.indexOf('import_exception:')===0)msg=(window.__pbLang==='en'?'Import exception':'导入异常');else msg=d.error;}"
         "_setText('_pbdl-status',msg?lbl+': '+msg:lbl,'#f87171');_setText('_pbdl-bytes','');"
         "_setFill('100%','#f87171');_hideAfter(6000);}}"
         "function _flush(){_rdy=true;for(var i=0;i<_q.length;i++)_h(_q[i]);_q=[];}"
@@ -201,6 +216,14 @@ void App::Init(HINSTANCE hInstance)
     RegisterPdfHandlers(m_bridge.get(), m_pdf.get());
     RegisterBookSourceHandlers(m_bridge.get(), m_bookSource);
     RegisterZlibHandlers(m_bridge.get(), m_zlib.get());
+
+    // UI language switch — called from frontend when the user changes language.
+    // Prefix "app:" is NOT in the External whitelist, so external Z-Library
+    // pages cannot invoke it (only the in-app settings page can).
+    m_bridge->RegisterMethod("app:setLanguage", [](const json& p) {
+        App::Instance().SetLanguage(p.value("lang", "zh"));
+        return json(true);
+    });
 }
 
 void App::Run()
@@ -226,4 +249,17 @@ std::string App::UserDataPath() const
         return std::string(buf) + "/particle-book";
     }
     return ".";
+}
+
+void App::SetLanguage(const std::string& lang)
+{
+    m_language = (lang == "en") ? "en" : "zh";
+    if (!m_webview) return;
+    // New injection only applies to documents created AFTER this call
+    // (AddScriptToExecuteOnDocumentCreated semantics), so also refresh the
+    // already-loaded Z-Library page's toolbar label.
+    m_webview->InjectBridgeScript("window.__pbLang='" + m_language + "';");
+    std::wstring js = L"if(window.__pbLang)window.__pbLang='" + Utf8ToWide(m_language)
+                    + L"';if(window.__pbRefreshToolbar)window.__pbRefreshToolbar();";
+    m_webview->ExecuteScriptOnPage(js);
 }

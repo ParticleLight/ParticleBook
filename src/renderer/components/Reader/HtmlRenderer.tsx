@@ -2,6 +2,8 @@ import { useEffect, useState, useRef } from 'react'
 import MarkdownIt from 'markdown-it'
 import { XMLParser } from 'fast-xml-parser'
 import DOMPurify from 'dompurify'
+import { useTranslation } from 'react-i18next'
+import type { TFunction } from 'i18next'
 import { useReaderStore } from '../../stores/readerStore'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { highlightTextInDOM } from '../../utils/domSearch'
@@ -16,6 +18,7 @@ interface HtmlRendererProps {
 const md = new MarkdownIt({ html: false, linkify: true, typographer: true })
 
 export function HtmlRenderer({ book, content, bookId }: HtmlRendererProps) {
+  const { t } = useTranslation()
   const [htmlContent, setHtmlContent] = useState('')
   const containerRef = useRef<HTMLDivElement>(null)
   const contentRef = useRef<HTMLDivElement>(null)
@@ -82,7 +85,7 @@ export function HtmlRenderer({ book, content, bookId }: HtmlRendererProps) {
         setHtmlContent(DOMPurify.sanitize(md.render(text)))
         break
       case 'fb2':
-        setHtmlContent(DOMPurify.sanitize(parseFb2(text)))
+        setHtmlContent(DOMPurify.sanitize(parseFb2(text, t)))
         break
       case 'html':
         setHtmlContent(DOMPurify.sanitize(text))
@@ -90,7 +93,7 @@ export function HtmlRenderer({ book, content, bookId }: HtmlRendererProps) {
       default:
         setHtmlContent(`<pre style="white-space: pre-wrap; font-family: inherit;">${escapeHtml(text)}</pre>`)
     }
-  }, [content, book.format])
+  }, [content, book.format, t])
 
   useEffect(() => {
     if (!containerRef.current) return
@@ -208,12 +211,12 @@ export function HtmlRenderer({ book, content, bookId }: HtmlRendererProps) {
   )
 }
 
-function parseFb2(xml: string): string {
+function parseFb2(xml: string, t: TFunction): string {
   const parser = new XMLParser({ ignoreAttributes: false })
   const parsed = parser.parse(xml)
   const body = parsed?.FictionBook?.body
 
-  if (!body) return '<p>无法解析 FB2 文件</p>'
+  if (!body) return t('<p>无法解析 FB2 文件</p>')
 
   let html = ''
   const sections = Array.isArray(body.section) ? body.section : [body.section]
@@ -242,7 +245,7 @@ function parseFb2(xml: string): string {
     }
   }
 
-  return html || '<p>空文档</p>'
+  return html || t('<p>空文档</p>')
 }
 
 function escapeHtml(text: string): string {

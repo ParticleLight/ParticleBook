@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useLibraryStore } from '../../stores/libraryStore'
+import { useTranslation } from 'react-i18next'
 
 interface BookShelfPanelProps { onOpenBookSource?: () => void; onOpenZLibrary?: () => void; onAddFromAll?: () => void }
 
@@ -15,6 +16,7 @@ export function BookShelfPanel({ onOpenBookSource, onOpenZLibrary, onAddFromAll 
   const [editingId, setEditingId] = useState<number | null>(null)
   const [editName, setEditName] = useState('')
   const [contextMenu, setContextMenu] = useState<{ id: number; x: number; y: number } | null>(null)
+  const { t } = useTranslation()
 
   const handleCreate = () => { if (newName.trim()) { createBookshelf(newName.trim()); setNewName(''); setShowDialog(false) } }
   const handleRename = () => { if (editingId !== null && editName.trim()) { renameBookshelf(editingId, editName.trim()); setEditingId(null); setEditName('') } }
@@ -37,17 +39,17 @@ export function BookShelfPanel({ onOpenBookSource, onOpenZLibrary, onAddFromAll 
     <div className="flex flex-col h-full">
       {/* Header */}
       <div className="px-4 py-2.5 flex items-center justify-between">
-        <h3 className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--text-tertiary)' }}>书柜</h3>
+        <h3 className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--text-tertiary)' }}>{t('书柜')}</h3>
         <div className="flex items-center gap-1">
           {activeShelfId != null && onAddFromAll && (
-            <button onClick={onAddFromAll} aria-label="从全部添加" title="从全部添加"
+            <button onClick={onAddFromAll} aria-label={t('从全部添加')} title={t('从全部添加')}
               className="px-1.5 py-0.5 text-[11px] rounded-md transition-all duration-150"
               style={{ color: 'var(--accent)', background: 'var(--color-indigo-bg)' }}>
               <svg className="w-3 h-3 inline mr-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
-              从全部添加
+              {t('从全部添加')}
             </button>
           )}
-          <button onClick={() => setShowDialog(true)} aria-label="新建书柜"
+          <button onClick={() => setShowDialog(true)} aria-label={t('新建书柜')}
             className="p-0.5 rounded-md transition-all duration-150"
             style={{ color: 'var(--text-tertiary)' }}
             onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--text-primary)'; e.currentTarget.style.background = 'var(--surface-hover)' }}
@@ -57,7 +59,7 @@ export function BookShelfPanel({ onOpenBookSource, onOpenZLibrary, onAddFromAll 
         </div>
       </div>
       <div className="flex-1 overflow-y-auto px-3 space-y-0.5">
-        {navItem('全部书籍',
+        {navItem(t('全部书籍'),
           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" /></svg>,
           isActive(null), () => setActiveShelf(null))}
 
@@ -95,7 +97,7 @@ export function BookShelfPanel({ onOpenBookSource, onOpenZLibrary, onAddFromAll 
             onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--text-primary)'; e.currentTarget.style.background = 'var(--surface-hover)' }}
             onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-tertiary)'; e.currentTarget.style.background = 'transparent' }}>
             <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" /></svg>
-            书源管理
+            {t('书源管理')}
           </button>
         )}
 
@@ -104,7 +106,7 @@ export function BookShelfPanel({ onOpenBookSource, onOpenZLibrary, onAddFromAll 
           onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--text-primary)'; e.currentTarget.style.background = 'var(--surface-hover)' }}
           onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-tertiary)'; e.currentTarget.style.background = 'transparent' }}>
           <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
-          新建书柜
+          {t('新建书柜')}
         </button>
       </div>
 
@@ -114,10 +116,10 @@ export function BookShelfPanel({ onOpenBookSource, onOpenZLibrary, onAddFromAll 
           <div className="absolute rounded-lg overflow-hidden shadow-win-lg animate-scale-in" style={{ left: contextMenu.x, top: contextMenu.y, background: 'var(--acrylic-bg)', backdropFilter: 'blur(24px)', border: '1px solid var(--acrylic-border)' }}>
             <button onClick={() => { setEditingId(contextMenu.id); setEditName(bookshelves.find((s) => s.id === contextMenu.id)?.name || ''); setContextMenu(null) }}
               className="w-full text-left px-4 py-2 text-sm transition-colors" style={{ color: 'var(--text-primary)' }}
-              onMouseEnter={(e) => e.currentTarget.style.background = 'var(--surface-hover)'} onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>重命名</button>
+              onMouseEnter={(e) => e.currentTarget.style.background = 'var(--surface-hover)'} onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>{t('重命名')}</button>
             <button onClick={() => { deleteBookshelf(contextMenu.id); setContextMenu(null) }}
               className="w-full text-left px-4 py-2 text-sm transition-colors" style={{ color: 'var(--color-red)' }}
-              onMouseEnter={(e) => e.currentTarget.style.background = 'var(--color-red-bg)'} onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>删除</button>
+              onMouseEnter={(e) => e.currentTarget.style.background = 'var(--color-red-bg)'} onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>{t('删除')}</button>
           </div>
         </div>
       )}
@@ -127,13 +129,13 @@ export function BookShelfPanel({ onOpenBookSource, onOpenZLibrary, onAddFromAll 
         <div className="fixed inset-0 z-50 flex items-center justify-center animate-fade-in" onClick={() => { setShowDialog(false); setNewName('') }}>
           <div className="absolute inset-0" style={{ background: 'rgba(0,0,0,0.45)' }} />
           <div className="relative w-80 rounded-xl shadow-win-lg p-6 animate-scale-in" style={{ background: 'var(--acrylic-bg)', backdropFilter: 'blur(24px)', border: '1px solid var(--acrylic-border)' }}>
-            <h3 className="text-base font-semibold mb-4" style={{ color: 'var(--text-primary)' }}>新建书柜</h3>
+            <h3 className="text-base font-semibold mb-4" style={{ color: 'var(--text-primary)' }}>{t('新建书柜')}</h3>
             <input autoFocus value={newName} onChange={(e) => setNewName(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter') handleCreate(); if (e.key === 'Escape') { setShowDialog(false); setNewName('') } }}
-              placeholder="请输入书柜名称..." className="w-full input mb-4" />
+              placeholder={t('请输入书柜名称...')} className="w-full input mb-4" />
             <div className="flex justify-end gap-2">
-              <button onClick={() => { setShowDialog(false); setNewName('') }} className="btn-secondary">取消</button>
-              <button onClick={handleCreate} className="btn-primary">创建</button>
+              <button onClick={() => { setShowDialog(false); setNewName('') }} className="btn-secondary">{t('取消')}</button>
+              <button onClick={handleCreate} className="btn-primary">{t('创建')}</button>
             </div>
           </div>
         </div>

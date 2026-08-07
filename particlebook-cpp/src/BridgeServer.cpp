@@ -325,6 +325,7 @@ std::string BridgeServer::GenerateBridgeScript()
 
     checkUpdate: function()    { return invoke('app:checkUpdate'); },
     getAppVersion: function()  { return invoke('app:getVersion'); },
+    setLanguage: function(lang){ return invoke('app:setLanguage', {lang:lang||'zh'}); },
     downloadUpdate: function(url, sha512) { return invoke('app:downloadUpdate', {url:url||'', sha512:sha512||''}); },
     quitAndInstall: function() { return invoke('app:quitAndInstall'); },
     onUpdateAvailable: function(cb)        { return onEvent('app:updateAvailable', cb); },

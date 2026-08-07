@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import i18n from '../i18n'
 import type { SearchResult, DownloadProgress, BookSourceInfo } from '../types/bookSource'
 
 interface BookSourceState {
@@ -78,7 +79,7 @@ export const useBookSourceStore = create<BookSourceState>((set, get) => ({
       }
     } catch (e: any) {
       console.error('Search failed:', e)
-      set({ searchResults: [], searchError: e?.message || '搜索失败' })
+      set({ searchResults: [], searchError: e?.message || i18n.t('搜索失败') })
     } finally {
       set({ isSearching: false })
     }

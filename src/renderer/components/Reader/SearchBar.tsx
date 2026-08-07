@@ -1,7 +1,9 @@
 import { useEffect, useRef } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useReaderStore } from '../../stores/readerStore'
 
 export function SearchBar() {
+  const { t } = useTranslation()
   const searchQuery = useReaderStore((s) => s.searchQuery)
   const searchMatches = useReaderStore((s) => s.searchMatches)
   const currentSearchIndex = useReaderStore((s) => s.currentSearchIndex)
@@ -46,7 +48,7 @@ export function SearchBar() {
         value={searchQuery}
         onChange={handleInput}
         onKeyDown={handleKeyDown}
-        placeholder="搜索全书..."
+        placeholder={t('搜索全书...')}
         className="bg-transparent text-sm outline-none w-48"
         style={{ color: 'var(--text-primary)' }}
       />
@@ -57,7 +59,7 @@ export function SearchBar() {
         onClick={prevSearchMatch}
         className="w-7 h-7 rounded flex items-center justify-center hover:bg-white/10 transition-colors"
         style={{ color: 'var(--text-secondary)' }}
-        title="上一个 (Shift+Enter)"
+        title={t('上一个 (Shift+Enter)')}
       >
         <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
@@ -67,7 +69,7 @@ export function SearchBar() {
         onClick={nextSearchMatch}
         className="w-7 h-7 rounded flex items-center justify-center hover:bg-white/10 transition-colors"
         style={{ color: 'var(--text-secondary)' }}
-        title="下一个 (Enter)"
+        title={t('下一个 (Enter)')}
       >
         <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
@@ -77,7 +79,7 @@ export function SearchBar() {
         onClick={clearSearch}
         className="w-7 h-7 rounded flex items-center justify-center hover:bg-white/10 transition-colors"
         style={{ color: 'var(--text-tertiary)' }}
-        title="关闭 (Esc)"
+        title={t('关闭 (Esc)')}
       >
         <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />

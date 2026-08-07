@@ -5,6 +5,7 @@ import { formatReadingTime, extractTextPreview, formatColors } from '../../utils
 import { generatePdfPreview, generateCbzPreview } from '../../utils/preview'
 import { ConfirmDialog } from '../UI/ConfirmDialog'
 import { BookDetailDialog } from './BookDetailDialog'
+import { useTranslation } from 'react-i18next'
 
 interface BookCardProps {
   book: Book
@@ -27,6 +28,7 @@ function BookCardInner({ book, onOpen, onDelete, onRemoveFromShelf, activeShelfI
   const bookshelves = useLibraryStore((s) => s.bookshelves)
   const addBookToShelf = useLibraryStore((s) => s.addBookToShelf)
   const readingTime = useLibraryStore((s) => s.readingTimeMap[book.id] || 0)
+  const { t } = useTranslation()
 
   useEffect(() => {
     let mounted = true
@@ -84,11 +86,11 @@ function BookCardInner({ book, onOpen, onDelete, onRemoveFromShelf, activeShelfI
       {/* Title & author */}
       <div className="mt-2 px-0.5">
         <p className="text-sm font-medium truncate" style={{ color: 'var(--text-primary)' }}>{safeText(book.title)}</p>
-        <p className="text-xs truncate" style={{ color: 'var(--text-tertiary)' }}>{safeText(book.author) || '未知作者'}</p>
+        <p className="text-xs truncate" style={{ color: 'var(--text-tertiary)' }}>{safeText(book.author) || t('未知作者')}</p>
         {readingTime > 0 && (
           <p className="text-xs mt-0.5 flex items-center gap-1" style={{ color: 'var(--text-tertiary)' }}>
             <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-            已读 {formatReadingTime(readingTime)}
+            {t('已读 {{time}}', { time: formatReadingTime(readingTime) })}
           </p>
         )}
       </div>
@@ -100,17 +102,17 @@ function BookCardInner({ book, onOpen, onDelete, onRemoveFromShelf, activeShelfI
           <button onClick={(e) => { e.stopPropagation(); onOpen(book.id); setShowMenu(false) }}
             className="w-full text-left px-4 py-2 text-sm transition-colors" style={{ color: 'var(--text-primary)' }}
             onMouseEnter={(e) => e.currentTarget.style.background = 'var(--surface-hover)'}
-            onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>打开</button>
+            onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>{t('打开')}</button>
           <button onClick={(e) => { e.stopPropagation(); setShowDetail(true); setShowMenu(false) }}
             className="w-full text-left px-4 py-2 text-sm transition-colors" style={{ color: 'var(--text-primary)' }}
             onMouseEnter={(e) => e.currentTarget.style.background = 'var(--surface-hover)'}
-            onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>详情</button>
+            onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>{t('详情')}</button>
           {bookshelves.length > 0 && (
             <button onClick={(e) => { e.stopPropagation(); setShowShelfMenu(!showShelfMenu) }}
               className="w-full text-left px-4 py-2 text-sm transition-colors flex items-center justify-between" style={{ color: 'var(--text-primary)' }}
               onMouseEnter={(e) => e.currentTarget.style.background = 'var(--surface-hover)'}
               onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
-              添加到书柜
+              {t('添加到书柜')}
               <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
             </button>
           )}
@@ -124,18 +126,18 @@ function BookCardInner({ book, onOpen, onDelete, onRemoveFromShelf, activeShelfI
             <button onClick={(e) => { e.stopPropagation(); onRemoveFromShelf(book.id); setShowMenu(false) }}
               className="w-full text-left px-4 py-2 text-sm transition-colors" style={{ color: 'var(--color-orange)' }}
               onMouseEnter={(e) => e.currentTarget.style.background = 'var(--color-orange-bg)'}
-              onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>从书柜移除</button>
+              onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>{t('从书柜移除')}</button>
           ) : (
             <button onClick={(e) => { e.stopPropagation(); setShowConfirmDelete(true); setShowMenu(false) }}
               className="w-full text-left px-4 py-2 text-sm transition-colors" style={{ color: 'var(--color-red)' }}
               onMouseEnter={(e) => e.currentTarget.style.background = 'var(--color-red-bg)'}
-              onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>删除</button>
+              onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>{t('删除')}</button>
           )}
         </div>
       )}
 
       {showConfirmDelete && (
-        <ConfirmDialog title="删除书籍" message={`确定要删除《${safeText(book.title)}》吗？此操作不可撤销。`} confirmText="删除" danger
+        <ConfirmDialog title={t('删除书籍')} message={t('确定要删除《{{title}}》吗？此操作不可撤销。', { title: safeText(book.title) })} confirmText={t('删除')} danger
           onConfirm={() => { onDelete(book.id); setShowConfirmDelete(false) }} onCancel={() => setShowConfirmDelete(false)} />
       )}
       {showDetail && (

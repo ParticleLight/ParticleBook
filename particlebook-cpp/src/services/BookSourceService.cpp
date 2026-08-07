@@ -502,7 +502,11 @@ int BookSourceService::DownloadBook(int sourceId, const std::string& bookUrl,
     std::string text;
     text.reserve(64 * 1024);
     for (int i = 0; i < totalChapters; i++) {
-        std::string name = chapters[i].value("name", "第" + std::to_string(i + 1) + "章");
+        // Fallback chapter title — localized per UI language
+        std::string fallbackName = App::Instance().GetLanguage() == "en"
+            ? "Chapter " + std::to_string(i + 1)
+            : "第" + std::to_string(i + 1) + "章";
+        std::string name = chapters[i].value("name", fallbackName);
         text += "# " + name + "\n\n" + chapterContents[i] + "\n\n";
     }
     if (text.empty()) return -1;

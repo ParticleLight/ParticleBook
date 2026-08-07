@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Library } from './components/Library/Library'
 import { ReaderView } from './components/Reader/ReaderView'
 import { UpdateBanner } from './components/UI/UpdateBanner'
@@ -21,20 +22,26 @@ const PageLoader = () => (
   </div>
 )
 
-const ZlibLoadingOverlay = () => (
-  <div className="fixed inset-0 z-50 flex flex-col items-center justify-center animate-fade-in" style={{ background: 'var(--bg)' }}>
-    <div className="w-10 h-10 rounded-full border-2 border-[var(--border)] border-t-[var(--accent)] animate-spin mb-4" />
-    <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>正在连接 Z-Library...</p>
-  </div>
-)
+const ZlibLoadingOverlay = () => {
+  const { t } = useTranslation()
+  return (
+    <div className="fixed inset-0 z-50 flex flex-col items-center justify-center animate-fade-in" style={{ background: 'var(--bg)' }}>
+      <div className="w-10 h-10 rounded-full border-2 border-[var(--border)] border-t-[var(--accent)] animate-spin mb-4" />
+      <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>{t('正在连接 Z-Library...')}</p>
+    </div>
+  )
+}
 
-const ZlibFailedBanner = ({ onDismiss }: { onDismiss: () => void }) => (
-  <div className="fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-4 py-2 animate-fade-in"
-    style={{ background: 'rgba(220,38,38,0.9)', backdropFilter: 'blur(8px)', color: '#fff' }}>
-    <span className="text-sm">所有 Z-Library 镜像暂时不可达，请稍后重试或手动切换线路</span>
-    <button onClick={onDismiss} className="text-white opacity-70 hover:opacity-100 ml-4 text-lg leading-none">&times;</button>
-  </div>
-)
+const ZlibFailedBanner = ({ onDismiss }: { onDismiss: () => void }) => {
+  const { t } = useTranslation()
+  return (
+    <div className="fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-4 py-2 animate-fade-in"
+      style={{ background: 'rgba(220,38,38,0.9)', backdropFilter: 'blur(8px)', color: '#fff' }}>
+      <span className="text-sm">{t('所有 Z-Library 镜像暂时不可达，请稍后重试或手动切换线路')}</span>
+      <button onClick={onDismiss} className="text-white opacity-70 hover:opacity-100 ml-4 text-lg leading-none">&times;</button>
+    </div>
+  )
+}
 
 const PageShell = ({ children, show }: { children: React.ReactNode; show: boolean }) => (
   <div className={`h-screen overflow-hidden ${show ? 'animate-fade-in' : ''}`}>
@@ -52,9 +59,13 @@ export default function App() {
   const theme = useSettingsStore((s) => s.theme)
   const accentColor = useSettingsStore((s) => s.accentColor)
   const loadBooks = useLibraryStore((s) => s.loadBooks)
+  const loadSettings = useSettingsStore((s) => s.loadSettings)
   const zlibTimer = useRef<ReturnType<typeof setTimeout>>()
 
   useEffect(() => { loadBooks() }, [loadBooks])
+  // Load persisted global settings (theme, language, …) on startup — was never
+  // called on boot before, so theme/language didn't restore until opening a book.
+  useEffect(() => { loadSettings() }, [loadSettings])
 
   // Auto check for updates on startup — checkUpdate runs on a C++ background
   // thread and the result arrives via the app:updateChecked event (the invoke

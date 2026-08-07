@@ -1,5 +1,6 @@
 import { useEffect, useRef, useMemo, useState, useCallback } from 'react'
 import { createPortal } from 'react-dom'
+import { useTranslation } from 'react-i18next'
 import { useReaderStore } from '../../stores/readerStore'
 import { useSettingsStore } from '../../stores/settingsStore'
 import type { Book } from '../../stores/libraryStore'
@@ -10,17 +11,18 @@ interface TextRendererProps {
   bookId: number
 }
 
-const HIGHLIGHT_COLORS = [
-  { value: 'rgba(234,179,8,0.45)', label: '黄' },
-  { value: 'rgba(59,130,246,0.45)', label: '蓝' },
-  { value: 'rgba(34,197,94,0.45)', label: '绿' },
-  { value: 'rgba(239,68,68,0.45)', label: '红' },
-  { value: 'rgba(168,85,247,0.45)', label: '紫' },
-]
-
 export function TextRenderer({ book, content, bookId }: TextRendererProps) {
+  const { t } = useTranslation()
   const containerRef = useRef<HTMLDivElement>(null)
   const text = useMemo(() => new TextDecoder('utf-8').decode(content), [content])
+
+  const HIGHLIGHT_COLORS = useMemo(() => [
+    { value: 'rgba(234,179,8,0.45)', label: t('黄') },
+    { value: 'rgba(59,130,246,0.45)', label: t('蓝') },
+    { value: 'rgba(34,197,94,0.45)', label: t('绿') },
+    { value: 'rgba(239,68,68,0.45)', label: t('红') },
+    { value: 'rgba(168,85,247,0.45)', label: t('紫') },
+  ], [t])
 
   const progress = useReaderStore((s) => s.progress)
   const setProgress = useReaderStore((s) => s.setProgress)

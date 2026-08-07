@@ -25,10 +25,14 @@ public:
     WebViewHost* WebView() const { return m_webview.get(); }
 
     std::string UserDataPath() const;
+    std::string GetLanguage() const { return m_language; }
+    void SetLanguage(const std::string& lang);
 
 private:
     App() = default;
     HINSTANCE m_hInstance = nullptr;
+
+    std::string m_language = "zh";
 
     std::shared_ptr<DatabaseService> m_db;
     std::shared_ptr<BridgeServer> m_bridge;

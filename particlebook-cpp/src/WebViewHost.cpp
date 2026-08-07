@@ -175,7 +175,7 @@ LRESULT CALLBACK WebViewHost::WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
                 delete str;
                 self->m_updateDoneCb(true, path);
             } else {
-                std::string err = str ? std::move(*str) : "未知错误";
+                std::string err = str ? std::move(*str) : "unknown";
                 delete str;
                 self->m_updateDoneCb(false, err);
             }

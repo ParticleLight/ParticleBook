@@ -4,6 +4,8 @@ import { useLibraryStore } from '../../stores/libraryStore'
 import { safeText } from '../../utils/safeText'
 import { formatColors } from '../../utils/format'
 import { ConfirmDialog } from '../UI/ConfirmDialog'
+import { useTranslation } from 'react-i18next'
+import i18n from '../../i18n'
 
 interface BookListProps { books: Book[]; onOpenBook: (bookId: number) => void }
 
@@ -35,6 +37,7 @@ export function BookList({ books, onOpenBook }: BookListProps) {
   const activeShelfId = useLibraryStore((s) => s.activeShelfId)
   const removeBookFromShelf = useLibraryStore((s) => s.removeBookFromShelf)
   const [deleteTarget, setDeleteTarget] = useState<Book | null>(null)
+  const { t } = useTranslation()
 
   const handleDelete = (e: React.MouseEvent, book: Book) => {
     e.stopPropagation()
@@ -46,11 +49,11 @@ export function BookList({ books, onOpenBook }: BookListProps) {
     <div>
       {/* Header */}
       <div className="grid grid-cols-12 gap-4 px-3 py-2 text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--text-tertiary)', borderBottom: '1px solid var(--border)' }}>
-        <div className="col-span-6">书名</div>
-        <div className="col-span-2">作者</div>
-        <div className="col-span-1">格式</div>
-        <div className="col-span-1">大小</div>
-        <div className="col-span-1">添加时间</div>
+        <div className="col-span-6">{t('书名')}</div>
+        <div className="col-span-2">{t('作者')}</div>
+        <div className="col-span-1">{t('格式')}</div>
+        <div className="col-span-1">{t('大小')}</div>
+        <div className="col-span-1">{t('添加时间')}</div>
         <div className="col-span-1"></div>
       </div>
 
@@ -68,9 +71,9 @@ export function BookList({ books, onOpenBook }: BookListProps) {
             <span className={`text-[11px] font-semibold text-white px-1.5 py-0.5 rounded-full ${formatColors[book.format] || 'bg-[var(--text-tertiary)]'}`}>{book.format.toUpperCase()}</span>
           </div>
           <div className="col-span-1 text-sm flex items-center" style={{ color: 'var(--text-tertiary)' }}>{formatFileSize(book.file_size)}</div>
-          <div className="col-span-1 text-sm flex items-center" style={{ color: 'var(--text-tertiary)' }}>{new Date(book.added_at).toLocaleDateString('zh-CN')}</div>
+          <div className="col-span-1 text-sm flex items-center" style={{ color: 'var(--text-tertiary)' }}>{new Date(book.added_at).toLocaleDateString(i18n.language)}</div>
           <div className="col-span-1 flex items-center justify-end">
-            <button onClick={(e) => handleDelete(e, book)} aria-label={activeShelfId != null ? '从书柜移除' : '删除'} title={activeShelfId != null ? '从书柜移除' : '删除'}
+            <button onClick={(e) => handleDelete(e, book)} aria-label={activeShelfId != null ? t('从书柜移除') : t('删除')} title={activeShelfId != null ? t('从书柜移除') : t('删除')}
               className="p-1 rounded-md transition-all duration-150" style={{ color: activeShelfId != null ? 'var(--color-orange)' : 'var(--color-red)', opacity: 0.3 }}
               onMouseEnter={(e) => { e.currentTarget.style.opacity = '1'; e.currentTarget.style.background = 'var(--surface-hover)' }}
               onMouseLeave={(e) => { e.currentTarget.style.opacity = '0.3'; e.currentTarget.style.background = 'transparent' }}>
@@ -83,7 +86,7 @@ export function BookList({ books, onOpenBook }: BookListProps) {
       ))}
 
       {deleteTarget && (
-        <ConfirmDialog title="删除书籍" message={`确定要删除《${safeText(deleteTarget.title)}》吗？此操作不可撤销。`} confirmText="删除" danger
+        <ConfirmDialog title={t('删除书籍')} message={t('确定要删除《{{title}}》吗？此操作不可撤销。', { title: safeText(deleteTarget.title) })} confirmText={t('删除')} danger
           onConfirm={() => { deleteBook(deleteTarget.id); setDeleteTarget(null) }} onCancel={() => setDeleteTarget(null)} />
       )}
     </div>

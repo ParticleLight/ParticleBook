@@ -1,3 +1,4 @@
+import './i18n' // must run before any component imports — sets up i18next sync
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App'

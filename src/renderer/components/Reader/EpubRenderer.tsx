@@ -1,6 +1,7 @@
-import { useEffect, useRef, useCallback, useState } from 'react'
+import { useEffect, useRef, useCallback, useState, useMemo } from 'react'
 import { createPortal } from 'react-dom'
 import ePub, { Book, Rendition } from 'epubjs'
+import { useTranslation } from 'react-i18next'
 import { useReaderStore } from '../../stores/readerStore'
 import { useSettingsStore } from '../../stores/settingsStore'
 import type { Book as BookType } from '../../stores/libraryStore'
@@ -11,15 +12,15 @@ interface EpubRendererProps {
   bookId: number
 }
 
-const HIGHLIGHT_COLORS = [
-  { name: '黄色', value: '#fbbf24' },
-  { name: '绿色', value: '#34d399' },
-  { name: '蓝色', value: '#60a5fa' },
-  { name: '粉色', value: '#f472b6' },
-  { name: '紫色', value: '#a78bfa' },
-]
-
 export function EpubRenderer({ book, content, bookId }: EpubRendererProps) {
+  const { t } = useTranslation()
+  const HIGHLIGHT_COLORS = useMemo(() => [
+    { name: t('黄色'), value: '#fbbf24' },
+    { name: t('绿色'), value: '#34d399' },
+    { name: t('蓝色'), value: '#60a5fa' },
+    { name: t('粉色'), value: '#f472b6' },
+    { name: t('紫色'), value: '#a78bfa' },
+  ], [t])
   const viewerRef = useRef<HTMLDivElement>(null)
   const bookRef = useRef<Book | null>(null)
   const renditionRef = useRef<Rendition | null>(null)
@@ -502,13 +503,13 @@ export function EpubRenderer({ book, content, bookId }: EpubRendererProps) {
         if (loc?.start?.cfi) {
           const { progress: p, bookmarks: bms } = useReaderStore.getState()
           const nextNum = bms.length + 1
-          addBookmark({ book_id: bookId, cfi: loc.start.cfi, progress: p.progress, title: `书签${nextNum}` })
+          addBookmark({ book_id: bookId, cfi: loc.start.cfi, progress: p.progress, title: t('书签{{n}}', { n: nextNum }) })
         }
       }
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [bookId, goNext, goPrev, addBookmark])
+  }, [bookId, goNext, goPrev, addBookmark, t])
 
   const handleClick = useCallback((e: React.MouseEvent) => {
     const x = e.clientX

@@ -1,4 +1,6 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useMemo } from 'react'
+import { useTranslation } from 'react-i18next'
+import i18n from '../../i18n'
 import { useReaderStore } from '../../stores/readerStore'
 
 interface SidebarProps {
@@ -7,6 +9,7 @@ interface SidebarProps {
 }
 
 export function Sidebar({ bookId, onClose }: SidebarProps) {
+  const { t } = useTranslation()
   const {
     sidebarTab, setSidebarTab, tableOfContents,
     bookmarks, highlights, notes,
@@ -29,12 +32,12 @@ export function Sidebar({ bookId, onClose }: SidebarProps) {
     }
   }
 
-  const tabs = [
-    { id: 'toc' as const, label: '目录', icon: 'M4 6h16M4 10h16M4 14h16M4 18h16' },
-    { id: 'bookmarks' as const, label: '书签', icon: 'M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z' },
-    { id: 'highlights' as const, label: '高亮', icon: 'M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z' },
-    { id: 'notes' as const, label: '笔记', icon: 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z' },
-  ]
+  const tabs = useMemo(() => [
+    { id: 'toc' as const, label: t('目录'), icon: 'M4 6h16M4 10h16M4 14h16M4 18h16' },
+    { id: 'bookmarks' as const, label: t('书签'), icon: 'M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z' },
+    { id: 'highlights' as const, label: t('高亮'), icon: 'M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z' },
+    { id: 'notes' as const, label: t('笔记'), icon: 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z' },
+  ], [t])
 
   return (
     <div className="h-full flex flex-col">
@@ -70,7 +73,7 @@ export function Sidebar({ bookId, onClose }: SidebarProps) {
         {sidebarTab === 'toc' && (
           <div className="space-y-1">
             {tableOfContents.length === 0 ? (
-              <p className="text-sm text-[var(--reader-text)] opacity-50 text-center py-4">无目录信息</p>
+              <p className="text-sm text-[var(--reader-text)] opacity-50 text-center py-4">{t('无目录信息')}</p>
             ) : (
               tableOfContents.map((item: any, i: number) => (
                 <button
@@ -87,7 +90,7 @@ export function Sidebar({ bookId, onClose }: SidebarProps) {
                   className="w-full text-left px-3 py-2 text-sm rounded-lg hover:bg-[var(--reader-border)] text-[var(--reader-text)] opacity-80 hover:opacity-100 transition-colors"
                   style={{ paddingLeft: `${(item.level || 1) * 12}px` }}
                 >
-                  {item.label || item.title || `章节 ${i + 1}`}
+                  {item.label || item.title || t('章节 {{n}}', { n: i + 1 })}
                 </button>
               ))
             )}
@@ -97,7 +100,7 @@ export function Sidebar({ bookId, onClose }: SidebarProps) {
         {sidebarTab === 'bookmarks' && (
           <div className="space-y-2">
             {bookmarks.length === 0 ? (
-              <p className="text-sm text-[var(--reader-text)] opacity-50 text-center py-4">暂无书签</p>
+              <p className="text-sm text-[var(--reader-text)] opacity-50 text-center py-4">{t('暂无书签')}</p>
             ) : (
               bookmarks.map((bm) => (
                 <div
@@ -131,12 +134,12 @@ export function Sidebar({ bookId, onClose }: SidebarProps) {
                             setEditingBookmarkId(bm.id)
                             setEditingBookmarkTitle(bm.title || '')
                           }}
-                          title="双击重命名"
+                          title={t('双击重命名')}
                         >
-                          {bm.title || '书签'}
+                          {bm.title || t('书签')}
                         </p>
                         <div className="flex items-center justify-between">
-                          <p className="text-xs text-[var(--reader-text)] opacity-40">{new Date(bm.created_at).toLocaleString('zh-CN')}</p>
+                          <p className="text-xs text-[var(--reader-text)] opacity-40">{new Date(bm.created_at).toLocaleString(i18n.language)}</p>
                           {bm.progress != null && (
                             <p className="text-xs text-[var(--reader-text)] opacity-40">{bm.progress.toFixed(1)}%</p>
                           )}
@@ -151,7 +154,7 @@ export function Sidebar({ bookId, onClose }: SidebarProps) {
                       setEditingBookmarkTitle(bm.title || '')
                     }}
                     className="opacity-0 group-hover:opacity-100 p-1 text-[var(--reader-text)] opacity-40 hover:opacity-80"
-                    title="重命名"
+                    title={t('重命名')}
                   >
                     <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
@@ -160,7 +163,7 @@ export function Sidebar({ bookId, onClose }: SidebarProps) {
                   <button
                     onClick={(e) => { e.stopPropagation(); removeBookmark(bm.id) }}
                     className="opacity-0 group-hover:opacity-100 p-1 text-[var(--reader-text)] opacity-40 hover:opacity-80"
-                    title="删除"
+                    title={t('删除')}
                   >
                     <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -175,7 +178,7 @@ export function Sidebar({ bookId, onClose }: SidebarProps) {
         {sidebarTab === 'highlights' && (
           <div className="space-y-2">
             {highlights.length === 0 ? (
-              <p className="text-sm text-[var(--reader-text)] opacity-50 text-center py-4">暂无高亮</p>
+              <p className="text-sm text-[var(--reader-text)] opacity-50 text-center py-4">{t('暂无高亮')}</p>
             ) : (
               highlights.map((hl) => (
                 <div key={hl.id} className="group p-2 rounded-lg hover:bg-[var(--reader-border)] cursor-pointer" onClick={() => navigateTo({ page: hl.page, cfi: hl.cfi })}>
@@ -214,7 +217,7 @@ export function Sidebar({ bookId, onClose }: SidebarProps) {
                     setNewNote('')
                   }
                 }}
-                placeholder="添加笔记..."
+                placeholder={t('添加笔记...')}
                 className="flex-1 px-3 py-2 bg-[var(--reader-bg)] border border-[var(--reader-border)] rounded-lg text-sm text-[var(--reader-text)] placeholder-gray-500 focus:outline-none focus:border-[var(--reader-accent)]"
               />
               <button
@@ -227,17 +230,17 @@ export function Sidebar({ bookId, onClose }: SidebarProps) {
                 className="px-3 py-2 text-white text-sm rounded-lg"
                 style={{ backgroundColor: 'var(--reader-accent)' }}
               >
-                添加
+                {t('添加')}
               </button>
             </div>
             {notes.length === 0 ? (
-              <p className="text-sm text-[var(--reader-text)] opacity-50 text-center py-4">暂无笔记</p>
+              <p className="text-sm text-[var(--reader-text)] opacity-50 text-center py-4">{t('暂无笔记')}</p>
             ) : (
               notes.map((note) => (
                 <div key={note.id} className="group p-3 rounded-lg hover:bg-[var(--reader-border)] cursor-pointer" onClick={() => navigateTo({ page: note.page, cfi: note.cfi })}>
                   <p className="text-sm text-[var(--reader-text)] opacity-80 whitespace-pre-wrap">{note.content}</p>
                   <div className="flex items-center justify-between mt-2">
-                    <p className="text-xs text-[var(--reader-text)] opacity-40">{new Date(note.updated_at).toLocaleString('zh-CN')}</p>
+                    <p className="text-xs text-[var(--reader-text)] opacity-40">{new Date(note.updated_at).toLocaleString(i18n.language)}</p>
                     <button
                       onClick={() => removeNote(note.id)}
                       className="opacity-0 group-hover:opacity-100 p-1 text-[var(--reader-text)] opacity-40 hover:opacity-80"

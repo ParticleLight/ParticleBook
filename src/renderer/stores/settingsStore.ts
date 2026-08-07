@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import i18n, { type Lang } from '../i18n'
 
 export type AccentColor = 'blue' | 'purple' | 'green' | 'orange'
 
@@ -20,6 +21,9 @@ export interface SettingsState {
   defaultViewMode: 'grid' | 'list'
   defaultSortBy: 'title' | 'author' | 'added_at' | 'last_opened'
 
+  // 语言（全局，不进 SETTINGS_KEYS —— 语言不能被写进书级设置或被覆盖）
+  language: Lang
+
   activeBookId: number | null
 
   setTheme: (theme: 'light' | 'dark' | 'sepia') => void
@@ -34,6 +38,7 @@ export interface SettingsState {
   setShowReadingTime: (v: boolean) => void
   setDefaultViewMode: (mode: 'grid' | 'list') => void
   setDefaultSortBy: (sort: 'title' | 'author' | 'added_at' | 'last_opened') => void
+  setLanguage: (lang: Lang) => void
   saveSettings: () => void
   loadSettings: () => Promise<void>
   loadBookSettings: (bookId: number) => Promise<void>
@@ -62,6 +67,8 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   defaultViewMode: 'grid',
   defaultSortBy: 'last_opened',
 
+  language: i18n.language === 'en' ? 'en' : 'zh',
+
   activeBookId: null,
 
   setTheme: (theme) => { set({ theme }); get().saveSettings() },
@@ -76,6 +83,18 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   setShowReadingTime: (showReadingTime) => { set({ showReadingTime }); get().saveSettings() },
   setDefaultViewMode: (defaultViewMode) => { set({ defaultViewMode }); get().saveSettings() },
   setDefaultSortBy: (defaultSortBy) => { set({ defaultSortBy }); get().saveSettings() },
+
+  setLanguage: (language) => {
+    i18n.changeLanguage(language)
+    set({ language })
+    // 语言是全局设置：独立写库（不进 SETTINGS_KEYS，避免污染书级设置）+ 通知 C++
+    window.electronAPI.updateSettings({ language }).catch((e) => {
+      console.error('Failed to save language:', e)
+    })
+    window.electronAPI.setLanguage(language).catch((e) => {
+      console.error('Failed to notify C++ language:', e)
+    })
+  },
 
   saveSettings: () => {
     const { activeBookId } = get()
@@ -100,6 +119,11 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       const patch: Record<string, any> = {}
       for (const key of SETTINGS_KEYS) {
         if (settings[key] !== undefined) patch[key] = settings[key]
+      }
+      // 语言是全局设置，单独恢复（不在 SETTINGS_KEYS 里）
+      if (settings.language === 'zh' || settings.language === 'en') {
+        patch.language = settings.language
+        if (i18n.language !== settings.language) i18n.changeLanguage(settings.language)
       }
       if (Object.keys(patch).length > 0) set(patch)
     } catch (e) {
