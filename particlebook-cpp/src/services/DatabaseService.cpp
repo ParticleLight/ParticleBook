@@ -1,4 +1,5 @@
 #include "DatabaseService.h"
+#include "utils/encoding.h"
 #include <fstream>
 #include <filesystem>
 #include <atomic>
@@ -28,15 +29,6 @@ namespace {
         std::error_code ec;
         std::filesystem::create_directories(p, ec);
         return filePath;
-    }
-
-    std::wstring Utf8ToWide(const std::string& s) {
-        if (s.empty()) return L"";
-        int len = MultiByteToWideChar(CP_UTF8, 0, s.c_str(), (int)s.size(), nullptr, 0);
-        if (len <= 0) return L"";
-        std::wstring w(len, L'\0');
-        MultiByteToWideChar(CP_UTF8, 0, s.c_str(), (int)s.size(), &w[0], len);
-        return w;
     }
 }
 
@@ -111,14 +103,14 @@ bool DatabaseService::WriteAtomic(const json& data)
             // Disk full / I/O error — never replace the good file with a
             // truncated one.
             f.close();
-            DeleteFileW(Utf8ToWide(tmpPath).c_str());
+            DeleteFileW(pb::Utf8ToWide(tmpPath).c_str());
             return false;
         }
     }
 
-    if (!MoveFileExW(Utf8ToWide(tmpPath).c_str(), Utf8ToWide(m_path).c_str(),
+    if (!MoveFileExW(pb::Utf8ToWide(tmpPath).c_str(), pb::Utf8ToWide(m_path).c_str(),
                      MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
-        DeleteFileW(Utf8ToWide(tmpPath).c_str());
+        DeleteFileW(pb::Utf8ToWide(tmpPath).c_str());
         return false;
     }
     return true;
@@ -131,8 +123,8 @@ void DatabaseService::BackupCorruptFile(const std::string& path)
     tm localTm;
     localtime_s(&localTm, &now);
     strftime(ts, sizeof(ts), "%Y%m%d-%H%M%S", &localTm);
-    CopyFileW(Utf8ToWide(path).c_str(),
-              Utf8ToWide(path + ".corrupt-" + ts).c_str(), FALSE);
+    CopyFileW(pb::Utf8ToWide(path).c_str(),
+              pb::Utf8ToWide(path + ".corrupt-" + ts).c_str(), FALSE);
 }
 
 void DatabaseService::EnsureDefaults()

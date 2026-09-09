@@ -1,4 +1,5 @@
 #include "App.h"
+#include "utils/encoding.h"
 #include "services/DatabaseService.h"
 #include "services/PdfService.h"
 #include "services/BookSourceService.h"
@@ -19,15 +20,7 @@ class ZLibraryService;
 void RegisterBookSourceHandlers(BridgeServer* bridge, std::shared_ptr<BookSourceService> svc);
 void RegisterZlibHandlers(BridgeServer* bridge, ZLibraryService* zlib);
 
-static std::wstring Utf8ToWide(const std::string& s)
-{
-    if (s.empty()) return L"";
-    int len = MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, nullptr, 0);
-    std::wstring w(len, L'\0');
-    MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, &w[0], len);
-    while (!w.empty() && w.back() == L'\0') w.pop_back();
-    return w;
-}
+// Utf8ToWide moved to utils/encoding.h (pb::Utf8ToWide)
 
 App& App::Instance() { static App app; return app; }
 
@@ -259,7 +252,7 @@ void App::SetLanguage(const std::string& lang)
     // (AddScriptToExecuteOnDocumentCreated semantics), so also refresh the
     // already-loaded Z-Library page's toolbar label.
     m_webview->InjectBridgeScript("window.__pbLang='" + m_language + "';");
-    std::wstring js = L"if(window.__pbLang)window.__pbLang='" + Utf8ToWide(m_language)
+    std::wstring js = L"if(window.__pbLang)window.__pbLang='" + pb::Utf8ToWide(m_language)
                     + L"';if(window.__pbRefreshToolbar)window.__pbRefreshToolbar();";
     m_webview->ExecuteScriptOnPage(js);
 }

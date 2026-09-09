@@ -1,5 +1,6 @@
 #include "LibraryService.h"
 #include "utils/ZipReader.h"
+#include "utils/encoding.h"
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <fstream>
@@ -36,25 +37,6 @@ std::string DetectFormat(const std::string& path)
 }
 
 // ── Helpers ────────────────────────────────────────────────────────
-
-static std::string WideToUtf8(LPCWSTR w)
-{
-    int len = WideCharToMultiByte(CP_UTF8, 0, w, -1, nullptr, 0, nullptr, nullptr);
-    std::string s(len, '\0');
-    WideCharToMultiByte(CP_UTF8, 0, w, -1, &s[0], len, nullptr, nullptr);
-    while (!s.empty() && s.back() == '\0') s.pop_back();
-    return s;
-}
-
-static std::wstring Utf8ToWide(const std::string& s)
-{
-    if (s.empty()) return L"";
-    int len = MultiByteToWideChar(CP_UTF8, 0, s.c_str(), (int)s.size(), nullptr, 0);
-    if (len <= 0) return L"";
-    std::wstring w(len, L'\0');
-    MultiByteToWideChar(CP_UTF8, 0, s.c_str(), (int)s.size(), &w[0], len);
-    return w;
-}
 
 // ── EPUB Metadata ──────────────────────────────────────────────────
 
@@ -256,7 +238,7 @@ std::string LibraryService::ExtractEpubCover(const std::string& filePath,
     if (!ReadZipEntry(filePath, coverFile, data)) return "";
 
     // Write to file using Win32 API for proper Unicode support
-    std::wstring wOutPath = Utf8ToWide(outPath);
+    std::wstring wOutPath = pb::Utf8ToWide(outPath);
     HANDLE hFile = CreateFileW(wOutPath.c_str(), GENERIC_WRITE, 0, nullptr,
                                CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
     if (hFile == INVALID_HANDLE_VALUE) return "";
@@ -283,7 +265,7 @@ std::string LibraryService::ExtractPdfCover(const std::string& filePath)
 
     PROCESS_INFORMATION pi = {};
     STARTUPINFOW si = { sizeof(STARTUPINFOW) };
-    std::wstring wCmdLine = Utf8ToWide(cmdLine);
+    std::wstring wCmdLine = pb::Utf8ToWide(cmdLine);
 
     if (CreateProcessW(nullptr, wCmdLine.data(), nullptr, nullptr, FALSE,
                        CREATE_NO_WINDOW | NORMAL_PRIORITY_CLASS,
@@ -294,7 +276,7 @@ std::string LibraryService::ExtractPdfCover(const std::string& filePath)
     }
 
     // Check if the output file was created
-    DWORD attr = GetFileAttributesW(Utf8ToWide(outPath).c_str());
+    DWORD attr = GetFileAttributesW(pb::Utf8ToWide(outPath).c_str());
     if (attr == INVALID_FILE_ATTRIBUTES) return "";
 
     return outPath;
@@ -306,7 +288,7 @@ bool LibraryService::ExtractPdfMetadata(const std::string& filePath, ExtractedMe
 {
     // Basic PDF header check: look for /Title, /Author in raw bytes
     std::string wPath = filePath;
-    HANDLE hFile = CreateFileW(Utf8ToWide(filePath).c_str(), GENERIC_READ, FILE_SHARE_READ,
+    HANDLE hFile = CreateFileW(pb::Utf8ToWide(filePath).c_str(), GENERIC_READ, FILE_SHARE_READ,
                                nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
     if (hFile == INVALID_HANDLE_VALUE) return false;
 

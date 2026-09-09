@@ -1,4 +1,5 @@
 #include "PdfService.h"
+#include "utils/encoding.h"
 #include "BridgeServer.h"
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -14,45 +15,6 @@
 
 // ── Helpers ─────────────────────────────────────────────────────────
 
-static std::string WideToUtf8(LPCWSTR w)
-{
-    int len = WideCharToMultiByte(CP_UTF8, 0, w, -1, nullptr, 0, nullptr, nullptr);
-    if (len <= 0) return "";
-    std::string s(len, '\0');
-    WideCharToMultiByte(CP_UTF8, 0, w, -1, &s[0], len, nullptr, nullptr);
-    while (!s.empty() && s.back() == '\0') s.pop_back();
-    return s;
-}
-
-static std::wstring Utf8ToWide(const std::string& s)
-{
-    if (s.empty()) return L"";
-    int len = MultiByteToWideChar(CP_UTF8, 0, s.c_str(), (int)s.size(), nullptr, 0);
-    if (len <= 0) return L"";
-    std::wstring w(len, L'\0');
-    MultiByteToWideChar(CP_UTF8, 0, s.c_str(), (int)s.size(), &w[0], len);
-    return w;
-}
-
-static std::string Base64Encode(const void* data, size_t len)
-{
-    static const char* b64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    std::string result;
-    const uint8_t* p = static_cast<const uint8_t*>(data);
-    int val = 0, valb = -6;
-    for (size_t i = 0; i < len; i++) {
-        val = (val << 8) + p[i];
-        valb += 8;
-        while (valb >= 0) {
-            result.push_back(b64[(val >> valb) & 0x3F]);
-            valb -= 6;
-        }
-    }
-    if (valb > -6) result.push_back(b64[((val << 8) >> (valb + 8)) & 0x3F]);
-    while (result.size() % 4) result.push_back('=');
-    return result;
-}
-
 // ── Constructor / Destructor ─────────────────────────────────────────
 
 PdfService::PdfService() : m_nextId(static_cast<int>(GetTickCount() & 0x7FFFFFFF))
@@ -66,11 +28,11 @@ PdfService::~PdfService()
     for (auto& doc : m_docs) {
         std::error_code ec;
         std::string tmpDir = doc.filePath + ".mutool_tmp";
-        std::filesystem::remove_all(Utf8ToWide(tmpDir), ec);
+        std::filesystem::remove_all(pb::Utf8ToWide(tmpDir), ec);
     }
     // Clean up patched MOBI temp files
     for (auto& tf : m_tempFiles) {
-        DeleteFileW(Utf8ToWide(tf).c_str());
+        DeleteFileW(pb::Utf8ToWide(tf).c_str());
     }
 }
 
@@ -100,7 +62,7 @@ static std::string PatchMobiEncoding(const std::string& filePath)
     if (ext != ".mobi" && ext != ".azw" && ext != ".azw3") return filePath;
 
     // Read entire file
-    HANDLE hFile = CreateFileW(Utf8ToWide(filePath).c_str(), GENERIC_READ,
+    HANDLE hFile = CreateFileW(pb::Utf8ToWide(filePath).c_str(), GENERIC_READ,
                                 FILE_SHARE_READ, nullptr, OPEN_EXISTING,
                                 FILE_ATTRIBUTE_NORMAL, nullptr);
     if (hFile == INVALID_HANDLE_VALUE) return filePath;
@@ -143,7 +105,7 @@ static std::string PatchMobiEncoding(const std::string& filePath)
     wchar_t tmpPath[MAX_PATH], tmpFile[MAX_PATH];
     GetTempPathW(MAX_PATH, tmpPath);
     GetTempFileNameW(tmpPath, L"mbp", 0, tmpFile);
-    std::string patchedPath = WideToUtf8(tmpFile);
+    std::string patchedPath = pb::WideToUtf8(tmpFile);
 
     // Rename to keep original extension so mutool detects format
     DeleteFileW(tmpFile);
@@ -153,8 +115,8 @@ static std::string PatchMobiEncoding(const std::string& filePath)
     static std::atomic<int> g_mobiSeq{0};
     std::wstring tmpDir = tmpPath;
     std::wstring fixedName = L"pb_mobi_" + std::to_wstring(GetCurrentProcessId())
-                           + L"_" + std::to_wstring(g_mobiSeq++) + Utf8ToWide(ext);
-    patchedPath = WideToUtf8((tmpDir + fixedName).c_str());
+                           + L"_" + std::to_wstring(g_mobiSeq++) + pb::Utf8ToWide(ext);
+    patchedPath = pb::WideToUtf8((tmpDir + fixedName).c_str());
 
     HANDLE hOut = CreateFileW((tmpDir + fixedName).c_str(), GENERIC_WRITE, 0, nullptr,
                                CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
@@ -191,7 +153,7 @@ bool PdfService::RunMutool(const std::string& args, std::string& output, int tim
     si.hStdError = hOutFile;
 
     std::string cmdLine = "\"" + GetMutoolPath() + "\" " + args;
-    std::wstring wCmdLine = Utf8ToWide(cmdLine);
+    std::wstring wCmdLine = pb::Utf8ToWide(cmdLine);
 
     BOOL ok = CreateProcessW(nullptr, wCmdLine.data(), nullptr, nullptr, TRUE,
                              CREATE_NO_WINDOW | NORMAL_PRIORITY_CLASS,
@@ -259,7 +221,7 @@ PdfOpenResult PdfService::Open(const std::string& filePath)
     logMsg(("opening " + actualPath).c_str());
 
     // Check file exists
-    if (GetFileAttributesW(Utf8ToWide(actualPath).c_str()) == INVALID_FILE_ATTRIBUTES) {
+    if (GetFileAttributesW(pb::Utf8ToWide(actualPath).c_str()) == INVALID_FILE_ATTRIBUTES) {
         logMsg("file not found");
         return result;
     }
@@ -332,14 +294,14 @@ std::string PdfService::RenderPage(int id, uint32_t pageIndex, int pixelWidth, i
     wchar_t exePathBuf[MAX_PATH];
     GetModuleFileNameW(nullptr, exePathBuf, MAX_PATH);
     auto rendererDir = (std::filesystem::path(exePathBuf).parent_path() / "renderer" / "_pb_pdf").string();
-    std::filesystem::create_directories(Utf8ToWide(rendererDir));
+    std::filesystem::create_directories(pb::Utf8ToWide(rendererDir));
 
     std::string fileName = "doc_" + std::to_string(id) + "_page_" + std::to_string(pageIndex) + ".png";
     std::string outFile = rendererDir + "\\" + fileName;
     std::string url = "http://particlebook.app/_pb_pdf/" + fileName;
 
     // Skip if already rendered
-    if (GetFileAttributesW(Utf8ToWide(outFile).c_str()) != INVALID_FILE_ATTRIBUTES) {
+    if (GetFileAttributesW(pb::Utf8ToWide(outFile).c_str()) != INVALID_FILE_ATTRIBUTES) {
         return url;
     }
 
@@ -361,7 +323,7 @@ std::string PdfService::RenderPage(int id, uint32_t pageIndex, int pixelWidth, i
     RunMutool(args, output);
 
     // Verify file was created
-    if (GetFileAttributesW(Utf8ToWide(outFile).c_str()) == INVALID_FILE_ATTRIBUTES) {
+    if (GetFileAttributesW(pb::Utf8ToWide(outFile).c_str()) == INVALID_FILE_ATTRIBUTES) {
         return "";
     }
 
@@ -380,7 +342,7 @@ std::string PdfService::GetFileUrl(const std::string& filePath)
     auto booksDir = (std::filesystem::path(exePathBuf).parent_path() / "renderer" / "_pb_books").wstring();
     std::filesystem::create_directories(booksDir);
 
-    auto srcPath = Utf8ToWide(filePath);
+    auto srcPath = pb::Utf8ToWide(filePath);
     auto fileName = std::filesystem::path(srcPath).filename().wstring();
 
     // Use fixed name based on file path hash to avoid collisions
@@ -402,7 +364,7 @@ std::string PdfService::GetFileUrl(const std::string& filePath)
         CopyFileW(srcPath.c_str(), linkPath.c_str(), FALSE);
     }
 
-    return "http://particlebook.app/_pb_books/" + WideToUtf8(linkName.c_str());
+    return "http://particlebook.app/_pb_books/" + pb::WideToUtf8(linkName.c_str());
 }
 
 // ── Extract Text ──────────────────────────────────────────────────────
@@ -459,20 +421,20 @@ void PdfService::Close(int id)
         if (it->id == id) {
             // Clean up temp PNG files
             for (auto& f : it->tempFiles) {
-                DeleteFileW(Utf8ToWide(f).c_str());
+                DeleteFileW(pb::Utf8ToWide(f).c_str());
             }
             // Clean up the MOBI patch temp file if this doc was patched
             // (PatchMobiEncoding wrote pb_mobi_<pid>_<seq><ext>).
-            std::wstring fname = std::filesystem::path(Utf8ToWide(it->filePath)).filename().wstring();
+            std::wstring fname = std::filesystem::path(pb::Utf8ToWide(it->filePath)).filename().wstring();
             if (fname.rfind(L"pb_mobi_", 0) == 0) {
-                DeleteFileW(Utf8ToWide(it->filePath).c_str());
+                DeleteFileW(pb::Utf8ToWide(it->filePath).c_str());
                 m_tempFiles.erase(std::remove(m_tempFiles.begin(), m_tempFiles.end(), it->filePath),
                                   m_tempFiles.end());
             }
             // Clean up legacy mutool_tmp dir
             std::error_code ec;
             std::string tmpDir = it->filePath + ".mutool_tmp";
-            std::filesystem::remove_all(Utf8ToWide(tmpDir), ec);
+            std::filesystem::remove_all(pb::Utf8ToWide(tmpDir), ec);
             m_docs.erase(it);
             return;
         }

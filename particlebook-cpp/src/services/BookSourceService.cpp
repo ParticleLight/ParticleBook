@@ -1,4 +1,5 @@
 #include "BookSourceService.h"
+#include "utils/encoding.h"
 #include "services/DatabaseService.h"
 #include "BridgeServer.h"
 #include "App.h"
@@ -12,15 +13,6 @@
 #include <memory>
 
 #pragma comment(lib, "winhttp.lib")
-
-static std::wstring Utf8ToWide(const std::string& s) {
-    if (s.empty()) return L"";
-    int len = MultiByteToWideChar(CP_UTF8, 0, s.c_str(), (int)s.size(), nullptr, 0);
-    if (len <= 0) return L"";
-    std::wstring w(len, L'\0');
-    MultiByteToWideChar(CP_UTF8, 0, s.c_str(), (int)s.size(), &w[0], len);
-    return w;
-}
 
 BookSourceService::BookSourceService(std::shared_ptr<DatabaseService> db, std::shared_ptr<BridgeServer> bridge)
     : m_db(std::move(db)), m_bridge(std::move(bridge))
@@ -214,6 +206,27 @@ std::string BookSourceService::ResolveUrl(const std::string& base, const std::st
 
 // ── Search ────────────────────────────────────────────────────────
 
+// RFC 3986 percent-encoding over the UTF-8 byte stream. keyword arrives as
+// UTF-8 from the frontend, so encoding each non-unreserved byte as %XX is a
+// correct UTF-8 percent-encoding (Chinese book names become fully usable).
+// This is the standard algorithm — no third-party dependency is warranted.
+static std::string PercentEncode(const std::string& s)
+{
+    static const char hex[] = "0123456789ABCDEF";
+    std::string out;
+    out.reserve(s.size() * 3);
+    for (unsigned char c : s) {
+        if (isalnum(c) || c == '-' || c == '_' || c == '.' || c == '~') {
+            out += (char)c;                 // RFC 3986 unreserved
+        } else if (c == ' ') {
+            out += "%20";
+        } else {
+            out += '%'; out += hex[c >> 4]; out += hex[c & 0xF];
+        }
+    }
+    return out;
+}
+
 std::string BookSourceService::BuildSearchUrl(const json& source, const std::string& keyword, int page)
 {
     std::string url = source.value("searchUrl", "");
@@ -222,11 +235,7 @@ std::string BookSourceService::BuildSearchUrl(const json& source, const std::str
     }
 
     // Replace {keyword} and {page} placeholders
-    std::string kw = keyword;
-    // URL-encode keyword (basic)
-    for (size_t i = 0; i < kw.size(); i++) {
-        if (kw[i] == ' ') { kw.replace(i, 1, "%20"); i += 2; }
-    }
+    std::string kw = PercentEncode(keyword);
 
     auto replaceAll = [](std::string s, const std::string& from, const std::string& to) {
         size_t pos = 0;
@@ -522,10 +531,10 @@ int BookSourceService::DownloadBook(int sourceId, const std::string& bookUrl,
     safeName += ".txt";
 
     std::string dir = App::Instance().UserDataPath() + "/booksource";
-    std::filesystem::create_directories(Utf8ToWide(dir));
+    std::filesystem::create_directories(pb::Utf8ToWide(dir));
 
     std::string filePath = dir + "\\" + safeName;
-    HANDLE hFile = CreateFileW(Utf8ToWide(filePath).c_str(), GENERIC_WRITE, 0, nullptr,
+    HANDLE hFile = CreateFileW(pb::Utf8ToWide(filePath).c_str(), GENERIC_WRITE, 0, nullptr,
                                CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
     if (hFile == INVALID_HANDLE_VALUE) return -1;
     DWORD written = 0;

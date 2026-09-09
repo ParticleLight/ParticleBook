@@ -1,5 +1,7 @@
 #include "FileHandlers.h"
 #include "BridgeServer.h"
+#include "utils/encoding.h"
+#include "utils/base64.h"
 #include "WebViewHost.h"
 #include "App.h"
 #include "pb_version.h"  // generated from CMake project VERSION
@@ -8,6 +10,7 @@
 #include "services/ContentCache.h"
 #include <fstream>
 #include <vector>
+#include <functional>
 #include <filesystem>
 #include <shobjidl.h>
 #include <commdlg.h>
@@ -25,25 +28,6 @@
 #pragma comment(lib, "urlmon.lib")
 #pragma comment(lib, "winhttp.lib")
 #pragma comment(lib, "bcrypt.lib")
-
-static std::wstring Utf8ToWide(const std::string& s)
-{
-    if (s.empty()) return L"";
-    int len = MultiByteToWideChar(CP_UTF8, 0, s.c_str(), (int)s.size(), nullptr, 0);
-    if (len <= 0) return L"";
-    std::wstring w(len, L'\0');
-    MultiByteToWideChar(CP_UTF8, 0, s.c_str(), (int)s.size(), &w[0], len);
-    return w;
-}
-
-static std::string WideToUtf8(LPCWSTR w)
-{
-    int len = WideCharToMultiByte(CP_UTF8, 0, w, -1, nullptr, 0, nullptr, nullptr);
-    std::string s(len, '\0');
-    WideCharToMultiByte(CP_UTF8, 0, w, -1, &s[0], len, nullptr, nullptr);
-    while (!s.empty() && s.back() == '\0') s.pop_back();
-    return s;
-}
 
 // ── MOBI → text via mutool convert ────────────────────────────────────
 
@@ -69,7 +53,7 @@ static std::string ConvertMobiToText(const std::string& filePath)
     DeleteFileW(tmpFile);
     std::wstring tmpFileExt = std::wstring(tmpFile) + L".txt";
 
-    std::wstring cmdLine = L"\"" + mutoolPath + L"\" convert -F text -o \"" + tmpFileExt + L"\" \"" + Utf8ToWide(filePath) + L"\"";
+    std::wstring cmdLine = L"\"" + mutoolPath + L"\" convert -F text -o \"" + tmpFileExt + L"\" \"" + pb::Utf8ToWide(filePath) + L"\"";
 
     PROCESS_INFORMATION pi = {};
     STARTUPINFOW si = { sizeof(STARTUPINFOW) };
@@ -219,29 +203,7 @@ static void DebugLog(const char* msg)
 }
 
 // ── Base64 decode — for drag & drop file transfer ────────────────────────
-static std::vector<uint8_t> Base64Decode(const std::string& in)
-{
-    std::vector<uint8_t> out;
-    out.reserve(in.size() / 4 * 3);
-    unsigned int val = 0;
-    int valb = -8;
-    for (unsigned char c : in) {
-        uint8_t d;
-        if (c >= 'A' && c <= 'Z') d = static_cast<uint8_t>(c - 'A');
-        else if (c >= 'a' && c <= 'z') d = static_cast<uint8_t>(c - 'a' + 26);
-        else if (c >= '0' && c <= '9') d = static_cast<uint8_t>(c - '0' + 52);
-        else if (c == '+') d = 62;
-        else if (c == '/') d = 63;
-        else continue;  // skip whitespace / padding
-        val = (val << 6) | d;
-        valb += 6;
-        if (valb >= 0) {
-            out.push_back(static_cast<uint8_t>((val >> valb) & 0xFF));
-            valb -= 8;
-        }
-    }
-    return out;
-}
+// (moved to utils/base64.h: pb::Base64Decode)
 
 // ── SHA-512 of a file (BCrypt) — for update package integrity check ──────
 static bool ComputeFileSha512(const std::wstring& path, std::string& outHex)
@@ -444,7 +406,7 @@ void RegisterFileHandlers(BridgeServer* bridge, DatabaseService* db, ContentCach
 
         if (!GetOpenFileNameW(&ofn)) return json(nullptr);
 
-        return json(WideToUtf8(fileBuf));
+        return json(pb::WideToUtf8(fileBuf));
     });
 
     // ── dialog:openDirectory ──────────────────────────────────
@@ -467,7 +429,7 @@ void RegisterFileHandlers(BridgeServer* bridge, DatabaseService* db, ContentCach
         std::string result;
         LPWSTR pszPath = nullptr;
         if (SUCCEEDED(pItem->GetDisplayName(SIGDN_FILESYSPATH, &pszPath))) {
-            result = WideToUtf8(pszPath);
+            result = pb::WideToUtf8(pszPath);
             CoTaskMemFree(pszPath);
         }
         pItem->Release();
@@ -484,43 +446,47 @@ void RegisterFileHandlers(BridgeServer* bridge, DatabaseService* db, ContentCach
             if (cached) return json(*cached);
         }
 
-        // For large / comic files, serve via virtual host URL instead of JSON byte array
+        // Serve every format via the virtual-host URL. The old ≤5MB path
+        // serialized the file as a JSON byte array (≈4x expansion + UTF-16
+        // doubling) and froze the UI for multi-MB books; the virtual host lets
+        // the frontend fetch the bytes directly. MOBI stays on the JSON path
+        // below because it must go through ConvertMobiToText (encoding fix).
         std::string format = DetectFormat(path);
-        bool isLarge = false;
-        {
-            int wl = MultiByteToWideChar(CP_UTF8, 0, path.c_str(), (int)path.size(), nullptr, 0);
-            if (wl > 0) {
-                std::wstring wp(wl, L'\0');
-                MultiByteToWideChar(CP_UTF8, 0, path.c_str(), (int)path.size(), &wp[0], wl);
-                WIN32_FILE_ATTRIBUTE_DATA attrs;
-                if (GetFileAttributesExW(wp.c_str(), GetFileExInfoStandard, &attrs)) {
-                    ULONGLONG sz = ((ULONGLONG)attrs.nFileSizeHigh << 32) | attrs.nFileSizeLow;
-                    if (sz > 5 * 1024 * 1024) isLarge = true;
-                }
-            }
-        }
-        if (isLarge || format == "cbz" || format == "cbr") {
-            // Copy to renderer temp dir
+        if (format != "mobi") {
+            // Copy to renderer temp dir (bounded — evict oldest beyond a cap;
+            // _pb_files are re-copied on demand, so eviction is always safe)
             wchar_t exePath[MAX_PATH];
             GetModuleFileNameW(nullptr, exePath, MAX_PATH);
             auto rendererDir = (std::filesystem::path(exePath).parent_path() / "renderer" / "_pb_files").wstring();
             CreateDirectoryW(rendererDir.c_str(), nullptr);
 
-            std::string fn;
-            size_t bs = path.rfind('\\');
-            size_t fs = path.rfind('/');
-            size_t slash = (fs != std::string::npos && (bs == std::string::npos || fs > bs)) ? fs : bs;
-            fn = (slash != std::string::npos) ? path.substr(slash + 1) : "file";
+            std::error_code ec;
+            std::vector<std::filesystem::directory_entry> entries;
+            for (auto& de : std::filesystem::directory_iterator(rendererDir, ec)) {
+                if (!de.is_directory()) entries.push_back(de);
+            }
+            if (entries.size() > 64) {
+                std::sort(entries.begin(), entries.end(), [](const auto& a, const auto& b) {
+                    return a.last_write_time() < b.last_write_time();
+                });
+                for (size_t i = 0; i < entries.size() - 64; i++) {
+                    std::filesystem::remove(entries[i].path(), ec);
+                }
+            }
 
-            std::wstring dest = rendererDir + L"\\" + Utf8ToWide(fn);
-            if (!CopyFileW(Utf8ToWide(path).c_str(), dest.c_str(), FALSE)) {
-                // Fall through to normal read
-            } else {
+            // Key = stable hash of the full path: pure ASCII (no URL-encoding
+            // issues for names containing '#'/'%'/spaces) and unique per source
+            // path (no same-basename overwrite between different folders).
+            std::string fn = std::to_string(std::hash<std::string>{}(path));
+
+            std::wstring dest = rendererDir + L"\\" + pb::Utf8ToWide(fn);
+            if (CopyFileW(pb::Utf8ToWide(path).c_str(), dest.c_str(), FALSE)) {
                 std::string url = "http://particlebook.app/_pb_files/" + fn;
                 json r;
                 r["_pb_url"] = url;
                 return r;
             }
+            // Copy failed → fall through to the JSON byte-array read below
         }
 
         // For MOBI files, extract text via mutool (cached)
@@ -1075,37 +1041,37 @@ void RegisterFileHandlers(BridgeServer* bridge, DatabaseService* db, ContentCach
         if (safeName.empty()) safeName = "dropped-book";
         if (safeName.size() > 120) safeName.resize(120);
 
-        std::vector<uint8_t> bytes = Base64Decode(b64);
+        std::vector<uint8_t> bytes = pb::Base64Decode(b64);
         if (bytes.empty()) return json(nullptr);
 
         std::string dir = App::Instance().UserDataPath() + "/dropped";
-        std::filesystem::create_directories(Utf8ToWide(dir));
+        std::filesystem::create_directories(pb::Utf8ToWide(dir));
 
         std::string filePath = dir + "\\" + safeName;
         // Avoid silently overwriting a previously-dropped file with the same
         // name: append a numeric suffix so two different books that happen to
         // share a filename each get their own file.
-        if (GetFileAttributesW(Utf8ToWide(filePath).c_str()) != INVALID_FILE_ATTRIBUTES) {
+        if (GetFileAttributesW(pb::Utf8ToWide(filePath).c_str()) != INVALID_FILE_ATTRIBUTES) {
             size_t dot = safeName.rfind('.');
             std::string stem = (dot != std::string::npos) ? safeName.substr(0, dot) : safeName;
             std::string ext = (dot != std::string::npos) ? safeName.substr(dot) : "";
             for (int i = 1; i < 1000; i++) {
                 std::string cand = dir + "\\" + stem + " (" + std::to_string(i) + ")" + ext;
-                if (GetFileAttributesW(Utf8ToWide(cand).c_str()) == INVALID_FILE_ATTRIBUTES) {
+                if (GetFileAttributesW(pb::Utf8ToWide(cand).c_str()) == INVALID_FILE_ATTRIBUTES) {
                     filePath = cand;
                     break;
                 }
             }
         }
 
-        HANDLE hFile = CreateFileW(Utf8ToWide(filePath).c_str(), GENERIC_WRITE, 0, nullptr,
+        HANDLE hFile = CreateFileW(pb::Utf8ToWide(filePath).c_str(), GENERIC_WRITE, 0, nullptr,
                                    CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
         if (hFile == INVALID_HANDLE_VALUE) return json(nullptr);
         DWORD written = 0;
         WriteFile(hFile, bytes.data(), (DWORD)bytes.size(), &written, nullptr);
         CloseHandle(hFile);
         if (written != bytes.size()) {
-            DeleteFileW(Utf8ToWide(filePath).c_str());
+            DeleteFileW(pb::Utf8ToWide(filePath).c_str());
             return json(nullptr);
         }
 
