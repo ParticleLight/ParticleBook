@@ -5,6 +5,7 @@
 #include "utils/fnv1a.h"
 #include "WebViewHost.h"
 #include "utils/update_meta.h"
+#include "utils/win_cmd.h"
 #include "App.h"
 #include "pb_version.h"  // generated from CMake project VERSION
 #include "services/DatabaseService.h"
@@ -56,7 +57,7 @@ static std::string ConvertMobiToText(const std::string& filePath)
     DeleteFileW(tmpFile);
     std::wstring tmpFileExt = std::wstring(tmpFile) + L".txt";
 
-    std::wstring cmdLine = L"\"" + mutoolPath + L"\" convert -F text -o \"" + tmpFileExt + L"\" \"" + pb::Utf8ToWide(filePath) + L"\"";
+    std::wstring cmdLine = pb::JoinCmdLine({ mutoolPath, L"convert", L"-F", L"text", L"-o", tmpFileExt, pb::Utf8ToWide(filePath) });
 
     PROCESS_INFORMATION pi = {};
     STARTUPINFOW si = { sizeof(STARTUPINFOW) };

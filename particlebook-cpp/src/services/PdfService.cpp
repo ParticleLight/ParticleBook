@@ -2,6 +2,7 @@
 #include "utils/encoding.h"
 #include "utils/fnv1a.h"
 #include "BridgeServer.h"
+#include "utils/win_cmd.h"
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <atomic>
@@ -153,7 +154,9 @@ bool PdfService::RunMutool(const std::string& args, std::string& output, int tim
     si.hStdOutput = hOutFile;
     si.hStdError = hOutFile;
 
-    std::string cmdLine = "\"" + GetMutoolPath() + "\" " + args;
+    // Correctly quote the mutool path (may contain spaces / special chars).
+    std::wstring mutoolArg = pb::QuoteCmdArg(pb::Utf8ToWide(GetMutoolPath()));
+    std::string cmdLine = pb::WideToUtf8(mutoolArg.c_str()) + " " + args;
     std::wstring wCmdLine = pb::Utf8ToWide(cmdLine);
 
     BOOL ok = CreateProcessW(nullptr, wCmdLine.data(), nullptr, nullptr, TRUE,
@@ -229,7 +232,7 @@ PdfOpenResult PdfService::Open(const std::string& filePath)
 
     // Get page info with mutool pages
     std::string output;
-    std::string args = "pages \"" + actualPath + "\"";
+    std::string args = "pages " + pb::WideToUtf8(pb::QuoteCmdArg(pb::Utf8ToWide(actualPath)).c_str());
     if (!RunMutool(args, output)) {
         logMsg("mutool failed to run");
         return result;
@@ -316,9 +319,10 @@ std::string PdfService::RenderPage(int id, uint32_t pageIndex, int pixelWidth, i
     if (dpi < 72) dpi = 72;
     if (dpi > 300) dpi = 300;
 
-    std::string args = "draw -o \"" + outFile + "\" -r " + std::to_string(dpi)
-                     + " -F png \"" + entry->filePath + "\" "
-                     + std::to_string(pageIndex + 1);
+    std::string args = "draw -o " + pb::WideToUtf8(pb::QuoteCmdArg(pb::Utf8ToWide(outFile)).c_str())
+                     + " -r " + std::to_string(dpi)
+                     + " -F png " + pb::WideToUtf8(pb::QuoteCmdArg(pb::Utf8ToWide(entry->filePath)).c_str())
+                     + " " + std::to_string(pageIndex + 1);
 
     std::string output;
     RunMutool(args, output);
