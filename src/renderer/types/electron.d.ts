@@ -7,6 +7,13 @@ interface ElectronAPI {
   writeDroppedFile: (name: string, dataB64: string) => Promise<{ path: string; size: number } | null>
   getCoverImage: (bookId: number) => Promise<string | null>
 
+  // PDF (native rendering via mutool bridge)
+  pdfOpen: (filePath: string) => Promise<{ id: number; pageCount: number; pageBounds: { width: number; height: number }[] } | null>
+  pdfRenderPage: (id: number, pageNum: number, width: number, height: number) => Promise<string | null>
+  pdfGetFileUrl: (filePath: string) => Promise<string | null>
+  pdfExtractText: (id: number) => Promise<any>
+  pdfClose: (id: number) => Promise<void>
+
   getBooks: () => Promise<any[]>
   getBook: (id: number) => Promise<any>
   deleteBook: (id: number) => Promise<void>

@@ -26,6 +26,9 @@ jobs:
       - name: Verify i18n key coverage
         run: npm run i18n:check
 
+      - name: Verify C++ bridge ↔ TS contract
+        run: node scripts/check-bridge-contract.js
+
       - name: Set MSVC environment
         uses: ilammy/msvc-dev-cmd@v1
 
