@@ -1,5 +1,6 @@
 #include "PdfService.h"
 #include "utils/encoding.h"
+#include "utils/fnv1a.h"
 #include "BridgeServer.h"
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -346,15 +347,14 @@ std::string PdfService::GetFileUrl(const std::string& filePath)
     auto fileName = std::filesystem::path(srcPath).filename().wstring();
 
     // Use fixed name based on file path hash to avoid collisions
-    std::hash<std::string> hasher;
-    size_t hash = hasher(filePath);
-    std::wstring linkName = L"book_" + std::to_wstring(hash) + L"_" + fileName;
+    std::string hash = pb::Fnv1a64Hex(filePath);
+    std::wstring linkName = L"book_" + pb::Utf8ToWide(hash) + L"_" + fileName;
     auto linkPath = booksDir + L"\\" + linkName;
 
     // Copy file if doesn't exist
     if (GetFileAttributesW(linkPath.c_str()) == INVALID_FILE_ATTRIBUTES) {
         // Clean up old links with same hash but different filename
-        std::wstring oldPrefix = L"book_" + std::to_wstring(hash) + L"_";
+        std::wstring oldPrefix = L"book_" + pb::Utf8ToWide(hash) + L"_";
         for (auto& entry : std::filesystem::directory_iterator(booksDir)) {
             auto name = entry.path().filename().wstring();
             if (name.find(oldPrefix) == 0 && name != linkName) {

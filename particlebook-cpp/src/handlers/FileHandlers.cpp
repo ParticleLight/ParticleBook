@@ -2,6 +2,7 @@
 #include "BridgeServer.h"
 #include "utils/encoding.h"
 #include "utils/base64.h"
+#include "utils/fnv1a.h"
 #include "WebViewHost.h"
 #include "App.h"
 #include "pb_version.h"  // generated from CMake project VERSION
@@ -474,10 +475,11 @@ void RegisterFileHandlers(BridgeServer* bridge, DatabaseService* db, ContentCach
                 }
             }
 
-            // Key = stable hash of the full path: pure ASCII (no URL-encoding
+            // Key = stable FNV-1a hash of the full path: pure ASCII (no URL-encoding
             // issues for names containing '#'/'%'/spaces) and unique per source
-            // path (no same-basename overwrite between different folders).
-            std::string fn = std::to_string(std::hash<std::string>{}(path));
+            // path (no same-basename overwrite between different folders). FNV-1a
+            // is deterministic (std::hash is not stable across runs/compilers).
+            std::string fn = pb::Fnv1a64Hex(path);
 
             std::wstring dest = rendererDir + L"\\" + pb::Utf8ToWide(fn);
             if (CopyFileW(pb::Utf8ToWide(path).c_str(), dest.c_str(), FALSE)) {
