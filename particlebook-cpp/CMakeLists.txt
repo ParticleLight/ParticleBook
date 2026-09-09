@@ -116,6 +116,7 @@ set(PB_TEST_SOURCES
     tests/unit/encoding_test.cpp
     tests/unit/base64_test.cpp
     tests/unit/fnv1a_test.cpp
+    tests/unit/update_meta_test.cpp
 )
 foreach(_t IN LISTS PB_TEST_SOURCES)
     get_filename_component(_name "${_t}" NAME_WE)

@@ -4,6 +4,7 @@
 #include "utils/base64.h"
 #include "utils/fnv1a.h"
 #include "WebViewHost.h"
+#include "utils/update_meta.h"
 #include "App.h"
 #include "pb_version.h"  // generated from CMake project VERSION
 #include "services/DatabaseService.h"
@@ -287,61 +288,18 @@ static json CheckUpdateImpl()
     while (WinHttpReadData(hR, buf, sizeof(buf), &br) && br > 0) body.append(buf, br);
     WinHttpCloseHandle(hR); WinHttpCloseHandle(hC); WinHttpCloseHandle(hS);
 
-    // Try YAML format first (latest.yml)
-    std::string latestVer;
-    std::string dlUrl;
-    std::string fileName;
-    size_t size = 0;
-    std::string sha512;
+    // Parse update metadata. Prefer electron-builder latest.yml (pure,
+    // unit-tested parse in utils/update_meta.h); fall back to GitHub API JSON.
+    std::string latestVer, dlUrl, fileName, sha512;
+    std::size_t size = 0;
 
-    // Parse latest.yml: "version: X.Y.Z\nfiles:\n  - url: ...\n    sha512: ...\n    size: N"
-    size_t vp = body.find("version:");
-    if (vp != std::string::npos) {
-        vp += 8;
-        while (vp < body.size() && body[vp] == ' ') vp++;
-        size_t ve = body.find('\n', vp);
-        if (ve != std::string::npos) latestVer = body.substr(vp, ve - vp);
-        while (!latestVer.empty() && (latestVer.back() == '\r' || latestVer.back() == ' ')) latestVer.pop_back();
-
-        // Find url
-        size_t up = body.find("url:");
-        if (up != std::string::npos) {
-            up += 4;
-            while (up < body.size() && body[up] == ' ') up++;
-            size_t ue = body.find('\n', up);
-            if (ue != std::string::npos) fileName = body.substr(up, ue - up);
-            while (!fileName.empty() && (fileName.back() == '\r' || fileName.back() == ' ')) fileName.pop_back();
-        }
-
-        // Find size
-        size_t sp = body.find("size:");
-        if (sp != std::string::npos) {
-            sp += 5;
-            while (sp < body.size() && body[sp] == ' ') sp++;
-            size_t se = body.find('\n', sp);
-            if (se != std::string::npos) {
-                try { size = std::stoull(body.substr(sp, se - sp)); } catch (...) {}
-            }
-        }
-
-        // Find sha512 (for update package integrity verification)
-        size_t hp = body.find("sha512:");
-        if (hp != std::string::npos) {
-            hp += 7;
-            while (hp < body.size() && body[hp] == ' ') hp++;
-            size_t he = body.find('\n', hp);
-            if (he != std::string::npos) sha512 = body.substr(hp, he - hp);
-            while (!sha512.empty() &&
-                   (sha512.back() == '\r' || sha512.back() == ' ' || sha512.back() == '"'))
-                sha512.pop_back();
-            while (!sha512.empty() && sha512.front() == '"') sha512.erase(sha512.begin());
-        }
-
-        // Build download URL from file name
-        if (!latestVer.empty() && !fileName.empty()) {
-            dlUrl = "https://github.com/ParticleLight/ParticleBook/releases/download/v"
-                  + latestVer + "/" + fileName;
-        }
+    auto y = pb::ParseLatestYaml(body);
+    if (y.valid) {
+        latestVer = y.version;
+        fileName  = y.fileName;
+        sha512    = y.sha512;
+        size      = y.size;
+        dlUrl     = pb::BuildDownloadUrl(latestVer, fileName);
     } else {
         // Try JSON format (GitHub API response)
         try {
@@ -364,21 +322,8 @@ static json CheckUpdateImpl()
 
     if (latestVer.empty() || dlUrl.empty()) return json(nullptr);
 
-    // Semantic version comparison
-    auto versionGreater = [](const std::string& a, const std::string& b) -> bool {
-        auto split = [](const std::string& v) -> std::tuple<int,int,int> {
-            int major = 0, minor = 0, patch = 0;
-            sscanf(v.c_str(), "%d.%d.%d", &major, &minor, &patch);
-            return {major, minor, patch};
-        };
-        auto [a1,a2,a3] = split(a);
-        auto [b1,b2,b3] = split(b);
-        if (a1 != b1) return a1 > b1;
-        if (a2 != b2) return a2 > b2;
-        return a3 > b3;
-    };
-
-    if (versionGreater(latestVer, PB_VERSION_STRING)) {
+    // Semantic version comparison (pure, unit-tested in utils/update_meta.h)
+    if (pb::VersionGreater(latestVer, PB_VERSION_STRING)) {
         json result;
         result["version"] = latestVer;
         result["fileName"] = fileName;
