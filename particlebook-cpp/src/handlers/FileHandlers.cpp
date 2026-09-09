@@ -12,6 +12,7 @@
 #include "services/ContentCache.h"
 #include <fstream>
 #include <vector>
+#include <cstdlib>
 #include <functional>
 #include <filesystem>
 #include <shobjidl.h>
@@ -250,11 +251,24 @@ static bool ComputeFileSha512(const std::wstring& path, std::string& outHex)
 // or the check failed. Blocking WinHTTP — never call on the UI thread.
 static json CheckUpdateImpl()
 {
+    // Server hosts are configurable via env vars so the update check can be
+    // pointed at a mirror / self-hosted update server:
+    //   PB_UPDATE_BASE = releases host (default github.com) + path prefix
+    //   PB_UPDATE_API  = JSON API host   (default api.github.com)
+    // Defaults keep the official GitHub behaviour when unset.
+    std::string baseHost = "github.com";
+    std::string apiHost  = "api.github.com";
+    if (const char* e = std::getenv("PB_UPDATE_BASE")) { if (*e) baseHost = e; }
+    if (const char* e = std::getenv("PB_UPDATE_API"))  { if (*e) apiHost = e; }
+
+    std::wstring wBase = pb::Utf8ToWide(baseHost);
+    std::wstring wApi  = pb::Utf8ToWide(apiHost);
+
     // Fetch latest.yml from GitHub Releases (no API rate limit)
     HINTERNET hS = WinHttpOpen(L"PB/2.0", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, nullptr, nullptr, 0);
     if (!hS) return json(nullptr);
 
-    HINTERNET hC = WinHttpConnect(hS, L"github.com", 443, 0);
+    HINTERNET hC = WinHttpConnect(hS, wBase.c_str(), 443, 0);
     if (!hC) { WinHttpCloseHandle(hS); return json(nullptr); }
 
     // Try latest.yml from releases/latest/download/ (redirects handled by WinHTTP)
@@ -271,7 +285,7 @@ static json CheckUpdateImpl()
 
         hS = WinHttpOpen(L"PB/2.0", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, nullptr, nullptr, 0);
         if (!hS) return json(nullptr);
-        hC = WinHttpConnect(hS, L"api.github.com", 443, 0);
+        hC = WinHttpConnect(hS, wApi.c_str(), 443, 0);
         if (!hC) { WinHttpCloseHandle(hS); return json(nullptr); }
         hR = WinHttpOpenRequest(hC, L"GET", L"/repos/ParticleLight/ParticleBook/releases/latest",
             nullptr, nullptr, nullptr, WINHTTP_FLAG_SECURE);
