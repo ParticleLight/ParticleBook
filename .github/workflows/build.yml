@@ -1,0 +1,45 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install frontend deps
+        run: npm ci
+
+      - name: Build frontend
+        run: npm run build
+
+      - name: Verify i18n key coverage
+        run: npm run i18n:check
+
+      - name: Set MSVC environment
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Configure CMake (NMake)
+        run: cmake -S particlebook-cpp -B particlebook-cpp/build2 -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build C++ backend
+        run: cmake --build particlebook-cpp/build2
+
+      - name: Run C++ unit tests
+        run: ctest --test-dir particlebook-cpp/build2 --output-on-failure
+
+      - name: Smoke test — binaries exist
+        run: |
+          if (!(Test-Path particlebook-cpp/build2/ParticleBook.exe)) { throw "ParticleBook.exe missing" }
+          if (!(Test-Path particlebook-cpp/build2/renderer/index.html)) { throw "renderer/index.html missing" }
+          Write-Output "OK: exe + renderer present"
