@@ -108,3 +108,19 @@ add_custom_command(TARGET ParticleBook POST_BUILD
 install(TARGETS ParticleBook RUNTIME DESTINATION .)
 install(FILES "${CMAKE_SOURCE_DIR}/third_party/mupdf-1.25.0-windows/mutool.exe" DESTINATION .)
 install(DIRECTORY "$<TARGET_FILE_DIR:ParticleBook>/renderer" DESTINATION renderer)
+
+# ── Unit tests (pure header utils — no Win32/GUI deps) ───────────────
+# Each test .cpp has its own main(), so build one small executable per test.
+enable_testing()
+set(PB_TEST_SOURCES
+    tests/unit/encoding_test.cpp
+    tests/unit/base64_test.cpp
+    tests/unit/fnv1a_test.cpp
+)
+foreach(_t IN LISTS PB_TEST_SOURCES)
+    get_filename_component(_name "${_t}" NAME_WE)
+    add_executable("${_name}" "${_t}")
+    target_compile_options("${_name}" PRIVATE /EHa /utf-8)
+    target_include_directories("${_name}" PRIVATE src/ "${CMAKE_BINARY_DIR}/src/")
+    add_test(NAME "${_name}" COMMAND "${_name}")
+endforeach()
