@@ -3,6 +3,14 @@ name: release
 on:
   push:
     tags: ['v*']
+  # 手动触发用于【演练】：完整跑一遍构建/打包/SHA512/latest.yml，但不创建 Release，
+  # 并把安装包作为 artifact 上传供下载检查。打 tag 之前建议先跑一次演练。
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: '只演练：构建打包并校验，不创建 GitHub Release'
+        type: boolean
+        default: true
 
 permissions:
   contents: write
@@ -76,7 +84,19 @@ jobs:
           Set-Content -Path particlebook-cpp/build2/latest.yml -Value $yml -Encoding utf8
           Get-Content particlebook-cpp/build2/latest.yml
 
+      # 演练模式：把产物留档供下载检查（正式发布时不跑）
+      - name: Upload artifacts (dry run)
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: particlebook-installer
+          path: |
+            particlebook-cpp/build2/ParticleBook-Setup-v*.exe
+            particlebook-cpp/build2/latest.yml
+          if-no-files-found: error
+
       - name: Create GitHub Release
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.dry_run == false }}
         uses: softprops/action-gh-release@v2
         with:
           files: |
