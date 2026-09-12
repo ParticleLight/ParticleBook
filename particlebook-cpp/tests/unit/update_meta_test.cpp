@@ -37,6 +37,82 @@ int main() {
     auto m3 = pb::ParseLatestYaml("version: 1.0.0\n");  // no url
     CHECK_TRUE(!m3.valid);
 
+    // ── Regression lock: the EXACT format release.yml writes ──────────
+    // If .github/workflows/release.yml ever changes the yaml shape, this test
+    // is what tells us the updater would stop understanding it.
+    {
+        const std::string real =
+            "version: 2.2.0\n"
+            "files:\n"
+            "  - url: ParticleBook-Setup-v2.2.0.exe\n"
+            "    sha512: DEADBEEF\n"
+            "    size: 4242\n"
+            "    path: ParticleBook-Setup-v2.2.0.exe\n";
+        auto r = pb::ParseLatestYaml(real);
+        CHECK_TRUE(r.valid);
+        CHECK_EQ(r.version, std::string("2.2.0"));
+        CHECK_EQ(r.fileName, std::string("ParticleBook-Setup-v2.2.0.exe"));
+        CHECK_EQ(r.sha512, std::string("DEADBEEF"));
+        CHECK_EQ((int)r.size, 4242);
+    }
+
+    // ── Leading UTF-8 BOM (PowerShell 5 Set-Content writes one) ───────
+    {
+        const std::string withBom =
+            std::string("\xEF\xBB\xBF") +
+            "version: 3.0.0\nfiles:\n  - url: a.exe\n    sha512: h\n    size: 5\n";
+        auto r = pb::ParseLatestYaml(withBom);
+        CHECK_TRUE(r.valid);
+        CHECK_EQ(r.version, std::string("3.0.0"));
+        CHECK_EQ((int)r.size, 5);
+    }
+
+    // ── Multi-file: blockmap FIRST — must not pick the blockmap ───────
+    {
+        const std::string multi =
+            "version: 2.2.0\n"
+            "files:\n"
+            "  - url: ParticleBook-Setup-v2.2.0.exe.blockmap\n"
+            "    sha512: BLOCKMAPHASH\n"
+            "    size: 111\n"
+            "  - url: ParticleBook-Setup-v2.2.0.exe\n"
+            "    sha512: EXEHASH\n"
+            "    size: 222\n"
+            "path: ParticleBook-Setup-v2.2.0.exe\n";
+        auto r = pb::ParseLatestYaml(multi);
+        CHECK_TRUE(r.valid);
+        CHECK_EQ(r.fileName, std::string("ParticleBook-Setup-v2.2.0.exe"));
+        CHECK_EQ(r.sha512, std::string("EXEHASH"));
+        CHECK_EQ((int)r.size, 222);
+    }
+
+    // ── Multi-file: installer first — values must come from ITS entry ──
+    {
+        const std::string multi =
+            "version: 2.2.1\n"
+            "files:\n"
+            "  - url: ParticleBook-Setup-v2.2.1.exe\n"
+            "    sha512: EXEHASH2\n"
+            "    size: 333\n"
+            "  - url: ParticleBook-Setup-v2.2.1.exe.blockmap\n"
+            "    sha512: BMBM\n"
+            "    size: 444\n";
+        auto r = pb::ParseLatestYaml(multi);
+        CHECK_TRUE(r.valid);
+        CHECK_EQ(r.fileName, std::string("ParticleBook-Setup-v2.2.1.exe"));
+        CHECK_EQ(r.sha512, std::string("EXEHASH2"));
+        CHECK_EQ((int)r.size, 333);
+    }
+
+    // ── Only a blockmap present: falls back to the first entry ────────
+    {
+        const std::string onlyBm =
+            "version: 2.2.2\nfiles:\n  - url: only.exe.blockmap\n    sha512: X\n    size: 7\n";
+        auto r = pb::ParseLatestYaml(onlyBm);
+        CHECK_TRUE(r.valid);
+        CHECK_EQ(r.fileName, std::string("only.exe.blockmap"));
+    }
+
     // BuildDownloadUrl
     CHECK_TRUE(pb::BuildDownloadUrl("2.1.0", "a.exe") ==
                "https://github.com/ParticleLight/ParticleBook/releases/download/v2.1.0/a.exe");

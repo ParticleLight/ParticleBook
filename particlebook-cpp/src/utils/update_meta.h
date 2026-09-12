@@ -7,6 +7,7 @@
 #include <cstdio>
 #include <cstddef>
 #include <tuple>
+#include <vector>
 
 namespace pb {
 
@@ -36,13 +37,26 @@ namespace pb {
         bool valid = false;   // version AND fileName present
     };
 
-    // Parse electron-builder latest.yml text block.
+    // Parse an electron-builder style latest.yml.
+    //
+    // Handles both this project's own single-file yaml (see
+    // .github/workflows/release.yml) and electron-builder's multi-file output,
+    // where the "files:" list can also contain a ".exe.blockmap" entry next to
+    // the installer. The installer entry is selected EXPLICITLY rather than by
+    // "first url wins", which would silently pick a blockmap if the order ever
+    // changed. Falls back to the first entry when nothing looks like an exe.
+    //
+    // Assumes each entry puts "url:" before its "sha512:"/"size:" (true for
+    // both formats above); values are read from within the chosen entry, with a
+    // document-wide fallback so unusual layouts keep working.
     inline UpdateYaml ParseLatestYaml(const std::string& body)
     {
         UpdateYaml out;
-        auto field = [&](const char* key) -> std::string {
+
+        // Value following `key` on the same line, searched from `from`.
+        auto readValue = [&](size_t from, const char* key) -> std::string {
             std::string v;
-            size_t p = body.find(key);
+            size_t p = body.find(key, from);
             if (p == std::string::npos) return v;
             p += std::char_traits<char>::length(key);
             while (p < body.size() && body[p] == ' ') p++;
@@ -52,16 +66,49 @@ namespace pb {
             return v;
         };
 
-        out.version  = field("version:");
-        out.fileName = field("url:");
-        out.sha512   = field("sha512:");
+        out.version = readValue(0, "version:");
+
+        // Every url: entry, with its offset, in document order.
+        struct Hit { size_t pos; std::string value; };
+        std::vector<Hit> hits;
+        for (size_t p = body.find("url:"); p != std::string::npos;
+             p = body.find("url:", p + 4)) {
+            hits.push_back({ p, readValue(p, "url:") });
+        }
+        if (hits.empty()) return out;   // valid stays false
+
+        size_t chosen = 0;
+        for (size_t i = 0; i < hits.size(); ++i) {
+            const std::string& u = hits[i].value;
+            const bool isExe = u.size() >= 4 && u.compare(u.size() - 4, 4, ".exe") == 0;
+            const bool isBlockmap = u.find(".blockmap") != std::string::npos;
+            if (isExe && !isBlockmap) { chosen = i; break; }
+        }
+        out.fileName = hits[chosen].value;
+
+        // End of the chosen entry: the next url:, or end of document.
+        const size_t winEnd = (chosen + 1 < hits.size()) ? hits[chosen + 1].pos
+                                                         : std::string::npos;
+        auto readInEntry = [&](const char* key) -> std::string {
+            size_t p = body.find(key, hits[chosen].pos);
+            if (p == std::string::npos) return std::string();
+            if (winEnd != std::string::npos && p >= winEnd) return std::string();
+            return readValue(hits[chosen].pos, key);
+        };
+        auto readWithFallback = [&](const char* key) -> std::string {
+            std::string v = readInEntry(key);
+            return v.empty() ? readValue(0, key) : v;
+        };
+
+        out.sha512 = readWithFallback("sha512:");
 
         // Strip surrounding quotes from sha512
         std::string& sh = out.sha512;
         while (!sh.empty() && (sh.back() == '\r' || sh.back() == ' ' || sh.back() == '"')) sh.pop_back();
         while (!sh.empty() && sh.front() == '"') sh.erase(sh.begin());
 
-        { std::string sv = field("size:"); if (!sv.empty()) { try { out.size = std::stoull(sv); } catch (...) {} } }
+        { std::string sv = readWithFallback("size:");
+          if (!sv.empty()) { try { out.size = std::stoull(sv); } catch (...) {} } }
 
         out.valid = !out.version.empty() && !out.fileName.empty();
         return out;
