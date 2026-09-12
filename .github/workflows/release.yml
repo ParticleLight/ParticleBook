@@ -1,0 +1,76 @@
+name: release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install frontend deps
+        run: npm ci
+
+      - name: Build frontend
+        run: npm run build
+
+      - name: Verify i18n key coverage
+        run: npm run i18n:check
+
+      - name: Set MSVC environment
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Configure CMake (NMake)
+        run: cmake -S particlebook-cpp -B particlebook-cpp/build2 -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build C++ backend
+        run: cmake --build particlebook-cpp/build2
+
+      - name: Sync renderer into build output
+        run: Copy-Item -Path out/renderer/* -Destination particlebook-cpp/build2/renderer/ -Recurse -Force
+
+      - name: Install NSIS
+        run: choco install nsis --yes --no-progress
+
+      - name: Resolve version (package.json must match CMakeLists)
+        shell: pwsh
+        run: |
+          $pkg = node -p "require('./package.json').version"
+          $m = (Select-String -Path particlebook-cpp/CMakeLists.txt -Pattern 'project\(ParticleBook VERSION (\d+\.\d+\.\d+)')
+          if (-not $m) { Write-Error "CMakeLists.txt: project(VERSION ...) not found" }
+          $cm = $m.Matches[0].Groups[1].Value
+          if ($pkg -ne $cm) { Write-Error "Version mismatch: package.json=$pkg CMakeLists=$cm — run scripts/bump-version.js first" }
+          Add-Content -Path $env:GITHUB_ENV -Value "VERSION=$pkg"
+
+      - name: Package installer
+        run: |
+          Set-Location particlebook-cpp/scripts
+          makensis /DPRODUCT_VERSION=$env:VERSION installer.nsi
+
+      - name: Compute SHA512 + write latest.yml
+        shell: pwsh
+        run: |
+          $setup = Get-ChildItem "particlebook-cpp/build2/ParticleBook-Setup-v$env:VERSION.exe"
+          $hash = (Get-FileHash $setup.FullName -Algorithm SHA512).Hash.ToLower()
+          $yml = "version: $env:VERSION`nfiles:`n  - url: ParticleBook-Setup-v$env:VERSION.exe`n    sha512: $hash`n    size: $($setup.Length)`n    path: ParticleBook-Setup-v$env:VERSION.exe`n"
+          Set-Content -Path particlebook-cpp/build2/latest.yml -Value $yml -Encoding utf8
+          Get-Content particlebook-cpp/build2/latest.yml
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            particlebook-cpp/build2/ParticleBook-Setup-v${{ env.VERSION }}.exe
+            particlebook-cpp/build2/latest.yml
+          fail_on_unmatched_files: true

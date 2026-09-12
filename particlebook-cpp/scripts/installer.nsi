@@ -8,7 +8,7 @@ SetCompressorDictSize 64
 
 !define PRODUCT_NAME "ParticleBook"
 !ifndef PRODUCT_VERSION
-!define PRODUCT_VERSION "2.0.3"   ; override via: makensis /DPRODUCT_VERSION=2.0.4
+!define PRODUCT_VERSION "2.1.0"   ; fallback only — release always passes /DPRODUCT_VERSION=
 !endif
 !define PRODUCT_PUBLISHER "ParticleLight"
 !define REG_KEY "Software\ParticleBook"
