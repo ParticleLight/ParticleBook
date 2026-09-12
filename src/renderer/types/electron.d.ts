@@ -1,3 +1,9 @@
+// ═══════════════════════════════════════════════════════════════════════
+// 此文件由 scripts/gen-bridge-dts.mjs 从 bridge/contract.mjs 生成。
+// 请勿手改：改动会在下一次生成时丢失，且 CI 的新鲜度校验会失败。
+// 要改契约请改表，然后运行： npm run gen:bridge-dts
+// ═══════════════════════════════════════════════════════════════════════
+
 // Shapes returned by electronAPI.readFile: raw bytes (JSON byte array or a
 // typed array), or a virtual-host reference the caller must fetch. Declared
 // globally so both the interface and the renderer helper share one definition.
@@ -5,45 +11,47 @@ type PbVirtualHostRef = { _pb_url: string }
 type PbFileContent = Uint8Array | number[] | PbVirtualHostRef
 
 interface ElectronAPI {
+  // Files
   openFile: () => Promise<string | null>
   openDirectory: () => Promise<string | null>
-  // The C++ bridge serves most formats through the virtual host and returns
-  // { _pb_url } to fetch instead of the bytes themselves (see
-  // utils/fileReader.ts, which normalises both shapes). MOBI still comes back
-  // as a JSON byte array.
   readFile: (filePath: string) => Promise<Uint8Array | number[] | { _pb_url: string }>
   getBookMetadata: (filePath: string) => Promise<any>
   importBooks: (filePaths: string[]) => Promise<any[]>
   writeDroppedFile: (name: string, dataB64: string) => Promise<{ path: string; size: number } | null>
   getCoverImage: (bookId: number) => Promise<string | null>
 
-  // PDF (native rendering via mutool bridge)
+  // PDF
   pdfOpen: (filePath: string) => Promise<{ id: number; pageCount: number; pageBounds: { width: number; height: number }[] } | null>
   pdfRenderPage: (id: number, pageNum: number, width: number, height: number) => Promise<string | null>
   pdfGetFileUrl: (filePath: string) => Promise<string | null>
   pdfExtractText: (id: number) => Promise<any>
   pdfClose: (id: number) => Promise<void>
 
+  // Books
   getBooks: () => Promise<any[]>
   getBook: (id: number) => Promise<any>
   deleteBook: (id: number) => Promise<void>
   updateReadingProgress: (bookId: number, progress: any) => Promise<void>
   getReadingProgress: (bookId: number) => Promise<any>
 
+  // Bookmarks
   getBookmarks: (bookId: number) => Promise<any[]>
   addBookmark: (bookmark: any) => Promise<void>
   deleteBookmark: (id: number) => Promise<void>
   updateBookmarkTitle: (id: number, title: string) => Promise<void>
 
+  // Highlights
   getHighlights: (bookId: number) => Promise<any[]>
   addHighlight: (highlight: any) => Promise<void>
   deleteHighlight: (id: number) => Promise<void>
 
+  // Notes
   getNotes: (bookId: number) => Promise<any[]>
   addNote: (note: any) => Promise<void>
   updateNote: (id: number, content: string) => Promise<void>
   deleteNote: (id: number) => Promise<void>
 
+  // Settings
   getSettings: () => Promise<any>
   updateSettings: (settings: any) => Promise<void>
   setLanguage: (lang: string) => Promise<any>
@@ -124,6 +132,7 @@ interface ElectronAPI {
   onUpdateDownloadProgress: (callback: (progress: { percent: number }) => void) => () => void
 }
 
+// 非桥接契约的手写附加项（不属于 bridge/contract.mjs 管理范围）。
 declare interface Window {
   electronAPI: ElectronAPI
   __pbLang?: string
