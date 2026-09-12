@@ -52,7 +52,9 @@ function preferredEol(absPath) {
 }
 const CHECK = process.argv.includes("--check")
 
-const { contract } = await import(pathToFileURL(join(ROOT, "bridge/contract.mjs")).href)
+const { contract, types } = await import(
+  pathToFileURL(join(ROOT, "bridge/contract.mjs")).href
+)
 
 function render() {
   const L = []
@@ -68,6 +70,13 @@ function render() {
   L.push("type PbVirtualHostRef = { _pb_url: string }")
   L.push("type PbFileContent = Uint8Array | number[] | PbVirtualHostRef")
   L.push("")
+  L.push("// 数据形状：与 C++ 侧实际拼装对齐，见 bridge/contract.mjs 中 types 的注释。")
+  for (const t of types || []) {
+    L.push("interface " + t.name + (t.extends ? " extends " + t.extends : "") + " {")
+    for (const b of t.body) L.push(b)
+    L.push("}")
+    L.push("")
+  }
   L.push("interface ElectronAPI {")
   let lastGroup = null
   for (const e of contract) {

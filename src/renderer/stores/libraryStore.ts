@@ -1,21 +1,11 @@
 import { create } from 'zustand'
 
-export interface Book {
-  id: number
-  title: string
-  author?: string
-  format: string
-  file_path: string
-  file_size: number
-  cover_path?: string
-  description?: string
-  publisher?: string
-  publish_date?: string
-  isbn?: string
-  language?: string
-  added_at: string
-  last_opened?: string
-}
+// Book 的唯一定义在桥接契约的 PbBook（由 bridge/contract.mjs 生成到
+// electron.d.ts，形状与 C++ 侧实际拼装对齐）。此处只做别名，避免第二份手工副本。
+// 注意 C++ 在字段为空时写 null 而非省略，故作者等字段是 string | null。
+// （原先此处声明 publish_date?: string，但 C++ 从不设置该字段、全项目也无人读取，
+//   已随别名化移除。）
+export type Book = PbBook
 
 export interface Bookshelf {
   id: number

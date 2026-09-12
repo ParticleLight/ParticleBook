@@ -32,6 +32,92 @@ export const groups = [
   "Auto Updater"
 ]
 
+// ── 命名类型 ────────────────────────────────────────────────────────────
+// 均由 C++ 侧的实际拼装推导（刻意不复用渲染层同名接口，那是另一份手工副本）：
+//   PbBook        book:import 构造的对象 + InsertBook 追加 id/added_at
+//                 + UpdateBookLastOpened 追加 last_opened。
+//                 字段为空时 C++ 写 null（不是省略），故为 string | null。
+//   PbBookmark    前端传入原样存储，C++ 仅追加 id 与 created_at（缺则补）
+//   PbHighlight   同上
+//   PbNote        同上，另强制刷新 updated_at
+//   PbBookshelf   C++ 全量构造 { id, name, created_at }
+//   PbProgress*   写入用 camelCase scrollPosition，C++ 落库为 scroll_position；
+//                 读取在无记录时返回【空对象】而非 null，故读取类型全字段可选
+export const types = [
+  {
+    name: 'PbBook',
+    body: [
+      '  id: number',
+      '  title: string',
+      '  author: string | null',
+      '  format: string',
+      '  file_path: string',
+      '  file_size: number',
+      '  description: string | null',
+      '  publisher: string | null',
+      '  cover_path: string | null',
+      '  language: string | null',
+      '  isbn: string | null',
+      '  added_at: string',
+      '  last_opened?: string'
+    ]
+  },
+  {
+    name: 'PbBookmarkInput',
+    body: [
+      '  book_id: number',
+      '  cfi?: string',
+      '  page?: number',
+      '  progress?: number',
+      '  title?: string',
+      '  note?: string'
+    ]
+  },
+  { name: 'PbBookmark', extends: 'PbBookmarkInput', body: ['  id: number', '  created_at: string'] },
+  {
+    name: 'PbHighlightInput',
+    body: [
+      '  book_id: number',
+      '  cfi?: string',
+      '  page?: number',
+      '  text: string',
+      '  color: string',
+      '  note?: string'
+    ]
+  },
+  { name: 'PbHighlight', extends: 'PbHighlightInput', body: ['  id: number', '  created_at: string'] },
+  {
+    name: 'PbNoteInput',
+    body: [
+      '  book_id: number',
+      '  highlight_id?: number',
+      '  cfi?: string',
+      '  page?: number',
+      '  content: string'
+    ]
+  },
+  { name: 'PbNote', extends: 'PbNoteInput', body: ['  id: number', '  created_at: string', '  updated_at: string'] },
+  {
+    name: 'PbBookshelf',
+    body: ['  id: number', '  name: string', '  created_at: string']
+  },
+  {
+    name: 'PbProgressInput',
+    body: ['  progress: number', '  cfi?: string', '  page?: number', '  scrollPosition?: number']
+  },
+  {
+    name: 'PbProgressRecord',
+    body: [
+      '  book_id?: number',
+      '  progress?: number',
+      '  cfi?: string',
+      '  page?: number',
+      '  scroll_position?: number',
+      '  updated_at?: string'
+    ]
+  }
+]
+
 export const contract = [
   // ── Files ──
   {
@@ -67,7 +153,7 @@ export const contract = [
     kind: "invoke",
     group: "Files",
     params: [{ n: "filePaths", t: "string[]" }],
-    returns: "Promise<any[]>"
+    returns: "Promise<PbBook[]>"
   },
   {
     member: "writeDroppedFile", method: "book:writeDroppedFile",
@@ -125,14 +211,14 @@ export const contract = [
     kind: "invoke",
     group: "Books",
     params: [],
-    returns: "Promise<any[]>"
+    returns: "Promise<PbBook[]>"
   },
   {
     member: "getBook", method: "db:getBook",
     kind: "invoke",
     group: "Books",
     params: [{ n: "id", t: "number" }],
-    returns: "Promise<any>"
+    returns: "Promise<PbBook | null>"
   },
   {
     member: "deleteBook", method: "db:deleteBook",
@@ -145,7 +231,7 @@ export const contract = [
     member: "updateReadingProgress", method: "db:updateProgress",
     kind: "invoke",
     group: "Books",
-    params: [{ n: "bookId", t: "number" }, { n: "progress", t: "any" }],
+    params: [{ n: "bookId", t: "number" }, { n: "progress", t: "PbProgressInput" }],
     returns: "Promise<void>"
   },
   {
@@ -153,7 +239,7 @@ export const contract = [
     kind: "invoke",
     group: "Books",
     params: [{ n: "bookId", t: "number" }],
-    returns: "Promise<any>"
+    returns: "Promise<PbProgressRecord>"
   },
   // ── Bookmarks ──
   {
@@ -161,13 +247,13 @@ export const contract = [
     kind: "invoke",
     group: "Bookmarks",
     params: [{ n: "bookId", t: "number" }],
-    returns: "Promise<any[]>"
+    returns: "Promise<PbBookmark[]>"
   },
   {
     member: "addBookmark", method: "db:addBookmark",
     kind: "invoke",
     group: "Bookmarks",
-    params: [{ n: "bookmark", t: "any" }],
+    params: [{ n: "bookmark", t: "PbBookmarkInput" }],
     returns: "Promise<void>"
   },
   {
@@ -190,13 +276,13 @@ export const contract = [
     kind: "invoke",
     group: "Highlights",
     params: [{ n: "bookId", t: "number" }],
-    returns: "Promise<any[]>"
+    returns: "Promise<PbHighlight[]>"
   },
   {
     member: "addHighlight", method: "db:addHighlight",
     kind: "invoke",
     group: "Highlights",
-    params: [{ n: "highlight", t: "any" }],
+    params: [{ n: "highlight", t: "PbHighlightInput" }],
     returns: "Promise<void>"
   },
   {
@@ -212,13 +298,13 @@ export const contract = [
     kind: "invoke",
     group: "Notes",
     params: [{ n: "bookId", t: "number" }],
-    returns: "Promise<any[]>"
+    returns: "Promise<PbNote[]>"
   },
   {
     member: "addNote", method: "db:addNote",
     kind: "invoke",
     group: "Notes",
-    params: [{ n: "note", t: "any" }],
+    params: [{ n: "note", t: "PbNoteInput" }],
     returns: "Promise<void>"
   },
   {
@@ -284,14 +370,14 @@ export const contract = [
     kind: "invoke",
     group: "Bookshelves",
     params: [],
-    returns: "Promise<any[]>"
+    returns: "Promise<PbBookshelf[]>"
   },
   {
     member: "addBookshelf", method: "db:addBookshelf",
     kind: "invoke",
     group: "Bookshelves",
     params: [{ n: "name", t: "string" }],
-    returns: "Promise<any>"
+    returns: "Promise<PbBookshelf>"
   },
   {
     member: "deleteBookshelf", method: "db:deleteBookshelf",

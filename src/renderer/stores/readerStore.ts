@@ -186,12 +186,18 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
 
   loadProgress: async (bookId: number) => {
     try {
-      const progress = await window.electronAPI.getReadingProgress(bookId)
-      if (progress) {
-        set({ progress: { progress: progress.progress, cfi: progress.cfi, page: progress.page, scrollPosition: progress.scroll_position } })
-      } else {
-        set({ progress: { progress: 0 } })
-      }
+      // db:getProgress returns an EMPTY OBJECT (not null) when there is no
+      // record, so every field is optional: fall back to 0 rather than storing
+      // undefined into a field typed as number (which broke the progress bar).
+      const record = await window.electronAPI.getReadingProgress(bookId)
+      set({
+        progress: {
+          progress: typeof record?.progress === 'number' ? record.progress : 0,
+          cfi: record?.cfi,
+          page: record?.page,
+          scrollPosition: record?.scroll_position
+        }
+      })
     } catch (e) {
       console.error('Failed to load progress:', e)
     }

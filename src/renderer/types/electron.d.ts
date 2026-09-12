@@ -10,13 +10,94 @@
 type PbVirtualHostRef = { _pb_url: string }
 type PbFileContent = Uint8Array | number[] | PbVirtualHostRef
 
+// 数据形状：与 C++ 侧实际拼装对齐，见 bridge/contract.mjs 中 types 的注释。
+interface PbBook {
+  id: number
+  title: string
+  author: string | null
+  format: string
+  file_path: string
+  file_size: number
+  description: string | null
+  publisher: string | null
+  cover_path: string | null
+  language: string | null
+  isbn: string | null
+  added_at: string
+  last_opened?: string
+}
+
+interface PbBookmarkInput {
+  book_id: number
+  cfi?: string
+  page?: number
+  progress?: number
+  title?: string
+  note?: string
+}
+
+interface PbBookmark extends PbBookmarkInput {
+  id: number
+  created_at: string
+}
+
+interface PbHighlightInput {
+  book_id: number
+  cfi?: string
+  page?: number
+  text: string
+  color: string
+  note?: string
+}
+
+interface PbHighlight extends PbHighlightInput {
+  id: number
+  created_at: string
+}
+
+interface PbNoteInput {
+  book_id: number
+  highlight_id?: number
+  cfi?: string
+  page?: number
+  content: string
+}
+
+interface PbNote extends PbNoteInput {
+  id: number
+  created_at: string
+  updated_at: string
+}
+
+interface PbBookshelf {
+  id: number
+  name: string
+  created_at: string
+}
+
+interface PbProgressInput {
+  progress: number
+  cfi?: string
+  page?: number
+  scrollPosition?: number
+}
+
+interface PbProgressRecord {
+  book_id?: number
+  progress?: number
+  cfi?: string
+  page?: number
+  scroll_position?: number
+  updated_at?: string
+}
+
 interface ElectronAPI {
   // Files
   openFile: () => Promise<string | null>
   openDirectory: () => Promise<string | null>
   readFile: (filePath: string) => Promise<Uint8Array | number[] | { _pb_url: string }>
   getBookMetadata: (filePath: string) => Promise<any>
-  importBooks: (filePaths: string[]) => Promise<any[]>
+  importBooks: (filePaths: string[]) => Promise<PbBook[]>
   writeDroppedFile: (name: string, dataB64: string) => Promise<{ path: string; size: number } | null>
   getCoverImage: (bookId: number) => Promise<string | null>
 
@@ -28,26 +109,26 @@ interface ElectronAPI {
   pdfClose: (id: number) => Promise<void>
 
   // Books
-  getBooks: () => Promise<any[]>
-  getBook: (id: number) => Promise<any>
+  getBooks: () => Promise<PbBook[]>
+  getBook: (id: number) => Promise<PbBook | null>
   deleteBook: (id: number) => Promise<void>
-  updateReadingProgress: (bookId: number, progress: any) => Promise<void>
-  getReadingProgress: (bookId: number) => Promise<any>
+  updateReadingProgress: (bookId: number, progress: PbProgressInput) => Promise<void>
+  getReadingProgress: (bookId: number) => Promise<PbProgressRecord>
 
   // Bookmarks
-  getBookmarks: (bookId: number) => Promise<any[]>
-  addBookmark: (bookmark: any) => Promise<void>
+  getBookmarks: (bookId: number) => Promise<PbBookmark[]>
+  addBookmark: (bookmark: PbBookmarkInput) => Promise<void>
   deleteBookmark: (id: number) => Promise<void>
   updateBookmarkTitle: (id: number, title: string) => Promise<void>
 
   // Highlights
-  getHighlights: (bookId: number) => Promise<any[]>
-  addHighlight: (highlight: any) => Promise<void>
+  getHighlights: (bookId: number) => Promise<PbHighlight[]>
+  addHighlight: (highlight: PbHighlightInput) => Promise<void>
   deleteHighlight: (id: number) => Promise<void>
 
   // Notes
-  getNotes: (bookId: number) => Promise<any[]>
-  addNote: (note: any) => Promise<void>
+  getNotes: (bookId: number) => Promise<PbNote[]>
+  addNote: (note: PbNoteInput) => Promise<void>
   updateNote: (id: number, content: string) => Promise<void>
   deleteNote: (id: number) => Promise<void>
 
@@ -60,8 +141,8 @@ interface ElectronAPI {
   deleteBookSettings: (bookId: number) => Promise<void>
 
   // Bookshelves
-  getBookshelves: () => Promise<any[]>
-  addBookshelf: (name: string) => Promise<any>
+  getBookshelves: () => Promise<PbBookshelf[]>
+  addBookshelf: (name: string) => Promise<PbBookshelf>
   deleteBookshelf: (id: number) => Promise<void>
   renameBookshelf: (id: number, name: string) => Promise<void>
   getBooksInShelf: (shelfId: number) => Promise<number[]>

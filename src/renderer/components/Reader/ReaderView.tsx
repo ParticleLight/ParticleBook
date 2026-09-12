@@ -98,6 +98,13 @@ export function ReaderView({ bookId, onClose }: ReaderViewProps) {
     const loadBook = async () => {
       try {
         const bookData = await window.electronAPI.getBook(bookId)
+        if (!bookData) {
+          // db:getBook returns null when the id no longer exists (e.g. the book
+          // was deleted from another view while the reader was opening).
+          console.error('Book not found:', bookId)
+          onClose()
+          return
+        }
         setBook(bookData)
 
         // Load progress BEFORE content so renderer has correct position on mount
