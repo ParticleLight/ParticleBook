@@ -55,6 +55,8 @@ private:
     std::string GetDownloadPath() const;
     void OnDownloadDone(const std::string& path, const std::string& fileName);
     void DoImport(const std::string& path, const std::string& fileName);
+    // 导入在工作线程完成，结果回投到 UI 线程后在这里发事件
+    void OnImportDone(const std::string& fileName, bool success, const std::string& error);
 
     BridgeServer* m_bridge;
     WebViewHost* m_host = nullptr;
@@ -71,6 +73,9 @@ private:
     // 一旦下载线程异常未归就会永久卡住 → 之后所有下载都被静默吞掉。
     std::chrono::steady_clock::time_point m_dlStartedAt{};
     int m_navRetryCount = 0;
+    // 本次导航是否被我们自己的守卫取消（危险协议）。取消也会让 NavigationCompleted
+    // 报 IsSuccess=FALSE，但那不是镜像失败，不能拿它去消耗换线路的重试额度。
+    bool m_navCancelledByGuard = false;
     int m_retryMirrorCount = 0;   // snapshot of mirror count at Show() — bounds retry to one full cycle
     std::mutex m_mirrorMutex;
     EventRegistrationToken m_downloadToken = {};

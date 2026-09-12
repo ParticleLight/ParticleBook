@@ -28,9 +28,12 @@ using namespace Microsoft::WRL;
 #define WM_ZLIB_REFRESH_LIBRARY (WM_USER + 12)
 #define WM_ZLIB_DO_IMPORT (WM_USER + 13)
 #define WM_ZLIB_DOWNLOAD_FAILED (WM_USER + 14)
+#define WM_ZLIB_IMPORT_DONE (WM_USER + 20)   // 必须与 WebViewHost.cpp 一致（15-17 被 WM_UPDATE_* 占用）
 
 struct DLProgress { std::string fn; int64_t recv; int64_t tot; };
 struct DLFail { std::string fn; std::string reason; };
+// 布局必须与 WebViewHost.cpp 里的同名结构完全一致（跨 TU 通过 LPARAM 传递）
+struct ImportResult { std::string fileName; bool success; std::string error; };
 
 // 会话过期时 z-lib 会返回 200 的登录页，此前会被当成书存盘并入库。
 // FB2 本身是 XML，所以只把 <!doctype html / <html 判为 HTML，避免误杀。
@@ -410,6 +413,9 @@ void ZLibraryService::SetupDownloadHandler()
     m_host->SetImportCallback([this](const std::string& path, const std::string& fileName) {
         DoImport(path, fileName);
     });
+    m_host->SetImportResultCallback([this](const std::string& fileName, bool success, const std::string& error) {
+        OnImportDone(fileName, success, error);
+    });
     m_host->SetDownloadFailCallback([this](const std::string& fileName, const std::string& reason) {
         m_zlibDlInProgress = false;
         m_bridge->EmitEvent("zlib:downloadError", {{"fileName", fileName}, {"error", reason}});
@@ -463,6 +469,7 @@ void ZLibraryService::SetupDownloadHandler()
                     // Block everything else (file:, javascript:, data:, ...) as a safety net.
                     bool safe = (uri.rfind("http://", 0) == 0) || (uri.rfind("https://", 0) == 0);
                     if (!safe) {
+                        m_navCancelledByGuard = true;   // 见头部说明：这不是镜像失败
                         args->put_Cancel(TRUE);
                     }
                     return S_OK;
@@ -480,6 +487,14 @@ void ZLibraryService::SetupDownloadHandler()
                         BOOL success = TRUE;
                         args->get_IsSuccess(&success);
 
+
+                        // 被我们自己的协议守卫取消的导航也会报 IsSuccess=FALSE，
+                        // 但那不是镜像故障 —— 此前它会照样消耗一次换线路的重试额度，
+                        // 几个危险协议请求就能把额度用光并误报"所有线路都连不上"。
+                        if (m_navCancelledByGuard) {
+                            m_navCancelledByGuard = false;
+                            return S_OK;
+                        }
 
                         if (!success) {
                             std::string nextUrl;
@@ -818,23 +833,38 @@ void ZLibraryService::DoImport(const std::string& downloadPath, const std::strin
     m_zlibDlInProgress = false;
     m_bridge->EmitEvent("zlib:importStart", {{"fileName", fileName}});
 
-    bool success = false;
-    std::string errMsg;
-    try {
-        json params;
-        params["paths"] = json::array({downloadPath});
-        auto result = m_bridge->InvokeMethod("book:import", params);
-        success = result.is_array() && result.size() > 0;
-        if (!success) errMsg = "import_failed";
-    } catch (const std::exception& e) {
-        errMsg = std::string("import_exception:") + e.what();
-    }
+    // 导入会在 C++ 侧同步跑 mutool 抽元数据/封面（LibraryService 里
+    // WaitForSingleObject 上限 30 秒），而这条路径此前跑在窗口过程里 —— 导入一本
+    // PDF 就足以让窗口"未响应"。这里把耗时部分挪到工作线程，结果再用 PostMessage
+    // 回投到 UI 线程发事件（WebView2 的方法只能在 UI 线程调用）。
+    // 不捕获 this：线程可能比服务活得更久，与下载线程保持一致的做法。
+    BridgeServer* bridge = m_bridge;
+    HWND hwnd = m_hwnd;
+    std::thread([bridge, hwnd, downloadPath, fileName]() {
+        bool success = false;
+        std::string errMsg;
+        try {
+            json params;
+            params["paths"] = json::array({downloadPath});
+            auto result = bridge->InvokeMethod("book:import", params);
+            success = result.is_array() && result.size() > 0;
+            if (!success) errMsg = "import_failed";
+        } catch (const std::exception& e) {
+            errMsg = std::string("import_exception:") + e.what();
+        }
+        if (hwnd) {
+            auto* r = new ImportResult{fileName, success, errMsg};
+            PostMessage(hwnd, WM_ZLIB_IMPORT_DONE, 0, reinterpret_cast<LPARAM>(r));
+        }
+    }).detach();
+}
 
+// 在 UI 线程上收尾（由 WebViewHost 的窗口过程回调）
+void ZLibraryService::OnImportDone(const std::string& fileName, bool success, const std::string& errMsg)
+{
     if (success) {
         m_bridge->EmitEvent("zlib:importComplete", {{"fileName", fileName}});
-        // 通知渲染层刷新书架。此前发的是 menu:importBooks（本应用没有原生菜单），
-        // 而它的消费者把载荷当"要导入的路径数组"，空对象过来只是一次无效导入 ——
-        // 下载完成的书因此不会出现在书架上。
+        // 通知渲染层刷新书架（下载完成的书要出现在书架上）
         m_bridge->EmitEvent("library:changed", json::object());
     } else {
         m_bridge->EmitEvent("zlib:importError", {{"fileName", fileName}, {"error", errMsg}});

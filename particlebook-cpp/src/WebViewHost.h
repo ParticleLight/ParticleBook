@@ -47,6 +47,11 @@ public:
     using ImportCallback = std::function<void(const std::string& path, const std::string& fileName)>;
     void SetImportCallback(ImportCallback cb) { m_importCb = std::move(cb); }
 
+    // 导入在工作线程跑完后把结果回投到 UI 线程（导入会同步跑 mutool，最长 30 秒，
+    // 不能占着窗口过程）
+    using ImportResultCallback = std::function<void(const std::string& fileName, bool success, const std::string& error)>;
+    void SetImportResultCallback(ImportResultCallback cb) { m_importResultCb = std::move(cb); }
+
     using DownloadFailCb = std::function<void(const std::string& fileName, const std::string& reason)>;
     void SetDownloadFailCallback(DownloadFailCb cb) { m_dlFailCb = std::move(cb); }
 
@@ -82,6 +87,7 @@ private:
     MessageHandler m_msgHandler;
     MoveCallback m_moveCb;
     bool m_allowUntrustedCerts = false;
+    ImportResultCallback m_importResultCb;
     DownloadCallback m_dlCb;
     DownloadProgressCb m_dlProgressCb;
     ImportCallback m_importCb;

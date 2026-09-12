@@ -13,9 +13,12 @@
 #define WM_ZLIB_REFRESH_LIBRARY (WM_USER + 12)
 #define WM_ZLIB_DO_IMPORT (WM_USER + 13)
 #define WM_ZLIB_DOWNLOAD_FAILED (WM_USER + 14)
+#define WM_ZLIB_IMPORT_DONE (WM_USER + 20)   // 15-17 已被 WebViewHost.h 的 WM_UPDATE_* 占用
 
 struct DLProgressData { std::string fileName; int64_t received; int64_t total; };
 struct DLFailData { std::string fileName; std::string reason; };
+// 布局必须与 ZLibraryService.cpp 里的同名结构完全一致（跨 TU 通过 LPARAM 传递）
+struct ImportResultData { std::string fileName; bool success; std::string error; };
 
 using namespace Microsoft::WRL;
 
@@ -151,6 +154,14 @@ LRESULT CALLBACK WebViewHost::WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
         if (self->m_importCb) {
             auto* data = reinterpret_cast<std::pair<std::string, std::string>*>(lp);
             self->m_importCb(data->first, data->second);
+            delete data;
+        }
+        return 0;
+
+    case WM_ZLIB_IMPORT_DONE:
+        if (self->m_importResultCb) {
+            auto* data = reinterpret_cast<ImportResultData*>(lp);
+            self->m_importResultCb(data->fileName, data->success, data->error);
             delete data;
         }
         return 0;
