@@ -2,6 +2,7 @@ import { useEffect, useState, useRef, useCallback, lazy, Suspense } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useReaderStore } from '../../stores/readerStore'
 import { useSettingsStore } from '../../stores/settingsStore'
+import { isTypingTarget } from '../../utils/keyboard'
 
 function useAnimatedMount(isOpen: boolean, duration = 200) {
   const [shouldRender, setShouldRender] = useState(isOpen)
@@ -181,9 +182,15 @@ export function ReaderView({ bookId, onClose }: ReaderViewProps) {
 
   useEffect(() => {
     const handleKeyDown = async (e: KeyboardEvent) => {
+      // 在输入框/文本域里打字时（含用 Esc 取消编辑），不触发任何全局快捷键
+      if (isTypingTarget(e)) return
       if (e.key === 'Escape') {
-        const { showSearch: srch, clearSearch: cls } = useReaderStore.getState()
+        // Esc 逐层关闭：搜索栏 → 阅读设置 → 侧边栏 → 最后才退出阅读器。
+        // 此前只判断了搜索栏，于是开着设置面板或侧边栏时按 Esc 会直接关掉整本书。
+        const { showSearch: srch, clearSearch: cls, showSidebar: sidebar, setShowSidebar } = useReaderStore.getState()
         if (srch) { cls(); return }
+        if (settingsOpenRef.current) { setShowSettings(false); return }
+        if (sidebar) { setShowSidebar(false); return }
         await endReadingSession()
         await flushProgress()
         clearBookSettings()

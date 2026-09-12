@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useLibraryStore } from '../../stores/libraryStore'
 import type { Book } from '../../stores/libraryStore'
@@ -11,6 +11,9 @@ function BookRow({ book, readingTime, progress }: { book: Book; readingTime: num
   const { t } = useTranslation()
   const [coverUrl, setCoverUrl] = useState<string | null>(null)
   const [textPreview, setTextPreview] = useState<string | null>(null)
+  // generateCbzPreview 返回的是 blob URL（不是 data URL），必须显式释放，
+  // 否则每次挂载都会永久占住一整页图像的内存（本组件卸载时此前从不 revoke）。
+  const objectUrlRef = useRef<string | null>(null)
 
   useEffect(() => {
     let mounted = true
@@ -19,11 +22,19 @@ function BookRow({ book, readingTime, progress }: { book: Book; readingTime: num
       if (!mounted) return
       if (cover) { setCoverUrl(cover) }
       else if (book.format === 'pdf') { const p = await generatePdfPreview(book.file_path); if (mounted && p) setCoverUrl(p) }
-      else if (book.format === 'cbz' || book.format === 'cbr') { const p = await generateCbzPreview(book.file_path); if (mounted && p) setCoverUrl(p) }
+      else if (book.format === 'cbz' || book.format === 'cbr') {
+        const p = await generateCbzPreview(book.file_path)
+        if (!p) return
+        if (mounted) { objectUrlRef.current = p; setCoverUrl(p) }
+        else URL.revokeObjectURL(p)  // 已卸载：立刻释放，不要留到下次挂载
+      }
       else { const p = await extractTextPreview(book.file_path); if (mounted) setTextPreview(p) }
     }
     load()
-    return () => { mounted = false }
+    return () => {
+      mounted = false
+      if (objectUrlRef.current) { URL.revokeObjectURL(objectUrlRef.current); objectUrlRef.current = null }
+    }
   }, [book.id, book.file_path, book.format])
 
   return (

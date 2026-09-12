@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useCallback } from 'react'
 import { useReaderStore } from '../../stores/readerStore'
 import { useSettingsStore } from '../../stores/settingsStore'
 import type { Book } from '../../stores/libraryStore'
+import { isTypingTarget } from '../../utils/keyboard'
 
 let savedZoom = 1.0
 
@@ -188,6 +189,8 @@ export function PdfRenderer({ book, content: _content, bookId }: PdfRendererProp
   // Keyboard zoom
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
+      // 同漫画：输入框里打字时不能抢键，否则搜索框打不出连字符还会触发缩放
+      if (isTypingTarget(e)) return
       if (e.key === '+' || e.key === '=') { e.preventDefault(); setZoom((s: number) => Math.min(s + 0.25, 4)) }
       if (e.key === '-') { e.preventDefault(); setZoom((s: number) => Math.max(s - 0.25, 0.5)) }
     }

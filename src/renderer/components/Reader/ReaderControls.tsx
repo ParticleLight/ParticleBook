@@ -60,6 +60,10 @@ export function ReaderControls({ bookId, format, onOpenSettings }: ReaderControl
     } else if (e.key === 'Escape') {
       e.preventDefault()
       clearSearch()
+      // 必须阻止冒泡：clearSearch() 会同步把 showSearch 置 false，等事件冒到
+      // window 上的 ReaderView 处理器时，它看到的已经是 false，于是走"关闭阅读器"
+      // 分支 —— 表现为在搜索框按一次 Esc 把整本书关掉。
+      e.stopPropagation()
     }
   }
 

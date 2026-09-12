@@ -2,6 +2,7 @@ import { useEffect, useState, useRef, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useReaderStore } from '../../stores/readerStore'
 import type { Book } from '../../stores/libraryStore'
+import { isTypingTarget } from '../../utils/keyboard'
 
 interface ComicRendererProps {
   book: Book
@@ -61,8 +62,10 @@ export function ComicRenderer({ book, content, bookId }: ComicRendererProps) {
         setTotalPages(imageFiles.length)
         setIsLoading(false)
 
-        const startPage = progress.page || 0
-        setCurrentIndex(startPage)
+        // progress.page 是 1 基页码，内部索引是 0 基。
+        // 兼容旧数据：本次修复前漫画存 0 基、首页为 0 —— 0 值按"第 1 页"处理。
+        const startPage = progress.page ? progress.page - 1 : 0
+        setCurrentIndex(Math.max(0, Math.min(startPage, imageFiles.length - 1)))
       } catch (e) {
         console.error('Failed to load comic:', e)
         setIsLoading(false)
@@ -118,9 +121,13 @@ export function ComicRenderer({ book, content, bookId }: ComicRendererProps) {
 
   useEffect(() => {
     if (!navigateTarget) return
-    if (navigateTarget.page) setCurrentIndex(navigateTarget.page)
+    // page 是 1 基页码（见下方 setProgress），内部索引是 0 基。
+    // 用 != null 而非真值判断：此前 if (page) 会把第 1 页（旧数据为 0）当假而静默不跳转。
+    if (navigateTarget.page != null) {
+      setCurrentIndex(Math.max(0, Math.min(navigateTarget.page - 1, totalPages - 1)))
+    }
     clearNavigateTarget()
-  }, [navigateTarget])
+  }, [navigateTarget, totalPages])
 
   useEffect(() => {
     if (turnPageDelta === null) return
@@ -138,13 +145,19 @@ export function ComicRenderer({ book, content, bookId }: ComicRendererProps) {
 
   useEffect(() => {
     if (totalPages === 0) return
-    const progressPercent = (currentIndex / totalPages) * 100
-    setProgress({ progress: progressPercent, page: currentIndex })
+    // 页码统一为 1 基，与 PdfRenderer 及其它消费方（ReaderView 的"第 N 页"、
+    // ReaderControls 的书签比对）保持一致。此前存 0 基导致首页显示"第 0 页"、
+    // 首页书签星标永不亮；进度也用 currentIndex/totalPages，最后一页到不了 100%。
+    const progressPercent = ((currentIndex + 1) / totalPages) * 100
+    setProgress({ progress: progressPercent, page: currentIndex + 1 })
     saveProgress()
   }, [currentIndex, totalPages])
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // 正在输入框里打字时不能抢键：这里的空格/方向键都调了 preventDefault，
+      // 会把搜索框里的空格吃掉（表现为"打不出空格"，且每按一次还翻一页）。
+      if (isTypingTarget(e)) return
       if (e.key === 'ArrowRight' || e.key === ' ' || e.key === 'PageDown') {
         e.preventDefault()
         setCurrentIndex((i) => Math.min(i + 1, totalPages - 1))

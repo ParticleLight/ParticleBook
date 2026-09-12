@@ -34,7 +34,9 @@ export async function generateCbzPreview(filePath: string): Promise<string | nul
     zip.forEach((path) => {
       if (/\.(jpg|jpeg|png|gif|webp)$/i.test(path)) imageFiles.push(path)
     })
-    imageFiles.sort()
+    // 必须与阅读器 ComicRenderer 用同一种排序（数字序）：页码未零填充的压缩包里
+    // 10.jpg 会排在 2.jpg 之前，字典序会取到与「第一页」不符的封面。
+    imageFiles.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
 
     if (imageFiles.length === 0) return null
     const blob = await zip.file(imageFiles[0])!.async('blob')
