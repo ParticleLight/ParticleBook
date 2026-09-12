@@ -281,7 +281,6 @@ function AppearancePage() {
 
 function ReadingPage() {
   const {
-    pageTurnMode, setPageTurnMode,
     autoSaveProgress, setAutoSaveProgress,
     showReadingTime, setShowReadingTime,
   } = useSettingsStore()
@@ -289,25 +288,6 @@ function ReadingPage() {
 
   return (
     <div className="space-y-6">
-      <div className="settings-card">
-        <SectionTitle>{t('翻页')}</SectionTitle>
-
-        <div className="settings-row">
-          <div>
-            <div className="settings-row-label">{t('翻页方式')}</div>
-            <div className="settings-row-desc">{t('选择点击翻页或滚动浏览')}</div>
-          </div>
-          <Segment
-            options={[
-              { id: 'click' as const, label: t('点击翻页') },
-              { id: 'scroll' as const, label: t('滚动浏览') },
-            ]}
-            value={pageTurnMode}
-            onChange={setPageTurnMode}
-          />
-        </div>
-      </div>
-
       <div className="settings-card">
         <SectionTitle>{t('进度与统计')}</SectionTitle>
 

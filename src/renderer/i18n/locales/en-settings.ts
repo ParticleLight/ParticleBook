@@ -51,11 +51,6 @@ export const enSettings: Record<string, string> = {
   '以上设置为全局默认值。阅读某本书时可在侧边栏单独调整，该书将使用独立设置。': 'These are the global defaults. While reading you can adjust them per book from the sidebar; that book will use its own settings.',
 
   // Reading page
-  '翻页': 'Page turning',
-  '翻页方式': 'Page turn mode',
-  '选择点击翻页或滚动浏览': 'Choose between tap-to-turn and scrolling',
-  '点击翻页': 'Tap to turn',
-  '滚动浏览': 'Scroll',
   '进度与统计': 'Progress & stats',
   '自动保存进度': 'Auto-save progress',
   '退出阅读时自动记住阅读位置': 'Remember the reading position when exiting',

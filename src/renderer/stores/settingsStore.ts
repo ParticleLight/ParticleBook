@@ -13,7 +13,6 @@ export interface SettingsState {
   textAlign: 'left' | 'justify'
 
   // 阅读设置
-  pageTurnMode: 'click' | 'scroll'
   autoSaveProgress: boolean
   showReadingTime: boolean
 
@@ -33,7 +32,6 @@ export interface SettingsState {
   setLineHeight: (height: number) => void
   setMargin: (margin: number) => void
   setTextAlign: (align: 'left' | 'justify') => void
-  setPageTurnMode: (mode: 'click' | 'scroll') => void
   setAutoSaveProgress: (v: boolean) => void
   setShowReadingTime: (v: boolean) => void
   setDefaultViewMode: (mode: 'grid' | 'list') => void
@@ -47,7 +45,7 @@ export interface SettingsState {
 
 const SETTINGS_KEYS = [
   'theme', 'accentColor', 'fontSize', 'fontFamily', 'lineHeight', 'margin', 'textAlign',
-  'pageTurnMode', 'autoSaveProgress', 'showReadingTime',
+  'autoSaveProgress', 'showReadingTime',
   'defaultViewMode', 'defaultSortBy',
 ] as const
 
@@ -60,7 +58,6 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   margin: 40,
   textAlign: 'justify',
 
-  pageTurnMode: 'click',
   autoSaveProgress: true,
   showReadingTime: true,
 
@@ -78,7 +75,6 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   setLineHeight: (lineHeight) => { set({ lineHeight }); get().saveSettings() },
   setMargin: (margin) => { set({ margin }); get().saveSettings() },
   setTextAlign: (textAlign) => { set({ textAlign }); get().saveSettings() },
-  setPageTurnMode: (pageTurnMode) => { set({ pageTurnMode }); get().saveSettings() },
   setAutoSaveProgress: (autoSaveProgress) => { set({ autoSaveProgress }); get().saveSettings() },
   setShowReadingTime: (showReadingTime) => { set({ showReadingTime }); get().saveSettings() },
   setDefaultViewMode: (defaultViewMode) => { set({ defaultViewMode }); get().saveSettings() },

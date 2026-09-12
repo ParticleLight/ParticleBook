@@ -1,6 +1,13 @@
 import { create } from 'zustand'
+import { useSettingsStore } from './settingsStore'
 
 let saveTimer: ReturnType<typeof setTimeout> | null = null
+
+// Progress writes honor the "auto-save progress" setting — when the user turns
+// it off, neither the debounced save nor the close-time flush writes progress.
+function autoSaveEnabled(): boolean {
+  return useSettingsStore.getState().autoSaveProgress
+}
 
 export interface Bookmark {
   id: number
@@ -146,6 +153,7 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
   saveProgress: () => {
     const { bookId } = get()
     if (bookId === null) return
+    if (!autoSaveEnabled()) return
     if (saveTimer) clearTimeout(saveTimer)
     saveTimer = setTimeout(async () => {
       saveTimer = null
@@ -165,6 +173,7 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
       clearTimeout(saveTimer)
       saveTimer = null
     }
+    if (!autoSaveEnabled()) return
     const state = get()
     const bookId = overrideBookId ?? state.bookId
     if (bookId === null) return
