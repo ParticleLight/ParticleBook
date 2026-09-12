@@ -126,3 +126,19 @@ foreach(_t IN LISTS PB_TEST_SOURCES)
     target_include_directories("${_name}" PRIVATE src/ "${CMAKE_BINARY_DIR}/src/")
     add_test(NAME "${_name}" COMMAND "${_name}")
 endforeach()
+
+# ── database_test: needs a real translation unit, not just headers ────
+# DatabaseService has no Win32 GUI dependency (only std + nlohmann/json), so
+# its atomic-write / corrupt-backup logic can be tested directly. It is the
+# app's data-loss protection, hence the priority.
+add_executable(database_test
+    tests/unit/database_test.cpp
+    src/services/DatabaseService.cpp
+)
+target_compile_options(database_test PRIVATE /EHa /utf-8)
+target_include_directories(database_test PRIVATE
+    src/
+    "${CMAKE_BINARY_DIR}/src/"
+    "${CMAKE_SOURCE_DIR}/third_party"   # nlohmann/json.hpp
+)
+add_test(NAME database_test COMMAND database_test)
