@@ -21,7 +21,6 @@ public:
 
     PdfOpenResult Open(const std::string& filePath);
     std::string RenderPage(int id, uint32_t pageIndex, int pixelWidth, int pixelHeight);
-    std::string GetFileUrl(const std::string& filePath);
     std::string ExtractText(int id);
     void Close(int id);
 

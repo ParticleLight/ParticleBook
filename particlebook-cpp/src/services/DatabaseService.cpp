@@ -255,6 +255,9 @@ void DatabaseService::DeleteBook(int id)
     removeByBookId("highlights");
     removeByBookId("notes");
     removeByBookId("reading_sessions");
+    // 书级设置此前无人清理（DeleteBookSettings 从未被调用），删书后会永久残留，
+    // 故在此随其它关联数据一并清除。
+    m_data["book_settings"].erase(std::to_string(id));
     auto& sbs = m_data["bookshelf_books"];
     sbs.erase(std::remove_if(sbs.begin(), sbs.end(),
         [id](const json& x) { return x.value("book_id", 0) == id; }), sbs.end());
@@ -514,15 +517,7 @@ void DatabaseService::RemoveBookFromShelf(int shelfId, int bookId)
     ScheduleWrite();
 }
 
-std::vector<int> DatabaseService::GetShelvesForBook(int bookId) const
-{
-    std::lock_guard<std::mutex> lock(m_mutex);
-    std::vector<int> result;
-    for (const auto& sb : m_data["bookshelf_books"]) {
-        if (sb.value("book_id", 0) == bookId) result.push_back(sb.value("shelf_id", 0));
-    }
-    return result;
-}
+
 
 // ── Book Sources ─────────────────────────────────────────────────
 
@@ -632,15 +627,7 @@ void DatabaseService::UpdateReadingSessionDuration(int sessionId, int seconds)
     }
 }
 
-int DatabaseService::GetReadingTimeForBook(int bookId) const
-{
-    std::lock_guard<std::mutex> lock(m_mutex);
-    int total = 0;
-    for (const auto& s : m_data["reading_sessions"]) {
-        if (s.value("book_id", 0) == bookId) total += s.value("duration_seconds", 0);
-    }
-    return total;
-}
+
 
 json DatabaseService::GetAllReadingTime() const
 {
@@ -711,9 +698,4 @@ void DatabaseService::UpdateBookSettings(int bookId, const json& settings)
     ScheduleWrite();
 }
 
-void DatabaseService::DeleteBookSettings(int bookId)
-{
-    std::lock_guard<std::mutex> lock(m_mutex);
-    m_data["book_settings"].erase(std::to_string(bookId));
-    ScheduleWrite();
-}
+

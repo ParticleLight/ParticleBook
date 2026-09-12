@@ -60,3 +60,35 @@ if (dead.length) {
 } else {
   console.log("  every non-reserved member has a consumer");
 }
+
+// ── 反向检查：C++ 发出的事件是否有人消费 ─────────────────────────────
+// 事件有两个消费通道，检查必须覆盖两者，否则会把活跃事件误判为死代码：
+//   1. 桥接成员：存根里 onXxx -> onEvent('event:name')，渲染层调 electronAPI.onXxx
+//   2. 原始消息通道：注入脚本直接监听 chrome.webview 消息并按事件名比较
+//      （App.cpp 的 Z-Library 工具栏就是这样显示下载状态图标的）
+// 这个盲区曾让我误删掉 6 个仍在使用的事件发射，故在此固化。
+const cppFiles = []
+const walkCpp = (d) => {
+  for (const e of readdirSync(d, { withFileTypes: true })) {
+    const p = join(d, e.name)
+    if (e.isDirectory()) walkCpp(p)
+    else if (/\.(cpp|h)$/.test(e.name) && !e.name.endsWith('BridgeServer.cpp')) cppFiles.push(p)
+  }
+}
+walkCpp(join(ROOT, "particlebook-cpp/src"))
+const cppText = cppFiles.map((f) => readFileSync(f, "utf8")).join("\n")
+const emitted = new Set()
+for (const m of cppText.matchAll(/EmitEvent\("([A-Za-z]+:[A-Za-z]+)"/g)) emitted.add(m[1])
+
+const subscribed = new Set(contract.filter((e) => e.kind === "event").map((e) => e.method))
+const orphanEmits = []
+for (const ev of emitted) {
+  if (subscribed.has(ev)) continue
+  // 原始消息通道：JS 里以字符串字面量比较该事件名
+  const byLiteral = new RegExp("['\"]" + ev + "['\"]").test(text)
+  if (!byLiteral) orphanEmits.push(ev)
+}
+console.log(
+  "  emitted events: " + emitted.size + ", " +
+  (orphanEmits.length ? orphanEmits.length + " with NO consumer: " + orphanEmits.join(" ") : "all consumed")
+);

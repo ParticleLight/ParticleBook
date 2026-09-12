@@ -223,9 +223,7 @@ interface PbUpdateError {
 interface ElectronAPI {
   // Files
   openFile: () => Promise<string | null>
-  openDirectory: () => Promise<string | null>
   readFile: (filePath: string) => Promise<Uint8Array | number[] | { _pb_url: string }>
-  getBookMetadata: (filePath: string) => Promise<PbBookMetadata>
   importBooks: (filePaths: string[]) => Promise<PbBook[]>
   writeDroppedFile: (name: string, dataB64: string) => Promise<{ path: string; size: number } | null>
   getCoverImage: (bookId: number) => Promise<string | null>
@@ -233,7 +231,6 @@ interface ElectronAPI {
   // PDF
   pdfOpen: (filePath: string) => Promise<{ id: number; pageCount: number; pageBounds: { width: number; height: number }[] } | null>
   pdfRenderPage: (id: number, pageNum: number, width: number, height: number) => Promise<string | null>
-  pdfGetFileUrl: (filePath: string) => Promise<string | null>
   pdfExtractText: (id: number) => Promise<PbPdfText | null>
   pdfClose: (id: number) => Promise<void>
 
@@ -267,7 +264,6 @@ interface ElectronAPI {
   setLanguage: (lang: string) => Promise<boolean>
   getBookSettings: (bookId: number) => Promise<PbSettings>
   updateBookSettings: (bookId: number, settings: PbSettings) => Promise<void>
-  deleteBookSettings: (bookId: number) => Promise<void>
 
   // Bookshelves
   getBookshelves: () => Promise<PbBookshelf[]>
@@ -277,7 +273,6 @@ interface ElectronAPI {
   getBooksInShelf: (shelfId: number) => Promise<number[]>
   addBookToShelf: (shelfId: number, bookId: number) => Promise<void>
   removeBookFromShelf: (shelfId: number, bookId: number) => Promise<void>
-  getShelvesForBook: (bookId: number) => Promise<number[]>
 
   // Utilities
   getFilePath: (file: File) => string
@@ -311,13 +306,11 @@ interface ElectronAPI {
   startReadingSession: (bookId: number) => Promise<number>
   endReadingSession: (sessionId: number) => Promise<void>
   updateReadingSessionDuration: (sessionId: number, durationSeconds: number) => Promise<void>
-  getReadingTime: (bookId: number) => Promise<number>
   getAllReadingTime: () => Promise<Record<number, number>>
   getAllReadingProgress: () => Promise<Record<number, { progress: number; page?: number; updated_at: string }>>
 
   // Menu events
   onMenuImportBooks: (callback: (filePaths: string[]) => void) => () => void
-  onMenuShowAbout: (callback: () => void) => () => void
 
   // Auto Updater
   checkUpdate: () => Promise<PbUpdateInfo | null>

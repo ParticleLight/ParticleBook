@@ -378,32 +378,7 @@ void RegisterFileHandlers(BridgeServer* bridge, DatabaseService* db, ContentCach
         return json(pb::WideToUtf8(fileBuf));
     });
 
-    // ── dialog:openDirectory ──────────────────────────────────
-    bridge->RegisterMethod("dialog:openDirectory", [](const json&) -> json {
-        IFileOpenDialog* pDlg = nullptr;
-        if (FAILED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_ALL,
-                                    IID_PPV_ARGS(&pDlg)))) {
-            return json(nullptr);
-        }
-        DWORD flags;
-        pDlg->GetOptions(&flags);
-        pDlg->SetOptions(flags | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM);
 
-        if (FAILED(pDlg->Show(nullptr))) { pDlg->Release(); return json(nullptr); }
-
-        IShellItem* pItem = nullptr;
-        if (FAILED(pDlg->GetResult(&pItem))) { pDlg->Release(); return json(nullptr); }
-        pDlg->Release();
-
-        std::string result;
-        LPWSTR pszPath = nullptr;
-        if (SUCCEEDED(pItem->GetDisplayName(SIGDN_FILESYSPATH, &pszPath))) {
-            result = pb::WideToUtf8(pszPath);
-            CoTaskMemFree(pszPath);
-        }
-        pItem->Release();
-        return result.empty() ? json(nullptr) : json(result);
-    });
 
     // ── file:read ─ Return file content as byte array (cached) ───
     bridge->RegisterMethod("file:read", [cache](const json& p) -> json {
@@ -607,25 +582,7 @@ void RegisterFileHandlers(BridgeServer* bridge, DatabaseService* db, ContentCach
         return result;
     });
 
-    // ── book:metadata ──────────────────────────────────────────
-    bridge->RegisterMethod("book:metadata", [](const json& p) -> json {
-        std::string path = p["path"].get<std::string>();
-        std::string format = DetectFormat(path);
-        if (format.empty()) return json::object();
 
-        LibraryService lib;
-        ExtractedMetadata em;
-        if (format == "epub")   lib.ExtractEpubMetadata(path, em);
-        else if (format == "pdf")   lib.ExtractPdfMetadata(path, em);
-        else if (format == "fb2")   lib.ExtractFb2Metadata(path, em);
-
-        json result;
-        result["title"] = em.title.empty() ? GetFileName(path) : em.title;
-        result["author"] = em.author;
-        result["language"] = em.language;
-        result["format"] = format;
-        return result;
-    });
 
     // ── book:cover ─────────────────────────────────────────────
     bridge->RegisterMethod("book:cover", [db](const json& p) -> json {

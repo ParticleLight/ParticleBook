@@ -60,7 +60,6 @@ public:
     std::vector<int> GetBooksInShelf(int shelfId) const;
     void AddBookToShelf(int shelfId, int bookId);
     void RemoveBookFromShelf(int shelfId, int bookId);
-    std::vector<int> GetShelvesForBook(int bookId) const;
 
     // Book sources
     json GetBookSources() const;
@@ -75,7 +74,6 @@ public:
     int StartReadingSession(int bookId);
     void EndReadingSession(int sessionId);
     void UpdateReadingSessionDuration(int sessionId, int seconds);
-    int GetReadingTimeForBook(int bookId) const;
     json GetAllReadingTime() const;
     json GetAllReadingProgress() const;
 
@@ -84,7 +82,6 @@ public:
     void UpdateSettings(const json& settings);
     json GetBookSettings(int bookId) const;
     void UpdateBookSettings(int bookId, const json& settings);
-    void DeleteBookSettings(int bookId);
 
 private:
     void ScheduleWrite();

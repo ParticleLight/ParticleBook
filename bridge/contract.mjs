@@ -243,25 +243,11 @@ export const contract = [
     returns: "Promise<string | null>"
   },
   {
-    member: "openDirectory", method: "dialog:openDirectory",
-    kind: "invoke",
-    group: "Files",
-    params: [],
-    returns: "Promise<string | null>"
-  },
-  {
     member: "readFile", method: "file:read",
     kind: "invoke",
     group: "Files",
     params: [{ n: "filePath", t: "string" }],
     returns: "Promise<Uint8Array | number[] | { _pb_url: string }>"
-  },
-  {
-    member: "getBookMetadata", method: "book:metadata",
-    kind: "invoke",
-    group: "Files",
-    params: [{ n: "filePath", t: "string" }],
-    returns: "Promise<PbBookMetadata>"
   },
   {
     member: "importBooks", method: "book:import",
@@ -297,13 +283,6 @@ export const contract = [
     kind: "invoke",
     group: "PDF",
     params: [{ n: "id", t: "number" }, { n: "pageNum", t: "number" }, { n: "width", t: "number" }, { n: "height", t: "number" }],
-    returns: "Promise<string | null>"
-  },
-  {
-    member: "pdfGetFileUrl", method: "pdf:getFileUrl",
-    kind: "invoke",
-    group: "PDF",
-    params: [{ n: "filePath", t: "string" }],
     returns: "Promise<string | null>"
   },
   {
@@ -472,13 +451,6 @@ export const contract = [
     params: [{ n: "bookId", t: "number" }, { n: "settings", t: "PbSettings" }],
     returns: "Promise<void>"
   },
-  {
-    member: "deleteBookSettings", method: "db:deleteBookSettings",
-    kind: "invoke",
-    group: "Settings",
-    params: [{ n: "bookId", t: "number" }],
-    returns: "Promise<void>"
-  },
   // ── Bookshelves ──
   {
     member: "getBookshelves", method: "db:getBookshelves",
@@ -528,13 +500,6 @@ export const contract = [
     group: "Bookshelves",
     params: [{ n: "shelfId", t: "number" }, { n: "bookId", t: "number" }],
     returns: "Promise<void>"
-  },
-  {
-    member: "getShelvesForBook", method: "db:getShelvesForBook",
-    kind: "invoke",
-    group: "Bookshelves",
-    params: [{ n: "bookId", t: "number" }],
-    returns: "Promise<number[]>"
   },
   // ── Utilities ──
   {
@@ -732,13 +697,6 @@ export const contract = [
     returns: "Promise<void>"
   },
   {
-    member: "getReadingTime", method: "db:getReadingTime",
-    kind: "invoke",
-    group: "Reading Sessions",
-    params: [{ n: "bookId", t: "number" }],
-    returns: "Promise<number>"
-  },
-  {
     member: "getAllReadingTime", method: "db:getAllReadingTime",
     kind: "invoke",
     group: "Reading Sessions",
@@ -758,13 +716,6 @@ export const contract = [
     kind: "event",
     group: "Menu events",
     params: [{ n: "callback", t: "(filePaths: string[]) => void" }],
-    returns: "() => void"
-  },
-  {
-    member: "onMenuShowAbout", method: "menu:showAbout",
-    kind: "event",
-    group: "Menu events",
-    params: [{ n: "callback", t: "() => void" }],
     returns: "() => void"
   },
   // ── Auto Updater ──

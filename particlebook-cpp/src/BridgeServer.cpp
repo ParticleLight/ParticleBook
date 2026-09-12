@@ -238,9 +238,7 @@ std::string BridgeServer::GenerateBridgeScript()
 
   window.electronAPI = {
     openFile: function()           { return invoke('dialog:openFile'); },
-    openDirectory: function()      { return invoke('dialog:openDirectory'); },
     readFile: async function(path) { var r = await invoke('file:read', {path:path}); if (r && r._pb_url) { var resp = await fetch(r._pb_url); var buf = await resp.arrayBuffer(); return new Uint8Array(buf); } return r; },
-    getBookMetadata: function(p)   { return invoke('book:metadata', {path:p}); },
     importBooks: function(p)       { return invoke('book:import', {paths:p}); },
     writeDroppedFile: function(name, dataB64) { return invoke('book:writeDroppedFile', {name:name, data:dataB64}); },
     getCoverImage: function(id)    { return invoke('book:cover', {id:id}); },
@@ -269,7 +267,6 @@ std::string BridgeServer::GenerateBridgeScript()
     updateSettings: function(s)       { return invoke('db:updateSettings', {settings:s}); },
     getBookSettings: function(bid)    { return invoke('db:getBookSettings', {bookId:bid}); },
     updateBookSettings: function(bid,s){ return invoke('db:updateBookSettings', {bookId:bid, settings:s}); },
-    deleteBookSettings: function(bid) { return invoke('db:deleteBookSettings', {bookId:bid}); },
 
     getBookshelves: function()              { return invoke('db:getBookshelves'); },
     addBookshelf: function(name)            { return invoke('db:addBookshelf', {name:name}); },
@@ -278,12 +275,10 @@ std::string BridgeServer::GenerateBridgeScript()
     getBooksInShelf: function(sid)          { return invoke('db:getBooksInShelf', {shelfId:sid}); },
     addBookToShelf: function(sid, bid)      { return invoke('db:addBookToShelf', {shelfId:sid, bookId:bid}); },
     removeBookFromShelf: function(sid, bid) { return invoke('db:removeBookFromShelf', {shelfId:sid, bookId:bid}); },
-    getShelvesForBook: function(bid)        { return invoke('db:getShelvesForBook', {bookId:bid}); },
 
     startReadingSession: function(bid)          { return invoke('db:startReadingSession', {bookId:bid}); },
     endReadingSession: function(sid)            { return invoke('db:endReadingSession', {sessionId:sid}); },
     updateReadingSessionDuration: function(sid,d){ return invoke('db:updateReadingSessionDuration', {sessionId:sid, duration:d}); },
-    getReadingTime: function(bid)               { return invoke('db:getReadingTime', {bookId:bid}); },
     getAllReadingTime: function()               { return invoke('db:getAllReadingTime'); },
     getAllReadingProgress: function()           { return invoke('db:getAllReadingProgress'); },
 
@@ -311,7 +306,6 @@ std::string BridgeServer::GenerateBridgeScript()
     onZlibDownloadError: function(cb)   { return onEvent('zlib:downloadError', cb); },
 
     onMenuImportBooks: function(cb) { return onEvent('menu:importBooks', cb); },
-    onMenuShowAbout: function(cb)   { return onEvent('menu:showAbout', cb); },
 
     checkUpdate: function()    { return invoke('app:checkUpdate'); },
     getAppVersion: function()  { return invoke('app:getVersion'); },
@@ -325,7 +319,6 @@ std::string BridgeServer::GenerateBridgeScript()
 
     pdfOpen: function(path)    { return invoke('pdf:open', {filePath:path}); },
     pdfRenderPage: function(id,p,w,h) { return invoke('pdf:renderPage', {id:id, pageNum:p, width:w, height:h}); },
-    pdfGetFileUrl: function(path) { return invoke('pdf:getFileUrl', {filePath:path}); },
     pdfExtractText: function(id) { return invoke('pdf:extractText', {id:id}); },
     pdfClose: function(id)    { return invoke('pdf:close', {id:id}); },
 

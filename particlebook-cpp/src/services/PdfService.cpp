@@ -318,36 +318,7 @@ std::string PdfService::RenderPage(int id, uint32_t pageIndex, int pixelWidth, i
 
 // ── Get File URL for native PDF viewer ─────────────────────────────────
 
-std::string PdfService::GetFileUrl(const std::string& filePath)
-{
-    wchar_t exePathBuf[MAX_PATH];
-    GetModuleFileNameW(nullptr, exePathBuf, MAX_PATH);
-    auto booksDir = (std::filesystem::path(exePathBuf).parent_path() / "renderer" / "_pb_books").wstring();
-    std::filesystem::create_directories(booksDir);
 
-    auto srcPath = pb::Utf8ToWide(filePath);
-    auto fileName = std::filesystem::path(srcPath).filename().wstring();
-
-    // Use fixed name based on file path hash to avoid collisions
-    std::string hash = pb::Fnv1a64Hex(filePath);
-    std::wstring linkName = L"book_" + pb::Utf8ToWide(hash) + L"_" + fileName;
-    auto linkPath = booksDir + L"\\" + linkName;
-
-    // Copy file if doesn't exist
-    if (GetFileAttributesW(linkPath.c_str()) == INVALID_FILE_ATTRIBUTES) {
-        // Clean up old links with same hash but different filename
-        std::wstring oldPrefix = L"book_" + pb::Utf8ToWide(hash) + L"_";
-        for (auto& entry : std::filesystem::directory_iterator(booksDir)) {
-            auto name = entry.path().filename().wstring();
-            if (name.find(oldPrefix) == 0 && name != linkName) {
-                DeleteFileW(entry.path().c_str());
-            }
-        }
-        CopyFileW(srcPath.c_str(), linkPath.c_str(), FALSE);
-    }
-
-    return "http://particlebook.app/_pb_books/" + pb::WideToUtf8(linkName.c_str());
-}
 
 // ── Extract Text ──────────────────────────────────────────────────────
 
@@ -444,12 +415,7 @@ void RegisterPdfHandlers(BridgeServer* bridge, PdfService* pdf)
         return j;
     });
 
-    bridge->RegisterMethod("pdf:getFileUrl", [pdf](const json& p) -> json {
-        std::string filePath = p["filePath"].get<std::string>();
-        std::string url = pdf->GetFileUrl(filePath);
-        if (url.empty()) return json(nullptr);
-        return json(url);
-    });
+
 
     bridge->RegisterMethod("pdf:renderPage", [pdf](const json& p) -> json {
         int id = p["id"].get<int>();

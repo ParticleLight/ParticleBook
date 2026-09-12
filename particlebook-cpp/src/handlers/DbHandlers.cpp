@@ -122,10 +122,7 @@ void RegisterDbHandlers(BridgeServer* bridge, DatabaseService* db)
         db->UpdateBookSettings(p["bookId"].get<int>(), p["settings"]);
         return json::object();
     });
-    bridge->RegisterMethod("db:deleteBookSettings", [db](const json& p) {
-        db->DeleteBookSettings(p["bookId"].get<int>());
-        return json::object();
-    });
+
 
     // ── Bookshelves ─────────────────────────────────
     bridge->RegisterMethod("db:getBookshelves", [db](const json&) {
@@ -154,10 +151,7 @@ void RegisterDbHandlers(BridgeServer* bridge, DatabaseService* db)
         db->RemoveBookFromShelf(p["shelfId"].get<int>(), p["bookId"].get<int>());
         return json::object();
     });
-    bridge->RegisterMethod("db:getShelvesForBook", [db](const json& p) {
-        auto ids = db->GetShelvesForBook(p["bookId"].get<int>());
-        return json(ids);
-    });
+
 
     // ── Reading Sessions ────────────────────────────
     bridge->RegisterMethod("db:startReadingSession", [db](const json& p) {
@@ -171,9 +165,7 @@ void RegisterDbHandlers(BridgeServer* bridge, DatabaseService* db)
         db->UpdateReadingSessionDuration(p["sessionId"].get<int>(), p["duration"].get<int>());
         return json::object();
     });
-    bridge->RegisterMethod("db:getReadingTime", [db](const json& p) {
-        return db->GetReadingTimeForBook(p["bookId"].get<int>());
-    });
+
     bridge->RegisterMethod("db:getAllReadingTime", [db](const json&) {
         return db->GetAllReadingTime();
     });

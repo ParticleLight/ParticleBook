@@ -127,9 +127,8 @@ export default function App() {
     }
   }, [accentColor])
 
-  useEffect(() => {
-    return window.electronAPI.onMenuShowAbout(() => setPage('settings'))
-  }, [])
+  // 这里原有一个 onMenuShowAbout 订阅（用于菜单项跳到设置页），但本应用【没有原生菜单】，
+  // 且 C++ 从未 emit menu:showAbout —— 该订阅永不触发，已随死接口一并移除。
 
   // Z-Library: subscribe to mirror events for overlay + failure banner
   useEffect(() => {
