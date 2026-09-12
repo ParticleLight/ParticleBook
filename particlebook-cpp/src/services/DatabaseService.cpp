@@ -250,7 +250,11 @@ void DatabaseService::DeleteBook(int id)
         arr.erase(std::remove_if(arr.begin(), arr.end(),
             [id](const json& x) { return x.value("book_id", 0) == id; }), arr.end());
     };
-    removeByBookId("reading_progress");
+    // reading_progress 存的是【以 bookId 为键的 object】（见 UpsertProgress），不是数组：
+    // 对它用上面的 std::remove_if 会在 json object 上"只搬值、不搬键"——其它书的进度值
+    // 被搬进别人的键位，随后按范围 erase 又会把末尾若干条整条删掉，表现为"删一本书顺带
+    // 清掉另一本的阅读进度"。必须按键删除。
+    m_data["reading_progress"].erase(std::to_string(id));
     removeByBookId("bookmarks");
     removeByBookId("highlights");
     removeByBookId("notes");
