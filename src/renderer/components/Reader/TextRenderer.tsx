@@ -39,6 +39,7 @@ export function TextRenderer({ book, content, bookId }: TextRendererProps) {
   const highlights = useReaderStore((s) => s.highlights)
   const addHighlight = useReaderStore((s) => s.addHighlight)
   const [highlightPopup, setHighlightPopup] = useState<{ x: number; y: number; text: string; offset: number } | null>(null)
+  const popupRef = useRef<HTMLDivElement | null>(null)
 
   // Full-text search
   const searchQuery = useReaderStore((s) => s.searchQuery)
@@ -127,6 +128,25 @@ export function TextRenderer({ book, content, bookId }: TextRendererProps) {
     container.addEventListener('mouseup', handleMouseUp)
     return () => container.removeEventListener('mouseup', handleMouseUp)
   }, [])
+
+  // 弹窗此前只能靠"选色"或"×"关掉：点空白处、滚动正文都不会让它消失，于是它
+  // 固定在旧坐标上挡住正文、并吃掉那块区域的点击。
+  useEffect(() => {
+    if (!highlightPopup) return
+    const onMouseDown = (e: MouseEvent) => {
+      const el = popupRef.current
+      if (el && e.target instanceof Node && el.contains(e.target)) return
+      setHighlightPopup(null)
+    }
+    const onScroll = () => setHighlightPopup(null)
+    const container = containerRef.current
+    window.addEventListener('mousedown', onMouseDown)
+    container?.addEventListener('scroll', onScroll, { passive: true })
+    return () => {
+      window.removeEventListener('mousedown', onMouseDown)
+      container?.removeEventListener('scroll', onScroll)
+    }
+  }, [highlightPopup])
 
   const handleAddHighlight = useCallback((color: string) => {
     if (!highlightPopup) return
@@ -349,6 +369,7 @@ export function TextRenderer({ book, content, bookId }: TextRendererProps) {
 
       {highlightPopup && createPortal(
         <div
+          ref={popupRef}
           className="fixed z-50 flex gap-2 bg-gray-900 border border-gray-700 rounded-lg shadow-xl p-2"
           style={{ left: highlightPopup.x, top: highlightPopup.y - 44 }}
         >

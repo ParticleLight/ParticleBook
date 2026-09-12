@@ -1,6 +1,8 @@
 import { useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useLibraryStore } from '../../stores/libraryStore'
 import { useTranslation } from 'react-i18next'
+import { ConfirmDialog } from '../UI/ConfirmDialog'
 
 interface BookShelfPanelProps { onOpenBookSource?: () => void; onOpenZLibrary?: () => void; onAddFromAll?: () => void }
 
@@ -16,6 +18,9 @@ export function BookShelfPanel({ onOpenBookSource, onOpenZLibrary, onAddFromAll 
   const [editingId, setEditingId] = useState<number | null>(null)
   const [editName, setEditName] = useState('')
   const [contextMenu, setContextMenu] = useState<{ id: number; x: number; y: number } | null>(null)
+  // 删除书柜是破坏性操作（C++ 会级联删掉整柜的分组记录，不可撤销），且"删除"紧贴在
+  // "重命名"下方极易误点 —— 同应用删书都有确认，这里此前没有。
+  const [pendingDeleteId, setPendingDeleteId] = useState<number | null>(null)
   const { t } = useTranslation()
 
   const handleCreate = () => { if (newName.trim()) { createBookshelf(newName.trim()); setNewName(''); setShowDialog(false) } }
@@ -110,22 +115,25 @@ export function BookShelfPanel({ onOpenBookSource, onOpenZLibrary, onAddFromAll 
         </button>
       </div>
 
-      {/* Context menu */}
-      {contextMenu && (
+      {/* Context menu —— 必须 portal 到 body：外层侧栏 nav 带 backdrop-filter，CSS 规定
+          它会成为 fixed 后代的包含块，于是 inset-0 只盖住侧栏、菜单坐标被解释成"相对
+          侧栏"，整体下移并在靠右时被 overflow 裁掉。 */}
+      {contextMenu && createPortal(
         <div className="fixed inset-0 z-50" onClick={() => setContextMenu(null)}>
           <div className="absolute rounded-lg overflow-hidden shadow-win-lg animate-scale-in" style={{ left: contextMenu.x, top: contextMenu.y, background: 'var(--acrylic-bg)', backdropFilter: 'blur(24px)', border: '1px solid var(--acrylic-border)' }}>
             <button onClick={() => { setEditingId(contextMenu.id); setEditName(bookshelves.find((s) => s.id === contextMenu.id)?.name || ''); setContextMenu(null) }}
               className="w-full text-left px-4 py-2 text-sm transition-colors" style={{ color: 'var(--text-primary)' }}
               onMouseEnter={(e) => e.currentTarget.style.background = 'var(--surface-hover)'} onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>{t('重命名')}</button>
-            <button onClick={() => { deleteBookshelf(contextMenu.id); setContextMenu(null) }}
+            <button onClick={() => { setPendingDeleteId(contextMenu.id); setContextMenu(null) }}
               className="w-full text-left px-4 py-2 text-sm transition-colors" style={{ color: 'var(--color-red)' }}
               onMouseEnter={(e) => e.currentTarget.style.background = 'var(--color-red-bg)'} onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>{t('删除')}</button>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
-      {/* Create dialog */}
-      {showDialog && (
+      {/* Create dialog —— 同上，必须 portal，否则 320px 宽的弹窗会被挤进 256px 的侧栏里 */}
+      {showDialog && createPortal(
         <div className="fixed inset-0 z-50 flex items-center justify-center animate-fade-in" onClick={() => { setShowDialog(false); setNewName('') }}>
           <div className="absolute inset-0" style={{ background: 'rgba(0,0,0,0.45)' }} />
           <div className="relative w-80 rounded-xl shadow-win-lg p-6 animate-scale-in" style={{ background: 'var(--acrylic-bg)', backdropFilter: 'blur(24px)', border: '1px solid var(--acrylic-border)' }}>
@@ -138,7 +146,20 @@ export function BookShelfPanel({ onOpenBookSource, onOpenZLibrary, onAddFromAll 
               <button onClick={handleCreate} className="btn-primary">{t('创建')}</button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
+      )}
+
+      {/* 删除书柜确认 */}
+      {pendingDeleteId !== null && (
+        <ConfirmDialog
+          title={t('删除书柜')}
+          message={t('确定要删除书柜「{{name}}」吗？柜内书籍不会被删除，但分组会丢失，且不可撤销。', { name: bookshelves.find((s) => s.id === pendingDeleteId)?.name || '' })}
+          confirmText={t('删除')}
+          danger
+          onConfirm={() => { const id = pendingDeleteId; setPendingDeleteId(null); if (id !== null) deleteBookshelf(id) }}
+          onCancel={() => setPendingDeleteId(null)}
+        />
       )}
     </div>
   )

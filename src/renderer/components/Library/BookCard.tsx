@@ -52,7 +52,9 @@ function BookCardInner({ book, onOpen, onDelete, onRemoveFromShelf, activeShelfI
     return () => { mounted = false; if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current) }
   }, [book.id, book.file_path, book.format])
 
-  const handleContextMenu = (e: React.MouseEvent) => { e.preventDefault(); setMenuPos({ x: e.clientX, y: e.clientY }); setShowMenu(true) }
+  // 打开菜单时把"添加到书柜"子菜单复位：此前子菜单展开态只在真正选了书柜时才清，
+  // 鼠标移出关闭菜单后再右键同一张卡，子菜单会莫名其妙已经展开着。
+  const handleContextMenu = (e: React.MouseEvent) => { e.preventDefault(); setMenuPos({ x: e.clientX, y: e.clientY }); setShowShelfMenu(false); setShowMenu(true) }
 
   return (
     <div className="group relative cursor-pointer" onClick={() => onOpen(book.id)} onContextMenu={handleContextMenu} onMouseLeave={() => setShowMenu(false)}>

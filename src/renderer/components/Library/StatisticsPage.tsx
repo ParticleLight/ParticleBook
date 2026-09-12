@@ -80,7 +80,10 @@ export function StatisticsPage({ onBack }: StatisticsPageProps) {
   }, [loadReadingTime, loadReadingProgress])
 
   const totalTime = Object.values(readingTimeMap).reduce((sum, t) => sum + t, 0)
-  const booksWithProgress = Object.keys(readingProgressMap).length
+  // 只统计真正读过的书。此前用 Object.keys(readingProgressMap).length，而"打开过"
+  // 就会写入一条 progress=0 的记录（ReaderView 关闭时 flushProgress 无条件写入），
+  // 于是同一屏里这本书被算进"已开始阅读"，下面那一行却显示 0% 与"未阅读"。
+  const booksWithProgress = Object.values(readingProgressMap).filter((p) => (p?.progress || 0) > 0).length
 
   const bookStats = allBooks.map((book) => ({ book, readingTime: readingTimeMap[book.id] || 0, progress: readingProgressMap[book.id]?.progress || 0 })).sort((a, b) => b.readingTime - a.readingTime)
 

@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { useSettingsStore } from './settingsStore'
 
 // Book 的唯一定义在桥接契约的 PbBook（由 bridge/contract.mjs 生成到
 // electron.d.ts，形状与 C++ 侧实际拼装对齐）。此处只做别名，避免第二份手工副本。
@@ -35,6 +36,8 @@ export interface LibraryState {
   importBooks: (filePaths: string[]) => Promise<Book[]>
   deleteBook: (id: number) => Promise<void>
   setViewMode: (mode: 'grid' | 'list') => void
+  /** 应用设置页的默认视图/排序（见实现处的说明）。 */
+  applyDisplayDefaults: () => void
   setSearchQuery: (query: string) => void
   setSortBy: (sort: 'title' | 'author' | 'added_at' | 'last_opened') => void
 
@@ -59,6 +62,16 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
   viewMode: 'grid',
   searchQuery: '',
   sortBy: 'last_opened',
+  // 把设置页的「默认视图 / 默认排序」应用到书架。这两个设置此前只写不读
+  // （全仓只有设置页自己在用），用户在设置里选"列表"后书架永远是网格。
+  // 工具栏上的切换仍是会话内的（不写回设置），符合"默认值"的语义。
+  applyDisplayDefaults: () => {
+    const s = useSettingsStore.getState()
+    const patch: { viewMode?: 'grid' | 'list'; sortBy?: 'title' | 'author' | 'added_at' | 'last_opened' } = {}
+    if (s.defaultViewMode) patch.viewMode = s.defaultViewMode
+    if (s.defaultSortBy) patch.sortBy = s.defaultSortBy
+    if (Object.keys(patch).length) set(patch)
+  },
 
   bookshelves: [],
   activeShelfId: null,

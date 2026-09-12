@@ -67,6 +67,8 @@ export const enLibrary: Record<string, string> = {
   '书柜': 'Bookshelves',
   '从全部添加': 'Add from all',
   '新建书柜': 'New bookshelf',
+  '删除书柜': 'Delete bookshelf',
+  '确定要删除书柜「{{name}}」吗？柜内书籍不会被删除，但分组会丢失，且不可撤销。': 'Delete the bookshelf "{{name}}"? The books themselves are kept, but the grouping is lost and cannot be undone.',
   '书源管理': 'Book sources',
   '重命名': 'Rename',
   '请输入书柜名称...': 'Enter a bookshelf name...',

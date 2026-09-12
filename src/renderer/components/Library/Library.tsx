@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useRef, useMemo, lazy, Suspense } from 'react'
 import { useLibraryStore } from '../../stores/libraryStore'
+import { useSettingsStore } from '../../stores/settingsStore'
 import type { Book } from '../../stores/libraryStore'
 import { BookGrid } from './BookGrid'
 import { BookList } from './BookList'
@@ -105,6 +106,12 @@ export function Library({ onOpenBook, onOpenSettings, onOpenZLibrary, onOpenStat
   const viewMode = useLibraryStore((s) => s.viewMode)
   const searchQuery = useLibraryStore((s) => s.searchQuery)
   const sortBy = useLibraryStore((s) => s.sortBy)
+  const applyDisplayDefaults = useLibraryStore((s) => s.applyDisplayDefaults)
+  // 设置页的「默认视图 / 默认排序」此前只写不读（Library 一直用 store 里硬编码的
+  // grid/last_opened）。这里跟随设置值变化应用一次：启动加载设置完成后生效，
+  // 用户在设置页改动也立即生效；工具栏上的切换仍是会话内的。
+  const defaultViewMode = useSettingsStore((s) => s.defaultViewMode)
+  const defaultSortBy = useSettingsStore((s) => s.defaultSortBy)
   const activeShelfId = useLibraryStore((s) => s.activeShelfId)
   const bookshelves = useLibraryStore((s) => s.bookshelves)
   const shelfBookIds = useLibraryStore((s) => s.shelfBookIds)
@@ -128,6 +135,8 @@ export function Library({ onOpenBook, onOpenSettings, onOpenZLibrary, onOpenStat
   const { t } = useTranslation()
 
   useEffect(() => { loadBookshelves(); loadReadingTime(); loadReadingProgress() }, [loadBookshelves, loadReadingTime, loadReadingProgress])
+
+  useEffect(() => { applyDisplayDefaults() }, [applyDisplayDefaults, defaultViewMode, defaultSortBy])
 
   // Register global refresh function for bridge script to call after import/delete.
   // Goes through the zustand store so the active-bookshelf filter is respected
