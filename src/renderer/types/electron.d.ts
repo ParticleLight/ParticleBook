@@ -5,10 +5,11 @@
 // ═══════════════════════════════════════════════════════════════════════
 
 // Shapes returned by electronAPI.readFile: raw bytes (JSON byte array or a
-// typed array), or a virtual-host reference the caller must fetch. Declared
-// globally so both the interface and the renderer helper share one definition.
+// typed array), a virtual-host reference the caller must fetch, or null when the
+// read failed (C++ returns json(nullptr) for an unreadable/missing file — the
+// caller MUST treat null as failure, not as an empty file).
 type PbVirtualHostRef = { _pb_url: string }
-type PbFileContent = Uint8Array | number[] | PbVirtualHostRef
+type PbFileContent = Uint8Array | number[] | PbVirtualHostRef | null
 
 // 数据形状：与 C++ 侧实际拼装对齐，见 bridge/contract.mjs 中 types 的注释。
 interface PbBook {
@@ -223,7 +224,7 @@ interface PbUpdateError {
 interface ElectronAPI {
   // Files
   openFile: () => Promise<string | null>
-  readFile: (filePath: string) => Promise<Uint8Array | number[] | { _pb_url: string }>
+  readFile: (filePath: string) => Promise<PbFileContent>
   importBooks: (filePaths: string[]) => Promise<PbBook[]>
   writeDroppedFile: (name: string, dataB64: string) => Promise<{ path: string; size: number } | null>
   getCoverImage: (bookId: number) => Promise<string | null>
@@ -285,7 +286,7 @@ interface ElectronAPI {
   deleteBookSource: (id: number) => Promise<void>
   toggleBookSource: (id: number) => Promise<void>
   clearAllBookSources: () => Promise<void>
-  importBookSources: () => Promise<{ imported: number; total: number }>
+  importBookSources: () => Promise<{ imported: number } | null>
   searchBooks: (keyword: string, page?: number) => Promise<PbSearchResult[]>
   searchBooksFromSource: (sourceId: number, keyword: string, page?: number) => Promise<PbSourceSearchResult[]>
   getBookInfoFromSource: (sourceId: number, bookUrl: string) => Promise<PbBookInfo>
@@ -309,8 +310,8 @@ interface ElectronAPI {
   getAllReadingTime: () => Promise<Record<number, number>>
   getAllReadingProgress: () => Promise<Record<number, { progress: number; page?: number; updated_at: string }>>
 
-  // Menu events
-  onMenuImportBooks: (callback: (filePaths: string[]) => void) => () => void
+  // Library
+  onLibraryChanged: (callback: () => void) => () => void
 
   // Auto Updater
   checkUpdate: () => Promise<PbUpdateInfo | null>

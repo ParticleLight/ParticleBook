@@ -230,8 +230,11 @@ export function EpubRenderer({ book, content, bookId }: EpubRendererProps) {
       })
 
       // Fallback: detect selection via mouseup if 'selected' event doesn't fire
-      doc.addEventListener('mouseup', () => {
-          setTimeout(() => {
+      // 必须具名并登记清理：此前是匿名箭头函数，清理数组里收不到它 —— 监听器永远
+      // 摘不掉，里面的 setTimeout 也不会被取消。
+      let mouseupTimer: ReturnType<typeof setTimeout> | null = null
+      const onMouseup = () => {
+          mouseupTimer = setTimeout(() => {
             const sel = doc.getSelection()
             if (!sel || sel.isCollapsed) return
             const text = sel.toString().trim()
@@ -254,7 +257,12 @@ export function EpubRenderer({ book, content, bookId }: EpubRendererProps) {
               setHighlightPopup({ x, y, cfiRange: cfi, text })
             }
           }, 10)
-        })
+      }
+      doc.addEventListener('mouseup', onMouseup)
+      contentCleanupFns.push(() => {
+        doc.removeEventListener('mouseup', onMouseup)
+        if (mouseupTimer) { clearTimeout(mouseupTimer); mouseupTimer = null }
+      })
     })
 
     return () => {
@@ -505,14 +513,8 @@ export function EpubRenderer({ book, content, bookId }: EpubRendererProps) {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'ArrowLeft') goPrev()
       if (e.key === 'ArrowRight') goNext()
-      if (e.key === 'b') {
-        const loc = renditionRef.current?.currentLocation() as any
-        if (loc?.start?.cfi) {
-          const { progress: p, bookmarks: bms } = useReaderStore.getState()
-          const nextNum = bms.length + 1
-          addBookmark({ book_id: bookId, cfi: loc.start.cfi, progress: p.progress, title: t('书签{{n}}', { n: nextNum }) })
-        }
-      }
+      // 书签快捷键 'b' 已上移到 ReaderView 统一处理（此前只在 EPUB 里实现，
+      // TXT/HTML/MD/PDF/漫画下按 B 无反应，而设置页把它写成通用快捷键）。
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)

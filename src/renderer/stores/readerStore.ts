@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { useSettingsStore } from './settingsStore'
+import i18n from '../i18n'
 
 let saveTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -77,6 +78,9 @@ export interface ReaderState {
   loadBookmarks: (bookId: number) => Promise<void>
   addBookmark: (bookmark: Omit<Bookmark, 'id' | 'created_at'>) => Promise<void>
   removeBookmark: (id: number) => Promise<void>
+  /** 在当前阅读位置切换书签。判断逻辑与工具栏按钮共用一处，避免两套判断漂移
+   *  （本应用的 'B' 快捷键此前只在 EPUB 阅读器里实现，其它格式按 B 无反应）。 */
+  toggleBookmarkAtProgress: () => Promise<void>
   updateBookmark: (id: number, title: string) => Promise<void>
 
   loadHighlights: (bookId: number) => Promise<void>
@@ -228,6 +232,27 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
     } catch (e) {
       console.error('Failed to remove bookmark:', e)
     }
+  },
+
+  toggleBookmarkAtProgress: async () => {
+    const { bookmarks, progress, bookId, addBookmark, removeBookmark } = get()
+    if (bookId === null) return
+    const currentPage = progress.page || 0
+    // 有 cfi 的格式（EPUB）按 cfi 比对，其余按页码；页码需排除 0，否则未定位时会误判
+    const match = bookmarks.find((bm) =>
+      progress.cfi && bm.cfi ? bm.cfi === progress.cfi : bm.page === currentPage && currentPage !== 0
+    )
+    if (match) {
+      await removeBookmark(match.id)
+      return
+    }
+    await addBookmark({
+      book_id: bookId,
+      page: currentPage,
+      cfi: progress.cfi,
+      progress: progress.progress,
+      title: i18n.t('书签{{n}}', { n: bookmarks.length + 1 }),
+    })
   },
 
   updateBookmark: async (id: number, title: string) => {

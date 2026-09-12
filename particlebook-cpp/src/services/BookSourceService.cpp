@@ -583,6 +583,10 @@ int BookSourceService::DownloadBook(int sourceId, const std::string& bookUrl,
                              {"bookId", bookId},
                              {"current", totalChapters},
                              {"total", totalChapters}});
+        // 导入是 C++ 内部用 InvokeMethod 发起的，不会经过 BridgeServer 里那个
+        // "JS 发起 book:import 后刷新"的钩子，因此必须自己通知渲染层，否则下载完成
+        // 的书要等手动刷新或重启才出现在书架上。
+        m_bridge->EmitEvent("library:changed", json::object());
     } else {
         return fail("import_failed", totalChapters, totalChapters);
     }

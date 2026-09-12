@@ -14,7 +14,7 @@ interface BookSourceState {
   isDownloading: boolean
 
   loadSources: () => Promise<void>
-  importSources: () => Promise<{ imported: number; total: number }>
+  importSources: () => Promise<{ imported: number } | null>
   toggleSource: (id: number) => Promise<void>
   deleteSource: (id: number) => Promise<void>
   clearAllSources: () => Promise<void>
@@ -51,24 +51,44 @@ export const useBookSourceStore = create<BookSourceState>((set, get) => ({
   },
 
   importSources: async () => {
-    const result = await window.electronAPI.importBookSources()
-    await get().loadSources()
-    return result
+    try {
+      const result = await window.electronAPI.importBookSources()
+      await get().loadSources()
+      // 取消文件对话框时 C++ 返回 null —— 原样传给调用方，由其决定是否提示
+      return result
+    } catch (e) {
+      console.error('importBookSources failed:', e)
+      return null
+    }
   },
 
+  // 以下写操作都要 catch：invoke 失败会 reject（BridgeServer 侧 reject(new Error)），
+  // 原先既不捕获也不提示，失败被吞成未处理的 Promise 拒绝，UI 只是"没反应"。
   toggleSource: async (id: number) => {
-    await window.electronAPI.toggleBookSource(id)
-    set({ sources: get().sources.map((s) => (s.id === id ? { ...s, enabled: !s.enabled } : s)) })
+    try {
+      await window.electronAPI.toggleBookSource(id)
+      set({ sources: get().sources.map((s) => (s.id === id ? { ...s, enabled: !s.enabled } : s)) })
+    } catch (e) {
+      console.error('toggleBookSource failed:', e)
+    }
   },
 
   deleteSource: async (id: number) => {
-    await window.electronAPI.deleteBookSource(id)
-    set({ sources: get().sources.filter((s) => s.id !== id) })
+    try {
+      await window.electronAPI.deleteBookSource(id)
+      set({ sources: get().sources.filter((s) => s.id !== id) })
+    } catch (e) {
+      console.error('deleteBookSource failed:', e)
+    }
   },
 
   clearAllSources: async () => {
-    await window.electronAPI.clearAllBookSources()
-    set({ sources: [] })
+    try {
+      await window.electronAPI.clearAllBookSources()
+      set({ sources: [] })
+    } catch (e) {
+      console.error('clearAllBookSources failed:', e)
+    }
   },
 
   search: async (keyword: string, page = 1) => {

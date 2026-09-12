@@ -30,6 +30,7 @@ export const enUi: Record<string, string> = {
 
   // BookSourcePanel
   '成功导入 {{imported}} 个书源（共 {{total}} 个）': 'Imported {{imported}} of {{total}} book sources',
+  '成功导入 {{imported}} 个书源': 'Imported {{imported}} book source(s)',
   '正在获取目录...': 'Fetching table of contents...',
   '下载中 {{current}}/{{total}}{{suffix}}': 'Downloading {{current}}/{{total}}{{suffix}}',
   '正在组装文件...': 'Assembling file...',

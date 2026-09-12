@@ -190,6 +190,10 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
       const { activeShelfId } = get()
       if (activeShelfId === shelfId) {
         await get().loadBooks()
+        // 必须同步 shelfBookIds（removeBookFromShelf 一直有这一步，这里漏了）：
+        // "从全部添加"选择器用 shelfBookIds 判断 alreadyIn，不更新就会把刚加进来的书
+        // 仍显示为未加入、可再次勾选。
+        set({ shelfBookIds: get().books.map((b) => b.id) })
       }
     } catch (e) {
       console.error('Failed to add book to shelf:', e)

@@ -8,6 +8,13 @@ function isVirtualHostRef(c: PbFileContent): c is PbVirtualHostRef {
 
 export async function readBookFile(filePath: string): Promise<Uint8Array | null> {
   const content = await window.electronAPI.readFile(filePath)
+  // 必须先判空：C++ 读不到文件时返回 null，而 new Uint8Array(null) 不会抛错、
+  // 只会得到长度 0 的数组 —— 且空数组是 truthy，调用方的 if (!content) 拦不住，
+  // 于是"文件读不到"会被当成"这本书是空的"（ReaderView 的失败恢复分支因此失效）。
+  if (content === null || content === undefined) {
+    console.error('readBookFile: bridge returned null for', filePath)
+    return null
+  }
   if (isVirtualHostRef(content)) {
     try {
       const res = await fetch(content._pb_url)

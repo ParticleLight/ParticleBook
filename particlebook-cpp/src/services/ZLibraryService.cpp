@@ -717,7 +717,10 @@ void ZLibraryService::DoImport(const std::string& downloadPath, const std::strin
 
     if (success) {
         m_bridge->EmitEvent("zlib:importComplete", {{"fileName", fileName}});
-        m_bridge->EmitEvent("menu:importBooks", json::object());
+        // 通知渲染层刷新书架。此前发的是 menu:importBooks（本应用没有原生菜单），
+        // 而它的消费者把载荷当"要导入的路径数组"，空对象过来只是一次无效导入 ——
+        // 下载完成的书因此不会出现在书架上。
+        m_bridge->EmitEvent("library:changed", json::object());
     } else {
         m_bridge->EmitEvent("zlib:importError", {{"fileName", fileName}, {"error", errMsg}});
     }

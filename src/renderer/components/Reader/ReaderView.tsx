@@ -120,12 +120,17 @@ export function ReaderView({ bookId, onClose }: ReaderViewProps) {
           // readBookFile returns null on virtual-host fetch failure — recover
           // instead of leaving the reader on an infinite spinner.
           console.error('Failed to load book content:', bookData.file_path)
+          // 必须清掉书级设置上下文：loadBookSettings 已把 activeBookId 设成本书，
+          // 若不清理，之后在设置页改的任何"全局"设置都会被写进这本没能打开的书
+          // 的行里，重启后静默回滚（Esc / 返回键那两条路径本来就调了它）。
+          clearBookSettings()
           onClose()
           return
         }
         setBookContent(content)
       } catch (e) {
         console.error('Failed to load book:', e)
+        clearBookSettings()
         onClose()
       }
     }
@@ -199,6 +204,11 @@ export function ReaderView({ bookId, onClose }: ReaderViewProps) {
       if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
         e.preventDefault()
         setShowSearch(true)
+      }
+      // 书签快捷键：全格式统一（此前只有 EPUB 阅读器实现了它，而设置页把
+      // "B = 添加书签"写成通用快捷键）。切换判断在 store 里与按钮共用一处。
+      if ((e.key === 'b' || e.key === 'B') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        void useReaderStore.getState().toggleBookmarkAtProgress()
       }
     }
     window.addEventListener('keydown', handleKeyDown)

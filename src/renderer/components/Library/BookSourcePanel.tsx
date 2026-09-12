@@ -42,8 +42,9 @@ export function BookSourcePanel({ onClose, isClosing }: BookSourcePanelProps) {
 
   const handleImport = async () => {
     const result = await importSources()
-    if (result.total > 0) {
-      alert(t('成功导入 {{imported}} 个书源（共 {{total}} 个）', { imported: result.imported, total: result.total }))
+    // C++ 只回 { imported }；用户在文件对话框点取消时回 null（此前会读 null.total 抛错）
+    if (result && result.imported > 0) {
+      alert(t('成功导入 {{imported}} 个书源', { imported: result.imported }))
     }
   }
 

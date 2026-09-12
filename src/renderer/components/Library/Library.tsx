@@ -153,7 +153,16 @@ export function Library({ onOpenBook, onOpenSettings, onOpenZLibrary, onOpenStat
 
   const handleImport = useCallback(async () => { const filePath = await window.electronAPI.openFile(); if (filePath) await importBooks([filePath]) }, [importBooks])
 
-  useEffect(() => { return window.electronAPI.onMenuImportBooks((filePaths) => { importBooks(filePaths) }) }, [importBooks])
+  // C++ 侧【内部】发起的导入（书源下载、Z-Library 下载后自动入库）不会走
+  // BridgeServer 里那个只对 JS 发起的 book:import 生效的刷新钩子，所以由它们发
+  // library:changed，渲染层收到后刷新书架 —— 否则"下载完成"后书要等手动刷新
+  // 或重启才出现。此前用的是 menu:importBooks（本应用没有原生菜单，且它的语义
+  // 是"导入这些路径"，C++ 传空对象过来只会触发一次无效导入）。
+  useEffect(() => {
+    return window.electronAPI.onLibraryChanged(() => {
+      useLibraryStore.getState().loadBooks()
+    })
+  }, [])
 
   const handleDrop = useCallback(async (e: React.DragEvent) => {
     e.preventDefault(); dragCounterRef.current = 0; setIsDragOver(false)

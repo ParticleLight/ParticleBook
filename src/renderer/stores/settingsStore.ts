@@ -49,6 +49,12 @@ const SETTINGS_KEYS = [
   'defaultViewMode', 'defaultSortBy',
 ] as const
 
+// 只有【阅读排版】类设置才按书保存（与读者设置面板暴露的项一致）。其余都是全局偏好：
+// 此前 saveSettings 把 11 个 key 一股脑写进 book_settings[bookId]，于是用户回到书架把
+// "自动保存进度/显示阅读时间"关掉后，再打开那本书又被书级旧值覆盖回 true —— 全局页
+// 看起来没生效，而书内面板根本没有这两个开关，用户无法就地纠正。
+const BOOK_SETTINGS_KEYS = ['fontSize', 'fontFamily', 'lineHeight', 'margin', 'textAlign'] as const
+
 export const useSettingsStore = create<SettingsState>((set, get) => ({
   theme: 'dark',
   accentColor: 'blue',
@@ -98,13 +104,16 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     for (const key of SETTINGS_KEYS) {
       settings[key] = (get() as any)[key]
     }
+    // 全局行始终写：阅读中改主题/主题色等也应成为全局偏好（此前这些只落到书级行，
+    // 于是关掉书后主题又回退）。
+    window.electronAPI.updateSettings(settings).catch((e) => {
+      console.error('Failed to save settings:', e)
+    })
     if (activeBookId !== null) {
-      window.electronAPI.updateBookSettings(activeBookId, settings).catch((e) => {
+      const bookSettings: Record<string, any> = {}
+      for (const key of BOOK_SETTINGS_KEYS) bookSettings[key] = settings[key]
+      window.electronAPI.updateBookSettings(activeBookId, bookSettings).catch((e) => {
         console.error('Failed to save book settings:', e)
-      })
-    } else {
-      window.electronAPI.updateSettings(settings).catch((e) => {
-        console.error('Failed to save settings:', e)
       })
     }
   },
@@ -137,7 +146,9 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 
       const bookSettings = await window.electronAPI.getBookSettings(bookId)
       if (bookSettings) {
-        for (const key of SETTINGS_KEYS) {
+        // 只覆盖排版键：书级行里的历史遗留全局项（修复前写入的）一律忽略，
+        // 否则旧数据仍会把全局开关"顶"回去。
+        for (const key of BOOK_SETTINGS_KEYS) {
           if (bookSettings[key] !== undefined) baseSettings[key] = bookSettings[key]
         }
       }

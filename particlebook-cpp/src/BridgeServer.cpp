@@ -305,7 +305,7 @@ std::string BridgeServer::GenerateBridgeScript()
     onZlibAllMirrorsFailed: function(cb) { return onEvent('zlib:allMirrorsFailed', cb); },
     onZlibDownloadError: function(cb)   { return onEvent('zlib:downloadError', cb); },
 
-    onMenuImportBooks: function(cb) { return onEvent('menu:importBooks', cb); },
+    onLibraryChanged: function(cb) { return onEvent('library:changed', cb); },
 
     checkUpdate: function()    { return invoke('app:checkUpdate'); },
     getAppVersion: function()  { return invoke('app:getVersion'); },

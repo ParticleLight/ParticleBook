@@ -13,8 +13,7 @@ export function ReaderControls({ bookId, format, onOpenSettings }: ReaderControl
   const { t } = useTranslation()
   const progress = useReaderStore((s) => s.progress)
   const bookmarks = useReaderStore((s) => s.bookmarks)
-  const addBookmark = useReaderStore((s) => s.addBookmark)
-  const removeBookmark = useReaderStore((s) => s.removeBookmark)
+  const toggleBookmarkAtProgress = useReaderStore((s) => s.toggleBookmarkAtProgress)
   const addNote = useReaderStore((s) => s.addNote)
   const setSidebarTab = useReaderStore((s) => s.setSidebarTab)
   const setControlsLocked = useReaderStore((s) => s.setControlsLocked)
@@ -73,24 +72,9 @@ export function ReaderControls({ bookId, format, onOpenSettings }: ReaderControl
     return bm.page === currentPage && currentPage !== 0
   })
 
-  const handleToggleBookmark = () => {
-    if (isBookmarked) {
-      const bm = bookmarks.find((b) => {
-        if (progress.cfi && b.cfi) return b.cfi === progress.cfi
-        return b.page === currentPage && currentPage !== 0
-      })
-      if (bm) removeBookmark(bm.id)
-    } else {
-      const nextNum = bookmarks.length + 1
-      addBookmark({
-        book_id: bookId,
-        page: currentPage,
-        cfi: progress.cfi,
-        progress: progress.progress,
-        title: t('书签{{n}}', { n: nextNum }),
-      })
-    }
-  }
+  // 切换逻辑统一在 readerStore.toggleBookmarkAtProgress：工具栏按钮与全局 'B'
+  // 快捷键必须用同一套判断（cfi 优先、页码兜底），否则两处会漂移。
+  const handleToggleBookmark = () => { void toggleBookmarkAtProgress() }
 
   const handleAddNote = () => {
     if (!noteText.trim()) return

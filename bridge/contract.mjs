@@ -247,7 +247,10 @@ export const contract = [
     kind: "invoke",
     group: "Files",
     params: [{ n: "filePath", t: "string" }],
-    returns: "Promise<Uint8Array | number[] | { _pb_url: string }>"
+    // C++ 在文件不可读时返回 json(nullptr)（FileHandlers.cpp 的 wlen<=0 与
+    // INVALID_HANDLE_VALUE 两条路径）—— 类型必须包含 null，否则调用方会把
+    // null 当成"空文件"而不是失败。
+    returns: "Promise<PbFileContent>"
   },
   {
     member: "importBooks", method: "book:import",
@@ -573,7 +576,10 @@ export const contract = [
     kind: "invoke",
     group: "Book Sources",
     params: [],
-    returns: "Promise<{ imported: number; total: number }>"
+    // C++ 只返回 { imported }（FileHandlers.cpp 导入处），取消对话框或异常时返回
+    // json(nullptr) —— 此前声明成 { imported, total } 让前端读 result.total（恒
+    // undefined）导致成功提示永不出现、取消时读 null.total 直接抛 TypeError。
+    returns: "Promise<{ imported: number } | null>"
   },
   {
     member: "searchBooks", method: "bookSource:search",
@@ -712,10 +718,13 @@ export const contract = [
   },
   // ── Menu events ──
   {
-    member: "onMenuImportBooks", method: "menu:importBooks",
+    // 书库已变化（C++ 内部导入后发出：书源下载、Z-Library 下载自动入库）。
+    // 取代了原先语义错位的 menu:importBooks —— 那个事件的消费者把它当"导入这些
+    // 路径"，而 C++ 传来的是空对象；且本应用并没有原生菜单。
+    member: "onLibraryChanged", method: "library:changed",
     kind: "event",
-    group: "Menu events",
-    params: [{ n: "callback", t: "(filePaths: string[]) => void" }],
+    group: "Library",
+    params: [{ n: "callback", t: "() => void" }],
     returns: "() => void"
   },
   // ── Auto Updater ──

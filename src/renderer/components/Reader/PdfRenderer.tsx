@@ -41,6 +41,7 @@ export function PdfRenderer({ book, content: _content, bookId }: PdfRendererProp
 
   // Open PDF
   useEffect(() => {
+    let cancelled = false
     ;(async () => {
       try {
         const info = await window.electronAPI.pdfOpen(book.file_path)
@@ -48,6 +49,10 @@ export function PdfRenderer({ book, content: _content, bookId }: PdfRendererProp
           console.error('PDF open returned null for', book.file_path)
           return
         }
+        // 打开是异步的（大文件要走 mutool 渲染，界面此时显示 0 / 0）。若用户在这期间
+        // 就点了返回，cleanup 已经跑过且当时 docIdRef 还是 null，C++ 侧文档与临时 PNG
+        // 就再也没人关 —— 所以这里必须自己判断"已卸载"并立刻关掉。
+        if (cancelled) { window.electronAPI.pdfClose(info.id); return }
         docIdRef.current = info.id
         setTotalPages(info.pageCount)
         setPageBounds(info.pageBounds)
@@ -56,6 +61,7 @@ export function PdfRenderer({ book, content: _content, bookId }: PdfRendererProp
       }
     })()
     return () => {
+      cancelled = true
       if (docIdRef.current != null) {
         window.electronAPI.pdfClose(docIdRef.current)
         docIdRef.current = null

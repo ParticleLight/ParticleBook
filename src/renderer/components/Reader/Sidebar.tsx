@@ -242,7 +242,9 @@ export function Sidebar({ bookId, onClose }: SidebarProps) {
                   <div className="flex items-center justify-between mt-2">
                     <p className="text-xs text-[var(--reader-text)] opacity-40">{new Date(note.updated_at).toLocaleString(i18n.language)}</p>
                     <button
-                      onClick={() => removeNote(note.id)}
+                      // 所在行容器有"跳到该笔记位置"的 onClick（书签与高亮行都写了
+                      // stopPropagation，只有这里漏了）→ 点删除会顺带把阅读位置跳过去。
+                      onClick={(e) => { e.stopPropagation(); removeNote(note.id) }}
                       className="opacity-0 group-hover:opacity-100 p-1 text-[var(--reader-text)] opacity-40 hover:opacity-80"
                     >
                       <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
