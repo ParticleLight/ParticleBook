@@ -14,6 +14,10 @@ const here = dirname(fileURLToPath(import.meta.url))
 const ROOT = join(here, "..")
 const OUT = join(ROOT, "src/renderer/types/electron.d.ts")
 const LF = String.fromCharCode(10)
+const CR = String.fromCharCode(13)
+// 比对时归一化行尾：本仓库 core.autocrlf=true，全新检出会得到 CRLF，而生成器
+// 输出 LF。校验的目的在于「内容是否同步」，不是行尾字节，故两侧先去 CR 再比。
+const normEol = (s) => s.split(CR).join("")
 const CHECK = process.argv.includes("--check")
 
 const { contract } = await import(pathToFileURL(join(ROOT, "bridge/contract.mjs")).href)
@@ -66,11 +70,11 @@ if (CHECK) {
     process.exit(1)
   }
   const current = readFileSync(OUT, "utf8")
-  if (current !== generated) {
+  if (normEol(current) !== normEol(generated)) {
     console.error("FRESHNESS FAIL: electron.d.ts 与契约表不同步。")
     console.error("  契约表已改动但未重新生成，或生成物被手改。")
     console.error("  修复： npm run gen:bridge-dts")
-    const a = current.split(LF), b = generated.split(LF)
+    const a = normEol(current).split(LF), b = normEol(generated).split(LF)
     let shown = 0
     for (let i = 0; i < Math.max(a.length, b.length) && shown < 6; i++) {
       if (a[i] !== b[i]) {
