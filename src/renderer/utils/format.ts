@@ -1,4 +1,5 @@
 import i18n from '../i18n'
+import { readBookFile } from './fileReader'
 
 // Reading time returns a bare duration ("30 分钟" / "30 minutes") — callers
 // that need a verb (ReaderView "阅读 {{time}}") add it themselves so that
@@ -19,8 +20,9 @@ export function formatReadingTime(seconds: number): string {
 
 export async function extractTextPreview(filePath: string, maxLength = 120): Promise<string | null> {
   try {
-    const content = await window.electronAPI.readFile(filePath)
-    const text = new TextDecoder('utf-8', { fatal: false }).decode(new Uint8Array(content))
+    const content = await readBookFile(filePath)
+    if (!content) return null
+    const text = new TextDecoder('utf-8', { fatal: false }).decode(content)
     const cleaned = text.replace(/\s+/g, ' ').trim()
     return cleaned.slice(0, maxLength) || null
   } catch {

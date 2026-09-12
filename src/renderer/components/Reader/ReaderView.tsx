@@ -26,6 +26,7 @@ function useAnimatedMount(isOpen: boolean, duration = 200) {
 import { Sidebar } from './Sidebar'
 import { ReaderControls } from './ReaderControls'
 import { formatReadingTime } from '../../utils/format'
+import { readBookFile } from '../../utils/fileReader'
 import type { Book } from '../../stores/libraryStore'
 
 const EpubRenderer = lazy(() => import('./EpubRenderer').then(m => ({ default: m.EpubRenderer })))
@@ -106,8 +107,15 @@ export function ReaderView({ bookId, onClose }: ReaderViewProps) {
         await loadNotes(bookId)
         await loadBookSettings(bookId)
 
-        const content = await window.electronAPI.readFile(bookData.file_path)
-        setBookContent(new Uint8Array(content))
+        const content = await readBookFile(bookData.file_path)
+        if (!content) {
+          // readBookFile returns null on virtual-host fetch failure — recover
+          // instead of leaving the reader on an infinite spinner.
+          console.error('Failed to load book content:', bookData.file_path)
+          onClose()
+          return
+        }
+        setBookContent(content)
       } catch (e) {
         console.error('Failed to load book:', e)
         onClose()

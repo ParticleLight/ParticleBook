@@ -1,10 +1,13 @@
+import { readBookFile } from './fileReader'
+
 export async function generatePdfPreview(filePath: string): Promise<string | null> {
   try {
     const pdfjsLib = await import('pdfjs-dist')
     pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdf.worker.min.mjs', window.location.href).href
 
-    const content = await window.electronAPI.readFile(filePath)
-    const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(content) }).promise
+    const content = await readBookFile(filePath)
+    if (!content) return null
+    const pdf = await pdfjsLib.getDocument({ data: content }).promise
     const page = await pdf.getPage(1)
     const viewport = page.getViewport({ scale: 1.5 })
 
@@ -23,8 +26,9 @@ export async function generatePdfPreview(filePath: string): Promise<string | nul
 export async function generateCbzPreview(filePath: string): Promise<string | null> {
   try {
     const JSZip = (await import('jszip')).default
-    const content = await window.electronAPI.readFile(filePath)
-    const zip = await JSZip.loadAsync(new Uint8Array(content))
+    const content = await readBookFile(filePath)
+    if (!content) return null
+    const zip = await JSZip.loadAsync(content)
 
     const imageFiles: string[] = []
     zip.forEach((path) => {
