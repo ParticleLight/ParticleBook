@@ -182,13 +182,6 @@ void DatabaseService::WriterThread()
     }
 }
 
-int DatabaseService::NextId()
-{
-    std::lock_guard<std::mutex> lock(m_mutex);
-    int id = m_data["nextId"].get<int>();
-    m_data["nextId"] = id + 1;
-    return id;
-}
 
 // ── Books ────────────────────────────────────────────────────────
 

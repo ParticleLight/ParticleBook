@@ -16,7 +16,11 @@ public:
 
     void Load(const std::string& path);
     void FlushSync();
-    int NextId();
+    // NOTE: there is deliberately no public "reserve an id" method. Ids are
+    // allocated inside the Insert* methods via allocNextId(), which advances
+    // nextId AND schedules a write in the same locked section. A public
+    // NextId() would advance the counter without persisting it, so a crash
+    // before the next write would hand out the same ids again.
 
     // Books
     json GetBooks() const;
