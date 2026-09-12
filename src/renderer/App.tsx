@@ -60,7 +60,7 @@ export default function App() {
   const accentColor = useSettingsStore((s) => s.accentColor)
   const loadBooks = useLibraryStore((s) => s.loadBooks)
   const loadSettings = useSettingsStore((s) => s.loadSettings)
-  const zlibTimer = useRef<ReturnType<typeof setTimeout>>()
+  const zlibTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
   useEffect(() => { loadBooks() }, [loadBooks])
   // Load persisted global settings (theme, language, …) on startup — was never

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useMemo, useState, useCallback } from 'react'
+import type { JSX } from 'react'   // React 19 removed the global JSX namespace
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import { useReaderStore } from '../../stores/readerStore'

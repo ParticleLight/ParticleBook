@@ -2,9 +2,13 @@
 // format via the virtual host (http://particlebook.app/_pb_files/…), the result
 // may be either a plain byte array or a { _pb_url } object that must be fetched.
 // This helper normalizes both into a Uint8Array (or null on failure).
+function isVirtualHostRef(c: PbFileContent): c is PbVirtualHostRef {
+  return typeof c === 'object' && c !== null && '_pb_url' in c
+}
+
 export async function readBookFile(filePath: string): Promise<Uint8Array | null> {
   const content = await window.electronAPI.readFile(filePath)
-  if (content && content._pb_url) {
+  if (isVirtualHostRef(content)) {
     try {
       const res = await fetch(content._pb_url)
       if (res.ok) return new Uint8Array(await res.arrayBuffer())

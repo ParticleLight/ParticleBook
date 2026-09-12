@@ -43,6 +43,10 @@ export function PdfRenderer({ book, content: _content, bookId }: PdfRendererProp
     ;(async () => {
       try {
         const info = await window.electronAPI.pdfOpen(book.file_path)
+        if (!info) {
+          console.error('PDF open returned null for', book.file_path)
+          return
+        }
         docIdRef.current = info.id
         setTotalPages(info.pageCount)
         setPageBounds(info.pageBounds)

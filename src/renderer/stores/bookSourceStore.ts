@@ -20,7 +20,10 @@ interface BookSourceState {
   clearAllSources: () => Promise<void>
   search: (keyword: string, page?: number) => Promise<void>
   clearSearch: () => void
-  startDownload: (sourceId: number, bookUrl: string, bookName: string, format?: string) => Promise<number>
+  // The C++ side starts the download on a worker and returns immediately;
+  // results arrive via downloadProgress/downloadComplete events, so there is
+  // no id to hand back (callers ignore the return value).
+  startDownload: (sourceId: number, bookUrl: string, bookName: string, format?: string) => Promise<void>
   resetDownload: () => void
 }
 
@@ -71,12 +74,13 @@ export const useBookSourceStore = create<BookSourceState>((set, get) => ({
   search: async (keyword: string, page = 1) => {
     set({ isSearching: true, searchKeyword: keyword, searchPage: page, searchError: null })
     try {
-      const result = await window.electronAPI.searchBooks(keyword, page)
-      if (result.error) {
-        set({ searchResults: [], searchError: result.error })
-      } else {
-        set({ searchResults: result.results || [], searchError: null })
-      }
+      // SearchAll returns a PLAIN ARRAY of results (BookSourceService::SearchAll
+      // returns json::array()), not an { error, results } envelope. Treating it
+      // as an envelope made this always resolve to [] and silently killed
+      // online book-source search. Failures arrive as a rejected promise and
+      // are handled by the catch below.
+      const results = await window.electronAPI.searchBooks(keyword, page)
+      set({ searchResults: results || [], searchError: null })
     } catch (e: any) {
       console.error('Search failed:', e)
       set({ searchResults: [], searchError: e?.message || i18n.t('搜索失败') })

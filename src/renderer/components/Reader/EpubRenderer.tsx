@@ -6,6 +6,15 @@ import { useReaderStore } from '../../stores/readerStore'
 import { useSettingsStore } from '../../stores/settingsStore'
 import type { Book as BookType } from '../../stores/libraryStore'
 
+// epub.js exposes the spine entry list at runtime, but its bundled types omit
+// it and the property name differs between builds (`items` vs `spineItems`).
+// Model it once here so call sites read plainly instead of casting to any.
+interface PbSpineItem { href?: string; canonical?: string }
+const spineEntries = (spine: unknown): PbSpineItem[] => {
+  const s = spine as { items?: PbSpineItem[]; spineItems?: PbSpineItem[] } | undefined
+  return s?.items ?? s?.spineItems ?? []
+}
+
 interface EpubRendererProps {
   book: BookType
   content: Uint8Array
@@ -79,11 +88,10 @@ export function EpubRenderer({ book, content, bookId }: EpubRendererProps) {
     const spineLen = spineLengthRef.current
     if (spineLen > 0) {
       const targetIndex = Math.round((seekTarget / 100) * (spineLen - 1))
-      const spine = epubBook.spine
-      const items = spine.items || spine.spineItems || []
+      const items = spineEntries(epubBook.spine)
       if (items[targetIndex]) {
         const href = items[targetIndex].href
-        renditionRef.current.display(href)
+        if (href) renditionRef.current.display(href)
       }
     }
     clearSeekTarget()
@@ -110,8 +118,7 @@ export function EpubRenderer({ book, content, bookId }: EpubRendererProps) {
       setTableOfContents(toc)
 
       // Get spine length for progress calculation
-      const spine = epubBook.spine
-      spineLengthRef.current = spine.items ? spine.items.length : (spine.spineItems ? spine.spineItems.length : 0)
+      spineLengthRef.current = spineEntries(epubBook.spine).length
 
       // Inject CSS Highlight API styles
       const styleId = 'pb-search-styles'
@@ -140,8 +147,7 @@ export function EpubRenderer({ book, content, bookId }: EpubRendererProps) {
       let progressPercent = 0
       const spineLen = spineLengthRef.current
       if (spineLen > 0 && href) {
-        const spine = epubBook.spine
-        const items = spine.items || spine.spineItems || []
+        const items = spineEntries(epubBook.spine)
         // Strip fragment from href for matching
         const cleanHref = href.split('#')[0]
         let currentIndex = -1
@@ -335,8 +341,7 @@ export function EpubRenderer({ book, content, bookId }: EpubRendererProps) {
     const epubBook = bookRef.current
     if (!epubBook) return
     try {
-      const spine = epubBook.spine
-      const items = spine.items || (spine as any).spineItems || []
+      const items = spineEntries(epubBook.spine)
       const map = new Map<string, { text: string; matchCount: number }>()
       for (const item of items) {
         const href = item.href
@@ -440,10 +445,12 @@ export function EpubRenderer({ book, content, bookId }: EpubRendererProps) {
 
     rendition.display(match.href).then(() => {
       setTimeout(() => {
-        const contents = rendition.getContents()
+        // getContents() returns an ARRAY at runtime (epub.js types say a single
+        // Contents); each entry is either the Document or something wrapping it.
+        const contents = rendition.getContents() as unknown as Array<{ document?: Document } & Document>
         if (!contents || contents.length === 0) { navRef.current = false; return }
         const content = contents[0]
-        const doc = (content as any).document || content
+        const doc: Document = (content.document ?? content) as Document
         if (!doc?.body) { applySearchHighlights(); navRef.current = false; return }
 
         // Find the Nth occurrence within the rendered DOM

@@ -192,7 +192,11 @@ export function Library({ onOpenBook, onOpenSettings, onOpenZLibrary, onOpenStat
   const handleDragOver = useCallback((e: React.DragEvent) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy' }, [])
   const handleDragLeave = useCallback(() => { dragCounterRef.current--; if (dragCounterRef.current <= 0) { dragCounterRef.current = 0; setIsDragOver(false) } }, [])
 
-  const shelfName = activeShelfId !== null ? bookshelves.find((s) => s.id === activeShelfId)?.name : t('全部书籍')
+  // Fall back to "" when the active shelf id no longer resolves (e.g. the
+  // shelf was deleted) so this stays a string; an empty title is inert.
+  const shelfName = activeShelfId !== null
+    ? (bookshelves.find((s) => s.id === activeShelfId)?.name ?? '')
+    : t('全部书籍')
 
   return (
     <div className="h-screen flex flex-col" style={{ background: 'var(--bg)' }}

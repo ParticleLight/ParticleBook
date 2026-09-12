@@ -1,7 +1,17 @@
+// Shapes returned by electronAPI.readFile: raw bytes (JSON byte array or a
+// typed array), or a virtual-host reference the caller must fetch. Declared
+// globally so both the interface and the renderer helper share one definition.
+type PbVirtualHostRef = { _pb_url: string }
+type PbFileContent = Uint8Array | number[] | PbVirtualHostRef
+
 interface ElectronAPI {
   openFile: () => Promise<string | null>
   openDirectory: () => Promise<string | null>
-  readFile: (filePath: string) => Promise<Buffer>
+  // The C++ bridge serves most formats through the virtual host and returns
+  // { _pb_url } to fetch instead of the bytes themselves (see
+  // utils/fileReader.ts, which normalises both shapes). MOBI still comes back
+  // as a JSON byte array.
+  readFile: (filePath: string) => Promise<Uint8Array | number[] | { _pb_url: string }>
   getBookMetadata: (filePath: string) => Promise<any>
   importBooks: (filePaths: string[]) => Promise<any[]>
   writeDroppedFile: (name: string, dataB64: string) => Promise<{ path: string; size: number } | null>
