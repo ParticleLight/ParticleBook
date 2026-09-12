@@ -1,6 +1,7 @@
 #include "PdfService.h"
 #include "utils/encoding.h"
 #include "utils/fnv1a.h"
+#include "utils/mobi_patch.h"
 #include "BridgeServer.h"
 #include "utils/win_cmd.h"
 #define WIN32_LEAN_AND_MEAN
@@ -55,13 +56,10 @@ std::string PdfService::GetMutoolPath()
 
 static std::string PatchMobiEncoding(const std::string& filePath)
 {
-    std::string ext;
-    size_t dot = filePath.rfind('.');
-    if (dot != std::string::npos) {
-        ext = filePath.substr(dot);
-        for (auto& c : ext) c = (char)tolower((unsigned char)c);
-    }
-    if (ext != ".mobi" && ext != ".azw" && ext != ".azw3") return filePath;
+    // Extension check + byte-level patch both live in utils/mobi_patch.h so
+    // they can be unit-tested; this function keeps only the filesystem side.
+    const std::string ext = pb::MobiExtLower(filePath);
+    if (!pb::IsMobiFamilyExt(ext)) return filePath;
 
     // Read entire file
     HANDLE hFile = CreateFileW(pb::Utf8ToWide(filePath).c_str(), GENERIC_READ,
@@ -80,28 +78,8 @@ static std::string PatchMobiEncoding(const std::string& filePath)
     CloseHandle(hFile);
     if (bytesRead != size) return filePath;
 
-    // Search for "MOBI" magic and patch text_encoding (offset +12 from "MOBI")
-    bool patched = false;
-    for (size_t i = 0; i + 16 < size; i++) {
-        if (data[i] == 'M' && data[i+1] == 'O' && data[i+2] == 'B' && data[i+3] == 'I') {
-            size_t encOff = i + 12; // skip magic(4) + header_len(4) + mobi_type(4)
-            if (encOff + 4 <= size) {
-                uint32_t enc = data[encOff] | ((uint32_t)data[encOff+1] << 8)
-                             | ((uint32_t)data[encOff+2] << 16) | ((uint32_t)data[encOff+3] << 24);
-                // 0 = Latin-1, 1252 = CP1252 → change to 65001 = UTF-8
-                if (enc == 0 || enc == 1252) {
-                    uint32_t utf8 = 65001;
-                    data[encOff]   = (uint8_t)(utf8 & 0xFF);
-                    data[encOff+1] = (uint8_t)((utf8 >> 8) & 0xFF);
-                    data[encOff+2] = (uint8_t)((utf8 >> 16) & 0xFF);
-                    data[encOff+3] = (uint8_t)((utf8 >> 24) & 0xFF);
-                    patched = true;
-                }
-            }
-            break; // only first MOBI header matters
-        }
-    }
-    if (!patched) return filePath;
+    // Byte-level scan + patch (unit-tested in tests/unit/mobi_patch_test.cpp).
+    if (!pb::PatchMobiEncodingBuffer(data)) return filePath;
 
     // Write patched copy
     wchar_t tmpPath[MAX_PATH], tmpFile[MAX_PATH];

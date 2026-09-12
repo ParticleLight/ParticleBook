@@ -118,6 +118,7 @@ set(PB_TEST_SOURCES
     tests/unit/fnv1a_test.cpp
     tests/unit/update_meta_test.cpp
     tests/unit/cmdline_test.cpp
+    tests/unit/mobi_patch_test.cpp
 )
 foreach(_t IN LISTS PB_TEST_SOURCES)
     get_filename_component(_name "${_t}" NAME_WE)
