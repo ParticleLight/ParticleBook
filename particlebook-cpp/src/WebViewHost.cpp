@@ -32,28 +32,6 @@ static std::wstring ToWide(const std::string& s) {
     return w;
 }
 
-// 一张全透明的 1×1 图标，用来清掉窗口标题栏左侧的小图标。
-// Windows 的规则：标题栏用 ICON_SMALL、任务栏与 Alt-Tab 用 ICON_BIG，
-// 所以只把小图标替换成空白即可 —— 标题栏干净了，任务栏仍保留真实图标。
-static HICON MakeBlankIcon()
-{
-    static HICON s_blank = nullptr;
-    if (s_blank) return s_blank;
-    WORD maskBits[1] = { 0xFFFF };   // 掩码全 1 = 完全透明
-    HBITMAP hMask = CreateBitmap(1, 1, 1, 1, maskBits);
-    HBITMAP hColor = CreateBitmap(1, 1, 1, 1, nullptr);
-    if (hMask && hColor) {
-        ICONINFO ii = {};
-        ii.fIcon = TRUE;
-        ii.hbmMask = hMask;
-        ii.hbmColor = hColor;
-        s_blank = CreateIconIndirect(&ii);
-    }
-    if (hMask) DeleteObject(hMask);
-    if (hColor) DeleteObject(hColor);
-    return s_blank;
-}
-
 // Helper: wide string to UTF-8
 static std::string ToUtf8(const std::wstring& w) {
     if (w.empty()) return "";
@@ -101,10 +79,7 @@ void WebViewHost::CreateMainWindow(HINSTANCE hInstance)
     HICON hIcon = LoadIconW(hInstance, MAKEINTRESOURCEW(101));
     if (hIcon) {
         SendMessageW(m_hwnd, WM_SETICON, ICON_BIG, (LPARAM)hIcon);
-        // 标题栏左侧的小图标按用户要求去掉（那是占位图标）：换成全透明图标。
-        // 任务栏/Alt-Tab 用 ICON_BIG，仍是我们自己的 app.ico。
-        HICON hBlank = MakeBlankIcon();
-        if (hBlank) SendMessageW(m_hwnd, WM_SETICON, ICON_SMALL, (LPARAM)hBlank);
+        SendMessageW(m_hwnd, WM_SETICON, ICON_SMALL, (LPARAM)hIcon);
     }
 
     ShowWindow(m_hwnd, SW_SHOW);
