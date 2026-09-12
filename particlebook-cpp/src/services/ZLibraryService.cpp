@@ -65,7 +65,7 @@ static const std::vector<std::string> BLOCKED_DOMAINS = {
     "singlelogin.re",
 };
 
-static bool IsZlibHost(const std::string& host) {
+bool ZLibraryService::IsZlibHost(const std::string& host) {
     if (host.empty()) return false;
     for (const auto& bd : BLOCKED_DOMAINS) {
         if (host.find(bd) != std::string::npos) return false;

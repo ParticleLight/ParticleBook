@@ -275,10 +275,12 @@ void WebViewHost::OnWebViewCreated(HRESULT hr, ICoreWebView2Controller* controll
         settings2->put_UserAgent(L"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36");
     }
 
-    // During any navigation, allow SSL certificate errors (Z-Library mirrors
-    // redirect to transit domains like msn101.ru whose certs may be self-signed
-    // or chain to roots the system doesn't trust; we're loading a known book site,
-    // not handling sensitive data). Always-allow is the simplest robust choice.
+    // Z-Library mirrors redirect to unlabeled transit domains (e.g. msn101.ru)
+    // whose certs are self-signed or chain to roots the system doesn't trust.
+    // Scoped ALWAYS_ALLOW (active-session-only, host whitelist, or cached-clear)
+    // all regress the primary feature because transit hosts can't be enumerated
+    // reliably — so keep the unconditional allow. This is a known design
+    // trade-off: we're loading a book site, not handling sensitive data.
     ComPtr<ICoreWebView2_14> wv14;
     if (SUCCEEDED(m_webview.As(&wv14))) {
         wv14->add_ServerCertificateErrorDetected(

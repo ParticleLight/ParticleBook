@@ -38,6 +38,13 @@ public:
     void SetHost(WebViewHost* host) { m_host = host; }
     void SetDatabase(DatabaseService* db) { m_db = db; }
 
+    // Heuristic: is this host a Z-Library mirror / transit domain?
+    // Shared by navigation guarding and the certificate-allow callback.
+    static bool IsZlibHost(const std::string& host);
+
+    // True while a Z-Library session is open (used to scope cert overrides).
+    bool IsActive() const { return m_zlibActive; }
+
     json SetDownloadPath(const std::string& path);
     json GetDownloadPathStr() const;
     json PickDownloadFolder();
