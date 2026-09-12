@@ -252,11 +252,19 @@ static bool ComputeFileSha512(const std::wstring& path, std::string& outHex)
 // or the check failed. Blocking WinHTTP — never call on the UI thread.
 static json CheckUpdateImpl()
 {
-    // Server hosts are configurable via env vars so the update check can be
-    // pointed at a mirror / self-hosted update server:
-    //   PB_UPDATE_BASE = releases host (default github.com) + path prefix
-    //   PB_UPDATE_API  = JSON API host   (default api.github.com)
+    // The VERSION-CHECK hosts are configurable via env vars:
+    //   PB_UPDATE_BASE = host that serves releases/latest/download/latest.yml
+    //                    (default github.com; only the HOST is configurable,
+    //                     the path below is fixed)
+    //   PB_UPDATE_API  = JSON API host (default api.github.com)
     // Defaults keep the official GitHub behaviour when unset.
+    //
+    // NOTE: only the check is configurable. The download URL is always built
+    // for github.com by pb::BuildDownloadUrl and then enforced by the
+    // kOfficialPrefix whitelist in app:downloadUpdate — so a mirror can
+    // report a version, but its installer will be rejected. Widening this
+    // requires also relaxing that whitelist (see docs/IMPROVEMENT_PLAN_R2.md
+    // §1.2) and is deliberately out of scope.
     std::string baseHost = "github.com";
     std::string apiHost  = "api.github.com";
     if (const char* e = std::getenv("PB_UPDATE_BASE")) { if (*e) baseHost = e; }

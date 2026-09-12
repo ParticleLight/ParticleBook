@@ -39,11 +39,11 @@ public:
     void SetDatabase(DatabaseService* db) { m_db = db; }
 
     // Heuristic: is this host a Z-Library mirror / transit domain?
-    // Shared by navigation guarding and the certificate-allow callback.
+    // Used when parsing mirror lists. NOTE: the WebView2 certificate callback
+    // deliberately does NOT scope by host — transit domains cannot be
+    // enumerated reliably, so it allows certificate errors unconditionally
+    // (see WebViewHost::OnWebViewCreated for the trade-off).
     static bool IsZlibHost(const std::string& host);
-
-    // True while a Z-Library session is open (used to scope cert overrides).
-    bool IsActive() const { return m_zlibActive; }
 
     json SetDownloadPath(const std::string& path);
     json GetDownloadPathStr() const;

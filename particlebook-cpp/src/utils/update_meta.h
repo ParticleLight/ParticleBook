@@ -67,6 +67,11 @@ namespace pb {
         return out;
     }
 
+    // Build the download URL for the release asset. Fixed to the official
+    // GitHub release path by design: PB_UPDATE_BASE only redirects the version
+    // CHECK, while FileHandlers::app:downloadUpdate enforces a matching URL
+    // whitelist (plus SHA-512) before downloading. Do not make this
+    // configurable without also revisiting that whitelist.
     inline std::string BuildDownloadUrl(const std::string& version, const std::string& fileName)
     {
         return "https://github.com/ParticleLight/ParticleBook/releases/download/v"
