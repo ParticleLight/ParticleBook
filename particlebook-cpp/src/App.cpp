@@ -181,10 +181,17 @@ void App::Init(HINSTANCE hInstance)
         "else if(ev==='zlib:downloadError'||ev==='zlib:importError'){_ensure();_icon(_err());"
         "if(d.fileName)_setText('_pbdl-title',d.fileName);"
         "var lbl=ev==='zlib:downloadError'?(window.__pbLang==='en'?'Download failed':'下载失败'):(window.__pbLang==='en'?'Import failed':'导入失败');"
-        "var emap=(window.__pbLang==='en')?{invalid_url:'Invalid URL',http_open_failed:'Network init failed',connect_failed:'Cannot connect to server',request_failed:'Request failed',network_error:'Network error',file_create_failed:'Cannot write local file',empty_response:'Empty server response',too_many_redirects:'Too many redirects',import_failed:'Import failed'}:{invalid_url:'链接无效',http_open_failed:'网络初始化失败',connect_failed:'无法连接服务器',request_failed:'请求创建失败',network_error:'网络异常',file_create_failed:'无法写入本地文件',empty_response:'服务器返回空内容',too_many_redirects:'重定向过多',import_failed:'导入失败'};"
+        "var emap=(window.__pbLang==='en')?{invalid_url:'Invalid URL',http_open_failed:'Network init failed',connect_failed:'Cannot connect to server',request_failed:'Request failed',network_error:'Network error',file_create_failed:'Cannot write local file',empty_response:'Empty server response',too_many_redirects:'Too many redirects',import_failed:'Import failed',incomplete_download:'Download incomplete',not_a_book:'Not a book file',file_write_failed:'Cannot write file'}:{invalid_url:'链接无效',http_open_failed:'网络初始化失败',connect_failed:'无法连接服务器',request_failed:'请求创建失败',network_error:'网络异常',file_create_failed:'无法写入本地文件',empty_response:'服务器返回空内容',too_many_redirects:'重定向过多',import_failed:'导入失败',incomplete_download:'下载不完整（连接中断）',not_a_book:'不是电子书文件（可能是登录页）',file_write_failed:'写入本地文件失败'};"
         "var msg='';if(d.error){if(emap[d.error])msg=emap[d.error];else if(d.error.indexOf('http_')===0)msg=(window.__pbLang==='en'?'Server error ':'服务器错误 ')+d.error.substring(5);else if(d.error.indexOf('import_exception:')===0)msg=(window.__pbLang==='en'?'Import exception':'导入异常');else msg=d.error;}"
         "_setText('_pbdl-status',msg?lbl+': '+msg:lbl,'#f87171');_setText('_pbdl-bytes','');"
-        "_setFill('100%','#f87171');_hideAfter(6000);}}"
+        "_setFill('100%','#f87171');_hideAfter(6000);}"
+        // 所有线路都连不上时必须有个活着的界面来提示：这个消息此前只发给 React
+        // 应用页，而 Z-Library 是把主 WebView 导航过去的，失败时页面已被内置错误页
+        // 替换 —— 订阅者早就不存在，红色横幅从来没显示过。工具栏是这里唯一还在的 UI。
+        "else if(ev==='zlib:allMirrorsFailed'){_ensure();_icon(_err());"
+        "_setText('_pbdl-title','Z-Library');"
+        "_setText('_pbdl-status',(window.__pbLang==='en'?'All lines failed. Pick another line or close.':'所有线路都连不上，请切换线路或关闭'),'#f87171');"
+        "_setText('_pbdl-bytes','');_setFill('100%','#f87171');_hideAfter(10000);}}"
         "function _flush(){_rdy=true;for(var i=0;i<_q.length;i++)_h(_q[i]);_q=[];}"
         "try{window.chrome.webview.addEventListener('message',function(e){try{"
         "var m=typeof e.data==='string'?JSON.parse(e.data):e.data;if(m.type!=='event')return;"

@@ -68,6 +68,9 @@ private:
     bool m_zlibActive = false;
     bool m_downloadRegistered = false;
     bool m_zlibDlInProgress = false;
+    // 下载开始的时刻，用作看门狗：该标志位只在 Show/失败回调/DoImport 复位，
+    // 一旦下载线程异常未归就会永久卡住 → 之后所有下载都被静默吞掉。
+    std::chrono::steady_clock::time_point m_dlStartedAt{};
     int m_navRetryCount = 0;
     int m_retryMirrorCount = 0;   // snapshot of mirror count at Show() — bounds retry to one full cycle
     std::mutex m_mirrorMutex;

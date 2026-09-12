@@ -48,10 +48,14 @@ namespace {
     // injected floating toolbar needs mirror info + navigation only. Deliberately
     // excludes zlib:getURL / zlib:getDownloadPath (leak the current URL and the
     // local download directory to any untrusted mirror page).
+    //
+    // zlib:fetchMirrors 与 zlib:logout 也一并移除：工具栏根本不会调用它们（只调
+    // getMirrorInfo / switchMirror），而 fetchMirrors 是【同步网络请求】且跑在
+    // WebView2 UI 线程上 —— 任何被加载的页面循环 invoke 就能让窗口"未响应"并反复
+    // 重写镜像表。logout 需要时再作为显式功能加回来（当前没有 UI 入口）。
     const std::unordered_set<std::string>& ExternalAllowedMethods() {
         static const std::unordered_set<std::string> s = {
             "zlib:getMirrorInfo", "zlib:switchMirror", "zlib:navigate",
-            "zlib:logout", "zlib:fetchMirrors",
         };
         return s;
     }

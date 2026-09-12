@@ -53,7 +53,12 @@ const ZLIB_DOWNLOAD_ERROR_KEYS: Record<string, string> = {
   network_error: '网络错误，下载中断',
   file_create_failed: '无法创建本地文件',
   empty_response: '下载内容为空',
-  too_many_redirects: '重定向次数过多'
+  too_many_redirects: '重定向次数过多',
+  // 与注入工具栏（App.cpp 的 emap）保持一致：那份是 Z-Library 会话期间的活界面，
+  // 这份只在「返回书架后下载才失败」时才有机会显示。
+  incomplete_download: '下载不完整（连接中断）',
+  not_a_book: '不是电子书文件（可能是登录页）',
+  file_write_failed: '写入本地文件失败'
 }
 
 const ZlibDownloadFailedBanner = ({ code, onDismiss }: { code: string; onDismiss: () => void }) => {

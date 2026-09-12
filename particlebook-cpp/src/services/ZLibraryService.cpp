@@ -10,6 +10,7 @@
 #include <shlobj.h>
 #include <shobjidl.h>
 #include <regex>
+#include <cstring>
 #include <algorithm>
 #include <filesystem>
 #include <thread>
@@ -30,6 +31,27 @@ using namespace Microsoft::WRL;
 
 struct DLProgress { std::string fn; int64_t recv; int64_t tot; };
 struct DLFail { std::string fn; std::string reason; };
+
+// 会话过期时 z-lib 会返回 200 的登录页，此前会被当成书存盘并入库。
+// FB2 本身是 XML，所以只把 <!doctype html / <html 判为 HTML，避免误杀。
+static bool LooksLikeHtml(const char* p, size_t n) {
+    size_t i = 0;
+    while (i < n && (p[i] == ' ' || p[i] == '\t' || p[i] == '\r' || p[i] == '\n')) i++;
+    if (n >= i + 14 && _strnicmp(p + i, "<!doctype html", 14) == 0) return true;
+    if (n >= i + 5 && _strnicmp(p + i, "<html", 5) == 0) return true;
+    return false;
+}
+
+// 失败/中断的下载必须删掉半截文件，否则它会留在下载目录里（且可能被重下覆盖）。
+// 这里自己做 UTF-8 → 宽字符转换，不依赖文件后面才定义的 ToWide。
+static void RemovePartialFile(const std::string& path) {
+    if (path.empty()) return;
+    int n = MultiByteToWideChar(CP_UTF8, 0, path.c_str(), (int)path.size(), nullptr, 0);
+    if (n <= 0) return;
+    std::wstring w(n, L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, path.c_str(), (int)path.size(), &w[0], n);
+    DeleteFileW(w.c_str());
+}
 
 static std::wstring ToWide(const std::string& s) {
     if (s.empty()) return L"";
@@ -101,6 +123,7 @@ static std::string FetchUrl(const std::string& url) {
     auto toW = [](const std::string& s) { return ToWide(s); };
     HINTERNET hS = WinHttpOpen(L"PB/1.9", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, nullptr, nullptr, 0);
     if (!hS) return "";
+    WinHttpSetTimeouts(hS, 10000, 10000, 10000, 20000);  // 镜像列表抓取同样不能无限等
     HINTERNET hC = WinHttpConnect(hS, toW(host).c_str(), https ? 443 : 80, 0);
     if (!hC) { WinHttpCloseHandle(hS); return ""; }
     HINTERNET hR = WinHttpOpenRequest(hC, L"GET", toW(path).c_str(), nullptr, nullptr, nullptr, https ? WINHTTP_FLAG_SECURE : 0);
@@ -388,6 +411,8 @@ void ZLibraryService::SetupDownloadHandler()
             Callback<ICoreWebView2NewWindowRequestedEventHandler>(
                 [this](ICoreWebView2*, ICoreWebView2NewWindowRequestedEventArgs* args) -> HRESULT {
                     if (!m_zlibActive) return S_OK;
+                    // 这里 Handled(TRUE) 即取消弹窗（NewWindowRequestedEventArgs 没有
+                    // Cancel），所以被吞掉的那次点击不会偷偷下载。
                     if (m_zlibDlInProgress) { args->put_Handled(TRUE); return S_OK; }
                     LPWSTR uriRaw = nullptr;
                     if (FAILED(args->get_Uri(&uriRaw)) || !uriRaw) return S_OK;
@@ -486,8 +511,16 @@ void ZLibraryService::SetupDownloadHandler()
             Callback<ICoreWebView2DownloadStartingEventHandler>(
                 [this](ICoreWebView2*, ICoreWebView2DownloadStartingEventArgs* args) -> HRESULT {
                     if (!m_zlibActive) return S_OK;
-                    if (m_zlibDlInProgress) { args->put_Handled(TRUE); return S_OK; }
+                    if (m_zlibDlInProgress) {
+                        // 看门狗：超过 10 分钟仍未归，说明上一个下载线程没跑完（旧路径里
+                        // DNS 可无限等待）。继续早退会让用户点下载一直"零反应"。
+                        if (std::chrono::steady_clock::now() - m_dlStartedAt > std::chrono::minutes(10)) {
+                            m_zlibDlInProgress = false;
+                        }
+                    }
+                    if (m_zlibDlInProgress) { args->put_Handled(TRUE); args->put_Cancel(TRUE); return S_OK; }
                     m_zlibDlInProgress = true;
+                    m_dlStartedAt = std::chrono::steady_clock::now();
                     m_pendingDownloadUri.clear();
 
                     ComPtr<ICoreWebView2DownloadOperation> op;
@@ -496,7 +529,22 @@ void ZLibraryService::SetupDownloadHandler()
                     std::string uri;
                     if (SUCCEEDED(op->get_Uri(&uriRaw)) && uriRaw) { uri = ToNarrow(uriRaw); CoTaskMemFree(uriRaw); }
 
-                    std::string fileName = "download";
+                    // 文件名优先取 WebView2 给出的建议落盘名：它已按服务端
+                    // Content-Disposition 定名并做过净化。此前只认 URL 里的 filename=
+                    // 参数，取不到就落成无扩展名的 "download" → 导入时格式判空 →
+                    // 必然失败（相对已删除的 Electron 版是回归）。
+                    std::string fileName;
+                    {
+                        LPWSTR rpRaw = nullptr;
+                        if (SUCCEEDED(op->get_ResultFilePath(&rpRaw)) && rpRaw) {
+                            std::string full = ToNarrow(rpRaw);
+                            CoTaskMemFree(rpRaw);
+                            size_t sl = full.find_last_of("\\/");
+                            std::string base = (sl == std::string::npos) ? full : full.substr(sl + 1);
+                            if (!base.empty() && base.find('.') != std::string::npos) fileName = base;
+                        }
+                    }
+                    if (fileName.empty()) fileName = "download";
                     size_t fnp = uri.find("filename=");
                     if (fnp != std::string::npos) {
                         std::string fn = uri.substr(fnp + 9);
@@ -511,7 +559,8 @@ void ZLibraryService::SetupDownloadHandler()
                             } else if (fn[i] == '+') dec += ' ';
                             else dec += fn[i];
                         }
-                        if (!dec.empty()) fileName = dec;
+                        // 只有在上面没拿到可用名时才用 URL 参数（它常常没有扩展名）
+                        if (!dec.empty() && fileName == "download") fileName = dec;
                     }
                     if (fileName.size() > 150) {
                         size_t maxLen = 140;
@@ -525,6 +574,11 @@ void ZLibraryService::SetupDownloadHandler()
                     }
 
                     args->put_Handled(TRUE);
+                    // 必须同时 Cancel：Handled 只表示「不显示默认 UI」，下载仍会照常进行
+                    // （WebView2 文档原话），结果每本书被完整下载两遍、用户 Downloads 里
+                    // 还会多出一份未管理的重复文件。我们的 WinHTTP 接管此时已拿到所需
+                    // 信息（URI/文件名/Cookie 随后单独取），可以安全取消 WebView2 那份。
+                    args->put_Cancel(TRUE);
 
                     // Get cookies, then download via WinHTTP
                     ComPtr<ICoreWebView2_2> wv2;
@@ -605,6 +659,10 @@ void ZLibraryService::StartDownloadThread(const std::string& startUrl, const std
 
             HINTERNET hS = WinHttpOpen(L"PB/1.9", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, nullptr, nullptr, 0);
             if (!hS) { fail("http_open_failed"); return; }
+            // 必须显式设超时：WinHTTP 的 resolve 超时默认是【0 = 无限等待】，
+            // DNS 无响应时这个下载线程会永远不返回 —— 下载卡片永远停在「准备下载…」，
+            // 而且标志位 m_zlibDlInProgress 卡在 true，此后所有下载都会被静默吞掉。
+            WinHttpSetTimeouts(hS, 10000, 10000, 10000, 30000);
             HINTERNET hC = WinHttpConnect(hS, ToWide(host).c_str(), https ? 443 : 0, 0);
             if (!hC) { WinHttpCloseHandle(hS); fail("connect_failed"); return; }
             HINTERNET hR = WinHttpOpenRequest(hC, L"GET", ToWide(path).c_str(), nullptr, nullptr, nullptr,
@@ -641,7 +699,9 @@ void ZLibraryService::StartDownloadThread(const std::string& startUrl, const std
                 }
             }
 
-            if (sc >= 400) {
+            // 走到这里还看到 3xx，说明这个重定向没能被跟随（上面只处理了 301/302）；
+            // 绝不能再把跳转页的正文当成书收下。
+            if (sc >= 300) {
                 WinHttpCloseHandle(hR); WinHttpCloseHandle(hC); WinHttpCloseHandle(hS);
                 fail("http_" + std::to_string(sc));
                 return;
@@ -659,9 +719,21 @@ void ZLibraryService::StartDownloadThread(const std::string& startUrl, const std
                 return;
             }
 
-            char buf[65536]; DWORD br; int64_t tr = 0, lp = 0;
-            while (WinHttpReadData(hR, buf, sizeof(buf), &br) && br > 0) {
-                DWORD wr; WriteFile(hFile, buf, br, &wr, nullptr);
+            char buf[65536]; int64_t tr = 0, lp = 0;
+            char head[64] = {}; size_t headLen = 0;
+            bool readFailed = false, writeFailed = false;
+            for (;;) {
+                DWORD br = 0;
+                // 读失败与"正常读完"在旧写法里无法区分（都是循环结束），必须分开判
+                if (!WinHttpReadData(hR, buf, sizeof(buf), &br)) { readFailed = true; break; }
+                if (br == 0) break;
+                if (headLen < sizeof(head)) {
+                    size_t take = (sizeof(head) - headLen < br) ? (sizeof(head) - headLen) : (size_t)br;
+                    std::memcpy(head + headLen, buf, take);
+                    headLen += take;
+                }
+                DWORD wr = 0;
+                if (!WriteFile(hFile, buf, br, &wr, nullptr) || wr != br) { writeFailed = true; break; }
                 tr += br;
                 if (hwnd && tr - lp >= 262144) {
                     auto* pd = new DLProgress{fn, tr, total};
@@ -676,10 +748,31 @@ void ZLibraryService::StartDownloadThread(const std::string& startUrl, const std
             CloseHandle(hFile);
             WinHttpCloseHandle(hR); WinHttpCloseHandle(hC); WinHttpCloseHandle(hS);
 
-            if (tr > 0 && hwnd) {
+            // 四道校验，任何一道不过都删掉半截文件并报错 —— 此前只看 tr > 0，
+            // 于是"截断的文件""3xx 跳转页""会话过期的登录 HTML"都会被当成功导入，
+            // 用户看到绿勾却得到一本打不开的书。
+            if (readFailed || writeFailed) {
+                RemovePartialFile(downloadPath);
+                fail(writeFailed ? "file_write_failed" : "network_error");
+                return;
+            }
+            if (tr <= 0) { RemovePartialFile(downloadPath); fail("empty_response"); return; }
+            if (total > 0 && tr < total) {
+                RemovePartialFile(downloadPath);
+                fail("incomplete_download");
+                return;
+            }
+            if (LooksLikeHtml(head, headLen)) {
+                RemovePartialFile(downloadPath);
+                fail("not_a_book");
+                return;
+            }
+
+            if (hwnd) {
                 auto* d = new std::pair<std::string, std::string>(downloadPath, fn);
                 PostMessage(hwnd, WM_ZLIB_DOWNLOAD_DONE, 1, reinterpret_cast<LPARAM>(d));
             } else {
+                RemovePartialFile(downloadPath);
                 fail("empty_response");
             }
             return;
