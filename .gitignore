@@ -7,3 +7,6 @@ dist/
 *.blockmap
 particlebook-cpp/build2/
 debug.log
+
+# 工作区记忆：本地会话笔记，非产品内容，不入库
+MEMORY.md
