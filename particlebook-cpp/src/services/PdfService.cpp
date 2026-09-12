@@ -383,7 +383,7 @@ std::string PdfService::ExtractText(int id)
 
     std::string output;
     // Use draw -F text which outputs plain text with form-feed page breaks
-    std::string args = "draw -F text -o - \"" + entry->filePath + "\"";
+    std::string args = "draw -F text -o - " + pb::WideToUtf8(pb::QuoteCmdArg(pb::Utf8ToWide(entry->filePath)).c_str());
     if (!RunMutool(args, output, 60000)) return "";
 
     // Split by form feed to get text per page
