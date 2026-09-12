@@ -116,6 +116,111 @@ export const types = [
       '  updated_at?: string'
     ]
   }
+  ,
+  {
+    name: 'PbSettings',
+    body: [
+      '  // 键与渲染层 SETTINGS_KEYS 一致；数据库初值为空对象，故全部可选。',
+      "  theme?: 'light' | 'dark' | 'sepia'",
+      "  accentColor?: 'blue' | 'purple' | 'green' | 'orange'",
+      '  fontSize?: number',
+      '  fontFamily?: string',
+      '  lineHeight?: number',
+      '  margin?: number',
+      "  textAlign?: 'left' | 'justify'",
+      '  autoSaveProgress?: boolean',
+      '  showReadingTime?: boolean',
+      "  defaultViewMode?: 'grid' | 'list'",
+      "  defaultSortBy?: 'title' | 'author' | 'added_at' | 'last_opened'",
+      "  language?: 'zh' | 'en'"
+    ]
+  },
+  {
+    name: 'PbBookSourceInput',
+    body: [
+      '  // Legado 书源格式：应用只解释这三个字段，其余规则字段原样存取，',
+      '  // 保留字符串索引签名而不是假装穷举了外部规范。',
+      '  bookSourceName: string',
+      '  bookSourceUrl: string',
+      '  enabled?: boolean',
+      '  [key: string]: unknown'
+    ]
+  },
+  { name: 'PbBookSource', extends: 'PbBookSourceInput', body: ['  id: number', '  added_at?: string'] },
+  {
+    name: 'PbSourceSearchResult',
+    body: [
+      '  // bookName 必需：SearchOne 只推送 nameRule 命中且非空的条目',
+      '  // （见 BookSourceService::SearchOne 的 push 守卫）；其余字段取决于规则是否命中。',
+      '  bookName: string',
+      '  author?: string',
+      '  bookUrl?: string',
+      '  coverUrl?: string'
+    ]
+  },
+  {
+    name: 'PbSearchResult',
+    extends: 'PbSourceSearchResult',
+    body: [
+      '  // SearchAll 在每条结果上补的来源信息（跨源搜索时用于区分与下载）。',
+      '  sourceId: number',
+      '  sourceName: string'
+    ]
+  },
+  {
+    name: 'PbBookInfo',
+    body: [
+      '  bookUrl: string',
+      '  bookName?: string',
+      '  author?: string',
+      '  coverUrl?: string',
+      '  intro?: string',
+      '  tocUrl?: string'
+    ]
+  },
+  { name: 'PbChapter', body: ['  name: string', '  url: string'] },
+  {
+    name: 'PbDownloadProgress',
+    body: [
+      '  // downloading 阶段带 chapterName；done/error 阶段带 bookId。',
+      '  // 注意：C++ 目前只发出 downloading / done / error，且失败事件不带 error 字段；',
+      '  // 其余取值与 error 是 UI 已实现、后端尚未发出的部分，保留以免丢失既有意图',
+      '  // （后果：下载失败时原因显示为空）。',
+      "  status: 'fetching_toc' | 'downloading' | 'assembling' | 'importing' | 'done' | 'error'",
+      '  current: number',
+      '  total: number',
+      '  chapterName?: string',
+      '  bookId?: number',
+      '  error?: string'
+    ]
+  },
+  {
+    name: 'PbUpdateInfo',
+    body: [
+      '  version: string',
+      '  fileName: string',
+      '  downloadUrl: string',
+      '  size: number',
+      '  sha512: string'
+    ]
+  },
+  {
+    name: 'PbBookMetadata',
+    body: [
+      '  // 未知格式时 C++ 返回空对象，故全部可选。',
+      '  title?: string',
+      '  author?: string',
+      '  language?: string',
+      '  format?: string'
+    ]
+  },
+  { name: 'PbPdfText', body: ['  pages: { pageNum: number; text: string }[]'] },
+  { name: 'PbZlibDownloadProgress', body: ['  fileName: string', '  received: number', '  total: number'] },
+  { name: 'PbZlibDownloadComplete', body: ['  fileName: string', '  path: string'] },
+  { name: 'PbZlibImportComplete', body: ['  fileName: string'] },
+  { name: 'PbZlibImportError', body: ['  fileName: string', '  error: string'] },
+  { name: 'PbUpdateDownloaded', body: ['  success: boolean', '  path: string'] },
+  { name: 'PbUpdateError', body: ['  error: string'] }
 ]
 
 export const contract = [
@@ -146,7 +251,7 @@ export const contract = [
     kind: "invoke",
     group: "Files",
     params: [{ n: "filePath", t: "string" }],
-    returns: "Promise<any>"
+    returns: "Promise<PbBookMetadata>"
   },
   {
     member: "importBooks", method: "book:import",
@@ -196,7 +301,7 @@ export const contract = [
     kind: "invoke",
     group: "PDF",
     params: [{ n: "id", t: "number" }],
-    returns: "Promise<any>"
+    returns: "Promise<PbPdfText | null>"
   },
   {
     member: "pdfClose", method: "pdf:close",
@@ -327,13 +432,13 @@ export const contract = [
     kind: "invoke",
     group: "Settings",
     params: [],
-    returns: "Promise<any>"
+    returns: "Promise<PbSettings>"
   },
   {
     member: "updateSettings", method: "db:updateSettings",
     kind: "invoke",
     group: "Settings",
-    params: [{ n: "settings", t: "any" }],
+    params: [{ n: "settings", t: "PbSettings" }],
     returns: "Promise<void>"
   },
   {
@@ -341,20 +446,20 @@ export const contract = [
     kind: "invoke",
     group: "Settings",
     params: [{ n: "lang", t: "string" }],
-    returns: "Promise<any>"
+    returns: "Promise<boolean>"
   },
   {
     member: "getBookSettings", method: "db:getBookSettings",
     kind: "invoke",
     group: "Settings",
     params: [{ n: "bookId", t: "number" }],
-    returns: "Promise<any>"
+    returns: "Promise<PbSettings>"
   },
   {
     member: "updateBookSettings", method: "db:updateBookSettings",
     kind: "invoke",
     group: "Settings",
-    params: [{ n: "bookId", t: "number" }, { n: "settings", t: "any" }],
+    params: [{ n: "bookId", t: "number" }, { n: "settings", t: "PbSettings" }],
     returns: "Promise<void>"
   },
   {
@@ -435,27 +540,27 @@ export const contract = [
     kind: "invoke",
     group: "Book Sources",
     params: [],
-    returns: "Promise<any[]>"
+    returns: "Promise<PbBookSource[]>"
   },
   {
     member: "getBookSource", method: "bookSource:get",
     kind: "invoke",
     group: "Book Sources",
     params: [{ n: "id", t: "number" }],
-    returns: "Promise<any>"
+    returns: "Promise<PbBookSource | null>"
   },
   {
     member: "insertBookSource", method: "bookSource:insert",
     kind: "invoke",
     group: "Book Sources",
-    params: [{ n: "source", t: "any" }],
-    returns: "Promise<any>"
+    params: [{ n: "source", t: "PbBookSourceInput" }],
+    returns: "Promise<PbBookSource>"
   },
   {
     member: "updateBookSource", method: "bookSource:update",
     kind: "invoke",
     group: "Book Sources",
-    params: [{ n: "id", t: "number" }, { n: "updates", t: "any" }],
+    params: [{ n: "id", t: "number" }, { n: "updates", t: "Partial<PbBookSourceInput>" }],
     returns: "Promise<void>"
   },
   {
@@ -491,28 +596,28 @@ export const contract = [
     kind: "invoke",
     group: "Book Sources",
     params: [{ n: "keyword", t: "string" }, { n: "page", t: "number", o: true }],
-    returns: "Promise<any[]>"
+    returns: "Promise<PbSearchResult[]>"
   },
   {
     member: "searchBooksFromSource", method: "bookSource:searchOne",
     kind: "invoke",
     group: "Book Sources",
     params: [{ n: "sourceId", t: "number" }, { n: "keyword", t: "string" }, { n: "page", t: "number", o: true }],
-    returns: "Promise<any[]>"
+    returns: "Promise<PbSourceSearchResult[]>"
   },
   {
     member: "getBookInfoFromSource", method: "bookSource:getBookInfo",
     kind: "invoke",
     group: "Book Sources",
     params: [{ n: "sourceId", t: "number" }, { n: "bookUrl", t: "string" }],
-    returns: "Promise<any>"
+    returns: "Promise<PbBookInfo>"
   },
   {
     member: "getChapterListFromSource", method: "bookSource:getChapterList",
     kind: "invoke",
     group: "Book Sources",
     params: [{ n: "sourceId", t: "number" }, { n: "tocUrl", t: "string" }],
-    returns: "Promise<any[]>"
+    returns: "Promise<PbChapter[]>"
   },
   {
     member: "downloadBook", method: "bookSource:download",
@@ -525,7 +630,7 @@ export const contract = [
     member: "onDownloadProgress", method: "bookSource:downloadProgress",
     kind: "event",
     group: "Book Sources",
-    params: [{ n: "callback", t: "(progress: any) => void" }],
+    params: [{ n: "callback", t: "(progress: PbDownloadProgress) => void" }],
     returns: "() => void"
   },
   // ── Z-Library ──
@@ -610,28 +715,28 @@ export const contract = [
     member: "onZlibDownloadProgress", method: "zlib:downloadProgress",
     kind: "event",
     group: "Z-Library",
-    params: [{ n: "callback", t: "(progress: any) => void" }],
+    params: [{ n: "callback", t: "(progress: PbZlibDownloadProgress) => void" }],
     returns: "() => void"
   },
   {
     member: "onZlibDownloadComplete", method: "zlib:downloadComplete",
     kind: "event",
     group: "Z-Library",
-    params: [{ n: "callback", t: "(data: any) => void" }],
+    params: [{ n: "callback", t: "(data: PbZlibDownloadComplete) => void" }],
     returns: "() => void"
   },
   {
     member: "onZlibImportComplete", method: "zlib:importComplete",
     kind: "event",
     group: "Z-Library",
-    params: [{ n: "callback", t: "(data: any) => void" }],
+    params: [{ n: "callback", t: "(data: PbZlibImportComplete) => void" }],
     returns: "() => void"
   },
   {
     member: "onZlibImportError", method: "zlib:importError",
     kind: "event",
     group: "Z-Library",
-    params: [{ n: "callback", t: "(data: any) => void" }],
+    params: [{ n: "callback", t: "(data: PbZlibImportError) => void" }],
     returns: "() => void"
   },
   {
@@ -712,7 +817,7 @@ export const contract = [
     kind: "invoke",
     group: "Auto Updater",
     params: [],
-    returns: "Promise<any>"
+    returns: "Promise<PbUpdateInfo | null>"
   },
   {
     member: "getAppVersion", method: "app:getVersion",
@@ -726,27 +831,27 @@ export const contract = [
     kind: "invoke",
     group: "Auto Updater",
     params: [{ n: "url", t: "string" }, { n: "sha512", t: "string", o: true }],
-    returns: "Promise<any>"
+    returns: "Promise<boolean | null>"
   },
   {
     member: "quitAndInstall", method: "app:quitAndInstall",
     kind: "invoke",
     group: "Auto Updater",
     params: [],
-    returns: "Promise<any>"
+    returns: "Promise<boolean>"
   },
   {
     member: "onUpdateAvailable", method: "app:updateAvailable",
     kind: "event",
     group: "Auto Updater",
-    params: [{ n: "callback", t: "(info: any) => void" }],
+    params: [{ n: "callback", t: "(info: PbUpdateInfo) => void" }],
     returns: "() => void"
   },
   {
     member: "onUpdateChecked", method: "app:updateChecked",
     kind: "event",
     group: "Auto Updater",
-    params: [{ n: "callback", t: "(info: any) => void" }],
+    params: [{ n: "callback", t: "(info: PbUpdateInfo | null) => void" }],
     returns: "() => void"
   },
   {

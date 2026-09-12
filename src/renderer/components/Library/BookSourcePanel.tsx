@@ -33,7 +33,7 @@ export function BookSourcePanel({ onClose, isClosing }: BookSourcePanelProps) {
     const key = `${result.sourceId}-${result.bookUrl}`
     setDownloadingId(key)
     try {
-      await startDownload(result.sourceId, result.bookUrl, result.name)
+      await startDownload(result.sourceId, result.bookUrl ?? '', result.bookName)
     } finally {
       setDownloadingId(null)
       setTimeout(() => resetDownload(), 3000)
@@ -176,7 +176,7 @@ export function BookSourcePanel({ onClose, isClosing }: BookSourcePanelProps) {
                         {/* Cover placeholder */}
                         <div className="w-12 h-16 rounded-lg overflow-hidden flex-shrink-0 bg-[var(--reader-border)]">
                           {result.coverUrl ? (
-                            <img src={result.coverUrl} alt={result.name} className="w-full h-full object-cover" />
+                            <img src={result.coverUrl} alt={result.bookName} className="w-full h-full object-cover" />
                           ) : (
                             <div className="w-full h-full flex items-center justify-center text-[var(--reader-text)] opacity-20 text-xs">
                               <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -188,15 +188,10 @@ export function BookSourcePanel({ onClose, isClosing }: BookSourcePanelProps) {
 
                         {/* Info */}
                         <div className="flex-1 min-w-0">
-                          <div className="text-sm text-[var(--reader-text)] font-medium truncate">{result.name}</div>
+                          <div className="text-sm text-[var(--reader-text)] font-medium truncate">{result.bookName}</div>
                           <div className="text-xs text-[var(--reader-text)] opacity-50 truncate">
                             {result.author || t('未知作者')} · {result.sourceName}
                           </div>
-                          {result.lastChapter && (
-                            <div className="text-xs text-[var(--reader-text)] opacity-40 truncate mt-0.5">
-                              {t('最新: {{chapter}}', { chapter: result.lastChapter })}
-                            </div>
-                          )}
                         </div>
 
                         {/* Download button */}
