@@ -35,6 +35,8 @@ public:
 
     using MoveCallback = std::function<void()>;
     void SetMoveCallback(MoveCallback cb) { m_moveCb = std::move(cb); }
+    // 是否忽略证书错误（仅 Z-Library 会话期间置 true；见 WebViewHost.cpp 的说明）
+    void SetAllowUntrustedCerts(bool on) { m_allowUntrustedCerts = on; }
 
     using DownloadCallback = std::function<void(const std::string& path, const std::string& fileName)>;
     void SetDownloadCallback(DownloadCallback cb) { m_dlCb = std::move(cb); }
@@ -79,6 +81,7 @@ private:
 
     MessageHandler m_msgHandler;
     MoveCallback m_moveCb;
+    bool m_allowUntrustedCerts = false;
     DownloadCallback m_dlCb;
     DownloadProgressCb m_dlProgressCb;
     ImportCallback m_importCb;

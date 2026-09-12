@@ -229,8 +229,11 @@ json ZLibraryService::SwitchMirror(int index) {
 
 json ZLibraryService::Show() {
     m_zlibActive = true;
+    // 证书错误的放行只在 Z-Library 会话期间开启（镜像会重定向到无法预先枚举的
+    // 中转域，其证书自签/链不受信任）；退出会话即关闭，应用自身页面不再忽略证书。
+    if (m_host) m_host->SetAllowUntrustedCerts(true);
     m_zlibDlInProgress = false;
-    m_pendingDownloadUri.clear();
+    // （m_pendingDownloadUri 已随"一次性放行"一并移除）
     SetupDownloadHandler();
 
     // Load saved download path from database settings
@@ -262,7 +265,10 @@ json ZLibraryService::Show() {
 
 json ZLibraryService::Hide() {
     m_zlibActive = false;
-    if (m_host) m_host->ReloadPage();
+    if (m_host) {
+        m_host->SetAllowUntrustedCerts(false);
+        m_host->ReloadPage();
+    }
     return json(nullptr);
 }
 
@@ -285,13 +291,20 @@ json ZLibraryService::GetURL() {
 
 json ZLibraryService::SetBounds(int, int, int, int) { return json(nullptr); }
 json ZLibraryService::Logout() {
-    m_zlibActive = false;
-    if (m_host && m_host->GetWebView()) {
-        std::string url;
-        { std::lock_guard<std::mutex> lk(m_mirrorMutex); url = m_mirrors[m_currentMirror]; }
-        m_host->GetWebView()->Navigate(ToWide(url).c_str());
+    // 真正的退出登录：清掉 WebView2 里保存的会话 Cookie。此前只是导航回镜像首页，
+    // Cookie 原封不动 —— 共享电脑上等于没退出（而"登录状态持久保存"是刻意设计，
+    // 所以更需要一个能主动清除的入口）。
+    auto* wv = m_host ? m_host->GetWebView() : nullptr;
+    if (wv) {
+        ComPtr<ICoreWebView2_2> wv2;
+        if (SUCCEEDED(wv->QueryInterface(IID_PPV_ARGS(&wv2)))) {
+            ComPtr<ICoreWebView2CookieManager> cm;
+            if (SUCCEEDED(wv2->get_CookieManager(&cm)) && cm) {
+                cm->DeleteAllCookies();
+            }
+        }
     }
-    return json(nullptr);
+    return Hide();   // 顺带关闭会话与证书放行，并回到书架
 }
 
 std::string ZLibraryService::GetDownloadPath() const
@@ -417,8 +430,6 @@ void ZLibraryService::SetupDownloadHandler()
                     LPWSTR uriRaw = nullptr;
                     if (FAILED(args->get_Uri(&uriRaw)) || !uriRaw) return S_OK;
                     args->put_Handled(TRUE); // cancel popup
-                    // Store pending URL for one-shot pass through NavigationStarting
-                    m_pendingDownloadUri = ToNarrow(uriRaw);
                     // Navigate main window — DownloadStarting will intercept
                     if (m_host && m_host->GetWebView())
                         m_host->GetWebView()->Navigate(uriRaw);
@@ -441,14 +452,13 @@ void ZLibraryService::SetupDownloadHandler()
                     std::string uri = ToNarrow(uriRaw);
                     CoTaskMemFree(uriRaw);
 
-                    // One-shot pass for pending download URL from NewWindowRequested
-                    if (!m_pendingDownloadUri.empty()) {
-                        if (uri == m_pendingDownloadUri) {
-                            m_pendingDownloadUri.clear();
-                            return S_OK;
-                        }
-                    }
-
+                    // 这里原本有一个"一次性放行"：NewWindowRequested 会把待下载 URL 记下来，
+                    // 命中就 return S_OK。但它排在下面这行协议检查【之前】，而该 URL 完全由
+                    // 页面决定（抄自 window.open），于是 blob:/about:blank 之类可以借此绕过
+                    // 拦截。而 http/https 本来就被允许，这个机制如今只剩绕过作用，故删除。
+                    // （若将来恢复"仅限镜像域"的白名单，下载 URL 的放行必须重新加回，
+                    //  且必须放在协议检查之后。）
+                    //
                     // Allow http/https (including mirror redirects to transit domains).
                     // Block everything else (file:, javascript:, data:, ...) as a safety net.
                     bool safe = (uri.rfind("http://", 0) == 0) || (uri.rfind("https://", 0) == 0);
@@ -521,7 +531,7 @@ void ZLibraryService::SetupDownloadHandler()
                     if (m_zlibDlInProgress) { args->put_Handled(TRUE); args->put_Cancel(TRUE); return S_OK; }
                     m_zlibDlInProgress = true;
                     m_dlStartedAt = std::chrono::steady_clock::now();
-                    m_pendingDownloadUri.clear();
+                    // （m_pendingDownloadUri 已随"一次性放行"一并移除）
 
                     ComPtr<ICoreWebView2DownloadOperation> op;
                     if (FAILED(args->get_DownloadOperation(&op))) { m_zlibDlInProgress = false; return S_OK; }
@@ -711,7 +721,11 @@ void ZLibraryService::StartDownloadThread(const std::string& startUrl, const std
             WinHttpQueryHeaders(hR, WINHTTP_QUERY_CONTENT_LENGTH | WINHTTP_QUERY_FLAG_NUMBER, nullptr, &cl, &sz, nullptr);
             int64_t total = cl;
 
-            HANDLE hFile = CreateFileW(ToWide(downloadPath).c_str(), GENERIC_WRITE, 0, nullptr,
+            // 先写 .part，全部校验通过后再改名到最终路径：此前直接以最终名
+            // CREATE_ALWAYS 落盘，重下同名书会先把旧文件截断，一旦这次失败，
+            // 原来那本好书也跟着毁了。
+            const std::string tmpPath = downloadPath + ".part";
+            HANDLE hFile = CreateFileW(ToWide(tmpPath).c_str(), GENERIC_WRITE, 0, nullptr,
                 CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
             if (hFile == INVALID_HANDLE_VALUE) {
                 WinHttpCloseHandle(hR); WinHttpCloseHandle(hC); WinHttpCloseHandle(hS);
@@ -752,19 +766,27 @@ void ZLibraryService::StartDownloadThread(const std::string& startUrl, const std
             // 于是"截断的文件""3xx 跳转页""会话过期的登录 HTML"都会被当成功导入，
             // 用户看到绿勾却得到一本打不开的书。
             if (readFailed || writeFailed) {
-                RemovePartialFile(downloadPath);
+                RemovePartialFile(tmpPath);
                 fail(writeFailed ? "file_write_failed" : "network_error");
                 return;
             }
-            if (tr <= 0) { RemovePartialFile(downloadPath); fail("empty_response"); return; }
+            if (tr <= 0) { RemovePartialFile(tmpPath); fail("empty_response"); return; }
             if (total > 0 && tr < total) {
-                RemovePartialFile(downloadPath);
+                RemovePartialFile(tmpPath);
                 fail("incomplete_download");
                 return;
             }
             if (LooksLikeHtml(head, headLen)) {
-                RemovePartialFile(downloadPath);
+                RemovePartialFile(tmpPath);
                 fail("not_a_book");
+                return;
+            }
+
+            // 全部校验通过 —— 这才动最终文件
+            if (!MoveFileExW(ToWide(tmpPath).c_str(), ToWide(downloadPath).c_str(),
+                             MOVEFILE_REPLACE_EXISTING)) {
+                RemovePartialFile(tmpPath);
+                fail("file_write_failed");
                 return;
             }
 

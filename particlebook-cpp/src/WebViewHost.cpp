@@ -278,17 +278,22 @@ void WebViewHost::OnWebViewCreated(HRESULT hr, ICoreWebView2Controller* controll
     }
 
     // Z-Library mirrors redirect to unlabeled transit domains (e.g. msn101.ru)
-    // whose certs are self-signed or chain to roots the system doesn't trust.
-    // Scoped ALWAYS_ALLOW (active-session-only, host whitelist, or cached-clear)
-    // all regress the primary feature because transit hosts can't be enumerated
-    // reliably — so keep the unconditional allow. This is a known design
-    // trade-off: we're loading a book site, not handling sensitive data.
+    // whose certs are self-signed or chain to roots the system doesn't trust, and
+    // those hosts can't be enumerated reliably — so a host whitelist isn't viable.
+    //
+    // 但"不处理敏感数据"这个理由不成立：用户正是在这个 WebView 里输入 Z-Library
+    // 账号密码，全局放行等于让中间人可以伪造登录页。因此把放行【限定在 Z-Library
+    // 会话期间】（ZLibraryService::Show/Hide 负责开关）：应用自身页面与任何非会话
+    // 浏览不再忽略证书错误。残余风险见 MEMORY.md（会话期间的任意主机仍会放行）。
     ComPtr<ICoreWebView2_14> wv14;
     if (SUCCEEDED(m_webview.As(&wv14))) {
         wv14->add_ServerCertificateErrorDetected(
             Callback<ICoreWebView2ServerCertificateErrorDetectedEventHandler>(
-                [](ICoreWebView2*, ICoreWebView2ServerCertificateErrorDetectedEventArgs* args) -> HRESULT {
-                    args->put_Action(COREWEBVIEW2_SERVER_CERTIFICATE_ERROR_ACTION_ALWAYS_ALLOW);
+                [this](ICoreWebView2*, ICoreWebView2ServerCertificateErrorDetectedEventArgs* args) -> HRESULT {
+                    if (m_allowUntrustedCerts) {
+                        args->put_Action(COREWEBVIEW2_SERVER_CERTIFICATE_ERROR_ACTION_ALWAYS_ALLOW);
+                    }
+                    // 非会话期间不设 Action → 交给 WebView2 默认处理（不放行）
                     return S_OK;
                 }).Get(), nullptr);
     }

@@ -81,6 +81,10 @@ void App::Init(HINSTANCE hInstance)
         "+'<button id=zb-reload><svg width=16 height=16 viewBox=\"0 0 24 24\" fill=none stroke=currentColor stroke-width=2><path d=\"M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15\"/></svg></button>'"
         "+'<span class=sep></span><span class=u id=zb-url></span><span class=sep></span>'"
         "+'<button id=zb-mirror style=font-size:11px;padding:4px 8px;border-radius:6px;width:auto;height:28px>'+(window.__pbLang==='en'?'Line':'线路')+'</button>'"
+        // 退出登录：清掉 WebView2 里的会话 Cookie 后回到书架（此前这个按钮在工具栏
+        // 重写时丢了，zlib:logout 变成没人调用的死接口）
+        "+'<button id=zb-logout title='+(window.__pbLang==='en'?'Sign out':'退出登录')+'>'"
+        "+'<svg width=16 height=16 viewBox=\"0 0 24 24\" fill=none stroke=currentColor stroke-width=2><path d=\"M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1\"/></svg></button>'"
         "+'<span class=sep></span><button id=zb-close style=color:rgba(255,100,100,0.8)>'"
         "+'<svg width=16 height=16 viewBox=\"0 0 24 24\" fill=none stroke=currentColor stroke-width=2><path d=\"M6 18L18 6M6 6l12 12\"/></svg></button>'}"
         "var b=document.createElement('div');b.id='zlib-bar';b.style.display='flex';b.innerHTML=_svgs();"
@@ -93,6 +97,7 @@ void App::Init(HINSTANCE hInstance)
         "document.getElementById('zb-fwd').onclick=function(){window.chrome.webview.postMessage(JSON.stringify({type:'zlibNavigate',action:'forward'}))};"
         "document.getElementById('zb-reload').onclick=function(){window.chrome.webview.postMessage(JSON.stringify({type:'zlibNavigate',action:'reload'}))};"
         "document.getElementById('zb-close').onclick=function(){window.chrome.webview.postMessage(JSON.stringify({type:'zlibClose'}))};"
+        "var _lo=document.getElementById('zb-logout');if(_lo)_lo.onclick=function(){window.chrome.webview.postMessage(JSON.stringify({type:'zlibLogout'}))};"
         // Mirror selection popup
         "var _mp=null;"
         "document.getElementById('zb-mirror').onclick=function(){"

@@ -107,6 +107,12 @@ void BridgeServer::HandleMessage(const std::string& rawJson, const std::string& 
             if (it != m_methods.end()) {
                 try { it->second(json::object()); } catch (...) {}
             }
+        } else if (type == "zlibLogout") {
+            if (origin == MsgOrigin::Unknown) return;
+            auto it = m_methods.find("zlib:logout");
+            if (it != m_methods.end()) {
+                try { it->second(json::object()); } catch (...) {}
+            }
         } else if (type == "zlibSwitchTo") {
             if (origin == MsgOrigin::Unknown) return;
             auto it = m_methods.find("zlib:switchMirror");

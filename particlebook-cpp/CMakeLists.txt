@@ -88,13 +88,6 @@ add_custom_command(TARGET ParticleBook POST_BUILD
         "$<TARGET_FILE_DIR:ParticleBook>"
 )
 
-# Copy Z-Library toolbar script to output
-add_custom_command(TARGET ParticleBook POST_BUILD
-    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
-        "${CMAKE_SOURCE_DIR}/src/zlib_toolbar.js"
-        "$<TARGET_FILE_DIR:ParticleBook>/zlib_toolbar.js"
-)
-
 # Copy mutool.exe for MuPDF PDF rendering
 add_custom_command(TARGET ParticleBook POST_BUILD
     COMMAND "${CMAKE_COMMAND}" -E copy_if_different

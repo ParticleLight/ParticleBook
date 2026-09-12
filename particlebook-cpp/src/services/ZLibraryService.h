@@ -61,7 +61,6 @@ private:
     DatabaseService* m_db = nullptr;
     std::vector<std::string> m_mirrors;
     int m_currentMirror = 0;
-    std::string m_pendingDownloadUri;
     std::string m_currentUrl;
     std::string m_downloadPath;
     HWND m_hwnd = nullptr;
