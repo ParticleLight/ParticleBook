@@ -456,17 +456,41 @@ json BookSourceService::GetChapterList(int sourceId, const std::string& tocUrl)
 // ── Download ──────────────────────────────────────────────────────
 
 int BookSourceService::DownloadBook(int sourceId, const std::string& bookUrl,
-                                     const std::string& bookName, const std::string& format)
+                                     const std::string& bookName, const std::string& format,
+                                     std::string& outErrorCode)
 {
+    (void)format;  // 见头文件：仅实现 .txt 组装
+    outErrorCode.clear();
+
+    // 所有失败都必须发出终止事件，否则 UI 会一直停在「下载中」
+    // （此前五处提前 return 都不发事件，error 分支永远不会触发）。
+    // error 是机器可读码，由前端映射成本地化文案。
+    auto fail = [&](const char* code, int current, int total) -> int {
+        outErrorCode = code;
+        m_bridge->EmitEvent("bookSource:downloadProgress",
+                            {{"status", "error"},
+                             {"error", code},
+                             {"bookId", -1},
+                             {"current", current},
+                             {"total", total}});
+        return -1;
+    };
+    // 阶段状态：目录获取 / 组装 / 导入都可能耗时数十秒，用户需要反馈。
+    auto stage = [&](const char* st, int current, int total) {
+        m_bridge->EmitEvent("bookSource:downloadProgress",
+                            {{"status", st}, {"current", current}, {"total", total}});
+    };
+
     // Get chapter list
     json source = m_db->GetBookSource(sourceId);
-    if (source.is_null()) return -1;
+    if (source.is_null()) return fail("source_not_found", 0, 0);
 
+    stage("fetching_toc", 0, 0);
     json info = GetBookInfo(sourceId, bookUrl);
     std::string tocUrl = info.value("tocUrl", bookUrl);
     json chapters = GetChapterList(sourceId, tocUrl);
 
-    if (chapters.empty()) return -1;
+    if (chapters.empty()) return fail("no_chapters", 0, 0);
 
     // Download chapters with progress
     int totalChapters = static_cast<int>(chapters.size());
@@ -508,6 +532,7 @@ int BookSourceService::DownloadBook(int sourceId, const std::string& bookUrl,
     // ── Assemble into a text file & import to the bookshelf ─────────
     // Chapters live only in memory here — without persisting + importing, a
     // "download" finishes but nothing ever appears in the library.
+    stage("assembling", totalChapters, totalChapters);
     std::string text;
     text.reserve(64 * 1024);
     for (int i = 0; i < totalChapters; i++) {
@@ -518,7 +543,7 @@ int BookSourceService::DownloadBook(int sourceId, const std::string& bookUrl,
         std::string name = chapters[i].value("name", fallbackName);
         text += "# " + name + "\n\n" + chapterContents[i] + "\n\n";
     }
-    if (text.empty()) return -1;
+    if (text.empty()) return fail("empty_content", totalChapters, totalChapters);
 
     // Sanitize file name
     std::string safeName;
@@ -536,13 +561,14 @@ int BookSourceService::DownloadBook(int sourceId, const std::string& bookUrl,
     std::string filePath = dir + "\\" + safeName;
     HANDLE hFile = CreateFileW(pb::Utf8ToWide(filePath).c_str(), GENERIC_WRITE, 0, nullptr,
                                CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
-    if (hFile == INVALID_HANDLE_VALUE) return -1;
+    if (hFile == INVALID_HANDLE_VALUE) return fail("write_failed", totalChapters, totalChapters);
     DWORD written = 0;
     WriteFile(hFile, text.data(), (DWORD)text.size(), &written, nullptr);
     CloseHandle(hFile);
-    if (written != text.size()) return -1;
+    if (written != text.size()) return fail("write_failed", totalChapters, totalChapters);
 
     // Import into the library (reuses the normal import path & dedup)
+    stage("importing", totalChapters, totalChapters);
     json params;
     params["paths"] = json::array({filePath});
     json imported = m_bridge->InvokeMethod("book:import", params);
@@ -551,11 +577,15 @@ int BookSourceService::DownloadBook(int sourceId, const std::string& bookUrl,
         bookId = imported[0].value("id", -1);
     }
 
-    m_bridge->EmitEvent("bookSource:downloadProgress",
-                        {{"status", bookId > 0 ? "done" : "error"},
-                         {"bookId", bookId},
-                         {"current", totalChapters},
-                         {"total", totalChapters}});
+    if (bookId > 0) {
+        m_bridge->EmitEvent("bookSource:downloadProgress",
+                            {{"status", "done"},
+                             {"bookId", bookId},
+                             {"current", totalChapters},
+                             {"total", totalChapters}});
+    } else {
+        return fail("import_failed", totalChapters, totalChapters);
+    }
     return bookId;
 }
 
@@ -602,7 +632,8 @@ void RegisterBookSourceHandlers(BridgeServer* bridge, std::shared_ptr<BookSource
         // and the previous synchronous handler froze the window. Capturing svc
         // (shared_ptr) keeps the service alive until the download finishes.
         std::thread([svc, sourceId, bookUrl, bookName, format]() {
-            svc->DownloadBook(sourceId, bookUrl, bookName, format);
+            std::string err;
+            svc->DownloadBook(sourceId, bookUrl, bookName, format, err);
         }).detach();
         return json("started");
     });

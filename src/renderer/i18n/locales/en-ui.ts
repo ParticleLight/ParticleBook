@@ -36,6 +36,13 @@ export const enUi: Record<string, string> = {
   '正在导入书架...': 'Importing to library...',
   '下载完成！': 'Download complete!',
   '下载失败: {{error}}': 'Download failed: {{error}}',
+  // C++ 只发送机器可读错误码，这些是 BookSourcePanel 的映射目标
+  '书源不存在或已被删除': 'Book source missing or deleted',
+  '未能获取章节目录': 'Could not fetch the chapter list',
+  '章节内容为空': 'Chapter content was empty',
+  '写入文件失败': 'Failed to write the file',
+  '导入书架失败': 'Failed to import into the library',
+  '未知错误': 'Unknown error',
   '导入 JSON': 'Import JSON',
   '搜索': 'Search',
   '源管理 ({{count}})': 'Sources ({{count}})',

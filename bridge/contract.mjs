@@ -182,10 +182,10 @@ export const types = [
   {
     name: 'PbDownloadProgress',
     body: [
-      '  // downloading 阶段带 chapterName；done/error 阶段带 bookId。',
-      '  // 注意：C++ 目前只发出 downloading / done / error，且失败事件不带 error 字段；',
-      '  // 其余取值与 error 是 UI 已实现、后端尚未发出的部分，保留以免丢失既有意图',
-      '  // （后果：下载失败时原因显示为空）。',
+      '  // 阶段序列：fetching_toc -> downloading（带 chapterName）-> assembling',
+      '  //          -> importing -> done | error。done/error 带 bookId；',
+      '  // error 时 error 为机器可读错误码，由 UI 本地化：source_not_found /',
+      '  // no_chapters / empty_content / write_failed / import_failed。',
       "  status: 'fetching_toc' | 'downloading' | 'assembling' | 'importing' | 'done' | 'error'",
       '  current: number',
       '  total: number',
@@ -624,7 +624,9 @@ export const contract = [
     kind: "invoke",
     group: "Book Sources",
     params: [{ n: "sourceId", t: "number" }, { n: "bookUrl", t: "string" }, { n: "bookName", t: "string" }, { n: "format", t: "string" }],
-    returns: "Promise<number>"
+    // C++ 返回字符串 "started"（下载在后台线程跑，结果经 downloadProgress 事件回报）。
+    // 此前声明为 Promise<number> 属类型错误；渲染层不使用其返回值。
+    returns: "Promise<string>"
   },
   {
     member: "onDownloadProgress", method: "bookSource:downloadProgress",

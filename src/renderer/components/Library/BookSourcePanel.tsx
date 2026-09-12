@@ -52,6 +52,16 @@ export function BookSourcePanel({ onClose, isClosing }: BookSourcePanelProps) {
     return Math.round((p.current / p.total) * 100)
   }
 
+  // C++ 发来的是机器可读错误码（见 BookSourceService::DownloadBook 的 fail()），
+  // 在此映射成本地化文案 —— 后端不产出未翻译的用户可见字符串。
+  const DOWNLOAD_ERROR_KEYS: Record<string, string> = {
+    source_not_found: '书源不存在或已被删除',
+    no_chapters: '未能获取章节目录',
+    empty_content: '章节内容为空',
+    write_failed: '写入文件失败',
+    import_failed: '导入书架失败'
+  }
+
   const getStatusText = (p: DownloadProgress) => {
     switch (p.status) {
       case 'fetching_toc': return t('正在获取目录...')
@@ -59,7 +69,9 @@ export function BookSourcePanel({ onClose, isClosing }: BookSourcePanelProps) {
       case 'assembling': return t('正在组装文件...')
       case 'importing': return t('正在导入书架...')
       case 'done': return t('下载完成！')
-      case 'error': return t('下载失败: {{error}}', { error: p.error })
+      case 'error': return t('下载失败: {{error}}', {
+        error: t(DOWNLOAD_ERROR_KEYS[p.error ?? ''] ?? '未知错误')
+      })
       default: return ''
     }
   }

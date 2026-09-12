@@ -29,9 +29,14 @@ public:
     json GetBookInfo(int sourceId, const std::string& bookUrl);
     json GetChapterList(int sourceId, const std::string& tocUrl);
 
-    // Download with progress
+    // 下载并导入书架，带进度事件。失败返回 -1 且把机器可读的错误码写入
+    // outErrorCode（由前端本地化）；【每条失败路径都会发出 status=error 的
+    // 终止事件】，这样 UI 不会一直停在「下载中」。
+    // 注意：只实现了 .txt 组装，format 参数为接口兼容而保留、当前被忽略
+    // （渲染层固定传 "txt"）。
     int DownloadBook(int sourceId, const std::string& bookUrl,
-                     const std::string& bookName, const std::string& format);
+                     const std::string& bookName, const std::string& format,
+                     std::string& outErrorCode);
 
 private:
     // HTTP

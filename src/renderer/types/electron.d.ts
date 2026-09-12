@@ -151,10 +151,10 @@ interface PbChapter {
 }
 
 interface PbDownloadProgress {
-  // downloading 阶段带 chapterName；done/error 阶段带 bookId。
-  // 注意：C++ 目前只发出 downloading / done / error，且失败事件不带 error 字段；
-  // 其余取值与 error 是 UI 已实现、后端尚未发出的部分，保留以免丢失既有意图
-  // （后果：下载失败时原因显示为空）。
+  // 阶段序列：fetching_toc -> downloading（带 chapterName）-> assembling
+  //          -> importing -> done | error。done/error 带 bookId；
+  // error 时 error 为机器可读错误码，由 UI 本地化：source_not_found /
+  // no_chapters / empty_content / write_failed / import_failed。
   status: 'fetching_toc' | 'downloading' | 'assembling' | 'importing' | 'done' | 'error'
   current: number
   total: number
@@ -287,7 +287,7 @@ interface ElectronAPI {
   searchBooksFromSource: (sourceId: number, keyword: string, page?: number) => Promise<PbSourceSearchResult[]>
   getBookInfoFromSource: (sourceId: number, bookUrl: string) => Promise<PbBookInfo>
   getChapterListFromSource: (sourceId: number, tocUrl: string) => Promise<PbChapter[]>
-  downloadBook: (sourceId: number, bookUrl: string, bookName: string, format: string) => Promise<number>
+  downloadBook: (sourceId: number, bookUrl: string, bookName: string, format: string) => Promise<string>
   onDownloadProgress: (callback: (progress: PbDownloadProgress) => void) => () => void
 
   // Z-Library
