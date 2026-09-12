@@ -150,6 +150,16 @@ void ZLibraryService::StartMirrorFetch(std::shared_ptr<ZLibraryService> self)
     std::thread([self]() { self->FetchMirrors(); }).detach();
 }
 
+// 镜像名单来自受信任的 zz.ggonav.com，因此这里用【黑名单】而不是关键词白名单：
+// 关键词表认不出新域名 —— 实测唯一可用的 olib.pages.dev 就因为不含 zlib/z-lib 等
+// 字样被滤掉，导致应用只在旧域名之间打转（那些站点现在全是 503/超时）。
+static bool IsBlockedMirrorHost(const std::string& host) {
+    for (const auto& b : BLOCKED_DOMAINS) {
+        if (host.find(b) != std::string::npos) return true;
+    }
+    return false;
+}
+
 json ZLibraryService::FetchMirrors() {
     std::string html = FetchUrl("https://zz.ggonav.com/");
 
@@ -168,7 +178,7 @@ json ZLibraryService::FetchMirrors() {
         size_t hs = ss != std::string::npos ? ss + 3 : 0;
         size_t ps = u.find('/', hs);
         std::string host = ps != std::string::npos ? u.substr(hs, ps - hs) : u.substr(hs);
-        if (IsZlibHost(host)) {
+        if (!IsBlockedMirrorHost(host)) {
             if (u.back() != '/') u += '/';
             if (std::find(found.begin(), found.end(), u) == found.end()) found.push_back(u);
         }
@@ -182,16 +192,17 @@ json ZLibraryService::FetchMirrors() {
         size_t hs = ss != std::string::npos ? ss + 3 : 0;
         size_t ps = u.find('/', hs);
         std::string host = ps != std::string::npos ? u.substr(hs, ps - hs) : u.substr(hs);
-        if (IsZlibHost(host)) {
+        if (!IsBlockedMirrorHost(host)) {
             if (u.back() != '/') u += '/';
             if (std::find(found.begin(), found.end(), u) == found.end()) found.push_back(u);
         }
     }
 
     if (!found.empty()) {
-        // Start with fallback list, append any new mirrors from parsed list
-        std::vector<std::string> merged = FALLBACK_MIRRORS;
-        for (const auto& m : found) {
+        // 【动态拉到的排在前面】：它们才是当前可用的域名，硬编码列表是兜底。
+        // 此前顺序相反，于是默认选中的第 0 条永远是那条早已 503 的旧域名。
+        std::vector<std::string> merged = found;
+        for (const auto& m : FALLBACK_MIRRORS) {
             if (std::find(merged.begin(), merged.end(), m) == merged.end()) {
                 merged.push_back(m);
             }
@@ -262,7 +273,9 @@ json ZLibraryService::Show() {
     }
 
     wv->Navigate(ToWide(url).c_str());
-    m_bridge->EmitEvent("zlib:mirrorChanged", GetMirrorInfo());
+    // 注意：这里【不】立刻发 mirrorChanged —— 那条事件会让前端撤掉"正在连接线路…"
+    // 遮罩，而镜像往往要 5~13 秒才响应，屏幕就变成白屏干等。
+    // 改为在 NavigationCompleted 里发（见该处理器），提示一直留到页面真正有结果。
     return json(nullptr);
 }
 
@@ -518,8 +531,13 @@ void ZLibraryService::SetupDownloadHandler()
                                 // All mirrors exhausted — notify frontend
                                 m_bridge->EmitEvent("zlib:allMirrorsFailed", json::object());
                             }
+                            // 无论换线路还是彻底失败，都要让前端知道"这次等待结束了"
+                            m_bridge->EmitEvent("zlib:mirrorChanged", GetMirrorInfo());
                             return S_OK;
                         }
+
+                        // 成功加载：这时才撤掉"正在连接线路…"遮罩
+                        m_bridge->EmitEvent("zlib:mirrorChanged", GetMirrorInfo());
                         {
                             std::lock_guard<std::mutex> lk(m_mirrorMutex);
                             m_navRetryCount = 0;

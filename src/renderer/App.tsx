@@ -172,7 +172,9 @@ export default function App() {
   const openZLibrary = useCallback(() => {
     setZlibAllFailed(false)
     setZlibLoading(true)
-    zlibTimer.current = setTimeout(() => setZlibLoading(false), 4000)
+    // 兜底超时：正常情况下由 mirrorChanged（导航完成时发出）撤掉遮罩；
+    // 镜像响应慢时（实测唯一可用线路要 ~13 秒）不要把提示提前收走。
+    zlibTimer.current = setTimeout(() => setZlibLoading(false), 25000)
     window.electronAPI.zlibShow()
   }, [])
 
