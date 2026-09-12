@@ -8,17 +8,12 @@
 //   * conversion failure (MultiByteToWideChar returns <=0) -> empty output
 //   * trailing NUL terminator is trimmed from the result
 // Header-only, inline — no linker dependency.
-// NOTE: define WIN32_LEAN_AND_MEAN before <windows.h> so MSXML/COM headers
-// are NOT pulled in. Some TUs (e.g. LibraryService.cpp / tinyxml2) define
-// their own XMLDocument and would otherwise collide with msxml's global
-// XMLDocument. This header must be safe to include regardless of whether the
-// includer defined WIN32_LEAN_AND_MEAN itself.
+// Uses pb_win.h (not <windows.h> directly) so WIN32_LEAN_AND_MEAN is applied
+// before the Win32 surface is pulled in — see that header for why (msxml.h
+// defines a global XMLDocument that collides with tinyxml2's).
 
-#ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN
-#endif
 #include <string>
-#include <windows.h>
+#include "utils/pb_win.h"
 
 namespace pb {
     inline std::wstring Utf8ToWide(const std::string& s)
