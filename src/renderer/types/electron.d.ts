@@ -203,6 +203,14 @@ interface PbZlibImportError {
   error: string
 }
 
+interface PbZlibDownloadError {
+  fileName: string
+  // 机器可读错误码，由 UI 本地化：invalid_url / http_open_failed / connect_failed /
+  // request_failed / network_error / http_<状态码> / file_create_failed /
+  // empty_response / too_many_redirects
+  error: string
+}
+
 interface PbUpdateDownloaded {
   success: boolean
   path: string
@@ -292,22 +300,12 @@ interface ElectronAPI {
 
   // Z-Library
   zlibShow: () => Promise<void>
-  zlibHide: () => Promise<void>
-  zlibNavigate: (action: 'back' | 'forward' | 'reload') => Promise<void>
-  zlibGetURL: () => Promise<string>
-  zlibSetBounds: (bounds: { x: number; y: number; width: number; height: number }) => Promise<void>
-  zlibLogout: () => Promise<void>
-  zlibSwitchMirror: (index: number) => Promise<void>
   zlibGetMirrorInfo: () => Promise<{ index: number; url: string; mirrors: string[] }>
-  zlibSetDownloadPath: (path: string) => Promise<void>
   zlibGetDownloadPath: () => Promise<{ path: string }>
   zlibPickDownloadFolder: () => Promise<{ path: string } | null>
-  onZlibDownloadProgress: (callback: (progress: PbZlibDownloadProgress) => void) => () => void
-  onZlibDownloadComplete: (callback: (data: PbZlibDownloadComplete) => void) => () => void
-  onZlibImportComplete: (callback: (data: PbZlibImportComplete) => void) => () => void
-  onZlibImportError: (callback: (data: PbZlibImportError) => void) => () => void
   onZlibMirrorChanged: (callback: (info: { index: number; url: string; mirrors: string[] }) => void) => () => void
   onZlibAllMirrorsFailed: (callback: () => void) => () => void
+  onZlibDownloadError: (callback: (data: PbZlibDownloadError) => void) => () => void
 
   // Reading Sessions
   startReadingSession: (bookId: number) => Promise<number>
@@ -326,9 +324,7 @@ interface ElectronAPI {
   getAppVersion: () => Promise<string>
   downloadUpdate: (url: string, sha512?: string) => Promise<boolean | null>
   quitAndInstall: () => Promise<boolean>
-  onUpdateAvailable: (callback: (info: PbUpdateInfo) => void) => () => void
   onUpdateChecked: (callback: (info: PbUpdateInfo | null) => void) => () => void
-  onUpdateNotAvailable: (callback: () => void) => () => void
   onUpdateDownloaded: (callback: () => void) => () => void
   onUpdateError: (callback: (message: string) => void) => () => void
   onUpdateDownloadProgress: (callback: (progress: { percent: number }) => void) => () => void

@@ -15,10 +15,13 @@ export function UpdateBanner() {
       if (dismissedVersion.current !== info.version) setUpdateInfo(info)
     }
     const onCustom = (e: Event) => onUpdate((e as CustomEvent).detail)
+    // 更新可用性走的是【DOM 事件】'pb:updateAvailable'（由 App.tsx 收到
+    // onUpdateChecked 后派发），与桥接事件同名但不同通道。此前这里还订阅了
+    // electronAPI.onUpdateAvailable —— 而 C++ 从不 emit app:updateAvailable，
+    // 那是个永不触发的死订阅，已随死接口清理一并移除。
     window.addEventListener('pb:updateAvailable', onCustom)
 
     const unsubs = [
-      window.electronAPI.onUpdateAvailable(onUpdate),
       window.electronAPI.onUpdateDownloaded(() => {
         setDownloading(false); setDownloaded(true)
       }),

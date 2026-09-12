@@ -43,6 +43,33 @@ const ZlibFailedBanner = ({ onDismiss }: { onDismiss: () => void }) => {
   )
 }
 
+// C++ 只发机器可读错误码（见 ZLibraryService 的 fail()），在此本地化 ——
+// 与 bookSource 下载失败同一处理方式，后端不产出未翻译的用户可见文案。
+const ZLIB_DOWNLOAD_ERROR_KEYS: Record<string, string> = {
+  invalid_url: '下载地址无效',
+  http_open_failed: '无法建立下载连接',
+  connect_failed: '连接下载服务器失败',
+  request_failed: '下载请求失败',
+  network_error: '网络错误，下载中断',
+  file_create_failed: '无法创建本地文件',
+  empty_response: '下载内容为空',
+  too_many_redirects: '重定向次数过多'
+}
+
+const ZlibDownloadFailedBanner = ({ code, onDismiss }: { code: string; onDismiss: () => void }) => {
+  const { t } = useTranslation()
+  // http_<状态码> 是动态生成的，单独归类
+  const reason = ZLIB_DOWNLOAD_ERROR_KEYS[code]
+    ?? (/^http_\d+$/.test(code) ? t('服务器返回错误 {{code}}', { code: code.slice(5) }) : '未知错误')
+  return (
+    <div className="fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-4 py-2 animate-fade-in"
+      style={{ background: 'rgba(220,38,38,0.9)', backdropFilter: 'blur(8px)', color: '#fff' }}>
+      <span className="text-sm">{t('Z-Library 下载失败：{{reason}}', { reason: t(reason) })}</span>
+      <button onClick={onDismiss} className="text-white opacity-70 hover:opacity-100 ml-4 text-lg leading-none">&times;</button>
+    </div>
+  )
+}
+
 const PageShell = ({ children, show }: { children: React.ReactNode; show: boolean }) => (
   <div className={`h-screen overflow-hidden ${show ? 'animate-fade-in' : ''}`}>
     <UpdateBanner />
@@ -56,6 +83,7 @@ export default function App() {
   const [pageKey, setPageKey] = useState(0)
   const [zlibLoading, setZlibLoading] = useState(false)
   const [zlibAllFailed, setZlibAllFailed] = useState(false)
+  const [zlibDownloadError, setZlibDownloadError] = useState<string | null>(null)
   const theme = useSettingsStore((s) => s.theme)
   const accentColor = useSettingsStore((s) => s.accentColor)
   const loadBooks = useLibraryStore((s) => s.loadBooks)
@@ -114,7 +142,13 @@ export default function App() {
       setZlibLoading(false)
       setZlibAllFailed(true)
     })
-    return () => { unsub1(); unsub2() }
+    // 下载失败此前完全静默：C++ 的 9 条失败路径都在发 zlib:downloadError，
+    // 但存根里没有可订阅的成员（本次补上 onZlibDownloadError）。
+    const unsub3 = window.electronAPI.onZlibDownloadError((d) => {
+      console.error('Z-Library download failed:', d.fileName, d.error)
+      setZlibDownloadError(d.error)
+    })
+    return () => { unsub1(); unsub2(); unsub3() }
   }, [])
 
   const navigateTo = useCallback((p: Page) => {
@@ -169,6 +203,9 @@ export default function App() {
   return (
     <PageShell show key="library">
       {zlibAllFailed && <ZlibFailedBanner onDismiss={() => setZlibAllFailed(false)} />}
+      {zlibDownloadError && (
+        <ZlibDownloadFailedBanner code={zlibDownloadError} onDismiss={() => setZlibDownloadError(null)} />
+      )}
       {zlibLoading && <ZlibLoadingOverlay />}
       <Library
         onOpenBook={openBook}

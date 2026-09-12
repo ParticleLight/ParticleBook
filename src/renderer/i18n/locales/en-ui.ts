@@ -37,6 +37,17 @@ export const enUi: Record<string, string> = {
   '下载完成！': 'Download complete!',
   '下载失败: {{error}}': 'Download failed: {{error}}',
   // C++ 只发送机器可读错误码，这些是 BookSourcePanel 的映射目标
+  // App.tsx Z-Library 下载失败（错误码 -> 文案，与 BookSourcePanel 同一模式）
+  'Z-Library 下载失败：{{reason}}': 'Z-Library download failed: {{reason}}',
+  '下载地址无效': 'Invalid download URL',
+  '无法建立下载连接': 'Could not open the download connection',
+  '连接下载服务器失败': 'Could not connect to the download server',
+  '下载请求失败': 'Download request failed',
+  '网络错误，下载中断': 'Network error, download interrupted',
+  '无法创建本地文件': 'Could not create the local file',
+  '下载内容为空': 'Downloaded content was empty',
+  '重定向次数过多': 'Too many redirects',
+  '服务器返回错误 {{code}}': 'Server returned an error ({{code}})',
   '书源不存在或已被删除': 'Book source missing or deleted',
   '未能获取章节目录': 'Could not fetch the chapter list',
   '章节内容为空': 'Chapter content was empty',

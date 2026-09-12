@@ -219,6 +219,16 @@ export const types = [
   { name: 'PbZlibDownloadComplete', body: ['  fileName: string', '  path: string'] },
   { name: 'PbZlibImportComplete', body: ['  fileName: string'] },
   { name: 'PbZlibImportError', body: ['  fileName: string', '  error: string'] },
+  {
+    name: 'PbZlibDownloadError',
+    body: [
+      '  fileName: string',
+      '  // 机器可读错误码，由 UI 本地化：invalid_url / http_open_failed / connect_failed /',
+      '  // request_failed / network_error / http_<状态码> / file_create_failed /',
+      '  // empty_response / too_many_redirects',
+      '  error: string'
+    ]
+  },
   { name: 'PbUpdateDownloaded', body: ['  success: boolean', '  path: string'] },
   { name: 'PbUpdateError', body: ['  error: string'] }
 ]
@@ -543,8 +553,15 @@ export const contract = [
     returns: "Promise<PbBookSource[]>"
   },
   {
+    // 以下 6 个书源细分 API（getBookSource / insertBookSource / updateBookSource /
+    // searchBooksFromSource / getBookInfoFromSource / getChapterListFromSource）目前
+    // 【无渲染层消费者】：导入走 C++ 侧文件对话框 bookSource:importFile，下载在
+    // BookSourceService::DownloadBook 内部自行取 info 与章节。经确认它们是为将来的
+    // 「书源编辑器 / 单源搜索」预留的接口，故保留；若长期不用应删除以免死接口面扩大
+    // （scripts/audit-bridge-usage.mjs 会持续报告）。
     member: "getBookSource", method: "bookSource:get",
     kind: "invoke",
+    reserved: true,
     group: "Book Sources",
     params: [{ n: "id", t: "number" }],
     returns: "Promise<PbBookSource | null>"
@@ -552,6 +569,7 @@ export const contract = [
   {
     member: "insertBookSource", method: "bookSource:insert",
     kind: "invoke",
+    reserved: true,
     group: "Book Sources",
     params: [{ n: "source", t: "PbBookSourceInput" }],
     returns: "Promise<PbBookSource>"
@@ -559,6 +577,7 @@ export const contract = [
   {
     member: "updateBookSource", method: "bookSource:update",
     kind: "invoke",
+    reserved: true,
     group: "Book Sources",
     params: [{ n: "id", t: "number" }, { n: "updates", t: "Partial<PbBookSourceInput>" }],
     returns: "Promise<void>"
@@ -601,6 +620,7 @@ export const contract = [
   {
     member: "searchBooksFromSource", method: "bookSource:searchOne",
     kind: "invoke",
+    reserved: true,
     group: "Book Sources",
     params: [{ n: "sourceId", t: "number" }, { n: "keyword", t: "string" }, { n: "page", t: "number", o: true }],
     returns: "Promise<PbSourceSearchResult[]>"
@@ -608,6 +628,7 @@ export const contract = [
   {
     member: "getBookInfoFromSource", method: "bookSource:getBookInfo",
     kind: "invoke",
+    reserved: true,
     group: "Book Sources",
     params: [{ n: "sourceId", t: "number" }, { n: "bookUrl", t: "string" }],
     returns: "Promise<PbBookInfo>"
@@ -615,6 +636,7 @@ export const contract = [
   {
     member: "getChapterListFromSource", method: "bookSource:getChapterList",
     kind: "invoke",
+    reserved: true,
     group: "Book Sources",
     params: [{ n: "sourceId", t: "number" }, { n: "tocUrl", t: "string" }],
     returns: "Promise<PbChapter[]>"
@@ -644,60 +666,11 @@ export const contract = [
     returns: "Promise<void>"
   },
   {
-    member: "zlibHide", method: "zlib:hide",
-    kind: "invoke",
-    group: "Z-Library",
-    params: [],
-    returns: "Promise<void>"
-  },
-  {
-    member: "zlibNavigate", method: "zlib:navigate",
-    kind: "invoke",
-    group: "Z-Library",
-    params: [{ n: "action", t: "'back' | 'forward' | 'reload'" }],
-    returns: "Promise<void>"
-  },
-  {
-    member: "zlibGetURL", method: "zlib:getURL",
-    kind: "invoke",
-    group: "Z-Library",
-    params: [],
-    returns: "Promise<string>"
-  },
-  {
-    member: "zlibSetBounds", method: "zlib:setBounds",
-    kind: "invoke",
-    group: "Z-Library",
-    params: [{ n: "bounds", t: "{ x: number; y: number; width: number; height: number }" }],
-    returns: "Promise<void>"
-  },
-  {
-    member: "zlibLogout", method: "zlib:logout",
-    kind: "invoke",
-    group: "Z-Library",
-    params: [],
-    returns: "Promise<void>"
-  },
-  {
-    member: "zlibSwitchMirror", method: "zlib:switchMirror",
-    kind: "invoke",
-    group: "Z-Library",
-    params: [{ n: "index", t: "number" }],
-    returns: "Promise<void>"
-  },
-  {
     member: "zlibGetMirrorInfo", method: "zlib:getMirrorInfo",
     kind: "invoke",
     group: "Z-Library",
     params: [],
     returns: "Promise<{ index: number; url: string; mirrors: string[] }>"
-  },
-  {
-    member: "zlibSetDownloadPath", method: "zlib:setDownloadPath",
-    kind: "invoke",
-    group: "Z-Library",
-    params: [{ n: "path", t: "string" }],
-    returns: "Promise<void>"
   },
   {
     member: "zlibGetDownloadPath", method: "zlib:getDownloadPath",
@@ -714,34 +687,6 @@ export const contract = [
     returns: "Promise<{ path: string } | null>"
   },
   {
-    member: "onZlibDownloadProgress", method: "zlib:downloadProgress",
-    kind: "event",
-    group: "Z-Library",
-    params: [{ n: "callback", t: "(progress: PbZlibDownloadProgress) => void" }],
-    returns: "() => void"
-  },
-  {
-    member: "onZlibDownloadComplete", method: "zlib:downloadComplete",
-    kind: "event",
-    group: "Z-Library",
-    params: [{ n: "callback", t: "(data: PbZlibDownloadComplete) => void" }],
-    returns: "() => void"
-  },
-  {
-    member: "onZlibImportComplete", method: "zlib:importComplete",
-    kind: "event",
-    group: "Z-Library",
-    params: [{ n: "callback", t: "(data: PbZlibImportComplete) => void" }],
-    returns: "() => void"
-  },
-  {
-    member: "onZlibImportError", method: "zlib:importError",
-    kind: "event",
-    group: "Z-Library",
-    params: [{ n: "callback", t: "(data: PbZlibImportError) => void" }],
-    returns: "() => void"
-  },
-  {
     member: "onZlibMirrorChanged", method: "zlib:mirrorChanged",
     kind: "event",
     group: "Z-Library",
@@ -753,6 +698,15 @@ export const contract = [
     kind: "event",
     group: "Z-Library",
     params: [{ n: "callback", t: "() => void" }],
+    returns: "() => void"
+  },
+  {
+    // 此前 C++ 的 9 条下载失败路径都会发出 zlib:downloadError，但存根里没有可订阅的
+    // 成员，用户下载失败时毫无提示。补上这个订阅入口（App.tsx 用它显示失败原因）。
+    member: "onZlibDownloadError", method: "zlib:downloadError",
+    kind: "event",
+    group: "Z-Library",
+    params: [{ n: "callback", t: "(data: PbZlibDownloadError) => void" }],
     returns: "() => void"
   },
   // ── Reading Sessions ──
@@ -843,24 +797,10 @@ export const contract = [
     returns: "Promise<boolean>"
   },
   {
-    member: "onUpdateAvailable", method: "app:updateAvailable",
-    kind: "event",
-    group: "Auto Updater",
-    params: [{ n: "callback", t: "(info: PbUpdateInfo) => void" }],
-    returns: "() => void"
-  },
-  {
     member: "onUpdateChecked", method: "app:updateChecked",
     kind: "event",
     group: "Auto Updater",
     params: [{ n: "callback", t: "(info: PbUpdateInfo | null) => void" }],
-    returns: "() => void"
-  },
-  {
-    member: "onUpdateNotAvailable", method: "app:updateNotAvailable",
-    kind: "event",
-    group: "Auto Updater",
-    params: [{ n: "callback", t: "() => void" }],
     returns: "() => void"
   },
   {

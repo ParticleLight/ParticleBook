@@ -35,6 +35,9 @@ jobs:
       - name: Verify generated electron.d.ts is in sync
         run: node scripts/gen-bridge-dts.mjs --check
 
+      - name: Audit bridge API usage (report only, never fails)
+        run: node scripts/audit-bridge-usage.mjs
+
       - name: Verify version sync (package.json / CMakeLists / installer.nsi)
         run: node scripts/check-version-sync.js
 
