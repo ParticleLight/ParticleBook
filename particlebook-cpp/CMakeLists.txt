@@ -4,6 +4,11 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
+# 字符集必须是 Unicode：本工程全程用带 W 后缀的 Win32 API，但未加后缀的调用
+# （如 DefWindowProc）在缺这个宏时会静默展开成 ANSI 版 —— 曾导致窗口标题被截成
+# 首字符 "P"（WM_SETTEXT 里的宽字符串被按 ANSI 解读）。此处显式声明，避免复发。
+add_compile_definitions(UNICODE _UNICODE)
+
 # ── Generated version (single source of truth: project VERSION above) ──────
 configure_file("${CMAKE_SOURCE_DIR}/src/pb_version.h.in"   "${CMAKE_BINARY_DIR}/src/pb_version.h"   @ONLY)
 configure_file("${CMAKE_SOURCE_DIR}/src/ParticleBook.rc.in" "${CMAKE_BINARY_DIR}/src/ParticleBook.rc" @ONLY)

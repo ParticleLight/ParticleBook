@@ -109,7 +109,9 @@ LRESULT CALLBACK WebViewHost::WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
         self = reinterpret_cast<WebViewHost*>(GetWindowLongPtr(hwnd, GWLP_USERDATA));
     }
 
-    if (!self) return DefWindowProc(hwnd, msg, wp, lp);
+    // 必须显式用 W 版：本工程未定义 UNICODE 宏时 DefWindowProc 会展开成 ANSI 版，
+    // 于是 WM_SETTEXT 等消息里的宽字符串被按 ANSI 解读 —— 窗口标题因此只剩首字符 "P"。
+    if (!self) return DefWindowProcW(hwnd, msg, wp, lp);
 
     switch (msg) {
     case WM_CREATE:
@@ -215,7 +217,7 @@ LRESULT CALLBACK WebViewHost::WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
         }
         return 0;
     }
-    return DefWindowProc(hwnd, msg, wp, lp);
+    return DefWindowProcW(hwnd, msg, wp, lp);
 }
 
 void WebViewHost::InitWebView()
