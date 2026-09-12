@@ -219,7 +219,13 @@ body {
   background: var(--text-secondary);
 }
 
-/* === Electron drag regions === */
+/* === Window drag regions ===
+   Applied to the library / settings headers. NOTE: these only take effect once
+   the WebView2 host enables non-client region support
+   (ICoreWebView2Settings9::put_IsNonClientRegionSupportEnabled), which
+   WebViewHost does NOT currently call — so they are inert today and the header
+   cannot be used to move the window. Kept because the markup clearly intends
+   the header to be draggable. */
 .drag-region {
   -webkit-app-region: drag;
 }

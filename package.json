@@ -9,23 +9,19 @@
   ],
   "private": true,
   "scripts": {
-    "build": "node scripts/ensure-electron-stub.js && electron-vite build",
+    "build": "vite build",
     "i18n:check": "node scripts/check-i18n-keys.js",
     "start:cpp": "particlebook-cpp/build2/ParticleBook.exe",
     "rebuild:cpp": "npm run build && xcopy /E /Y /I out\\renderer particlebook-cpp\\build2\\renderer >nul && cd particlebook-cpp\\build2 && nmake",
     "package": "npm run build && xcopy /E /Y /I out\\renderer particlebook-cpp\\build2\\renderer >nul && cd particlebook-cpp\\scripts && makensis /DPRODUCT_VERSION=%npm_package_version% installer.nsi"
   },
   "dependencies": {
-    "cheerio": "^1.0.0",
     "dompurify": "^3.4.13",
     "epubjs": "^0.3.93",
     "fast-xml-parser": "^4.5.3",
-    "get-caller-file": "^2.0.5",
     "i18next": "^26.3.6",
     "jszip": "^3.10.1",
-    "lowdb": "^7.0.1",
     "markdown-it": "^14.1.0",
-    "mupdf": "^1.27.0",
     "pdfjs-dist": "^4.10.38",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
@@ -38,11 +34,10 @@
     "@types/react-dom": "^19.1.2",
     "@vitejs/plugin-react": "^4.4.1",
     "autoprefixer": "^10.4.21",
-    "electron-vite": "^3.1.0",
     "postcss": "^8.5.3",
     "tailwindcss": "^3.4.17",
     "typescript": "^5.8.3",
     "vite": "^6.3.4"
   },
-  "_note": "build 脚本用 electron-vite 构建 React 前端到 out/renderer，C++ 后端通过 CMake POST_BUILD 拷贝到 build2/renderer。start:cpp 直接启动 C++ 版可执行文件。Electron (electron/electron-builder/electron-updater/cross-env) 已移除——本项目现为 C++ Win32 + WebView2 原生应用。"
+  "_note": "本项目是 C++ Win32 + WebView2 原生应用：无 Electron 运行时/主进程/preload。npm run build 用【普通 Vite】（vite.config.ts，base './' + outDir out/renderer）打包 React 前端，C++ 后端通过 CMake POST_BUILD 拷贝到 build2/renderer。start:cpp 直接启动 C++ 版可执行文件。electron-vite 与 electron 运行时依赖均已移除。"
 }

@@ -92,7 +92,7 @@
 | React 19 + TypeScript | 前端 UI |
 | Zustand | 状态管理 |
 | Tailwind CSS | 样式 |
-| Vite + electron-vite | 前端构建（仅作构建工具，非 Electron） |
+| Vite | 前端构建（vite.config.ts，纯 Vite，无 Electron） |
 | epub.js | EPUB 渲染 |
 | JSZip | CBZ/CBR 解压（漫画阅读） |
 | DOMPurify | 阅读内容消毒（XSS 防护） |
