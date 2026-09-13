@@ -28,6 +28,7 @@ import { Sidebar } from './Sidebar'
 import { ReaderControls } from './ReaderControls'
 import { formatReadingTime } from '../../utils/format'
 import { readBookFile } from '../../utils/fileReader'
+import { ConfirmDialog } from '../UI/ConfirmDialog'
 import type { Book } from '../../stores/libraryStore'
 
 const EpubRenderer = lazy(() => import('./EpubRenderer').then(m => ({ default: m.EpubRenderer })))
@@ -36,6 +37,15 @@ const ComicRenderer = lazy(() => import('./ComicRenderer').then(m => ({ default:
 const HtmlRenderer = lazy(() => import('./HtmlRenderer').then(m => ({ default: m.HtmlRenderer })))
 const TextRenderer = lazy(() => import('./TextRenderer').then(m => ({ default: m.TextRenderer })))
 const SettingsPanel = lazy(() => import('../Settings/SettingsPanel').then(m => ({ default: m.SettingsPanel })))
+
+// 打开失败的三条路径（此前都是静默 onClose()，用户只看到"闪一下回书架"）：
+//   missing = 文件读不到（多半被移走/改名/删了）
+//   gone    = 书架里已经没有这条记录（在别处被删）
+//   unknown = 其它异常
+type LoadError =
+  | { kind: 'missing'; path: string }
+  | { kind: 'gone' }
+  | { kind: 'unknown'; detail: string }
 
 interface ReaderViewProps {
   bookId: number
@@ -63,6 +73,8 @@ export function ReaderView({ bookId, onClose }: ReaderViewProps) {
   const [bookContent, setBookContent] = useState<Uint8Array | null>(null)
   const [showSettings, setShowSettings] = useState(false)
   const [showArrows, setShowArrows] = useState(false)
+  const [loadError, setLoadError] = useState<LoadError | null>(null)
+  const [confirmRemove, setConfirmRemove] = useState(false)
   const arrowTimerRef = useRef<number | null>(null)
   const sessionActiveRef = useRef(false)
   const settingsOpenRef = useRef(false)
@@ -97,13 +109,14 @@ export function ReaderView({ bookId, onClose }: ReaderViewProps) {
     bookIdRef.current = bookId
     setBookId(bookId)
     const loadBook = async () => {
+      setLoadError(null)
       try {
         const bookData = await window.electronAPI.getBook(bookId)
         if (!bookData) {
           // db:getBook returns null when the id no longer exists (e.g. the book
           // was deleted from another view while the reader was opening).
           console.error('Book not found:', bookId)
-          onClose()
+          setLoadError({ kind: 'gone' })
           return
         }
         setBook(bookData)
@@ -124,14 +137,15 @@ export function ReaderView({ bookId, onClose }: ReaderViewProps) {
           // 若不清理，之后在设置页改的任何"全局"设置都会被写进这本没能打开的书
           // 的行里，重启后静默回滚（Esc / 返回键那两条路径本来就调了它）。
           clearBookSettings()
-          onClose()
+          // 不再静默 onClose()：书架记录还在、只是文件没了，要说清楚是哪个路径
+          setLoadError({ kind: 'missing', path: bookData.file_path })
           return
         }
         setBookContent(content)
       } catch (e) {
         console.error('Failed to load book:', e)
         clearBookSettings()
-        onClose()
+        setLoadError({ kind: 'unknown', detail: e instanceof Error ? e.message : String(e) })
       }
     }
     loadBook()
@@ -265,6 +279,72 @@ export function ReaderView({ bookId, onClose }: ReaderViewProps) {
       }
     }
   }, [controlsLocked])
+
+  // 打开失败时给一个能看懂、能操作的界面（此前三条失败路径都是静默关闭阅读器，
+  // 用户只能猜"为什么打不开"）。
+  if (loadError) {
+    const removeBook = async () => {
+      setConfirmRemove(false)
+      try {
+        await window.electronAPI.deleteBook(bookId)
+      } catch (e) {
+        console.error('Failed to delete book:', e)
+      }
+      clearBookSettings()
+      onClose()
+    }
+    const heading = loadError.kind === 'gone' ? t('这本书已不在书架')
+                  : loadError.kind === 'missing' ? t('找不到这本书的文件')
+                  : t('打开这本书失败')
+    return (
+      <div className="h-screen flex items-center justify-center bg-[var(--reader-bg)] text-[var(--reader-text)] px-6">
+        <div className="max-w-lg w-full text-center">
+          <div className="w-14 h-14 mx-auto mb-4 rounded-full flex items-center justify-center"
+               style={{ background: 'var(--color-red-bg)', color: 'var(--color-red)' }}>
+            <svg className="w-7 h-7" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                    d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+            </svg>
+          </div>
+          <h2 className="text-lg font-semibold mb-2">{heading}</h2>
+          {book && <p className="text-sm mb-3 opacity-80 break-words">{book.title}</p>}
+          {loadError.kind === 'missing' && (
+            <>
+              <p className="text-sm mb-3 opacity-70">{t('它的文件已经不在原来的位置了 —— 可能被移动、重命名或删除。')}</p>
+              <p className="text-xs mb-6 break-all opacity-70 px-3 py-2 rounded-lg border border-[var(--reader-border)]"
+                 style={{ background: 'var(--reader-sidebar)' }}>{loadError.path}</p>
+            </>
+          )}
+          {loadError.kind === 'gone' && (
+            <p className="text-sm mb-6 opacity-70">{t('它可能已在其它页面被删除。')}</p>
+          )}
+          {loadError.kind === 'unknown' && (
+            <p className="text-sm mb-6 opacity-70 break-words">{t('读取文件时出错：{{error}}', { error: loadError.detail })}</p>
+          )}
+          <div className="flex justify-center gap-2">
+            <button className="btn-secondary" onClick={onClose}>{t('返回书架')}</button>
+            {loadError.kind !== 'gone' && (
+              <button className="btn-primary" style={{ background: 'var(--color-red)', color: '#fff' }}
+                      onClick={() => setConfirmRemove(true)}>{t('从书架移除')}</button>
+            )}
+          </div>
+          {loadError.kind === 'missing' && (
+            <p className="text-xs mt-4 opacity-60">{t('把文件放回原位，或重新导入、重新下载这本书，即可继续阅读。')}</p>
+          )}
+          {confirmRemove && (
+            <ConfirmDialog
+              title={t('从书架移除这本书？')}
+              message={t('将删除书架记录以及它的阅读进度、书签和笔记；磁盘上的文件不会被删除。')}
+              confirmText={t('移除')}
+              danger
+              onConfirm={removeBook}
+              onCancel={() => setConfirmRemove(false)}
+            />
+          )}
+        </div>
+      </div>
+    )
+  }
 
   if (!book || !bookContent) {
     return (

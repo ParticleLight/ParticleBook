@@ -7,6 +7,18 @@
 export const enReader: Record<string, string> = {
   // ReaderView
   '本次阅读时长': 'Reading time',
+  '这本书已不在书架': 'This book is no longer in your library',
+  '找不到这本书的文件': "Can't find this book's file",
+  '打开这本书失败': 'Failed to open this book',
+  '它的文件已经不在原来的位置了 —— 可能被移动、重命名或删除。': 'Its file is no longer where it used to be — it may have been moved, renamed, or deleted.',
+  '它可能已在其它页面被删除。': 'It may have been deleted from another view.',
+  '读取文件时出错：{{error}}': 'Error reading the file: {{error}}',
+  '返回书架': 'Back to library',
+  '从书架移除': 'Remove from library',
+  '从书架移除这本书？': 'Remove this book from your library?',
+  '将删除书架记录以及它的阅读进度、书签和笔记；磁盘上的文件不会被删除。': 'This deletes the library entry along with its reading progress, bookmarks and notes. The file on disk is not deleted.',
+  '移除': 'Remove',
+  '把文件放回原位，或重新导入、重新下载这本书，即可继续阅读。': 'Put the file back, or re-import / re-download this book to keep reading.',
   '上一页': 'Previous page',
   '下一页': 'Next page',
   '第 {{page}} 页': 'Page {{page}}',
