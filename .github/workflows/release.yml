@@ -58,7 +58,15 @@ jobs:
         run: Copy-Item -Path out/renderer/* -Destination particlebook-cpp/build2/renderer/ -Recurse -Force
 
       - name: Install NSIS
-        run: choco install nsis --yes --no-progress
+        shell: pwsh
+        run: |
+          choco install nsis --yes --no-progress
+          # choco 只会改机器级 PATH，而 runner 主进程早已启动、不会重读 —— 下一步直接
+          # makensis 会「不是可识别的命令」（2026-09-13 首次演练就死在这儿，run 34748519466）。
+          # 显式把 NSIS 目录写进 GITHUB_PATH，后续步骤才会带上它。
+          $nsis = 'C:\Program Files (x86)\NSIS'
+          if (-not (Test-Path (Join-Path $nsis 'makensis.exe'))) { Write-Error "makensis.exe not found at $nsis" }
+          Add-Content -Path $env:GITHUB_PATH -Value $nsis
 
       - name: Resolve version (package.json must match CMakeLists)
         shell: pwsh
