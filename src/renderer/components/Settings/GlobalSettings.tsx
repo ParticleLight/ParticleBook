@@ -628,7 +628,10 @@ export function GlobalSettings({ onBack }: GlobalSettingsProps) {
 
         {/* Right content */}
         <main className="flex-1 overflow-y-auto p-8">
-          <div className="max-w-2xl">
+          {/* 内容列铺满可用宽度：此前是 max-w-2xl，窗口一宽右侧就空一大片
+              （用户截图："全屏下设置界面全挤到左侧"）。按用户要求改为用满，
+              不做居中留白。 */}
+          <div className="w-full">
             {renderPage()}
           </div>
         </main>
