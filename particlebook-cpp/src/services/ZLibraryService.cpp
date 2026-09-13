@@ -15,8 +15,11 @@
 #include <filesystem>
 #include <thread>
 #include <chrono>
+#include <atomic>
+#include <climits>
 #include <fstream>
 #include <sstream>
+
 
 #pragma comment(lib, "winhttp.lib")
 #include <wrl/event.h>
@@ -28,7 +31,8 @@ using namespace Microsoft::WRL;
 #define WM_ZLIB_REFRESH_LIBRARY (WM_USER + 12)
 #define WM_ZLIB_DO_IMPORT (WM_USER + 13)
 #define WM_ZLIB_DOWNLOAD_FAILED (WM_USER + 14)
-#define WM_ZLIB_IMPORT_DONE (WM_USER + 20)   // 必须与 WebViewHost.cpp 一致（15-17 被 WM_UPDATE_* 占用）
+#define WM_ZLIB_IMPORT_DONE (WM_USER + 20)
+#define WM_ZLIB_ENTRY_NAVIGATE (WM_USER + 21)  // 必须与 WebViewHost.cpp 一致   // 必须与 WebViewHost.cpp 一致（15-17 被 WM_UPDATE_* 占用）
 
 struct DLProgress { std::string fn; int64_t recv; int64_t tot; };
 struct DLFail { std::string fn; std::string reason; };
@@ -71,6 +75,186 @@ static std::string ToNarrow(LPCWSTR w) {
 }
 
 
+
+// ── 线路的解析 / 过滤 / 探测 ─────────────────────────────────────────────
+// 背景（实测，见本次提交说明）：zz.ggonav.com 是一个【导航页】，页面里的 <a href>
+// 才是推荐线路；同一页还有 CDN/统计脚本的 href（cdnjs、googletagmanager…），旧解析
+// 用 href="..." 把它们也当线路收了进来，而且排在列表最前面 —— 应用会去导航一个
+// CSS 文件。这里两道过滤：只认 <a> 的 href，且只认「站点根地址」。
+
+static std::string TrimAscii(const std::string& s) {
+    size_t b = s.find_first_not_of(" \t\r\n");
+    if (b == std::string::npos) return "";
+    size_t e = s.find_last_not_of(" \t\r\n");
+    return s.substr(b, e - b + 1);
+}
+
+static std::string LowerAscii(std::string s) {
+    for (auto& c : s) if (c >= 'A' && c <= 'Z') c = (char)(c - 'A' + 'a');
+    return s;
+}
+
+// http(s)://host[:port]/path → host / path / 是否 https
+static bool SplitUrl(const std::string& url, std::string& host, std::string& path, bool& https) {
+    size_t se = url.find("://");
+    if (se == std::string::npos) return false;
+    std::string scheme = url.substr(0, se);
+    https = (scheme == "https");
+    if (!https && scheme != "http") return false;
+    size_t hs = se + 3;
+    size_t ps = url.find('/', hs);
+    if (ps == std::string::npos) { host = url.substr(hs); path = "/"; }
+    else { host = url.substr(hs, ps - hs); path = url.substr(ps); }
+    return !host.empty();
+}
+
+static bool HostIsOrSubdomainOf(const std::string& host, const std::string& domain) {
+    if (host == domain) return true;
+    if (host.size() <= domain.size() + 1) return false;
+    return host.compare(host.size() - domain.size() - 1, domain.size() + 1, "." + domain) == 0;
+}
+
+// 第三方域名：CDN / 统计 / 文档 / 社交。出现在导航页的 href 里很正常，但绝不是线路。
+static bool IsThirdPartyHost(const std::string& hostRaw) {
+    std::string host = LowerAscii(hostRaw);
+    static const char* const domains[] = {
+        "x.com", "t.me", "qq.com", "google.com", "gstatic.com", "googleapis.com",
+        "googletagmanager.com", "googleadservices.com", "googlesyndication.com", "doubleclick.net",
+        "cloudflare.com", "cdnjs.com", "jsdelivr.net", "unpkg.com", "bootstrapcdn.com",
+        "jquery.com", "tailwindcss.com", "fontawesome.com", "github.com", "githubusercontent.com",
+        "gitlab.com", "wikipedia.org", "w3.org", "schema.org", "mozilla.org", "microsoft.com",
+        "adobe.com", "youtube.com", "facebook.com", "twitter.com", "instagram.com", "discord.com",
+        "reddit.com", "medium.com", "wordpress.com", "blogspot.com", "sentry.io", "matomo.org",
+        "cnzz.com", "baidu.com", "weibo.com", "zhihu.com", "bilibili.com", "taobao.com", "jd.com",
+    };
+    for (const char* d : domains) if (HostIsOrSubdomainOf(host, d)) return true;
+    static const char* const tokens[] = { "cdnjs", "googletag", "googlead", "analytics", "adservice", "doubleclick" };
+    for (const char* t : tokens) if (host.find(t) != std::string::npos) return true;
+    return false;
+}
+
+// 线路候选：http(s)、无 query/fragment、路径就是根、非第三方域名。实测样板：
+//   olib.pages.dev/ ✔
+//   cdnjs.cloudflare.com/ajax/libs/font-awesome/…/all.min.css ✘（路径不是根）
+//   docs.qq.com/sheet/DVnRqc1V1RXdSUGN4 ✘（同上）
+//   www.googletagmanager.com ✘（第三方）
+static bool IsMirrorCandidate(const std::string& rawUrl) {
+    std::string u = TrimAscii(rawUrl);
+    if (u.empty()) return false;
+    if (u.find('#') != std::string::npos || u.find('?') != std::string::npos) return false;
+    std::string host, path; bool https = false;
+    if (!SplitUrl(u, host, path, https)) return false;
+    if (LowerAscii(host).find(' ') != std::string::npos) return false;
+    if (path != "/" && !path.empty()) return false;
+    if (host.find('.') == std::string::npos) return false;
+    return !IsThirdPartyHost(host);
+}
+
+// Z-Library 正式站的指纹：真正的站（首页/登录页/书页）会带这些；
+// 导航页/推广页/资源合集只会提一句 Z-Library 的名字（实测 olib.pages.dev、olibz.wwwnav.com、
+// wangpanziyuan.pages.dev 三个都命中不了这里任何一条）。
+static bool LooksLikeZlibApp(const std::string& s) {
+    std::string low = LowerAscii(s);
+    static const char* const marks[] = {
+        "z-lib.fm", "z-access", "z-recommend", "singlelogin", "z-lib.io", "z-library since 2009",
+    };
+    for (const char* m : marks) if (low.find(m) != std::string::npos) return true;
+    return false;
+}
+
+// 页面上是否出现了 Z-Library 的指纹（含只是提到它的导航页）
+static bool LooksLikeZlibContent(const std::string& s) {
+    std::string low = LowerAscii(s);
+    static const char* const marks[] = { "z-lib", "zlibrary", "z-library", "1lib", "singlelogin", "bookfi" };
+    for (const char* m : marks) if (low.find(m) != std::string::npos) return true;
+    return false;
+}
+
+// "Checking your browser ..." —— 站点 302 之后发的 503【JS 挑战页】。这条判据很关键：
+// 实测内置线路几乎全部 302 到同一个后端并在那里返回 503，真浏览器跑完挑战脚本会自己
+// 再跳一次、进入真正的 Z-Library（标题 "Z-Library – 世界上最大的电子图书馆…"）。
+// 所以 503 绝不等于「线路不可用」——把它当失败会把唯一能用的线路全部判死。
+static bool LooksLikeJsChallenge(const std::string& s) {
+    std::string low = LowerAscii(s);
+    static const char* const marks[] = {
+        "checking your browser", "just a moment", "verifying you are human",
+        "cf-browser-verification", "challenge-platform", "正在检查您的浏览器",
+    };
+    for (const char* m : marks) if (low.find(m) != std::string::npos) return true;
+    return false;
+}
+
+// 导航完成时只有 document.title 可读（正文拿不到），挑战页的标题同样要认
+static bool LooksLikeChallengeTitle(const std::string& title) {
+    if (LooksLikeJsChallenge(title)) return true;
+    return LowerAscii(title).find("请稍候") != std::string::npos;
+}
+
+static int MirrorRank(const ZlibMirrorStat& s) {
+    switch (s.kind) {
+        case ZMK_ZLIB_APP:  return 0;   // 正式站（含挑战页）—— 最想要的就是它
+        case ZMK_UNKNOWN:   return 1;   // 还没探到
+        case ZMK_ZLIB_PAGE: return 2;   // 只是提到 Z-Library 的页（推广页/导航页）
+        case ZMK_OTHER:     return 3;   // 通了但跟 Z-Library 无关
+        default:            return 4;   // 不通
+    }
+}
+
+// 探测一条线路：WinHTTP 直接跑（不占用主 WebView，只为排序）。
+// 跟随重定向是刻意的 —— WinHTTP 把最终地址留在 WINHTTP_OPTION_URL 里，导航时直接用
+// 它就能省掉入口域名那一跳的 DNS+TCP+TLS（实测每条线路 1.5~2 秒）。
+static ZlibMirrorStat ProbeMirrorOnce(const std::string& url) {
+    ZlibMirrorStat st; st.url = url;
+    std::string host, path; bool https = true;
+    if (!SplitUrl(url, host, path, https)) { st.kind = ZMK_FAIL; return st; }
+
+    HINTERNET hS = WinHttpOpen(L"PB/2.1 (mirror-probe)", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, nullptr, nullptr, 0);
+    if (!hS) { st.kind = ZMK_FAIL; return st; }
+    // 超时必须显式设：WinHTTP 的 resolve 默认是 0 = 无限等待（下载线程踩过同一个坑）
+    WinHttpSetTimeouts(hS, 3000, 4000, 4000, 6000);
+    HINTERNET hC = WinHttpConnect(hS, ToWide(host).c_str(), https ? 443 : 80, 0);
+    if (!hC) { WinHttpCloseHandle(hS); st.kind = ZMK_FAIL; return st; }
+    HINTERNET hR = WinHttpOpenRequest(hC, L"GET", ToWide(path).c_str(), nullptr, nullptr, nullptr,
+                                      https ? WINHTTP_FLAG_SECURE : 0);
+    if (!hR) { WinHttpCloseHandle(hC); WinHttpCloseHandle(hS); st.kind = ZMK_FAIL; return st; }
+
+    // 与 WebView2 会话保持一致：会话期间应用本来就放行证书错误；探测若严格校验证书，
+    // 会出现「浏览器能开、探测判死」的错判。
+    DWORD secFlags = SECURITY_FLAG_IGNORE_UNKNOWN_CA | SECURITY_FLAG_IGNORE_CERT_CN_INVALID |
+                     SECURITY_FLAG_IGNORE_CERT_DATE_INVALID | SECURITY_FLAG_IGNORE_CERT_WRONG_USAGE;
+    WinHttpSetOption(hR, WINHTTP_OPTION_SECURITY_FLAGS, &secFlags, sizeof(secFlags));
+    WinHttpAddRequestHeaders(hR, L"User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36", (DWORD)-1, WINHTTP_ADDREQ_FLAG_ADD);
+    WinHttpAddRequestHeaders(hR, L"Accept: text/html,application/xhtml+xml,*/*", (DWORD)-1, WINHTTP_ADDREQ_FLAG_ADD);
+    WinHttpAddRequestHeaders(hR, L"Accept-Language: zh-CN,zh;q=0.9,en;q=0.8", (DWORD)-1, WINHTTP_ADDREQ_FLAG_ADD);
+
+    auto t0 = std::chrono::steady_clock::now();
+    bool ok = WinHttpSendRequest(hR, nullptr, 0, nullptr, 0, 0, 0) && WinHttpReceiveResponse(hR, nullptr);
+    st.ms = (int)std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now() - t0).count();
+    if (!ok) {
+        WinHttpCloseHandle(hR); WinHttpCloseHandle(hC); WinHttpCloseHandle(hS);
+        st.kind = ZMK_FAIL;
+        return st;
+    }
+
+    DWORD sc = 0, sz = sizeof(sc);
+    WinHttpQueryHeaders(hR, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER, nullptr, &sc, &sz, nullptr);
+    st.status = (int)sc;
+    WCHAR finalUrl[2048] = {};
+    DWORD fl = sizeof(finalUrl);
+    if (WinHttpQueryOption(hR, WINHTTP_OPTION_URL, finalUrl, &fl)) st.finalUrl = TrimAscii(ToNarrow(finalUrl));
+
+    std::string head; char buf[8192]; DWORD br = 0;
+    while (head.size() < 32768 && WinHttpReadData(hR, buf, sizeof(buf), &br) && br > 0) head.append(buf, br);
+    WinHttpCloseHandle(hR); WinHttpCloseHandle(hC); WinHttpCloseHandle(hS);
+
+    // 挑战页归"正式站"：站点自己的 503 挑战页过完 JS 就是站（实测所有能用的线路都走这条路）
+    if (LooksLikeZlibApp(head) || LooksLikeJsChallenge(head)) st.kind = ZMK_ZLIB_APP;
+    else if (LooksLikeZlibContent(head)) st.kind = ZMK_ZLIB_PAGE;
+    else if (st.status > 0 && st.status < 400) st.kind = ZMK_OTHER;
+    else st.kind = ZMK_FAIL;
+    return st;
+}
 
 static const std::vector<std::string> FALLBACK_MIRRORS = {
     "https://zh.dfj101.ru/",
@@ -144,20 +328,11 @@ ZLibraryService::~ZLibraryService() {}
 
 void ZLibraryService::StartMirrorFetch(std::shared_ptr<ZLibraryService> self)
 {
-    // Fetch mirrors in background without blocking the UI thread. Capturing
-    // `self` (not `this`) keeps the service alive until the fetch finishes,
-    // so a shutdown that destroys the service mid-fetch can't use-after-free.
-    std::thread([self]() { self->FetchMirrors(); }).detach();
-}
-
-// 镜像名单来自受信任的 zz.ggonav.com，因此这里用【黑名单】而不是关键词白名单：
-// 关键词表认不出新域名 —— 实测唯一可用的 olib.pages.dev 就因为不含 zlib/z-lib 等
-// 字样被滤掉，导致应用只在旧域名之间打转（那些站点现在全是 503/超时）。
-static bool IsBlockedMirrorHost(const std::string& host) {
-    for (const auto& b : BLOCKED_DOMAINS) {
-        if (host.find(b) != std::string::npos) return true;
-    }
-    return false;
+    // 抓镜像名单 + 并行探测，全在后台。探测的意义见 ProbeMirrorOnce 上方的说明：
+    // 进站时能直接导航到"确实通"的那条，而且用它探测出的最终地址省掉入口那一跳。
+    // Capturing self (not this) keeps the service alive until the threads finish, so a
+    // shutdown that destroys the service mid-fetch can't use-after-free.
+    std::thread([self]() { self->FetchMirrors(); self->ProbeAndRank(); }).detach();
 }
 
 json ZLibraryService::FetchMirrors() {
@@ -169,50 +344,58 @@ json ZLibraryService::FetchMirrors() {
     }
 
     std::vector<std::string> found;
+    auto add = [&](const std::string& raw) {
+        std::string u = TrimAscii(raw);
+        if (!IsMirrorCandidate(u)) return;
+        if (u.back() != '/') u += '/';
+        if (std::find(found.begin(), found.end(), u) == found.end()) found.push_back(u);
+    };
 
-    // Parse href links
-    static const std::regex linkRe("href=\"(https?://[^\"]+)\"", std::regex::icase);
-    for (auto it = std::sregex_iterator(html.begin(), html.end(), linkRe); it != std::sregex_iterator(); ++it) {
-        std::string u = (*it)[1];
-        size_t ss = u.find("://");
-        size_t hs = ss != std::string::npos ? ss + 3 : 0;
-        size_t ps = u.find('/', hs);
-        std::string host = ps != std::string::npos ? u.substr(hs, ps - hs) : u.substr(hs);
-        if (!IsBlockedMirrorHost(host)) {
-            if (u.back() != '/') u += '/';
-            if (std::find(found.begin(), found.end(), u) == found.end()) found.push_back(u);
-        }
+    // 只认 <a href>：旧写法 href="..." 会把 <link href> 的 CDN 样式表一起收进来
+    static const std::regex anchorRe("<a\\s[^>]*href\\s*=\\s*[\"']([^\"']+)[\"']", std::regex::icase);
+    for (auto it = std::sregex_iterator(html.begin(), html.end(), anchorRe); it != std::sregex_iterator(); ++it) {
+        add((*it)[1]);
     }
-
-    // Also search for Z-Library URLs in text content (not just href)
-    static const std::regex urlRe("(https?://[a-zA-Z0-9.-]+\\.[a-z]{2,}[/])", std::regex::icase);
+    // 正文里直接写出来的裸地址（导航页两种写法都出现过）
+    static const std::regex urlRe("(https?://[a-zA-Z0-9.-]+\\.[a-z]{2,}/?)", std::regex::icase);
     for (auto it = std::sregex_iterator(html.begin(), html.end(), urlRe); it != std::sregex_iterator(); ++it) {
-        std::string u = (*it)[1];
-        size_t ss = u.find("://");
-        size_t hs = ss != std::string::npos ? ss + 3 : 0;
-        size_t ps = u.find('/', hs);
-        std::string host = ps != std::string::npos ? u.substr(hs, ps - hs) : u.substr(hs);
-        if (!IsBlockedMirrorHost(host)) {
-            if (u.back() != '/') u += '/';
-            if (std::find(found.begin(), found.end(), u) == found.end()) found.push_back(u);
-        }
+        add((*it)[1]);
     }
 
-    if (!found.empty()) {
-        // 【动态拉到的排在前面】：它们才是当前可用的域名，硬编码列表是兜底。
-        // 此前顺序相反，于是默认选中的第 0 条永远是那条早已 503 的旧域名。
-        std::vector<std::string> merged = found;
-        for (const auto& m : FALLBACK_MIRRORS) {
-            if (std::find(merged.begin(), merged.end(), m) == merged.end()) {
-                merged.push_back(m);
-            }
-        }
+    {
         std::lock_guard<std::mutex> lk(m_mirrorMutex);
-        // Preserve current selection if that URL still exists in new list
-        std::string oldUrl = m_mirrors[m_currentMirror];
-        m_mirrors = merged;
-        auto it = std::find(m_mirrors.begin(), m_mirrors.end(), oldUrl);
-        m_currentMirror = (it != m_mirrors.end()) ? (int)(it - m_mirrors.begin()) : 0;
+        if (!found.empty()) {
+            // 顺序在这里只剩"探测落地之前"的意义 —— 探测一完成就按实测重排（见 ProbeAndRank）。
+            // 所以硬编码的 Z-Library 域名放前面、导航页推荐的域名放后面：导航页里混着工具
+            // 推广页和资源合集（实测 olibz.wwwnav.com、wangpanziyuan.pages.dev 都是那种），
+            // 探测落地前先把用户送进真正的 Z-Library。
+            std::vector<std::string> merged = FALLBACK_MIRRORS;
+            for (const auto& m : found) {
+                if (std::find(merged.begin(), merged.end(), m) == merged.end()) merged.push_back(m);
+            }
+            // 永久黑名单（singlelogin.re 等现在是成人站）仍然要挡
+            merged.erase(std::remove_if(merged.begin(), merged.end(), [](const std::string& u) {
+                std::string host, path; bool https = false;
+                if (!SplitUrl(u, host, path, https)) return true;
+                std::string h = LowerAscii(host);
+                for (const auto& b : BLOCKED_DOMAINS) if (h.find(b) != std::string::npos) return true;
+                return false;
+            }), merged.end());
+
+            // 已经测过的线路保留实测结果：刷新名单不该把刚探到的耗时丢掉
+            std::vector<ZlibMirrorStat> stats;
+            stats.reserve(merged.size());
+            for (const auto& u : merged) {
+                auto it = std::find_if(m_mirrorStats.begin(), m_mirrorStats.end(),
+                                       [&](const ZlibMirrorStat& s) { return s.url == u; });
+                if (it != m_mirrorStats.end()) stats.push_back(*it);
+                else { ZlibMirrorStat s; s.url = u; stats.push_back(s); }
+            }
+            m_mirrors = merged;
+            m_mirrorStats = stats;
+        }
+        SortMirrorsLocked();
+        SelectDefaultMirrorLocked();
     }
 
     std::lock_guard<std::mutex> lk(m_mirrorMutex);
@@ -227,18 +410,39 @@ json ZLibraryService::GetMirrorInfo() {
 }
 
 json ZLibraryService::SwitchMirror(int index) {
-    std::string url;
+    std::string url, pending;
+    bool hasMirror = false;
     {
         std::lock_guard<std::mutex> lk(m_mirrorMutex);
-        if (index >= 0 && index < (int)m_mirrors.size()) m_currentMirror = index;
-        m_navRetryCount = 0;
-        url = m_mirrors[m_currentMirror];
+        if (index >= 0 && index < (int)m_mirrors.size()) {
+            m_currentMirror = index;
+            // 手动选过的线路要钉住：后台探测重排、名单刷新都不该把它顶掉 ——
+            // 否则用户选了 A，"下次进站"又被自动排到 B（登录态还绑在域名上）。
+            m_mirrorPinned = true;
+            m_pinnedUrl = m_mirrors[index];
+        }
+        if (!m_mirrors.empty()) {
+            m_navRetryCount = 0;
+            m_retryMirrorCount = (int)m_mirrors.size();
+            pending = m_mirrors[m_currentMirror];
+            url = MirrorNavigateUrlLocked(m_currentMirror);
+            hasMirror = true;
+        }
     }
-    if (m_host && m_host->GetWebView())
-        m_host->GetWebView()->Navigate(ToWide(url).c_str());
-    m_bridge->EmitEvent("zlib:mirrorChanged", GetMirrorInfo());
+    if (hasMirror) {
+        m_entryNavPending = false;   // 手动选线路：放弃挂起的自动进站
+        m_probePause = true;
+        m_pendingMirrorUrl = pending;
+        m_lastDocStatus = 0;
+        m_entryNav = true;
+        m_challengeWaits = 0;
+        if (m_host && m_host->GetWebView())
+            m_host->GetWebView()->Navigate(ToWide(url).c_str());
+        m_bridge->EmitEvent("zlib:mirrorChanged", GetMirrorInfo());
+    }
     return GetMirrorInfo();
 }
+
 // ── Navigate main WebView2 + inject floating toolbar ───────────────────────
 
 json ZLibraryService::Show() {
@@ -258,29 +462,108 @@ json ZLibraryService::Show() {
         }
     }
 
+    // 上次真的进去过的线路（登录 Cookie 绑在域名上，能不动就不动）
+    LoadLastMirrorOnce();
+
     auto* wv = m_host ? m_host->GetWebView() : nullptr;
-    std::string url;
+    std::string url, pending;
+    bool hasMirror = false;
     {
         std::lock_guard<std::mutex> lk(m_mirrorMutex);
-        m_navRetryCount = 0;
-        m_retryMirrorCount = (int)m_mirrors.size();
-        url = m_mirrors[m_currentMirror];
+        SelectDefaultMirrorLocked();
+        if (!m_mirrors.empty()) {
+            m_navRetryCount = 0;
+            m_retryMirrorCount = (int)m_mirrors.size();
+            pending = m_mirrors[m_currentMirror];
+            url = MirrorNavigateUrlLocked(m_currentMirror);
+            hasMirror = true;
+        }
     }
+    if (!hasMirror) return json(nullptr);
+
+    m_entryNavPending = false;
     if (!wv) {
         ShellExecuteW(nullptr, L"open", ToWide(url).c_str(),
                       nullptr, nullptr, SW_SHOWNORMAL);
         return json(nullptr);
     }
 
-    wv->Navigate(ToWide(url).c_str());
-    // 注意：这里【不】立刻发 mirrorChanged —— 那条事件会让前端撤掉"正在连接线路…"
-    // 遮罩，而镜像往往要 5~13 秒才响应，屏幕就变成白屏干等。
-    // 改为在 NavigationCompleted 里发（见该处理器），提示一直留到页面真正有结果。
+    // 探测结果会随时间失效（线路会烂）：进站时顺手后台补探一轮，不阻塞这次导航
+    RefreshRankingIfStale();
+
+    // 【探测还没给出任何"正式站"结果就点进来】：先等一会儿（最多 5 秒）再导航。
+    // 别拿第 0 条硬编码线路去撞 —— 实测那条现在经常是死的，撞上去要等十几秒才轮到
+    // 换线路。等待期间探测正在跑，结果一到就导航；前端"正在连接线路…"遮罩本来就
+    // 还挂着，用户看不出停顿。
+    if (!ProbeReadyForEntry()) {
+        StartEntryWait();
+        return json(nullptr);
+    }
+
+    NavigateToCurrentMirror();
     return json(nullptr);
+}
+
+// 按当前排序发起进站导航（UI 线程）。Show() 与"等探测结果"的回投都走这里。
+void ZLibraryService::NavigateToCurrentMirror() {
+    auto* wv = m_host ? m_host->GetWebView() : nullptr;
+    if (!wv) return;
+    std::string url, pending;
+    bool hasMirror = false;
+    {
+        std::lock_guard<std::mutex> lk(m_mirrorMutex);
+        SelectDefaultMirrorLocked();
+        if (!m_mirrors.empty()) {
+            m_navRetryCount = 0;
+            m_retryMirrorCount = (int)m_mirrors.size();
+            pending = m_mirrors[m_currentMirror];
+            url = MirrorNavigateUrlLocked(m_currentMirror);
+            hasMirror = true;
+        }
+    }
+    if (!hasMirror) return;
+
+    m_pendingMirrorUrl = pending;
+    m_lastDocStatus = 0;
+    m_entryNav = true;
+    m_challengeWaits = 0;
+    m_probePause = true;    // 进站期间暂停探测（ClassifyLoadedDocument 里恢复）
+    // 注意：这里【不】发 mirrorChanged —— 那条事件会让前端撤掉"正在连接线路…"
+    // 遮罩，而线路要好几秒才出结果，屏幕就变成白屏干等。改为等导航结果判定之后
+    // 再发（见 ClassifyLoadedDocument）。
+    wv->Navigate(ToWide(url).c_str());
+}
+
+// 是否已经有可用的探测结论（有"正式站"结果，或者探测已经结束）。
+bool ZLibraryService::ProbeReadyForEntry() {
+    std::lock_guard<std::mutex> lk(m_mirrorMutex);
+    if (!m_probeRunning) return true;   // 探测已结束：手上就是全部信息
+    for (const auto& s : m_mirrorStats) if (s.kind == ZMK_ZLIB_APP) return true;
+    return false;
+}
+
+// 后台等探测出结果（最多 5 秒），然后回投到 UI 线程发起导航。
+void ZLibraryService::StartEntryWait() {
+    HWND hwnd = m_hwnd ? m_hwnd : (m_host ? m_host->GetHwnd() : nullptr);
+    auto self = App::Instance().Zlib();
+    if (!hwnd || !self) { NavigateToCurrentMirror(); return; }   // 没有回投通道就照旧直接走
+    if (m_entryNavPending.exchange(true)) return;                 // 已经在等了
+    // 服务由 App 用 shared_ptr 持有：等待线程不会比服务活得久（同 StartMirrorFetch）
+    std::thread([self, hwnd]() {
+        for (int i = 0; i < 25 && self->m_entryNavPending.load(); i++) {
+            if (self->ProbeReadyForEntry()) break;
+            std::this_thread::sleep_for(std::chrono::milliseconds(200));
+        }
+        // 还在等 → 回 UI 线程导航（被关掉/被手动换线的话标志已清空，这次就不发了）
+        if (self->m_entryNavPending.load()) PostMessage(hwnd, WM_ZLIB_ENTRY_NAVIGATE, 0, 0);
+    }).detach();
 }
 
 json ZLibraryService::Hide() {
     m_zlibActive = false;
+    m_entryNavPending = false;
+    m_probePause = false;
+    m_entryNav = false;
     if (m_host) {
         m_host->SetAllowUntrustedCerts(false);
         m_host->ReloadPage();
@@ -413,7 +696,14 @@ json ZLibraryService::PickDownloadFolder()
 
 void ZLibraryService::SetupDownloadHandler()
 {
-    if (m_downloadRegistered || !m_host || !m_host->GetWebView()) return;
+    if (!m_host || !m_host->GetWebView()) return;
+    // "等探测结果再进站"的回投通道：每次 Show 都要确保挂着（不能放进下面那个
+    // 一次性注册的守卫里 —— 它只注册一回）
+    m_host->SetZlibEntryNavCallback([this]() {
+        if (!m_entryNavPending.exchange(false)) return;   // 已被取消/已处理
+        if (m_zlibActive) NavigateToCurrentMirror();
+    });
+    if (m_downloadRegistered) return;
     m_downloadRegistered = true;
     m_hwnd = m_host->GetHwnd();
 
@@ -478,6 +768,11 @@ void ZLibraryService::SetupDownloadHandler()
                     // （若将来恢复"仅限镜像域"的白名单，下载 URL 的放行必须重新加回，
                     //  且必须放在协议检查之后。）
                     //
+                    // 记下主文档导航的 URI：WebResourceResponseReceived 靠它把主文档的
+                    // 响应从一堆子资源里挑出来（该事件对每个 web 资源都会触发）
+                    m_docUri = uri;
+                    m_lastDocStatus = 0;
+
                     // Allow http/https (including mirror redirects to transit domains).
                     // Block everything else (file:, javascript:, data:, ...) as a safety net.
                     bool safe = (uri.rfind("http://", 0) == 0) || (uri.rfind("https://", 0) == 0);
@@ -489,7 +784,34 @@ void ZLibraryService::SetupDownloadHandler()
                 }).Get(), &m_navToken);
     }
 
-    // ── NavigationCompleted — auto-retry on failure, stop after one full cycle ──
+    // ── WebResourceResponseReceived — 记下主文档的 HTTP 状态码 ──
+    // NavigationCompleted 报的"成功"只表示拿到了一个文档：503/404 同样算成功。这里把
+    // 【主文档】的响应状态存下来，供 ClassifyLoadedDocument 判断线路是不是真的坏了。
+    // 主文档的识别：请求 URI 与 NavigationStarting 记下的 URI 相同（子资源不参与）。
+    {
+        ComPtr<ICoreWebView2_2> wv2resp;
+        if (SUCCEEDED(wv->QueryInterface(IID_PPV_ARGS(&wv2resp)))) {
+            wv2resp->add_WebResourceResponseReceived(
+                Callback<ICoreWebView2WebResourceResponseReceivedEventHandler>(
+                    [this](ICoreWebView2*, ICoreWebView2WebResourceResponseReceivedEventArgs* args) -> HRESULT {
+                        if (!m_zlibActive || m_docUri.empty()) return S_OK;
+                        ComPtr<ICoreWebView2WebResourceRequest> req;
+                        if (FAILED(args->get_Request(&req)) || !req) return S_OK;
+                        LPWSTR u = nullptr;
+                        if (FAILED(req->get_Uri(&u)) || !u) return S_OK;
+                        bool isDoc = (TrimAscii(ToNarrow(u)) == m_docUri);
+                        CoTaskMemFree(u);
+                        if (!isDoc) return S_OK;
+                        ComPtr<ICoreWebView2WebResourceResponseView> resp;
+                        if (FAILED(args->get_Response(&resp)) || !resp) return S_OK;
+                        int status = 0;
+                        if (SUCCEEDED(resp->get_StatusCode(&status))) m_lastDocStatus = status;
+                        return S_OK;
+                    }).Get(), nullptr);
+        }
+    }
+
+    // ── NavigationCompleted — 判定这次导航的结果，坏页/失败自动换线路 ──
     {
         ComPtr<ICoreWebView2_2> wv2comp;
         if (SUCCEEDED(wv->QueryInterface(IID_PPV_ARGS(&wv2comp)))) {
@@ -510,38 +832,24 @@ void ZLibraryService::SetupDownloadHandler()
                         }
 
                         if (!success) {
-                            std::string nextUrl;
-                            bool retry = false;
-                            {
-                                std::lock_guard<std::mutex> lk(m_mirrorMutex);
-                                if (m_navRetryCount < m_retryMirrorCount && m_navRetryCount < (int)m_mirrors.size()) {
-                                    m_navRetryCount++;
-                                    m_currentMirror = (m_currentMirror + 1) % (int)m_mirrors.size();
-                                    nextUrl = m_mirrors[m_currentMirror];
-                                    retry = true;
-                                }
+                            // "已经收到 HTTP 错误响应之后才失败"不算线路故障：站点自己的 JS 挑战页
+                            // 过完挑战会 reload，那次 reload 会把当前导航打断，WebView2 就报
+                            // IsSuccess=FALSE（而主文档状态码已经有了 503）。此前一律当线路失败
+                            // → 立刻换线路、把挑战打断，实测要重试同一个地址两三次才进得去
+                            // （进站 19 秒；让路的话 4~5 秒）。让路次数有上限，避免真卡住时干等。
+                            if (m_lastDocStatus >= 400 && m_challengeWaits < 3) {
+                                m_challengeWaits++;
+
+                                return S_OK;
                             }
-                            if (retry) {
-                                auto* wvSelf = m_host ? m_host->GetWebView() : nullptr;
-                                if (wvSelf) {
-                                    wvSelf->Navigate(ToWide(nextUrl).c_str());
-                                    m_bridge->EmitEvent("zlib:mirrorChanged", GetMirrorInfo());
-                                }
-                            } else {
-                                // All mirrors exhausted — notify frontend
-                                m_bridge->EmitEvent("zlib:allMirrorsFailed", json::object());
-                            }
-                            // 无论换线路还是彻底失败，都要让前端知道"这次等待结束了"
-                            m_bridge->EmitEvent("zlib:mirrorChanged", GetMirrorInfo());
+                            // 真正的网络层失败（没拿到任何响应）：换下一条线路
+                            AdvanceMirrorOnFailure();
                             return S_OK;
                         }
 
-                        // 成功加载：这时才撤掉"正在连接线路…"遮罩
-                        m_bridge->EmitEvent("zlib:mirrorChanged", GetMirrorInfo());
-                        {
-                            std::lock_guard<std::mutex> lk(m_mirrorMutex);
-                            m_navRetryCount = 0;
-                        }
+                        // "成功"不等于"进去了"：503 的 JS 挑战页、404 错误页都是成功导航。
+                        // 标题/状态码的判定要读 document.title，是异步的，见该方法。
+                        ClassifyLoadedDocument();
                         return S_OK;
                     }).Get(), nullptr);
         }
@@ -887,6 +1195,234 @@ void ZLibraryService::OnImportDone(const std::string& fileName, bool success, co
     } else {
         m_bridge->EmitEvent("zlib:importError", {{"fileName", fileName}, {"error", errMsg}});
     }
+}
+
+// ── 线路选择 / 导航结果判定 ──────────────────────────────────────────────
+
+// 按「是不是正式站 + 实测耗时」重排（要求已持有 m_mirrorMutex）。m_mirrors 与
+// m_mirrorStats 同长同序，排完一起重建。
+void ZLibraryService::SortMirrorsLocked() {
+    std::stable_sort(m_mirrorStats.begin(), m_mirrorStats.end(),
+                     [](const ZlibMirrorStat& a, const ZlibMirrorStat& b) {
+        int ra = MirrorRank(a), rb = MirrorRank(b);
+        if (ra != rb) return ra < rb;
+        int ma = a.ms < 0 ? INT_MAX : a.ms;
+        int mb = b.ms < 0 ? INT_MAX : b.ms;
+        return ma < mb;
+    });
+    m_mirrors.clear();
+    m_mirrors.reserve(m_mirrorStats.size());
+    for (const auto& s : m_mirrorStats) m_mirrors.push_back(s.url);
+}
+
+// 单条探测结果落地（要求已持有 m_mirrorMutex）：按 URL 找，不按索引 —— 探测期间
+// 名单可能被刷新过，索引早就对不上了。
+void ZLibraryService::ApplyProbeResultLocked(const ZlibMirrorStat& st) {
+    auto it = std::find_if(m_mirrorStats.begin(), m_mirrorStats.end(),
+                           [&](const ZlibMirrorStat& s) { return s.url == st.url; });
+    if (it == m_mirrorStats.end()) return;   // 名单已被换掉，这条结果作废
+    *it = st;
+    if (m_mirrorStats.size() != m_mirrors.size()) return;
+    SortMirrorsLocked();
+    SelectDefaultMirrorLocked();
+}
+
+// 选"当前线路"（要求已持有 m_mirrorMutex）。优先级：
+//   ① 用户本次会话手动选过的（钉住，不再被自动排序顶掉）
+//   ② 上次真的进去过的（登录 Cookie 绑在域名上，能不动就不动）
+//   ③ 探测排在最前面的那条
+void ZLibraryService::SelectDefaultMirrorLocked() {
+    if (m_mirrors.empty()) { m_currentMirror = 0; return; }
+    if (m_mirrorPinned) {
+        auto it = std::find(m_mirrors.begin(), m_mirrors.end(), m_pinnedUrl);
+        if (it != m_mirrors.end()) { m_currentMirror = (int)(it - m_mirrors.begin()); return; }
+        m_mirrorPinned = false;   // 那条线路已经不在名单里了
+    }
+    if (!m_lastWorkingMirror.empty()) {
+        auto it = std::find(m_mirrors.begin(), m_mirrors.end(), m_lastWorkingMirror);
+        if (it != m_mirrors.end()) {
+            size_t idx = (size_t)(it - m_mirrors.begin());
+            bool knownDead = (idx < m_mirrorStats.size() && m_mirrorStats[idx].kind == ZMK_FAIL);
+            if (!knownDead) { m_currentMirror = (int)idx; return; }
+        }
+    }
+    m_currentMirror = 0;
+}
+
+// 导航用哪个地址：探测已经跟到重定向尽头就直接用最终地址（省掉入口域名那一跳的
+// DNS+TCP+TLS，实测 1.5~2 秒），否则用名单里的原地址。
+std::string ZLibraryService::MirrorNavigateUrlLocked(int index) {
+    if (index < 0 || index >= (int)m_mirrors.size()) return "";
+    if (index < (int)m_mirrorStats.size()) {
+        const std::string& f = m_mirrorStats[index].finalUrl;
+        if (!f.empty() && IsMirrorCandidate(f)) return f;
+    }
+    return m_mirrors[index];
+}
+
+void ZLibraryService::LoadLastMirrorOnce() {
+    if (!m_db || m_lastMirrorLoaded) return;
+    m_lastMirrorLoaded = true;
+    json settings = m_db->GetSettings();
+    if (settings.is_null() || !settings.contains("zlibLastMirror")) return;
+    if (!settings["zlibLastMirror"].is_string()) return;
+    std::string url = settings["zlibLastMirror"].get<std::string>();
+    std::lock_guard<std::mutex> lk(m_mirrorMutex);
+    if (m_lastWorkingMirror.empty()) m_lastWorkingMirror = url;
+}
+
+void ZLibraryService::RememberWorkingMirror(const std::string& url) {
+    if (url.empty()) return;
+    {
+        std::lock_guard<std::mutex> lk(m_mirrorMutex);
+        if (url == m_lastWorkingMirror) return;
+        m_lastWorkingMirror = url;
+    }
+    if (!m_db) return;
+    json settings = m_db->GetSettings();
+    if (settings.is_null()) settings = json::object();
+    settings["zlibLastMirror"] = url;
+    m_db->UpdateSettings(settings);
+}
+
+// 探测结果过期（或还没探过）时后台补探一轮。进站/换线时调用，绝不阻塞这次导航。
+void ZLibraryService::RefreshRankingIfStale() {
+    const int kMaxAgeSeconds = 600;
+    {
+        std::lock_guard<std::mutex> lk(m_mirrorMutex);
+        if (m_probeRunning) return;
+        bool haveResult = !m_mirrors.empty() && m_mirrorStats.size() == m_mirrors.size() &&
+                          m_mirrorStats[0].kind != ZMK_UNKNOWN;
+        if (haveResult) {
+            auto age = std::chrono::duration_cast<std::chrono::seconds>(
+                           std::chrono::steady_clock::now() - m_probeFinishedAt).count();
+            if (age < kMaxAgeSeconds) return;
+        }
+    }
+    // 服务由 App 用 shared_ptr 持有：这样补探线程不会比服务活得久（同 StartMirrorFetch）
+    auto self = App::Instance().Zlib();
+    if (self) std::thread([self]() { self->ProbeAndRank(); }).detach();
+}
+
+// 并行探测所有线路并按「可达性 + 实测耗时」重排。跑在后台线程里。
+void ZLibraryService::ProbeAndRank() {
+    if (m_probeRunning.exchange(true)) return;
+
+    std::vector<std::string> urls;
+    { std::lock_guard<std::mutex> lk(m_mirrorMutex); urls = m_mirrors; }
+
+    // 8 条并发：单条最坏要等 ~13 秒（各项超时之和），串行探十几条要一两分钟，
+    // 那样排序结果永远赶不上用户点进 Z-Library。
+    std::atomic<size_t> next{0};
+    size_t nThreads = std::min<size_t>(urls.size(), 8);
+    std::vector<std::thread> pool;
+    pool.reserve(nThreads);
+    for (size_t i = 0; i < nThreads; i++) {
+        pool.emplace_back([&]() {
+            for (size_t k = next.fetch_add(1); k < urls.size(); k = next.fetch_add(1)) {
+                // 用户已经点进来了：先别探新线路 —— 这条链路本来就窄，探测跟进站导航
+                // 抢带宽只会让用户多等（实测进站那一下能等出十几秒）。在跑的几条探完
+                // 就停在这儿，进站出结果后自动继续；最多停 60 秒兜底。
+                for (int w = 0; w < 600 && m_probePause.load(); w++)
+                    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                ZlibMirrorStat st = ProbeMirrorOnce(urls[k]);
+
+                // 探到一条就落地一条：死线路单条要等满超时（~13 秒），等全部探完再排序
+                // 的话用户早进站了 —— 那样这份排序等于没用。
+                std::lock_guard<std::mutex> lk(m_mirrorMutex);
+                ApplyProbeResultLocked(st);
+            }
+        });
+    }
+    for (auto& t : pool) t.join();
+
+    {
+        std::lock_guard<std::mutex> lk(m_mirrorMutex);
+        m_probeFinishedAt = std::chrono::steady_clock::now();
+    }
+    m_probeRunning = false;
+}
+
+// 导航"成功"之后才敢下结论。三种情况：
+//   ① document.title 还是 JS 挑战页 → 挑战脚本跑完会自己再跳一次，遮罩继续留着
+//      （此前这里立刻撤遮罩，用户看到的就是一个空白页在干等）；
+//   ② 进站导航拿到 4xx/5xx 且不是挑战页 → 这条线路不可用，换下一条；
+//   ③ 正常页面 → 发 mirrorChanged 撤遮罩，并记住这条线路。
+// 只在【进站导航】上判 4xx/5xx：站内点书点出个 404 不该被当成"线路挂了"而把用户
+// 甩到另一个域名去。
+void ZLibraryService::ClassifyLoadedDocument() {
+    auto* wv = m_host ? m_host->GetWebView() : nullptr;
+    if (!wv) {
+        m_entryNav = false;
+        m_challengeWaits = 0;
+        m_probePause = false;
+        m_bridge->EmitEvent("zlib:mirrorChanged", GetMirrorInfo());
+        return;
+    }
+    wv->ExecuteScript(L"document.title",
+        Callback<ICoreWebView2ExecuteScriptCompletedHandler>(
+            [this](HRESULT hr, LPCWSTR resultJson) -> HRESULT {
+                if (!m_zlibActive) return S_OK;
+                std::string title;
+                if (SUCCEEDED(hr) && resultJson) {
+                    try {
+                        json j = json::parse(ToNarrow(resultJson));
+                        if (j.is_string()) title = j.get<std::string>();
+                    } catch (...) { /* 拿不到标题就当普通页面处理 */ }
+                }
+                if (LooksLikeChallengeTitle(title)) return S_OK;   // 等挑战自己跑完
+                if (m_entryNav && m_lastDocStatus >= 400) { AdvanceMirrorOnFailure(); return S_OK; }
+                m_entryNav = false;
+                m_challengeWaits = 0;
+                m_probePause = false;   // 进站结束，探测继续把剩下的线路探完
+                {
+                    std::lock_guard<std::mutex> lk(m_mirrorMutex);
+                    m_navRetryCount = 0;
+                }
+                RememberWorkingMirror(m_pendingMirrorUrl);
+                m_bridge->EmitEvent("zlib:mirrorChanged", GetMirrorInfo());
+                return S_OK;
+            }).Get());
+}
+
+// 一条线路不可用 → 换下一条。额度 = Show()/SwitchMirror 时快照的线路数（轮一遍即停）。
+void ZLibraryService::AdvanceMirrorOnFailure() {
+    std::string nextUrl, pending;
+    bool retry = false;
+    {
+        std::lock_guard<std::mutex> lk(m_mirrorMutex);
+        if (m_navRetryCount < m_retryMirrorCount && m_navRetryCount < (int)m_mirrors.size()) {
+            m_navRetryCount++;
+            // 往后找下一条：【探测已知不通】的直接跳过。名单已按可达性排过序，
+            // 正常情况下下一条就是能用的，不必一条条去撞。
+            size_t n = m_mirrors.size();
+            for (size_t step = 0; step < n; step++) {
+                m_currentMirror = (m_currentMirror + 1) % (int)n;
+                bool knownDead = m_currentMirror < (int)m_mirrorStats.size() &&
+                                 m_mirrorStats[m_currentMirror].kind == ZMK_FAIL;
+                if (!knownDead) break;
+            }
+            pending = m_mirrors[m_currentMirror];
+            nextUrl = MirrorNavigateUrlLocked(m_currentMirror);
+            retry = true;
+        }
+        // 挂掉的线路不该继续被"用户手动选择"钉住，否则下次进站还从它开始
+        m_mirrorPinned = false;
+    }
+    auto* wv = m_host ? m_host->GetWebView() : nullptr;
+    if (retry && wv) {
+        m_pendingMirrorUrl = pending;
+        m_lastDocStatus = 0;
+        m_entryNav = true;
+        m_challengeWaits = 0;
+        wv->Navigate(ToWide(nextUrl).c_str());
+        // 这里【不】发 mirrorChanged：遮罩要留到这条线路真的出结果，否则又是一次白屏干等
+        return;
+    }
+    m_entryNav = false;
+    m_probePause = false;
+    m_bridge->EmitEvent("zlib:allMirrorsFailed", json::object());
+    m_bridge->EmitEvent("zlib:mirrorChanged", GetMirrorInfo());
 }
 
 void RegisterZlibHandlers(BridgeServer* bridge, ZLibraryService* zlib) {

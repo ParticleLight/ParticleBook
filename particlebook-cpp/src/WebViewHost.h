@@ -55,6 +55,10 @@ public:
     using DownloadFailCb = std::function<void(const std::string& fileName, const std::string& reason)>;
     void SetDownloadFailCallback(DownloadFailCb cb) { m_dlFailCb = std::move(cb); }
 
+    // "线路探测还没给出结果"时，等一会儿再回 UI 线程发起进站导航（见 ZLibraryService::Show）
+    using EntryNavCb = std::function<void()>;
+    void SetZlibEntryNavCallback(EntryNavCb cb) { m_zlibEntryNavCb = std::move(cb); }
+
     using UpdateDoneCb = std::function<void(bool success, const std::string& path_or_error)>;
     void SetUpdateDoneCallback(UpdateDoneCb cb) { m_updateDoneCb = std::move(cb); }
 
@@ -92,6 +96,7 @@ private:
     DownloadProgressCb m_dlProgressCb;
     ImportCallback m_importCb;
     DownloadFailCb m_dlFailCb;
+    EntryNavCb m_zlibEntryNavCb;
     UpdateDoneCb m_updateDoneCb;
     UpdateCheckCb m_updateCheckCb;
     UpdateDownloadProgressCb m_updateDownloadProgressCb;

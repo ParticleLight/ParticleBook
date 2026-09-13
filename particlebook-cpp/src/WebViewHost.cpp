@@ -13,7 +13,8 @@
 #define WM_ZLIB_REFRESH_LIBRARY (WM_USER + 12)
 #define WM_ZLIB_DO_IMPORT (WM_USER + 13)
 #define WM_ZLIB_DOWNLOAD_FAILED (WM_USER + 14)
-#define WM_ZLIB_IMPORT_DONE (WM_USER + 20)   // 15-17 已被 WebViewHost.h 的 WM_UPDATE_* 占用
+#define WM_ZLIB_IMPORT_DONE (WM_USER + 20)
+#define WM_ZLIB_ENTRY_NAVIGATE (WM_USER + 21)   // 同样定义在 ZLibraryService.cpp   // 15-17 已被 WebViewHost.h 的 WM_UPDATE_* 占用
 
 struct DLProgressData { std::string fileName; int64_t received; int64_t total; };
 struct DLFailData { std::string fileName; std::string reason; };
@@ -172,6 +173,10 @@ LRESULT CALLBACK WebViewHost::WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
             self->m_dlFailCb(data->fileName, data->reason);
             delete data;
         }
+        return 0;
+
+    case WM_ZLIB_ENTRY_NAVIGATE:
+        if (self->m_zlibEntryNavCb) self->m_zlibEntryNavCb();
         return 0;
 
     case WM_ZLIB_REFRESH_LIBRARY:

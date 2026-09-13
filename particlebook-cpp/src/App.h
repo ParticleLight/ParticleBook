@@ -23,6 +23,9 @@ public:
     DatabaseService* DB() const { return m_db.get(); }
     BridgeServer* Bridge() const { return m_bridge.get(); }
     WebViewHost* WebView() const { return m_webview.get(); }
+    // 供后台任务（Z-Library 线路探测）拿 shared_ptr 保命：线程要多活一会儿时
+    // 不能捕获裸 this（服务是 shared_ptr 持有的）。
+    std::shared_ptr<ZLibraryService> Zlib() const { return m_zlib; }
 
     std::string UserDataPath() const;
     std::string GetLanguage() const { return m_language; }
