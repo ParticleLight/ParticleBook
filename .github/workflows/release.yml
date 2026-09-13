@@ -103,6 +103,21 @@ jobs:
             particlebook-cpp/build2/latest.yml
           if-no-files-found: error
 
+      # 失败重试会在同一个 tag 上留下多个空 draft（2026-09-13 GitHub 故障期间实测堆了 6 个），
+      # 而 getReleaseByTag 查不到 draft —— 之后再跑就成了「创建了却查不到」的死循环。
+      # 发布前先清掉本 tag 的 draft：只删 draft，绝不碰已发布版本。
+      - name: Remove stale draft release for this tag
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.dry_run == false }}
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          $ids = gh api "repos/$env:REPO/releases" --jq '.[] | select(.tag_name==env.TAG and .draft==true) | .id'
+          if (-not $ids) { Write-Output "no stale draft for this tag"; exit 0 }
+          foreach ($id in $ids) { gh api -X DELETE "repos/$env:REPO/releases/$id"; Write-Output "deleted stale draft $id" }
+
       - name: Create GitHub Release
         if: ${{ github.event_name != 'workflow_dispatch' || inputs.dry_run == false }}
         uses: softprops/action-gh-release@v2
