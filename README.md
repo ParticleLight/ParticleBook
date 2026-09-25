@@ -1,6 +1,6 @@
 # ParticleBook
 
-**内置 Z-Library 的轻量级电子书阅读器** — C++ Win32 原生应用 + WebView2 前端，安装包仅 ~25MB（Electron 版 ~150MB）。当前版本 **v2.1.0**。
+**内置 Z-Library 的轻量级电子书阅读器** — C++ Win32 原生应用 + WebView2 前端，安装包仅 ~25MB（Electron 版 ~150MB）。当前版本 **v2.2.0**。
 
 ## 为什么选择 ParticleBook？
 
