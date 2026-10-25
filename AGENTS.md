@@ -1,52 +1,32 @@
-# ParticleBook
+# ParticleBook — 工作区契约
+> 稳定注入。只放当前有效的硬约束和指针；会过期、会替换，不累积历史。
 
-> **这是 C++ Win32 + WebView2 原生应用。Electron 版已废弃并从仓库移除。**
-> ⚠️ **不要运行 `npm start` / `npm run dev`** —— 那些是已删除的 Electron 入口，跑起来是无图标旧版。
+## 定位
+- 内置 Z-Library 的电子书阅读器；**C++ Win32 + WebView2 原生应用**，React 前端由 WebView2 加载。
+- Electron 版已废弃并移出仓库（清单见 `docs/memory/facts.md`）。
+- 当前阶段：v2.2.0 已发布；`main` 领先 tag 的未发版提交：`6e7cb7d`（UI）、`3bbe555`（CI）。
 
-## 如何启动 / 构建
+## 红线
+- **不要跑 `npm start` / `npm run dev`**，也不要恢复 Electron 残留（`src/main/`、`electron-builder.json`、`start.bat`、`electron-vite`、`release/`、`ensure-electron-stub.js`）。
+- `bridge/contract.mjs` 是桥接契约唯一来源；`src/renderer/types/electron.d.ts` 是生成物，**禁止手改**（CI 比对新鲜度）。
+- `vite.config.ts` 的 `base: './'` 与 `outDir: out/renderer` 是承重配置，别删。
+- 动过 `particlebook-cpp/**/*.h` 后**不要增量编译**：先删 `build2/CMakeFiles` 下的 `*.obj` 再 nmake（ABI 不一致会启动即崩）。
+- 外部动作（push / 发布 / PR）先问；数字必须来自磁盘或实跑；临时脚本用完即删；原子提交。
+- `docs/memory/` 是本地笔记、**不入库**，不要提交。
 
-| 你想做的事 | 命令 |
-|---|---|
-| 安装前端依赖 | `npm install` |
-| 构建 React 前端 | `npm run build` → 产出 `out/renderer/` |
-| 启动 C++ 应用（需先构建） | `npm run start:cpp` |
-| 一键重建前端+C++ | `npm run rebuild:cpp` |
+## 每轮约定
+- 前端：`npm run build` → `out/renderer/`；启动：`npm run start:cpp`；一键重建：`npm run rebuild:cpp`。
+- C++ 构建（VS 在 D 盘）：`cd particlebook-cpp/build2 && MSYS_NO_PATHCONV=1 cmd /c "call D:/VS2022/VC/Auxiliary/Build/vcvars64.bat >nul 2>&1 && nmake"`。
+- 校验：`npx tsc --noEmit` / `npm run build` / `npm run i18n:check` / `node scripts/check-bridge-contract.js` / `node scripts/gen-bridge-dts.mjs --check` / `node scripts/check-version-sync.js` / `ctest`。
+- 版本号三处：`node scripts/bump-version.js <x.y.z>`。
+- 分支 `main`；`out/`、`particlebook-cpp/build2/` 是 gitignore 的构建输出。
 
-C++ 后端构建需要 Visual Studio 2022 Build Tools + CMake 3.25+，用 NMake 生成器：
+## 记忆地图
+- **开工前读** `docs/memory/index.md`（索引 + 当前活跃；本机文件，不存在说明不是本机工作区）。
+- 决策 / 命令 / 坐标 → `docs/memory/facts.md`；偏好 / 红线 → `docs/memory/prefs.md`；踩坑 → `docs/memory/pitfalls.md`；已完结进展 → `docs/memory/archive/YYYY-MM.md`。
+- 设计稿：`docs/BRIDGE_CONTRACT_DESIGN.md`、`docs/IMPROVEMENT_PLAN.md`、`docs/IMPROVEMENT_PLAN_R2.md`。
 
-```bash
-cd particlebook-cpp/build2
-cmake .. -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=Release
-# 在 "x64 Native Tools Command Prompt for VS 2022" 下，或调用 vcvarsall.bat x64：
-nmake
-```
-
-`npm run build` 用 **纯 Vite**（`vite.config.ts`）构建 React 前端到 `out/renderer`；CMake POST_BUILD 自动拷贝到 `particlebook-cpp/build2/renderer`。
-
-配置里两项是承重的，别删：`base: './'`（WebView2 从 particlebook.app 虚拟主机加载，Vite 默认的绝对 `/assets/…` 解析不到）与 `outDir: out/renderer`（CMake 与 rebuild:cpp/package 都按这个路径拷贝）。
-
-## 项目结构
-
-```
-src/renderer/               React 前端（C++ 版通过 WebView2 加载）
-particlebook-cpp/          C++ Win32 + WebView2 后端
-  src/App.cpp               工具栏注入、服务初始化
-  src/WebViewHost.cpp       Win32 窗口 + WebView2
-  src/BridgeServer.cpp      C++ ↔ JS 桥接（GenerateBridgeScript）
-  src/services/             ZLibrary/Library/Pdf/BookSource/Database
-particlebook-cpp/build2/    C++ 构建输出（gitignore）
-out/                        前端构建输出（gitignore）
-```
-
-## 已删除的 Electron 残留
-
-以下已从仓库移除，新对话不要尝试恢复或运行：
-- `src/main/`（Electron 主进程）
-- `electron-builder.json`、`start.bat`、`scripts/cleanup-locales.js`
-- `release/`（旧 Electron 安装包 1.6~1.8）
-- 依赖：`electron`、`electron-builder`、`electron-updater`、`cross-env`
-- 构建工具 `electron-vite` 与 `electron.vite.config.ts`（已换为纯 Vite）
-- 为喂饱 electron-vite 而造的 `scripts/ensure-electron-stub.js`（它会在 node_modules 里放假 electron 包）
-- Electron 时代的死依赖：`lowdb`（→ C++ DatabaseService）、`mupdf`（→ mutool.exe）、`cheerio`、`get-caller-file`
-
-更新检查走 C++ WinHTTP 直接拉 GitHub `latest.yml`，不依赖 electron-updater。
+## 当前活跃任务
+- 待用户真机验证：① Z-Library 下载→导入书架全链；② 手动点 Z-Library 的进站体感；③ `9359681`「文件丢失」提示观感。
+- 下一版本自然带出 `6e7cb7d` + `3bbe555`；**不重做 2.2.0、不发 2.2.1**（用户决定）。
+- 存疑未改：书柜重命名 Esc 时序；readerStore 命令态跨书留存。
