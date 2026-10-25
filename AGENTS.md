@@ -25,9 +25,11 @@
 - **开工前读** `docs/memory/index.md`（索引 + 当前活跃；本机文件，不存在说明不是本机工作区）。
 - 决策 / 命令 / 坐标 → `docs/memory/facts.md`；偏好 / 红线 → `docs/memory/prefs.md`；踩坑 → `docs/memory/pitfalls.md`；已完结进展 → `docs/memory/archive/YYYY-MM.md`。
 - 设计稿：`docs/BRIDGE_CONTRACT_DESIGN.md`、`docs/IMPROVEMENT_PLAN.md`、`docs/IMPROVEMENT_PLAN_R2.md`。
+- **待办清单 → `docs/BACKLOG.md`**（用户口述增补；PB-xxx 编号）。
 
 ## 当前活跃任务
 - 待用户真机验证：① Z-Library 下载→导入书架全链；② 手动点 Z-Library 的进站体感；③ `9359681`「文件丢失」提示观感。
 - 下一版本 **2.2.1 开发中**（2026-10-25 起）：带出 `6e7cb7d` + `3bbe555`；**不重做 2.2.0**。
 - 2.2.1 issue：#6 亮色设置页已修；#7 安卓适配待定方向（非本版范围）。
+- **PB-001 TTS 朗读**（P0，待办）：本地 SAPI5/OneCore；MVP 验收见 `docs/BACKLOG.md`。
 - 存疑未改：书柜重命名 Esc 时序；readerStore 命令态跨书留存。
