@@ -724,6 +724,14 @@ export const contract = [
     params: [],
     returns: "Promise<string[]>"
   },
+  // PB-016: export a local diagnostics folder (logs + version + system info).
+  {
+    member: "exportDiagnostics", method: "app:exportDiagnostics",
+    kind: "invoke",
+    group: "Files",
+    params: [],
+    returns: "Promise<string | null>"
+  },
   {
     member: "onOpenFiles", method: "app:openFiles",
     kind: "event",

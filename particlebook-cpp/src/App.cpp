@@ -264,6 +264,20 @@ void App::Init(HINSTANCE hInstance, std::vector<std::string> startupPaths, Singl
         return json(App::Instance().TakePendingOpenFiles());
     });
 
+    // PB-016: local diagnostics export (logs + version + system info + settings).
+    // No network/telemetry; returns the created directory or null on failure.
+    m_bridge->RegisterMethod("app:exportDiagnostics", [this](const json&) -> json {
+        if (!m_log) return json(nullptr);
+        pb::DiagnosticsPackage pkg;
+        std::string error;
+        if (!m_log->ExportDiagnostics("", &pkg, &error)) {
+            pb::LogError("diagnostics", "export failed: " + error);
+            return json(nullptr);
+        }
+        pb::LogInfo("diagnostics", "exported to " + pkg.directory);
+        return json(pkg.directory);
+    });
+
     if (m_single) {
         m_single->StartServer([this](std::vector<std::string> paths) {
             OnExternalOpen(std::move(paths));

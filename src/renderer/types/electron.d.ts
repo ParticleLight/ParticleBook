@@ -312,6 +312,7 @@ interface ElectronAPI {
 
   // Files
   getPendingOpenFiles: () => Promise<string[]>
+  exportDiagnostics: () => Promise<string | null>
   onOpenFiles: (callback: (paths: string[]) => void) => () => void
 
   // Library

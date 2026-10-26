@@ -347,6 +347,7 @@ std::string BridgeServer::GenerateBridgeScript()
 
     onLibraryChanged: function(cb) { return onEvent('library:changed', cb); },
     getPendingOpenFiles: function() { return invoke('app:getPendingOpenFiles'); },
+    exportDiagnostics: function() { return invoke('app:exportDiagnostics'); },
     onOpenFiles: function(cb) { return onEvent('app:openFiles', cb); },
 
     checkUpdate: function()    { return invoke('app:checkUpdate'); },

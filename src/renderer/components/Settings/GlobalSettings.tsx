@@ -439,6 +439,8 @@ function AboutPage() {
   const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null)
   const [downloadPercent, setDownloadPercent] = useState(0)
   const [errorMessage, setErrorMessage] = useState('')
+  const [diagState, setDiagState] = useState<'idle' | 'exporting' | 'done' | 'error'>('idle')
+  const [diagPath, setDiagPath] = useState('')
   const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const { t } = useTranslation()
 
@@ -480,6 +482,17 @@ function AboutPage() {
     ]
     return () => { unsubs.forEach((u) => u()); if (idleTimerRef.current) clearTimeout(idleTimerRef.current) }
   }, [])
+
+  const handleExportDiagnostics = () => {
+    setDiagState('exporting')
+    setDiagPath('')
+    window.electronAPI.exportDiagnostics()
+      .then((path) => {
+        if (path) { setDiagPath(path); setDiagState('done') }
+        else setDiagState('error')
+      })
+      .catch(() => setDiagState('error'))
+  }
 
   const handleCheckUpdate = () => {
     setUpdateStatus('checking'); setErrorMessage('')
@@ -552,6 +565,28 @@ function AboutPage() {
             <SvgIcon d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" className="w-4 h-4" />
             {t('检查更新')}
           </button>
+        )}
+      </div>
+
+      {/* Diagnostics */}
+      <div className="settings-card">
+        <SectionTitle>{t('诊断')}</SectionTitle>
+        <p className="text-sm mb-3" style={{ color: 'var(--text-secondary)' }}>
+          {t('导出本地诊断包：日志、版本、系统信息与脱敏设置（不含 API Key）。完全本地，不上传。')}
+        </p>
+        <button
+          onClick={handleExportDiagnostics}
+          disabled={diagState === 'exporting'}
+          className="btn-secondary w-full flex items-center justify-center gap-2"
+        >
+          <SvgIcon d="M12 10v6m0 0l-3-3m3 3l3-3M3 17V7a2 2 0 012-2h6l2 2h6a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z" className="w-4 h-4" />
+          {diagState === 'exporting' ? t('正在导出...') : t('导出诊断包')}
+        </button>
+        {diagState === 'done' && (
+          <p className="mt-3 text-xs break-all" style={{ color: 'var(--notify-success-text)' }}>{t('诊断包已导出：{{path}}', { path: diagPath })}</p>
+        )}
+        {diagState === 'error' && (
+          <p className="mt-3 text-xs" style={{ color: 'var(--notify-error-text)' }}>{t('导出失败')}</p>
         )}
       </div>
 
