@@ -9,6 +9,7 @@ import { safeText } from '../../utils/safeText'
 import { useTranslation } from 'react-i18next'
 
 const ChangelogPanel = lazy(() => import('./ChangelogPanel').then(m => ({ default: m.ChangelogPanel })))
+const LibrarySearch = lazy(() => import('./LibrarySearch').then(m => ({ default: m.LibrarySearch })))
 const BookSourcePanel = lazy(() => import('./BookSourcePanel').then(m => ({ default: m.BookSourcePanel })))
 
 // WebView2 File objects have no .path — convert bytes to base64 to hand to C++.
@@ -130,6 +131,8 @@ export function Library({ onOpenBook, onOpenSettings, onOpenZLibrary, onOpenStat
   const [showBookSource, setShowBookSource] = useState(false)
   const [showMore, setShowMore] = useState(false)
   const [showBookPicker, setShowBookPicker] = useState(false)
+  // PB-006-B：全局全文搜索面板（书库顶部按钮 / Ctrl+Shift+F）
+  const [showGlobalSearch, setShowGlobalSearch] = useState(false)
   const dragCounterRef = useRef(0)
   const moreBtnRef = useRef<HTMLButtonElement>(null)
   const { t } = useTranslation()
@@ -206,6 +209,18 @@ export function Library({ onOpenBook, onOpenSettings, onOpenZLibrary, onOpenStat
     return () => document.removeEventListener('click', handleClick)
   }, [showMore])
 
+  // PB-006-B：Ctrl+Shift+F 打开全局全文搜索（书库页才挂载，不会和阅读器快捷键冲突）
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'F' || e.key === 'f')) {
+        e.preventDefault()
+        setShowGlobalSearch(true)
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [])
+
   const handleDragEnter = useCallback((e: React.DragEvent) => { e.preventDefault(); dragCounterRef.current++; setIsDragOver(true) }, [])
   const handleDragOver = useCallback((e: React.DragEvent) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy' }, [])
   const handleDragLeave = useCallback(() => { dragCounterRef.current--; if (dragCounterRef.current <= 0) { dragCounterRef.current = 0; setIsDragOver(false) } }, [])
@@ -232,11 +247,26 @@ export function Library({ onOpenBook, onOpenSettings, onOpenZLibrary, onOpenStat
         <div className="no-drag flex-1 max-w-lg mx-auto relative">
           <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" style={{ color: 'var(--text-tertiary)' }}><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
           <input type="text" placeholder={t('搜索书名或作者...')} value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-9 pr-3 py-1.5 text-sm rounded-lg transition-all duration-150"
+            className="w-full pl-9 pr-10 py-1.5 text-sm rounded-lg transition-all duration-150"
             style={{ background: 'var(--bg-tertiary)', color: 'var(--text-primary)', border: '1px solid transparent' }}
             onFocus={(e) => e.currentTarget.style.borderColor = 'var(--border-focus)'}
             onBlur={(e) => e.currentTarget.style.borderColor = 'transparent'}
           />
+          {/* PB-006-B：全局全文搜索入口（书名/作者搜索之外的正文搜索） */}
+          <button
+            onClick={() => setShowGlobalSearch(true)}
+            className="absolute right-1 top-1/2 -translate-y-1/2 p-1.5 rounded-md transition-colors"
+            style={{ color: 'var(--text-tertiary)' }}
+            title={t('全文搜索 (Ctrl+Shift+F)')}
+            aria-label={t('全文搜索')}
+            data-global-search-open="1"
+            onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--text-primary)'; e.currentTarget.style.background = 'var(--surface-hover)' }}
+            onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-tertiary)'; e.currentTarget.style.background = 'transparent' }}
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+          </button>
         </div>
 
         {/* Right: actions */}
@@ -343,6 +373,13 @@ export function Library({ onOpenBook, onOpenSettings, onOpenZLibrary, onOpenStat
 
       {showChangelog && <Suspense fallback={null}><ChangelogPanel onClose={() => setShowChangelog(false)} isClosing={false} /></Suspense>}
       {showBookSource && <Suspense fallback={null}><BookSourcePanel onClose={() => setShowBookSource(false)} isClosing={false} /></Suspense>}
+
+      {/* PB-006-B：全局全文搜索 */}
+      {showGlobalSearch && (
+        <Suspense fallback={null}>
+          <LibrarySearch onClose={() => setShowGlobalSearch(false)} onOpenBook={onOpenBook} />
+        </Suspense>
+      )}
 
       {/* BookPicker: add existing books to current shelf */}
       {showBookPicker && (
