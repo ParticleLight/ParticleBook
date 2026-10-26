@@ -377,6 +377,9 @@ interface ElectronAPI {
 
   // Utilities
   openDefaultApps: () => Promise<void>
+  searchBuild: () => Promise<{ ok: boolean; indexed: number; reused: number; removed: number; skipped: number; skippedPdf: number; failed: number; cancelled: boolean; totalChars: number; termCount: number; elapsedMs: number; errors: string[]; saved: boolean; saveError: string }>
+  searchQuery: (query: string, maxHits?: number) => Promise<{ hits: Array<{ bookId: number; bookTitle: string; bookFormat: string; snippet: string; offset: number; matchLength: number; page: number; score: number; termHits: number }>; booksMatched: number; truncated: boolean; cancelled: boolean }>
+  searchStatus: () => Promise<{ books: number; terms: number; chars: number } | null>
   translationSetKey: (key: string) => Promise<boolean>
   translationHasKey: () => Promise<boolean>
   translationClearKey: () => Promise<boolean>

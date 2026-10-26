@@ -62,6 +62,7 @@ add_executable(ParticleBook WIN32
     src/handlers/TtsHandlers.cpp
     src/handlers/TranslationHandlers.cpp
     src/handlers/AnnotationHandlers.cpp
+    src/handlers/SearchHandlers.cpp
     src/platform/SingleInstance.cpp
     src/platform/UiDispatcher.cpp
     src/platform/JobService.cpp

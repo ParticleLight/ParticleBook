@@ -16,8 +16,10 @@
 #include "platform/SapiTts.h"
 #include "platform/SecretStore.h"
 #include "services/TranslationService.h"
+#include "services/SearchIndexService.h"
 #include "handlers/TtsHandlers.h"
 #include "handlers/TranslationHandlers.h"
+#include "handlers/SearchHandlers.h"
 #include "pb_version.h"
 #include <shlobj.h>
 #include <shellapi.h>
@@ -33,6 +35,7 @@ void RegisterZlibHandlers(BridgeServer* bridge, ZLibraryService* zlib);
 void RegisterBackupHandlers(BridgeServer* bridge, DatabaseService* db, pb::JobService* jobs);
 void RegisterExportHandlers(BridgeServer* bridge, DatabaseService* db, pb::JobService* jobs);
 void RegisterTranslationHandlers(BridgeServer* bridge, DatabaseService* db, pb::JobService* jobs, SecretStore* secrets, pb::TranslationService* translation);
+void RegisterSearchHandlers(BridgeServer* bridge, DatabaseService* db, pb::JobService* jobs, pb::SearchIndexService* index);
 
 // Utf8ToWide moved to utils/encoding.h (pb::Utf8ToWide)
 
@@ -76,6 +79,8 @@ void App::Init(HINSTANCE hInstance, std::vector<std::string> startupPaths, Singl
     // PB-023/PB-002: DPAPI-backed provider keys + translation client.
     m_secrets = std::make_unique<SecretStore>(SecretStore::DefaultPath());
     m_translation = std::make_unique<pb::TranslationService>();
+    m_search = std::make_unique<pb::SearchIndexService>();
+    m_search->SetDataDir(UserDataPath() + "/data");
 
     // PB-001: one in-process SAPI voice instance (SAPI audio is process-wide).
     m_tts = std::make_unique<pb::SapiTts>();
@@ -298,6 +303,7 @@ void App::Init(HINSTANCE hInstance, std::vector<std::string> startupPaths, Singl
     RegisterBookSourceHandlers(m_bridge.get(), m_bookSource, m_jobs.get());
     RegisterTtsHandlers(m_bridge.get(), m_tts.get());
     RegisterTranslationHandlers(m_bridge.get(), m_db.get(), m_jobs.get(), m_secrets.get(), m_translation.get());
+    RegisterSearchHandlers(m_bridge.get(), m_db.get(), m_jobs.get(), m_search.get());
     RegisterZlibHandlers(m_bridge.get(), m_zlib.get());
 
     // UI language switch — called from frontend when the user changes language.

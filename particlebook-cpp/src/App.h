@@ -19,6 +19,7 @@ namespace pb { class JobService; }
 namespace pb { class LogService; }
 namespace pb { class SapiTts; }
 namespace pb { class TranslationService; }
+namespace pb { class SearchIndexService; }
 
 class App {
 public:
@@ -63,6 +64,7 @@ private:
     std::unique_ptr<pb::SapiTts> m_tts;
     std::unique_ptr<SecretStore> m_secrets;
     std::unique_ptr<pb::TranslationService> m_translation;
+    std::unique_ptr<pb::SearchIndexService> m_search;
 
     SingleInstance* m_single = nullptr;
     std::mutex m_openMutex;

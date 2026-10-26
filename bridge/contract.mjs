@@ -870,6 +870,23 @@ export const contract = [
     kind: "invoke", group: "Utilities", params: [],
     returns: "Promise<void>"
   },
+  // ── Full-text search (PB-006) ──
+  {
+    member: "searchBuild", method: "search:build",
+    kind: "invoke", group: "Utilities", params: [],
+    returns: "Promise<{ ok: boolean; indexed: number; reused: number; removed: number; skipped: number; skippedPdf: number; failed: number; cancelled: boolean; totalChars: number; termCount: number; elapsedMs: number; errors: string[]; saved: boolean; saveError: string }>"
+  },
+  {
+    member: "searchQuery", method: "search:query",
+    kind: "invoke", group: "Utilities",
+    params: [{ n: "query", t: "string" }, { n: "maxHits", t: "number", o: true }],
+    returns: "Promise<{ hits: Array<{ bookId: number; bookTitle: string; bookFormat: string; snippet: string; offset: number; matchLength: number; page: number; score: number; termHits: number }>; booksMatched: number; truncated: boolean; cancelled: boolean }>"
+  },
+  {
+    member: "searchStatus", method: "search:status",
+    kind: "invoke", group: "Utilities", params: [],
+    returns: "Promise<{ books: number; terms: number; chars: number } | null>"
+  },
   // ── AI translation (PB-002; Key lives in SecretStore, never settings) ──
   {
     member: "translationSetKey", method: "translation:setKey",
