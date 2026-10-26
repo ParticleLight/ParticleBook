@@ -245,7 +245,7 @@ std::string BridgeServer::GenerateBridgeScript()
         else { resolve(result); }
       }, 0);
       if ((method === 'db:deleteBook' || method === 'book:import') && window.__refreshLibrary) {
-        setTimeout(function(){ window.__refreshLibrary(); }, 50);
+        setTimeout(function(){ if (typeof window.__refreshLibrary === 'function') window.__refreshLibrary(); }, 50);
       }
     } else if (msg.type === 'event') {
       var listeners = eventListeners.get(msg.event);
