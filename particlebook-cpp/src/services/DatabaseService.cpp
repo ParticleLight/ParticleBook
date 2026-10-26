@@ -1,5 +1,6 @@
 #include "DatabaseService.h"
 #include "utils/encoding.h"
+#include <algorithm>
 #include <fstream>
 #include <filesystem>
 #include <atomic>
@@ -165,6 +166,147 @@ namespace {
         std::error_code ec;
         std::filesystem::create_directories(p, ec);
         return filePath;
+    }
+
+    // ── PB-021 annotation helpers（统一表 + 旧表双写）─────────────────
+    bool IsAnnotationType(const std::string& type) {
+        return type == "bookmark" || type == "highlight" || type == "note";
+    }
+
+    const char* LegacyTableForType(const std::string& type) {
+        if (type == "bookmark")  return "bookmarks";
+        if (type == "highlight") return "highlights";
+        if (type == "note")      return "notes";
+        return nullptr;
+    }
+
+    int allocNextAnnotationId(json& data) {
+        int id = data.value("nextAnnotationId", 1);
+        data["nextAnnotationId"] = id + 1;
+        return id;
+    }
+
+    // 与 domain/Locator::IsEmpty 同一口径（这里不链 domain，避免测试目标多依赖）：
+    // 每个 kind 的必备字段缺失即视为空 locator。
+    bool IsEmptyLocator(const json& locator) {
+        if (!locator.is_object()) return true;
+        const std::string kind = locator.value("kind", std::string());
+        if (kind == "epub") {
+            return locator.value("cfi", std::string()).empty();
+        }
+        if (kind == "text") {
+            return !locator.contains("offset") || !locator["offset"].is_number_integer()
+                || locator["offset"].get<long long>() < 0;
+        }
+        if (kind == "html") {
+            return locator.value("href", std::string()).empty();
+        }
+        if (kind == "pdf") {
+            return !locator.contains("page") || !locator["page"].is_number_integer()
+                || locator["page"].get<int>() < 1;
+        }
+        if (kind == "scroll") {
+            if (!locator.contains("percent") || !locator["percent"].is_number()) return true;
+            const double percent = locator["percent"].get<double>();
+            return percent < 0.0 || percent > 100.0;
+        }
+        return true;
+    }
+
+    bool IsValidAnnotationRow(const json& row) {
+        if (!row.is_object()) return false;
+        if (row.value("bookId", 0) <= 0) return false;
+        const std::string type = row.value("type", std::string());
+        if (!IsAnnotationType(type)) return false;
+        if (!row.contains("locator")) return false;
+        return !IsEmptyLocator(row["locator"]);
+    }
+
+    // Locator → 旧表的 cfi / page / progress（现有渲染层认识的就是这些字段）。
+    void ApplyLocatorToLegacyRow(const json& locator, json& row) {
+        if (!locator.is_object()) return;
+        const std::string kind = locator.value("kind", std::string());
+        if (kind == "epub") {
+            row["cfi"] = locator.value("cfi", std::string());
+        } else if (kind == "text") {
+            const long long offset = locator.value("offset", static_cast<long long>(-1));
+            if (offset >= 0) row["cfi"] = "pos-" + std::to_string(offset);
+            if (locator.contains("percent") && locator["percent"].is_number()) {
+                row["page"] = locator["percent"].get<double>();
+            }
+        } else if (kind == "html") {
+            // 旧 HtmlRenderer 把元素 id / href 存在 cfi 里
+            row["cfi"] = locator.value("href", std::string());
+        } else if (kind == "pdf") {
+            row["page"] = locator.value("page", 0);
+        } else if (kind == "scroll") {
+            // 旧 TextRenderer 把百分比写进 page；progress 也一样
+            const double percent = locator.value("percent", 0.0);
+            row["page"] = percent;
+            row["progress"] = percent;
+        }
+    }
+
+    // 由统一行重建旧表行（保留 legacyId 不变；type 决定表结构）。
+    json BuildLegacyRow(const json& annotation, int legacyId) {
+        json row = json::object();
+        row["id"] = legacyId;
+        row["book_id"] = annotation.value("bookId", 0);
+        const std::string createdAt = annotation.value("createdAt", NowISO());
+        row["created_at"] = createdAt;
+        const json locator = annotation.value("locator", json::object());
+        ApplyLocatorToLegacyRow(locator, row);
+
+        const std::string type = annotation.value("type", std::string());
+        if (type == "bookmark") {
+            row["title"] = annotation.value("title", std::string());
+            row["note"] = annotation.value("note", std::string());
+        } else if (type == "highlight") {
+            row["text"] = locator.is_object() ? locator.value("quote", std::string())
+                                              : std::string();
+            row["color"] = annotation.value("color", std::string());
+            row["note"] = annotation.value("note", std::string());
+        } else if (type == "note") {
+            row["content"] = annotation.value("note", std::string());
+            row["updated_at"] = annotation.value("updatedAt", createdAt);
+            const long long relatedId =
+                annotation.value("relatedId", static_cast<long long>(0));
+            if (relatedId > 0) row["highlight_id"] = static_cast<int>(relatedId);
+        }
+        return row;
+    }
+
+    int InsertLegacyRow(json& data, const json& annotation) {
+        const std::string type = annotation.value("type", std::string());
+        const char* table = LegacyTableForType(type);
+        if (!table) return 0;
+        if (!data.contains(table) || !data[table].is_array()) data[table] = json::array();
+        const int legacyId = allocNextId(data);
+        data[table].push_back(BuildLegacyRow(annotation, legacyId));
+        return legacyId;
+    }
+
+    bool ReplaceLegacyRow(json& data, const std::string& type, int legacyId,
+                          const json& annotation) {
+        const char* table = LegacyTableForType(type);
+        if (!table || legacyId <= 0) return false;
+        if (!data.contains(table) || !data[table].is_array()) return false;
+        for (auto& row : data[table]) {
+            if (row.value("id", 0) == legacyId) {
+                row = BuildLegacyRow(annotation, legacyId);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    void DeleteLegacyRow(json& data, const std::string& type, int legacyId) {
+        const char* table = LegacyTableForType(type);
+        if (!table || legacyId <= 0) return;
+        if (!data.contains(table) || !data[table].is_array()) return;
+        auto& arr = data[table];
+        arr.erase(std::remove_if(arr.begin(), arr.end(),
+            [legacyId](const json& row) { return row.value("id", 0) == legacyId; }), arr.end());
     }
 }
 
@@ -635,17 +777,104 @@ void DatabaseService::DeleteHighlight(int id)
     ScheduleWrite();
 }
 
-// ── Notes ────────────────────────────────────────────────────────
+// ── Annotations（PB-021：统一表 + 旧表双写）──────────────────────
 
 json DatabaseService::GetAnnotations(int bookId) const
 {
     std::lock_guard<std::mutex> lock(m_mutex);
     json out = json::array();
     for (const auto& a : m_data["annotations"]) {
-        if (a.value("bookId", 0) == bookId) out.push_back(a);
+        if (bookId <= 0 || a.value("bookId", 0) == bookId) out.push_back(a);
     }
     return out;
 }
+
+json DatabaseService::GetAnnotation(int id) const
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    for (const auto& a : m_data["annotations"]) {
+        if (a.value("id", 0) == id) return a;
+    }
+    return nullptr;
+}
+
+json DatabaseService::AddAnnotation(const json& annotation)
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    if (!IsValidAnnotationRow(annotation)) return nullptr;
+
+    json row = annotation;
+    row["version"] = 1;
+    row["id"] = allocNextAnnotationId(m_data);
+    if (row.value("createdAt", std::string()).empty()) row["createdAt"] = NowISO();
+    row["updatedAt"] = NowISO();
+
+    const std::string type = row.value("type", std::string());
+    row["legacyType"] = type;
+    row["legacyId"] = InsertLegacyRow(m_data, row);
+
+    m_data["annotations"].push_back(row);
+    ScheduleWrite();
+    return row;
+}
+
+json DatabaseService::UpdateAnnotation(int id, const json& patch)
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    if (!patch.is_object()) return nullptr;
+
+    for (auto& row : m_data["annotations"]) {
+        if (row.value("id", 0) != id) continue;
+
+        // 只允许改展示 / 位置字段：id / version / createdAt / legacy* 由这里维护。
+        static const char* const kPatchable[] = {
+            "bookId", "type", "locator", "color", "title", "note", "tags", "relatedId",
+        };
+        json candidate = row;
+        for (const char* key : kPatchable) {
+            if (patch.contains(key)) candidate[key] = patch[key];
+        }
+        if (!IsValidAnnotationRow(candidate)) return nullptr;
+
+        const std::string oldType = row.value("type", std::string());
+        const std::string newType = candidate.value("type", std::string());
+        const int oldLegacyId = row.value("legacyId", 0);
+
+        candidate["updatedAt"] = NowISO();
+        candidate["legacyType"] = newType;
+        if (oldLegacyId > 0 && oldType == newType
+            && ReplaceLegacyRow(m_data, newType, oldLegacyId, candidate)) {
+            candidate["legacyId"] = oldLegacyId;
+        } else {
+            // 首次双写（迁移前旧行已被删）或 type 变了：换表重建。
+            if (oldLegacyId > 0) DeleteLegacyRow(m_data, oldType, oldLegacyId);
+            candidate["legacyId"] = InsertLegacyRow(m_data, candidate);
+        }
+
+        row = std::move(candidate);
+        ScheduleWrite();
+        return row;
+    }
+    return nullptr;
+}
+
+void DatabaseService::DeleteAnnotation(int id)
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    auto& arr = m_data["annotations"];
+    for (auto it = arr.begin(); it != arr.end(); ++it) {
+        if (it->value("id", 0) != id) continue;
+        const std::string legacyType =
+            it->value("legacyType", it->value("type", std::string()));
+        const int legacyId = it->value("legacyId", 0);
+        DeleteLegacyRow(m_data, legacyType, legacyId);
+        arr.erase(it);
+        ScheduleWrite();
+        return;
+    }
+}
+
+// ── Notes ────────────────────────────────────────────────────────
 
 json DatabaseService::GetNotes(int bookId) const
 {

@@ -289,5 +289,177 @@ int main()
         fs::remove_all(dir);
     }
 
+    // ── 11. PB-021 annotations: CRUD + legacy table dual-write ─────────
+    // 统一表（annotations[]）是新增量，但现有渲染层仍读 bookmarks /
+    // highlights / notes —— 每次写都必须同时维护两边。
+    {
+        auto dir = MakeScratch("annotations-crud");
+        auto dbPath = dir / "db.json";
+        DatabaseService db;
+        db.Load(dbPath.string());
+
+        const json bookmark = {
+            { "version", 1 },
+            { "bookId", 1 },
+            { "type", "bookmark" },
+            { "locator", { { "version", 1 }, { "kind", "epub" }, { "cfi", "epubcfi(/6/2)" } } },
+            { "title", "书签 1" },
+            { "createdAt", "2026-10-01T00:00:00.000Z" },
+            { "updatedAt", "2026-10-01T00:00:00.000Z" },
+        };
+        const json bookmarkRow = db.AddAnnotation(bookmark);
+        CHECK_TRUE(!bookmarkRow.is_null());
+        CHECK_EQ(bookmarkRow["id"].get<int>(), 1);
+        CHECK_EQ(bookmarkRow["legacyId"].get<int>(), 1);
+        CHECK_EQ(bookmarkRow["legacyType"].get<std::string>(), std::string("bookmark"));
+        CHECK_EQ(bookmarkRow["createdAt"].get<std::string>(),
+                 std::string("2026-10-01T00:00:00.000Z"));
+        CHECK_TRUE(!bookmarkRow["updatedAt"].get<std::string>().empty());
+        CHECK_EQ((int)db.GetAnnotations(1).size(), 1);
+        CHECK_EQ((int)db.GetAnnotations(0).size(), 1);  // 0 = 全库
+        CHECK_EQ((int)db.GetAnnotations(2).size(), 0);
+        CHECK_EQ((int)db.GetBookmarks(1).size(), 1);
+        CHECK_EQ(db.GetBookmarks(1)[0]["cfi"].get<std::string>(),
+                 std::string("epubcfi(/6/2)"));
+        CHECK_EQ(db.GetBookmarks(1)[0]["title"].get<std::string>(), std::string("书签 1"));
+        CHECK_TRUE(!db.GetAnnotation(1).is_null());
+        CHECK_TRUE(db.GetAnnotation(999).is_null());
+
+        // highlight：locator=text → 旧行 cfi=pos-<offset>；quote → text
+        const json highlight = {
+            { "version", 1 },
+            { "bookId", 1 },
+            { "type", "highlight" },
+            { "locator", { { "version", 1 }, { "kind", "text" }, { "offset", 123 },
+                           { "length", 5 }, { "quote", "hello" } } },
+            { "color", "#fbbf24" },
+            { "note", "批注" },
+        };
+        const json highlightRow = db.AddAnnotation(highlight);
+        CHECK_TRUE(!highlightRow.is_null());
+        CHECK_EQ(highlightRow["id"].get<int>(), 2);
+        CHECK_EQ((int)db.GetHighlights(1).size(), 1);
+        CHECK_EQ(db.GetHighlights(1)[0]["cfi"].get<std::string>(), std::string("pos-123"));
+        CHECK_EQ(db.GetHighlights(1)[0]["text"].get<std::string>(), std::string("hello"));
+        CHECK_EQ(db.GetHighlights(1)[0]["color"].get<std::string>(), std::string("#fbbf24"));
+
+        // note：pdf 页码 → 旧 notes.page；relatedId → 旧 highlight_id
+        const json note = {
+            { "version", 1 },
+            { "bookId", 1 },
+            { "type", "note" },
+            { "locator", { { "version", 1 }, { "kind", "pdf" }, { "page", 7 } } },
+            { "note", "笔记正文" },
+            { "relatedId", 2 },
+        };
+        const json noteRow = db.AddAnnotation(note);
+        CHECK_TRUE(!noteRow.is_null());
+        CHECK_EQ(noteRow["id"].get<int>(), 3);
+        CHECK_EQ((int)db.GetNotes(1).size(), 1);
+        CHECK_EQ(db.GetNotes(1)[0]["page"].get<int>(), 7);
+        CHECK_EQ(db.GetNotes(1)[0]["content"].get<std::string>(), std::string("笔记正文"));
+        CHECK_EQ(db.GetNotes(1)[0]["highlight_id"].get<int>(), 2);
+
+        // 另一本书 + scroll locator（旧行把百分比写进 page/progress）
+        const json scrollBookmark = {
+            { "version", 1 }, { "bookId", 3 }, { "type", "bookmark" },
+            { "locator", { { "version", 1 }, { "kind", "scroll" }, { "percent", 42.5 } } },
+        };
+        CHECK_TRUE(!db.AddAnnotation(scrollBookmark).is_null());
+        CHECK_EQ((int)db.GetAnnotations(1).size(), 3);
+        CHECK_EQ((int)db.GetAnnotations(3).size(), 1);
+        CHECK_EQ((int)db.GetAnnotations(0).size(), 4);
+        CHECK_EQ(db.GetBookmarks(3)[0]["page"].get<double>(), 42.5);
+        CHECK_EQ(db.GetBookmarks(3)[0]["progress"].get<double>(), 42.5);
+
+        // 更新：title + locator（不换 type）→ 同一旧行原地重建，createdAt 不变
+        const json patch = {
+            { "title", "改名" },
+            { "locator", { { "version", 1 }, { "kind", "html" }, { "href", "ch1.xhtml" } } },
+        };
+        const json updated = db.UpdateAnnotation(1, patch);
+        CHECK_TRUE(!updated.is_null());
+        CHECK_EQ(updated["title"].get<std::string>(), std::string("改名"));
+        CHECK_EQ(updated["locator"]["kind"].get<std::string>(), std::string("html"));
+        CHECK_EQ(updated["createdAt"].get<std::string>(),
+                 std::string("2026-10-01T00:00:00.000Z"));
+        CHECK_EQ(updated["legacyId"].get<int>(), 1);  // id 不变
+        CHECK_EQ(db.GetBookmarks(1)[0]["title"].get<std::string>(), std::string("改名"));
+        CHECK_EQ(db.GetBookmarks(1)[0]["cfi"].get<std::string>(), std::string("ch1.xhtml"));
+
+        // type 变更：bookmark → highlight，旧行换表 + legacyId 换新
+        const json typeChanged =
+            db.UpdateAnnotation(1, json{ { "type", "highlight" }, { "color", "#60a5fa" } });
+        CHECK_TRUE(!typeChanged.is_null());
+        CHECK_EQ(typeChanged["legacyType"].get<std::string>(), std::string("highlight"));
+        CHECK_TRUE(typeChanged["legacyId"].get<int>() != 1);
+        CHECK_EQ((int)db.GetBookmarks(1).size(), 0);
+        CHECK_EQ((int)db.GetHighlights(1).size(), 2);  // 原 highlight + 转换来的
+
+        // 非法写入：一律 null，且不落任何表
+        CHECK_TRUE(db.AddAnnotation(json{ { "bookId", 0 }, { "type", "highlight" },
+                                          { "locator", { { "kind", "epub" }, { "cfi", "x" } } } })
+                       .is_null());
+        CHECK_TRUE(db.AddAnnotation(json{ { "bookId", 1 }, { "type", "pdf-annot" },
+                                          { "locator", { { "kind", "epub" }, { "cfi", "x" } } } })
+                       .is_null());
+        CHECK_TRUE(db.AddAnnotation(json{ { "bookId", 1 }, { "type", "bookmark" },
+                                          { "locator", { { "kind", "epub" } } } })
+                       .is_null());
+        CHECK_TRUE(db.UpdateAnnotation(999, json::object()).is_null());
+        CHECK_TRUE(db.UpdateAnnotation(1, json{ { "type", "nope" } }).is_null());
+        CHECK_EQ((int)db.GetAnnotations(0).size(), 4);
+
+        // 删除：统一行 + 旧表行一起删
+        db.DeleteAnnotation(2);
+        CHECK_TRUE(db.GetAnnotation(2).is_null());
+        CHECK_EQ((int)db.GetAnnotations(0).size(), 3);
+        CHECK_EQ((int)db.GetHighlights(1).size(), 1);  // 只剩 type 变更后的那行
+        CHECK_EQ((int)db.GetNotes(1).size(), 1);       // note 不受影响
+
+        db.FlushSync();
+        fs::remove_all(dir);
+    }
+
+    // ── 12. PB-021 annotations: persist across reload + ids keep advancing ──
+    {
+        auto dir = MakeScratch("annotations-persist");
+        auto dbPath = dir / "db.json";
+        {
+            DatabaseService db;
+            db.Load(dbPath.string());
+            CHECK_TRUE(!db.AddAnnotation(json{
+                { "version", 1 }, { "bookId", 1 }, { "type", "bookmark" },
+                { "locator", { { "version", 1 }, { "kind", "epub" }, { "cfi", "epubcfi(/6/8)" } } },
+            }).is_null());
+            CHECK_TRUE(!db.AddAnnotation(json{
+                { "version", 1 }, { "bookId", 1 }, { "type", "highlight" },
+                { "locator", { { "version", 1 }, { "kind", "text" }, { "offset", 9 }, { "quote", "q" } } },
+                { "color", "#34d399" },
+            }).is_null());
+            db.FlushSync();
+        }
+        {
+            DatabaseService db;
+            db.Load(dbPath.string());
+            CHECK_EQ((int)db.GetAnnotations(0).size(), 2);
+            CHECK_EQ(db.GetAnnotations(0)[1]["type"].get<std::string>(), std::string("highlight"));
+            CHECK_EQ((int)db.GetHighlights(1).size(), 1);
+            CHECK_EQ(db.GetHighlights(1)[0]["cfi"].get<std::string>(), std::string("pos-9"));
+
+            // 重启后 id 继续递增（nextAnnotationId / nextId 都已持久化）
+            const json third = db.AddAnnotation(json{
+                { "version", 1 }, { "bookId", 1 }, { "type", "note" },
+                { "locator", { { "version", 1 }, { "kind", "pdf" }, { "page", 2 } } },
+                { "note", "第三个" },
+            });
+            CHECK_TRUE(!third.is_null());
+            CHECK_EQ(third["id"].get<int>(), 3);
+            CHECK_EQ(third["legacyId"].get<int>(), 3);
+            db.FlushSync();
+        }
+        fs::remove_all(dir);
+    }
+
     return pb_t::Summary("database_test");
 }

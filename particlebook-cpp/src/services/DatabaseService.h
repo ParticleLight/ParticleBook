@@ -54,6 +54,37 @@ public:
     void DeleteBookmark(int id);
     void UpdateBookmarkTitle(int id, const std::string& title);
 
+    // Annotations (PB-021, schema v3)
+    //
+    // Unified rows in m_data["annotations"] (domain/Annotation.h JSON shape:
+    // bookId / type / locator / color / title / note / createdAt / updatedAt /
+    // tags / relatedId). The legacy tables (bookmarks / highlights / notes) are
+    // still what the current renderer reads, so every write keeps them in sync:
+    //   * AddAnnotation  -> insert into the legacy table for its type, and store
+    //                       that row's id in annotation["legacyId"] / ["legacyType"].
+    //   * UpdateAnnotation -> rebuild the legacy row in place (type change moves
+    //                       the row to the new table and updates legacyId).
+    //   * DeleteAnnotation -> delete the legacy row too.
+    // Locator -> legacy fields is best effort (what the renderer understands):
+    //   epub -> cfi; text -> cfi "pos-<offset>" (+ page = percent if present);
+    //   html -> cfi = href; pdf -> page; scroll -> page = percent, progress.
+    //   highlight text = locator.quote; note content = note; note.highlight_id =
+    //   relatedId.
+    // A write whose row is invalid (bookId <= 0 / unknown type / empty locator)
+    // is rejected with a null return and touches no table.
+    // NOTE: the reverse direction is not mirrored yet — writes that go through
+    // the old AddBookmark/AddHighlight/AddNote endpoints only touch the old
+    // tables until the renderer moves to the annotations API (PB-021-C).
+    // bookId <= 0 in GetAnnotations/GetAnnotation means "all books".
+    json GetAnnotations(int bookId) const;
+    json GetAnnotation(int id) const;
+    json AddAnnotation(const json& annotation);
+    // patch: subset of {bookId, type, locator, color, title, note, tags,
+    // relatedId}; id / createdAt / legacy* / version are ignored. Returns the
+    // updated row, or null when the id is unknown or the merged row is invalid.
+    json UpdateAnnotation(int id, const json& patch);
+    void DeleteAnnotation(int id);
+
     // Highlights
     json GetHighlights(int bookId) const;
     void AddHighlight(const json& hl);
@@ -61,8 +92,6 @@ public:
 
     // Notes
     json GetNotes(int bookId) const;
-    // PB-021: unified annotation rows (schema v3 migration; dual-write later).
-    json GetAnnotations(int bookId) const;
     void AddNote(const json& note);
     void UpdateNote(int id, const std::string& content);
     void DeleteNote(int id);

@@ -303,6 +303,11 @@ std::string BridgeServer::GenerateBridgeScript()
     updateNote: function(id,c) { return invoke('db:updateNote', {id:id, content:c}); },
     deleteNote: function(id)   { return invoke('db:deleteNote', {id:id}); },
 
+    getAnnotations: function(bid) { return invoke('annotations:list', {bookId:bid===undefined?0:bid}); },
+    addAnnotation: function(a)    { return invoke('annotations:add', {annotation:a}); },
+    updateAnnotation: function(id, patch) { return invoke('annotations:update', {id:id, patch:patch||{}}); },
+    deleteAnnotation: function(id) { return invoke('annotations:delete', {id:id}); },
+
     getSettings: function()           { return invoke('db:getSettings'); },
     updateSettings: function(s)       { return invoke('db:updateSettings', {settings:s}); },
     getBookSettings: function(bid)    { return invoke('db:getBookSettings', {bookId:bid}); },
@@ -367,6 +372,7 @@ std::string BridgeServer::GenerateBridgeScript()
     ttsSetVolume: function(volume) { return invoke('tts:setVolume', {volume:volume===undefined?100:volume}); },
     onTtsEvent: function(cb) { return onEvent('tts:event', cb); },
     createBackup: function() { return invoke('backup:create'); },
+    onBackupProgress: function(cb) { return onEvent('backup:progress', cb); },
     restoreBackup: function(path) { return invoke('backup:restore', {path:path||''}); },
     onOpenFiles: function(cb) { return onEvent('app:openFiles', cb); },
 

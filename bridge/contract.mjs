@@ -22,6 +22,7 @@ export const groups = [
   "Bookmarks",
   "Highlights",
   "Notes",
+  "Annotations",
   "Settings",
   "Bookshelves",
   "Utilities",
@@ -97,6 +98,52 @@ export const types = [
     ]
   },
   { name: 'PbNote', extends: 'PbNoteInput', body: ['  id: number', '  created_at: string', '  updated_at: string'] },
+  {
+    name: 'PbLocator',
+    body: [
+      '  // 书内位置（domain/Locator.h）：kind 决定哪些字段有意义；rect 归一化 0..1，',
+      '  // offset 是正文码点下标（不是字节），percent 是 0..100 滚动百分比。',
+      '  version: number',
+      "  kind: 'epub' | 'text' | 'html' | 'pdf' | 'scroll'",
+      '  cfi?: string',
+      '  href?: string',
+      '  offset?: number',
+      '  length?: number',
+      '  page?: number',
+      '  rect?: { x: number; y: number; w: number; h: number }',
+      '  percent?: number',
+      '  quote?: string',
+      '  contextBefore?: string',
+      '  contextAfter?: string'
+    ]
+  },
+  {
+    name: 'PbAnnotationInput',
+    body: [
+      '  // annotations:add 的入参；id / createdAt / updatedAt / legacyId 由 C++ 补。',
+      '  bookId: number',
+      "  type: 'bookmark' | 'highlight' | 'note'",
+      '  locator: PbLocator',
+      '  color?: string',
+      '  title?: string',
+      '  note?: string',
+      '  tags?: string[]',
+      '  relatedId?: number'
+    ]
+  },
+  {
+    name: 'PbAnnotation',
+    extends: 'PbAnnotationInput',
+    body: [
+      '  version: number',
+      '  id: number',
+      '  createdAt: string',
+      '  updatedAt: string',
+      '  // 旧表双写：该标注对应的 bookmarks/highlights/notes 行 id 与表名。',
+      '  legacyId?: number',
+      "  legacyType?: 'bookmark' | 'highlight' | 'note'"
+    ]
+  },
   {
     name: 'PbBookshelf',
     body: ['  id: number', '  name: string', '  created_at: string']
@@ -424,6 +471,35 @@ export const contract = [
     member: "deleteNote", method: "db:deleteNote",
     kind: "invoke",
     group: "Notes",
+    params: [{ n: "id", t: "number" }],
+    returns: "Promise<void>"
+  },
+  // ── Annotations (PB-021) ──
+  {
+    member: "getAnnotations", method: "annotations:list",
+    kind: "invoke",
+    group: "Annotations",
+    params: [{ n: "bookId", t: "number", o: true }],
+    returns: "Promise<PbAnnotation[]>"
+  },
+  {
+    member: "addAnnotation", method: "annotations:add",
+    kind: "invoke",
+    group: "Annotations",
+    params: [{ n: "annotation", t: "PbAnnotationInput" }],
+    returns: "Promise<PbAnnotation | null>"
+  },
+  {
+    member: "updateAnnotation", method: "annotations:update",
+    kind: "invoke",
+    group: "Annotations",
+    params: [{ n: "id", t: "number" }, { n: "patch", t: "Partial<PbAnnotationInput>" }],
+    returns: "Promise<PbAnnotation | null>"
+  },
+  {
+    member: "deleteAnnotation", method: "annotations:delete",
+    kind: "invoke",
+    group: "Annotations",
     params: [{ n: "id", t: "number" }],
     returns: "Promise<void>"
   },
@@ -756,6 +832,12 @@ export const contract = [
     group: "Files",
     params: [],
     returns: "Promise<{ ok: boolean; code: string; error: string; path: string; bookCount: number; bytes: number }>"
+  },
+  {
+    member: "onBackupProgress", method: "backup:progress",
+    kind: "event", group: "Files",
+    params: [{ n: "callback", t: "(p: { percent: number; message: string; name: string }) => void" }],
+    returns: "() => void"
   },
   {
     member: "restoreBackup", method: "backup:restore",

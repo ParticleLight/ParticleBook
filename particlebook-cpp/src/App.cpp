@@ -8,6 +8,7 @@
 #include "WebViewHost.h"
 #include "BridgeServer.h"
 #include "handlers/DbHandlers.h"
+#include "handlers/AnnotationHandlers.h"
 #include "handlers/FileHandlers.h"
 #include "platform/SingleInstance.h"
 #include "platform/JobService.h"
@@ -289,6 +290,7 @@ void App::Init(HINSTANCE hInstance, std::vector<std::string> startupPaths, Singl
 
     // 6. Register IPC handlers
     RegisterDbHandlers(m_bridge.get(), m_db.get());
+    RegisterAnnotationHandlers(m_bridge.get(), m_db.get());
     RegisterFileHandlers(m_bridge.get(), m_db.get(), m_cache.get(), m_jobs.get());
     RegisterBackupHandlers(m_bridge.get(), m_db.get(), m_jobs.get());
     RegisterExportHandlers(m_bridge.get(), m_db.get(), m_jobs.get());
