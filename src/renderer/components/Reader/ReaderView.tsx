@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback, lazy, Suspense } from 'react'
+import { useEffect, useMemo, useState, useRef, useCallback, lazy, Suspense } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useReaderStore } from '../../stores/readerStore'
 import { useSettingsStore } from '../../stores/settingsStore'
@@ -29,6 +29,7 @@ import { AnnotationPanel } from './AnnotationPanel'
 import { ReaderControls } from './ReaderControls'
 import { TtsBar } from './TtsBar'
 import { TranslationPopup } from './TranslationPopup'
+import { createReaderAdapter, ReaderAdapterProvider } from '../../reader'
 import { formatReadingTime } from '../../utils/format'
 import { readBookFile } from '../../utils/fileReader'
 import { ConfirmDialog } from '../UI/ConfirmDialog'
@@ -89,6 +90,12 @@ export function ReaderView({ bookId, onClose }: ReaderViewProps) {
   // PB-021-D：标注面板同理（Esc / 滚轮处理器里要读最新值）
   const annotationsOpenRef = useRef(false)
   const bookIdRef = useRef(bookId)
+  // PB-021-E：统一阅读能力（位置 / 选区 / 跳转 / 标注）。format 要等 book 加载；
+  // adapter 只是 DOM + store + bridge 的薄封装，不持有渲染器内部状态。
+  const readerAdapter = useMemo(
+    () => (book ? createReaderAdapter(book.format, bookId) : null),
+    [book, bookId],
+  )
 
   const showSidebar = useReaderStore((s) => s.showSidebar)
   const showControls = useReaderStore((s) => s.showControls)
@@ -179,6 +186,42 @@ export function ReaderView({ bookId, onClose }: ReaderViewProps) {
   useEffect(() => {
     ttsOpenRef.current = showTts
   }, [showTts])
+
+  // PB-021-E：把 adapter 暴露出去（上下文 + window 调试钩子），并把当前选区同步到
+  // readerStore.selection。主文档用 selectionchange；EPUB iframe 的选区事件不会冒泡
+  // 到主文档，所以再补一个 500ms 轮询（只在文本变化时写 store，避免无谓重渲染）。
+  useEffect(() => {
+    window.__pbReaderAdapter = readerAdapter
+    if (!readerAdapter) return
+    let lastText: string | null = null
+    const sync = () => {
+      try {
+        const selection = readerAdapter.getSelection()
+        const text = selection?.text ?? null
+        if (text === lastText) return
+        lastText = text
+        const reader = useReaderStore.getState()
+        if (selection) reader.setSelection(selection)
+        else reader.clearSelection()
+      } catch (error) {
+        console.debug('ReaderAdapter: selection sync failed', error)
+      }
+    }
+    sync()
+    const timer = window.setInterval(sync, 500)
+    document.addEventListener('selectionchange', sync)
+    document.addEventListener('mouseup', sync)
+    document.addEventListener('keyup', sync)
+    return () => {
+      window.clearInterval(timer)
+      document.removeEventListener('selectionchange', sync)
+      document.removeEventListener('mouseup', sync)
+      document.removeEventListener('keyup', sync)
+      if (window.__pbReaderAdapter === readerAdapter) window.__pbReaderAdapter = null
+      useReaderStore.getState().clearSelection()
+    }
+  }, [readerAdapter])
+
 
   // PB-021-D：标注面板状态同步 + 与旧侧栏互斥（两个都是全屏遮罩层）
   useEffect(() => {
@@ -436,6 +479,7 @@ export function ReaderView({ bookId, onClose }: ReaderViewProps) {
   }
 
   return (
+    <ReaderAdapterProvider adapter={readerAdapter}>
     <div className="h-screen flex bg-[var(--reader-bg)] text-[var(--reader-text)] relative">
       {/* Sidebar overlay */}
       {renderSidebar && (
@@ -575,5 +619,6 @@ export function ReaderView({ bookId, onClose }: ReaderViewProps) {
         onOpenSettings={() => setShowSettings(true)}
       />
     </div>
+    </ReaderAdapterProvider>
   )
 }

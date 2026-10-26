@@ -43,6 +43,14 @@ export interface Note {
   updated_at: string
 }
 
+// PB-021-E：ReaderAdapter 选区（与 reader/types.ts 的 ReaderSelection 同形状，
+// 这里重复声明是为了避免 store → reader 目录的反向依赖）。
+export interface ReaderSelectionState {
+  text: string
+  locator?: PbLocator | null
+  rect?: { x: number; y: number; width: number; height: number }
+}
+
 export interface ReadingProgress {
   progress: number
   cfi?: string
@@ -119,6 +127,13 @@ export interface ReaderState {
   prevSearchMatch: () => void
   clearSearch: () => void
 
+  // PB-021-E：ReaderAdapter 暴露的当前选区（text + locator）。ReaderView 轮询
+  // 主文档 / EPUB iframe 的选区并同步到这里；TTS / 翻译 / 词典等后续可直接取，
+  // 不必各自再遍历 iframe（它们目前仍自带选择逻辑，替换属各自组件的写权限范围）。
+  selection: ReaderSelectionState | null
+  setSelection: (selection: ReaderSelectionState | null) => void
+  clearSelection: () => void
+
   setSidebarTab: (tab: 'toc' | 'bookmarks' | 'highlights' | 'notes') => void
   toggleSidebar: () => void
   setShowSidebar: (show: boolean) => void
@@ -144,6 +159,7 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
   searchMatches: [],
   currentSearchIndex: -1,
   tableOfContents: [],
+  selection: null,
 
   // Reading time tracking
   readingSessionId: null,
@@ -405,4 +421,6 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
   setShowSidebar: (show) => set({ showSidebar: show }),
   setShowControls: (showControls) => set({ showControls }),
   setTableOfContents: (tableOfContents) => set({ tableOfContents }),
+  setSelection: (selection) => set({ selection }),
+  clearSelection: () => set({ selection: null }),
 }))
