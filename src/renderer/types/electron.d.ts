@@ -411,6 +411,9 @@ interface ElectronAPI {
   // Utilities
   openDefaultApps: () => Promise<void>
 
+  // Reading Sessions
+  getReadingSessions: () => Promise<Array<{ id: number; book_id: number; started_at: string; ended_at: string | null; duration_seconds: number }>>
+
   // Settings
   getSettingsSchema: () => Promise<Array<{ key: string; type: string; default: unknown; bookScoped: boolean; min?: number; max?: number; maxLength?: number; format?: string; allowed?: string[] }>>
 

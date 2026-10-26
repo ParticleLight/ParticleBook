@@ -1268,6 +1268,12 @@ void DatabaseService::UpdateReadingSessionDuration(int sessionId, int seconds)
 
 
 
+json DatabaseService::GetReadingSessions() const
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    return m_data["reading_sessions"];
+}
+
 json DatabaseService::GetAllReadingTime() const
 {
     std::lock_guard<std::mutex> lock(m_mutex);

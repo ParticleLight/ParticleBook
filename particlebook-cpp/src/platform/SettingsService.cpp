@@ -746,6 +746,8 @@ const std::vector<SettingSpec>& SettingsService::Schema()
         specs.push_back(MakeString("translation.model", "", 200));
         specs.push_back(MakeString("translation.targetLanguage", "zh", 32));
         specs.push_back(MakeInt("translation.timeoutSeconds", 60, 5, 300));
+        specs.push_back(MakeInt("reading.dailyGoalMinutes", 30, 0, 1440));
+        specs.push_back(MakeInt("reading.weeklyGoalMinutes", 180, 0, 10080));
 
         // 预留：PB-010 本地词典
         specs.push_back(MakeBool("dictionary.enabled", true));

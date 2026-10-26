@@ -953,6 +953,12 @@ export const contract = [
     kind: "invoke", group: "Utilities", params: [],
     returns: "Promise<void>"
   },
+  // ── Reading stats (PB-007) ──
+  {
+    member: "getReadingSessions", method: "stats:getReadingSessions",
+    kind: "invoke", group: "Reading Sessions", params: [],
+    returns: "Promise<Array<{ id: number; book_id: number; started_at: string; ended_at: string | null; duration_seconds: number }>>"
+  },
   // ── Settings schema (PB-023) ──
   {
     member: "getSettingsSchema", method: "settings:schema",

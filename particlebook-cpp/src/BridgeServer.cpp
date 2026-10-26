@@ -358,6 +358,7 @@ std::string BridgeServer::GenerateBridgeScript()
     exportDiagnostics: function() { return invoke('app:exportDiagnostics'); },
     exportAnnotations: function(bookId, format, options) { return invoke('export:annotations', {bookId:bookId||0, format:format||'markdown', options:options||{}}); },
     openDefaultApps: function() { return invoke('app:openDefaultApps'); },
+    getReadingSessions: function() { return invoke('stats:getReadingSessions'); },
     getSettingsSchema: function() { return invoke('settings:schema'); },
     searchBuild: function() { return invoke('search:build'); },
     searchQuery: function(query, maxHits) { return invoke('search:query', {query:query||'', maxHits:maxHits||50}); },

@@ -109,6 +109,9 @@ void RegisterDbHandlers(BridgeServer* bridge, DatabaseService* db)
     });
 
     // ── Settings ────────────────────────────────────
+    bridge->RegisterMethod("stats:getReadingSessions", [db](const json&) {
+        return db->GetReadingSessions();
+    });
     bridge->RegisterMethod("settings:schema", [](const json&) {
         return pb::SettingsService::SchemaJson();
     });

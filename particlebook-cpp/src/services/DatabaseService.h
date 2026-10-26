@@ -129,6 +129,8 @@ public:
     void EndReadingSession(int sessionId);
     void UpdateReadingSessionDuration(int sessionId, int seconds);
     json GetAllReadingTime() const;
+    // PB-007: raw reading_sessions rows for daily/weekly heatmap & goals.
+    json GetReadingSessions() const;
     json GetAllReadingProgress() const;
 
     // Settings
