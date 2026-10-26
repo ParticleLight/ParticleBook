@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
 import i18n from '../../i18n'
 import { useSettingsStore, type AccentColor } from '../../stores/settingsStore'
-import { downloadText } from '../../utils/download'
+import { copyText, downloadText } from '../../utils/download'
 
 interface GlobalSettingsProps {
   onBack: () => void
@@ -488,6 +488,14 @@ function AboutPage() {
     return () => { unsubs.forEach((u) => u()); if (idleTimerRef.current) clearTimeout(idleTimerRef.current) }
   }, [])
 
+  const handleCopyAll = () => {
+    setExportAllBusy(true); setExportAllMsg('')
+    window.electronAPI.exportAnnotations(0, 'markdown')
+      .then((r) => copyText(r.content).then((ok) => setExportAllMsg(ok ? t('已复制到剪贴板') : t('复制失败'))))
+      .catch(() => setExportAllMsg(t('复制失败')))
+      .finally(() => setExportAllBusy(false))
+  }
+
   const handleExportAll = (format: 'markdown' | 'csv' | 'json') => {
     setExportAllBusy(true); setExportAllMsg('')
     window.electronAPI.exportAnnotations(0, format)
@@ -615,6 +623,7 @@ function AboutPage() {
             </button>
           ))}
         </div>
+        <button onClick={handleCopyAll} disabled={exportAllBusy} className="btn-secondary w-full mt-2">{t('复制 Markdown')}</button>
         {exportAllMsg && <p className="mt-3 text-xs break-all" style={{ color: 'var(--text-secondary)' }}>{exportAllMsg}</p>}
       </div>
 

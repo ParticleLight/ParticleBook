@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useReaderStore } from '../../stores/readerStore'
 import { useSettingsStore } from '../../stores/settingsStore'
-import { downloadText } from '../../utils/download'
+import { copyText, downloadText } from '../../utils/download'
 
 interface ReaderControlsProps {
   bookId: number
@@ -79,6 +79,14 @@ export function ReaderControls({ bookId, format, onOpenSettings }: ReaderControl
   // 快捷键必须用同一套判断（cfi 优先、页码兜底），否则两处会漂移。
   const handleToggleBookmark = () => { void toggleBookmarkAtProgress() }
 
+  const handleCopyExport = () => {
+    setExportBusy(true)
+    window.electronAPI.exportAnnotations(bookId, 'markdown')
+      .then((res) => copyText(res.content))
+      .catch(() => {})
+      .finally(() => setExportBusy(false))
+  }
+
   const handleExport = (format: 'markdown' | 'csv' | 'json') => {
     setExportBusy(true)
     window.electronAPI.exportAnnotations(bookId, format)
@@ -141,6 +149,7 @@ export function ReaderControls({ bookId, format, onOpenSettings }: ReaderControl
               {fmt === 'markdown' ? 'Markdown' : fmt.toUpperCase()}
             </button>
           ))}
+          <button onClick={handleCopyExport} disabled={exportBusy} className={`${ctrlClasses.dialogBtn} bg-[var(--reader-sidebar)] text-[var(--reader-text)] border border-[var(--reader-border)]`}>{t('复制 Markdown')}</button>
           <button onClick={() => setShowExport(false)} className={`${ctrlClasses.dialogBtn} text-[var(--reader-text)] opacity-60`}>{t('取消')}</button>
         </div>
       )}
