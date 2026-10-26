@@ -54,6 +54,8 @@ add_executable(ParticleBook WIN32
     src/platform/UiDispatcher.cpp
     src/platform/JobService.cpp
     src/platform/SecretStore.cpp
+    src/platform/SettingsService.cpp
+    src/platform/LogService.cpp
     third_party/tinyxml2.cpp
     third_party/miniz.c
     third_party/miniz_tdef.c
@@ -164,3 +166,24 @@ target_compile_options(secret_store_test PRIVATE /EHa /utf-8)
 target_include_directories(secret_store_test PRIVATE src/)
 target_link_libraries(secret_store_test PRIVATE crypt32)
 add_test(NAME secret_store_test COMMAND secret_store_test)
+
+# ── PB-023 SettingsService (pure std + json; no Win32) ─────────────
+add_executable(settings_service_test
+    tests/unit/settings_service_test.cpp
+    src/platform/SettingsService.cpp
+)
+target_compile_options(settings_service_test PRIVATE /EHa /utf-8)
+target_include_directories(settings_service_test PRIVATE
+    src/
+    "${CMAKE_SOURCE_DIR}/third_party"
+)
+add_test(NAME settings_service_test COMMAND settings_service_test)
+
+# ── PB-016 LogService (pure std + Win32 file APIs; no GUI) ───────────
+add_executable(log_service_test
+    tests/unit/log_service_test.cpp
+    src/platform/LogService.cpp
+)
+target_compile_options(log_service_test PRIVATE /EHa /utf-8)
+target_include_directories(log_service_test PRIVATE src/)
+add_test(NAME log_service_test COMMAND log_service_test)

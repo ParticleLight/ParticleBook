@@ -4,6 +4,7 @@
 #include "WebViewHost.h"
 #include "App.h"
 #include "services/DatabaseService.h"
+#include "platform/SettingsService.h"
 #include <windows.h>
 #include <filesystem>
 #include <cstdio>
@@ -109,10 +110,21 @@ void RegisterDbHandlers(BridgeServer* bridge, DatabaseService* db)
 
     // ── Settings ────────────────────────────────────
     bridge->RegisterMethod("db:getSettings", [db](const json&) {
-        return db->GetSettings();
+        // PB-023: expose a schema-normalized object (defaults filled, legacy
+        // types repaired, secret-looking keys dropped). Preserve unknown keys
+        // so future/older renderer fields (zlibDownloadPath etc.) survive.
+        return pb::SettingsService::Normalize(db->GetSettings()).values;
     });
     bridge->RegisterMethod("db:updateSettings", [db](const json& p) {
-        db->UpdateSettings(p["settings"]);
+        // Normalize the patch, then write only keys the caller actually sent;
+        // Normalize fills defaults, and writing those would reset omitted keys.
+        const json raw = p.value("settings", json::object());
+        const auto normalized = pb::SettingsService::Normalize(raw);
+        json patch = json::object();
+        for (auto it = raw.begin(); it != raw.end(); ++it) {
+            if (normalized.values.contains(it.key())) patch[it.key()] = normalized.values[it.key()];
+        }
+        db->UpdateSettings(patch);
         return json::object();
     });
     bridge->RegisterMethod("db:getBookSettings", [db](const json& p) {
