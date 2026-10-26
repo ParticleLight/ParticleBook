@@ -21,7 +21,6 @@
 | PB-010 | 本地词典 | P1 | 🚧 进行中 | 2.2.1 | DictionaryService 核心已落；导入/查词 UI 待接 |
 | PB-011 | 备份 / 恢复 | P0 | 🚧 进行中 | 2.2.1 | 创建/恢复已接线；封面/进度/WebDAV 待补 |
 | PB-013 | 书源生态增强 | P1 | 📋 待办 | 2.2.1 | URL/剪贴板导入、规则编辑、单源测试 |
-| PB-016 | 本地诊断日志 | P1 | 🚧 进行中 | 2.2.1 | 日志+导出已接；网络/AI 失败点待补 |
 | PB-017 | 大书库性能 | P2 | 📋 待办 | 2.2.1 | 虚拟列表、封面缓存、索引性能 |
 | PB-018 | 关键路径 E2E | P1 | 🚧 进行中 | 2.2.1 | 5 条 smoke 已过；Z-Library/翻译/TTS/备份待补 |
 | PB-021 | Locator + Annotation 统一模型 | P0 | 🚧 进行中 | 2.2.1 | 模型+测试已落；DB/bridge/UI 待接 |
@@ -48,7 +47,7 @@
 
 ### 批次 2 · P1（10 项）
 
-1. PB-016 本地诊断日志（建议从 P0 起并行）
+1. ✅ PB-016 本地诊断日志（已完成）
 2. PB-018 关键路径 E2E（随 P0 开始，持续补）
 3. PB-022 ReaderAdapter + 共享阅读交互
 4. PB-010 本地词典
@@ -95,7 +94,7 @@
 
 **备注**：先做 1 天 spike，验证 SAPI 词边界事件、后台播放、Z-Library 导航后不断播。
 
-**进度（2026-10-26）**：`SapiTts` 核心+单测（`ea2308a`）；bridge `tts:*` + App 单例 + `tts:event` 回投（`444583b`），CDP 实测 6 音色/朗读事件/Stop。剩余：阅读器播放条/句高亮/设置持久化/睡眠定时。
+**进度（2026-10-26）**：SapiTts 核心（`ea2308a`）；bridge/App 单例（`444583b`）；阅读器 TtsBar/句子高亮/音色语速持久化（`8a1e4f2`），CDP 26/26；暂停竞态修复（`8f149ce`）。剩余：PDF 真机验证、睡眠定时、Z-Library 导航/最小化不断播复核。
 
 ## PB-002 · AI 翻译（用户自带 Key）
 
@@ -119,7 +118,7 @@
 
 **非目标（本版）**：离线模型、免费公共接口、全书一键翻译、词典释义、语音翻译、流式输出（可后续）。
 
-**进度（2026-10-26）**：`TranslationService` 核心 + mock 单测已落（commit `bfc4fd2`）：OpenAI 兼容、批量切块、取消、错误码、Key 脱敏/防注入。SecretStore 取 Key、`db:translate` handler、选中翻译 UI 待接。
+**进度（2026-10-26）**：TranslationService 核心（`bfc4fd2`）；SecretStore 取 Key + `translation:translate` handler + 设置页 provider/Key 表单（`23fd60b`），CDP 实测 Key set/has/clear 与 disabled 报错。剩余：阅读器选中翻译弹层、结果缓存、真实 provider 验证。
 
 **决策记录**：2026-10-26 用户明确——翻译只用 AI，必须用户填写第三方 Key 才可使用；不做离线模型 / 免费公共接口。
 
@@ -262,7 +261,7 @@
 
 **非目标**：实时多端同步（后续）、账号体系。
 
-**进度（2026-10-26）**：`BackupService` 核心 + 14 组单测（`ea2308a`）；handler/UI 已接（`9475e3c`，JobService 异步 + Suspend/Resume），CDP 实测创建/恢复成功。剩余：封面文件打包、大库进度/重试、WebDAV（Phase 2）。
+**进度（2026-10-26）**：BackupService 核心（`ea2308a`）；handler/UI（`9475e3c`）；封面打包/恢复 + progress/cancel（`24de96c`，22 组测试）。剩余：handler 接 progress、大库 UI 进度/重试、WebDAV（Phase 2）。
 
 ## PB-012 · 文件关联 / 打开方式（不抢默认）
 
@@ -334,15 +333,15 @@
 **目标**：出问题时能定位，不上传任何数据。
 
 **MVP 验收**
-- [ ] 滚动日志（大小 / 数量上限），级别可调
-- [ ] 记录：启动、C++ 异常、网络失败、AI provider 报错、下载 / 导入失败
-- [ ] 「导出诊断包」：日志 + 版本 + 系统信息 + 脱敏设置
-- [ ] 自动脱敏：API Key、Cookie、用户路径（可配置）
-- [ ] 默认本地记录；无遥测、无上传
+- [x] 滚动日志（大小 / 数量上限），级别可调
+- [x] 记录：启动、C++ 异常、网络失败、AI provider 报错、下载 / 导入失败
+- [x] 「导出诊断包」：日志 + 版本 + 系统信息 + 脱敏设置
+- [x] 自动脱敏：API Key、Cookie、用户路径（可配置）
+- [x] 默认本地记录；无遥测、无上传
 
 **非目标**：崩溃上报服务、远程日志。
 
-**进度（2026-10-26）**：LogService 核心 + App 启动日志（`e87c766`/`2372236`）；`app:exportDiagnostics` + 设置页按钮（`f03800f`），实测导出 logs/version/system/settings/README。剩余：网络失败/AI provider 报错/下载导入失败的埋点。
+**进度（2026-10-26）：已完成。** LogService + App 启动日志（`e87c766`/`2372236`）；诊断包导出 + 设置页按钮（`f03800f`）；未捕获异常/网络/下载/导入/AI provider 失败埋点（`a7c49d9`）。实测导出 logs/version/system/settings/README，日志脱敏/无遥测。
 
 ## PB-017 · 大书库性能
 
@@ -422,7 +421,7 @@
 
 **非目标**：手写笔迹；先做文本/矩形标注。
 
-**进度（2026-10-26）**：Locator/Annotation 模型 + `annotation_test` 已落（commit `3839b27`）：5 种 Locator、Annotation 校验/Normalize、旧行迁移、稳定性排序。DB/bridge/UI 待接。
+**进度（2026-10-26）**：Locator/Annotation 模型（`3839b27`）；DB schema v3 新增 `annotations[]`、旧 bookmarks/highlights/notes 迁移（`8a017be`）。剩余：CRUD handler/双写、阅读器标注 UI。
 
 ## PB-022 · ReaderAdapter + 共享阅读交互
 
@@ -450,7 +449,7 @@
 
 **非目标**：系统凭据管理器集成（可后续）。
 
-**进度（2026-10-26）**：SecretStore + 13 段单测（`6d9dc58`）；SettingsService 33 键 schema + 8 组测试（`e87c766`）；DbHandlers 读写已接归一化。App SecretStore / 渲染层 schema 表单待续。
+**进度（2026-10-26）**：SecretStore（`6d9dc58`）；SettingsService（`e87c766`）；DbHandlers 归一化；App 持有 SecretStore + 翻译 Key 设置页（`23fd60b`）。剩余：渲染层 schema 驱动表单、密钥管理页、TTS/词典设置项。
 
 ## PB-024 · god files 拆分 + 注入 JS 外置
 
@@ -493,6 +492,7 @@
 | PB-014 数据 schema 版本 + 迁移 | 2026-10-26 | `87331a0`（未发版） |
 | PB-015 桥接契约扩展 | 2026-10-26 | 既有 `02c62a5` + contract/dts/handler/usage 审计全绿（未发版） |
 | PB-012 文件关联 / 打开方式 | 2026-10-26 | `444583b`（未发版） |
+| PB-016 本地诊断日志 | 2026-10-26 | `a7c49d9`（未发版） |
 
 ## 暂缓 / 否决
 
