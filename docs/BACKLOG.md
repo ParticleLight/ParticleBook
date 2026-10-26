@@ -12,7 +12,7 @@
 | PB-001 | TTS 朗读 | P0 | 🚧 进行中 | 2.2.1 | SAPI 核心已落；bridge/UI 待接 |
 | PB-002 | AI 翻译（用户自带 Key） | P0 | 🚧 进行中 | 2.2.1 | TranslationService 核心已落；SecretStore/UI/handler 待接 |
 | PB-003 | PDF 标注 | P1 | 📋 待办 | 2.2.1 | 文本层 + 高亮/批注；导出复用 PB-004 |
-| PB-004 | 笔记 / 高亮导出 | P1 | 🚧 进行中 | 2.2.1 | ExportService 核心已落；bridge/UI 待接 |
+| PB-004 | 笔记 / 高亮导出 | P1 | 🚧 进行中 | 2.2.1 | 导出/下载/复制已接；预览与 PDF 标注待补 |
 | PB-005 | 元数据 / 标签 / 系列 / 评分 | P1 | 📋 待办 | 2.2.1 | 书库管理深度：可编辑、可筛选 |
 | PB-006 | 跨书全文搜索 | P1 | 📋 待办 | 2.2.1 | 全书库建索引，结果可跳转 |
 | PB-007 | 统计升级 | P2 | 📋 待办 | 2.2.1 | 热力图、连续天数、目标 |
@@ -155,7 +155,7 @@
 
 **非目标**：Readwise / Notion / Obsidian 直连、PDF / HTML 排版导出（可后续）。
 
-**进度（2026-10-26）**：`ExportService` 核心 + 11 组单测已落（commit `c903980`）：Markdown/CSV/JSON、TOC 分组、全库合并、文件名安全。bridge `export:annotations` 与前端下载/复制待接。
+**进度（2026-10-26）**：`ExportService` 核心 + 11 组单测（`c903980`）；`export:annotations` + 阅读器单本/设置全库三格式下载 + 剪贴板复制（`4d4bb15`/`655d2d1`），CDP 实测单本/全库。剩余：导出前预览/选择范围、PDF 标注（依赖 PB-003）。
 
 ## PB-005 · 元数据 / 标签 / 系列 / 评分
 
