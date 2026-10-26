@@ -1,6 +1,100 @@
 import { create } from 'zustand'
 import { useSettingsStore } from './settingsStore'
 
+// ── PB-017: 封面内存 LRU 缓存 + 并发去重 ─────────────────────────────
+// 书库卡片（BookCard / BookList 的 ListCover）都直接调
+// window.electronAPI.getCoverImage(bookId)；5000 本时即使虚拟化只渲染可见
+// 卡片，来回滚动/筛选仍会反复请求同一封面。这里在 store 加载时把该 bridge
+// 方法包一层：
+//   * 命中内存 Map（字符串 / data URL）直接返回，不发 bridge；
+//   * 同 bookId 的并发请求合并成一个 in-flight Promise；
+//   * 超过上限按插入顺序淘汰最久未用（get 时 refresh 顺序 = LRU）；
+//   * 缓存值不写入磁盘，只活在渲染进程内存里，退出即释放。
+// 这样 BookCard 不需要改动（不在本次改动范围），也天然对列表视图生效。
+const COVER_CACHE_MAX = 300
+const coverCache = new Map<number, string>()
+const coverInflight = new Map<number, Promise<string | null>>()
+let coverHits = 0
+let coverMisses = 0
+let coverEvictions = 0
+
+export interface CoverCacheStats {
+  size: number
+  max: number
+  hits: number
+  misses: number
+  evictions: number
+  inflight: number
+}
+
+function touchCover(bookId: number, dataUrl: string): void {
+  // 重新插入到 Map 末尾 = 最近使用；Map 迭代顺序作为 LRU 顺序。
+  if (coverCache.has(bookId)) coverCache.delete(bookId)
+  coverCache.set(bookId, dataUrl)
+  while (coverCache.size > COVER_CACHE_MAX) {
+    const oldest = coverCache.keys().next().value
+    if (oldest === undefined) break
+    coverCache.delete(oldest)
+    coverEvictions++
+  }
+}
+
+export function getCoverCacheStats(): CoverCacheStats {
+  return {
+    size: coverCache.size,
+    max: COVER_CACHE_MAX,
+    hits: coverHits,
+    misses: coverMisses,
+    evictions: coverEvictions,
+    inflight: coverInflight.size,
+  }
+}
+
+export function clearCoverCache(): void {
+  coverCache.clear()
+  coverInflight.clear()
+  coverHits = 0
+  coverMisses = 0
+  coverEvictions = 0
+}
+
+async function getCoverImageCached(
+  bookId: number,
+  original: (id: number) => Promise<string | null>,
+): Promise<string | null> {
+  const cached = coverCache.get(bookId)
+  if (cached !== undefined) {
+    coverHits++
+    touchCover(bookId, cached)
+    return cached
+  }
+  const pending = coverInflight.get(bookId)
+  if (pending) return pending
+  coverMisses++
+  const request = original(bookId)
+    .then((value) => {
+      if (typeof value === 'string' && value.length > 0) touchCover(bookId, value)
+      return (value ?? null) as string | null
+    })
+    .catch(() => null)
+    .finally(() => { coverInflight.delete(bookId) })
+  coverInflight.set(bookId, request)
+  return request
+}
+
+const bridgeApi = window.electronAPI as unknown as {
+  getCoverImage?: (id: number) => Promise<string | null>
+  __pbCoverCachePatched?: boolean
+}
+if (bridgeApi && typeof bridgeApi.getCoverImage === 'function' && !bridgeApi.__pbCoverCachePatched) {
+  const original = bridgeApi.getCoverImage.bind(bridgeApi)
+  bridgeApi.getCoverImage = (bookId: number) => getCoverImageCached(bookId, original)
+  bridgeApi.__pbCoverCachePatched = true
+}
+// 基准脚本 / 调试用：window.__pbCoverCacheStats() 读取命中/淘汰统计。
+;(window as unknown as Record<string, unknown>).__pbCoverCacheStats = getCoverCacheStats
+;(window as unknown as Record<string, unknown>).__pbCoverCacheClear = clearCoverCache
+
 // Book 的唯一定义在桥接契约的 PbBook（由 bridge/contract.mjs 生成到
 // electron.d.ts，形状与 C++ 侧实际拼装对齐）。此处只做别名，避免第二份手工副本。
 // 注意 C++ 在字段为空时写 null 而非省略，故作者等字段是 string | null。

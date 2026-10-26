@@ -1,0 +1,126 @@
+{
+  "appPath": "F:\\VScode\\Read\\particlebook-cpp\\build2\\ParticleBook.exe",
+  "books": 5000,
+  "runs": 1,
+  "startedAt": "2026-10-26T15:30:58.455Z",
+  "node": "v24.15.0",
+  "platform": "win32",
+  "firstScreenAvgMs": 947,
+  "gridMountedAvg": 25,
+  "gridNodesAvg": 628,
+  "searchAvgMs": 4,
+  "failures": [],
+  "runsDetail": [
+    {
+      "metrics": {
+        "run": 1,
+        "books": 5000,
+        "firstScreenMs": 947,
+        "modes": {
+          "grid": {
+            "dom": {
+              "cards": 25,
+              "rows": 0,
+              "totalNodes": 628,
+              "virtualized": true,
+              "virtualizedAttr": "1",
+              "rowHeight": 323,
+              "columns": 5,
+              "scrollHeight": 323111,
+              "clientHeight": 633,
+              "cacheStats": {
+                "size": 300,
+                "max": 300,
+                "hits": 10,
+                "misses": 2080,
+                "evictions": 1780,
+                "inflight": 0
+              },
+              "cacheReuse": {
+                "size": 5,
+                "max": 300,
+                "hits": 10,
+                "misses": 5,
+                "evictions": 0,
+                "inflight": 0
+              },
+              "interactions": {
+                "ok": true,
+                "menuVisible": true
+              },
+              "screenshot": "F:\\VScode\\Read\\scripts\\bench\\results\\20261026T153058-09c978-run1-grid.png"
+            },
+            "scroll": {
+              "kind": "grid",
+              "steps": 60,
+              "p50": 11.7,
+              "p95": 19.3,
+              "max": 19.5,
+              "maxCards": 35,
+              "maxRows": 0,
+              "scrollHeight": 323111,
+              "clientHeight": 633
+            }
+          },
+          "list": {
+            "dom": {
+              "cards": 0,
+              "rows": 17,
+              "totalNodes": 363,
+              "virtualized": true,
+              "virtualizedAttr": "1",
+              "rowHeight": 64,
+              "columns": 0,
+              "scrollHeight": 320160,
+              "clientHeight": 633,
+              "cacheStats": {
+                "size": 300,
+                "max": 300,
+                "hits": 16,
+                "misses": 1375,
+                "evictions": 1075,
+                "inflight": 0
+              },
+              "cacheReuse": {
+                "size": 8,
+                "max": 300,
+                "hits": 16,
+                "misses": 8,
+                "evictions": 0,
+                "inflight": 0
+              },
+              "interactions": {
+                "ok": false,
+                "error": "no book card"
+              },
+              "screenshot": "F:\\VScode\\Read\\scripts\\bench\\results\\20261026T153058-09c978-run1-list.png"
+            },
+            "scroll": {
+              "kind": "list",
+              "steps": 60,
+              "p50": 5.5,
+              "p95": 6.7,
+              "max": 8.2,
+              "maxCards": 0,
+              "maxRows": 23,
+              "scrollHeight": 320160,
+              "clientHeight": 633
+            }
+          }
+        },
+        "search": {
+          "query": "Benchmark Book 05000",
+          "ms": 3.8,
+          "cards": 1
+        },
+        "durationMs": 5245
+      },
+      "sandboxRoot": "C:\\Users\\PARTIC~1\\AppData\\Local\\Temp\\particlebook-e2e\\20261026T153058-09c978-run1",
+      "logPath": "F:\\VScode\\Read\\scripts\\bench\\results\\20261026T153058-09c978-run1-app.log",
+      "validation": {
+        "ok": true,
+        "failures": []
+      }
+    }
+  ]
+}
