@@ -14,7 +14,12 @@ public:
     DatabaseService();
     ~DatabaseService();
 
+    // PB-014: bump when the on-disk shape changes; every bump needs a
+    // migration entry in DatabaseService.cpp and a database_test case.
+    static constexpr int kCurrentSchemaVersion = 2;
+
     void Load(const std::string& path);
+    int GetSchemaVersion() const;
     void FlushSync();
     // NOTE: there is deliberately no public "reserve an id" method. Ids are
     // allocated inside the Insert* methods via allocNextId(), which advances

@@ -4,6 +4,7 @@
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <stdexcept>
 
 namespace fs = std::filesystem;
 
@@ -48,6 +49,7 @@ int main()
             CHECK_TRUE(db.GetSettings().is_object());
             CHECK_EQ((int)db.GetBookshelves().size(), 0);
             CHECK_EQ((int)db.GetBookSources().size(), 0);
+            CHECK_EQ(db.GetSchemaVersion(), DatabaseService::kCurrentSchemaVersion);
         }
         fs::remove_all(dir);
     }
@@ -211,6 +213,49 @@ int main()
             CHECK_EQ((int)db.GetProgress(idC).value("progress", -1.0), 33);
             CHECK_TRUE(db.GetProgress(idB).is_null());
             CHECK_EQ((int)db.GetBooks().size(), 2);
+        }
+        fs::remove_all(dir);
+    }
+
+    // ── 8. v1 (unversioned) DB migrates to current + pre-migrate backup ──
+    {
+        auto dir = MakeScratch("schema-v1");
+        auto dbPath = dir / "db.json";
+        WriteText(dbPath, R"({"books":[{"id":1,"title":"Legacy"}],"nextId":2,"settings":{"theme":"dark"}})");
+        {
+            DatabaseService db;
+            db.Load(dbPath.string());
+            CHECK_EQ(db.GetSchemaVersion(), DatabaseService::kCurrentSchemaVersion);
+            CHECK_EQ((int)db.GetBooks().size(), 1);
+            CHECK_EQ(db.GetSettings()["theme"].get<std::string>(), "dark");
+            db.FlushSync();
+        }
+        CHECK_EQ(CountPrefixed(dir, "db.json.pre-migrate-v1-"), 1);
+        {
+            std::ifstream f(dbPath);
+            json parsed = json::parse(f);
+            CHECK_EQ(parsed["schema_version"].get<int>(), DatabaseService::kCurrentSchemaVersion);
+        }
+        fs::remove_all(dir);
+    }
+
+    // ── 9. DB from a newer app is refused, file untouched ───────────────
+    {
+        auto dir = MakeScratch("schema-newer");
+        auto dbPath = dir / "db.json";
+        WriteText(dbPath, R"({"schema_version":999,"books":[]})");
+        bool threw = false;
+        try {
+            DatabaseService db;
+            db.Load(dbPath.string());
+        } catch (const std::exception&) {
+            threw = true;
+        }
+        CHECK_TRUE(threw);
+        {
+            std::ifstream f(dbPath);
+            json parsed = json::parse(f);
+            CHECK_EQ(parsed["schema_version"].get<int>(), 999);
         }
         fs::remove_all(dir);
     }

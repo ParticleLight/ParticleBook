@@ -7,8 +7,53 @@
 #include <ctime>
 #include <cstdio>
 #include <windows.h>
+#include <stdexcept>
 
 namespace {
+    constexpr int kCurrentSchemaVersion = DatabaseService::kCurrentSchemaVersion;
+
+    // Migration registry: each entry upgrades from `from` to `to`. Keep the
+    // functions small and idempotent; Load() backs up the file before running
+    // any of them and writes the migrated object atomically afterwards.
+    struct Migration {
+        int from;
+        int to;
+        const char* description;
+        bool (*run)(json& data, std::string& error);
+    };
+
+    bool MigrateV1ToV2(json& data, std::string& error) {
+        (void)data;
+        (void)error;
+        // v1 = unversioned. v2 only adds schema_version; future shape changes
+        // must append a new migration instead of editing this one.
+        return true;
+    }
+
+    const std::vector<Migration>& Migrations() {
+        static const std::vector<Migration> migrations = {
+            { 1, 2, "add schema_version", &MigrateV1ToV2 },
+        };
+        return migrations;
+    }
+
+    std::string MigrationTimestamp() {
+        char ts[32];
+        time_t now = time(nullptr);
+        tm localTm;
+        localtime_s(&localTm, &now);
+        strftime(ts, sizeof(ts), "%Y%m%d-%H%M%S", &localTm);
+        return ts;
+    }
+
+    bool CopyForMigrationBackup(const std::string& path, int fromVersion,
+                                std::string& backupPath) {
+        backupPath = path + ".pre-migrate-v" + std::to_string(fromVersion)
+                   + "-" + MigrationTimestamp();
+        return CopyFileW(pb::Utf8ToWide(path).c_str(),
+                         pb::Utf8ToWide(backupPath).c_str(), FALSE) != 0;
+    }
+
     // Helper: json::get<int>() returns by value, can't ++ directly
     int allocNextId(json& data) {
         int id = data["nextId"].get<int>();
@@ -56,12 +101,16 @@ void DatabaseService::Load(const std::string& path)
     DataDir(path);
 
     std::error_code ec;
-    if (std::filesystem::exists(path, ec)) {
+    const bool fileExists = std::filesystem::exists(path, ec);
+    bool validObject = false;
+
+    if (fileExists) {
         std::ifstream f(path);
         if (f.is_open()) {
             try {
                 m_data = json::parse(f);
-                if (!m_data.is_object()) {
+                validObject = m_data.is_object();
+                if (!validObject) {
                     // Valid JSON but not the object shape we expect (e.g. an
                     // array) — backup + reset instead of crashing on the
                     // string-key operator[] below.
@@ -76,10 +125,75 @@ void DatabaseService::Load(const std::string& path)
             }
         }
     }
+    if (!validObject) m_data = json::object();
+
+    int fromVersion = 1;
+    if (validObject && m_data.contains("schema_version")) {
+        if (m_data["schema_version"].is_number_integer()) {
+            fromVersion = m_data["schema_version"].get<int>();
+        } else {
+            // malformed version marker: treat as corrupt metadata, keep data
+            BackupCorruptFile(path);
+            m_data = json::object();
+            validObject = false;
+            fromVersion = 1;
+        }
+    }
+    if (fromVersion < 1) fromVersion = 1;
+    if (fromVersion > kCurrentSchemaVersion) {
+        throw std::runtime_error(
+            "database schema v" + std::to_string(fromVersion) +
+            " is newer than this app (v" + std::to_string(kCurrentSchemaVersion) +
+            "); refusing to open to avoid downgrading data");
+    }
+
+    if (fromVersion < kCurrentSchemaVersion) {
+        std::string backupPath;
+        if (fileExists && !CopyForMigrationBackup(path, fromVersion, backupPath)) {
+            throw std::runtime_error("failed to back up database before migration");
+        }
+
+        json migrated = m_data;
+        int version = fromVersion;
+        while (version < kCurrentSchemaVersion) {
+            const Migration* match = nullptr;
+            for (const auto& m : Migrations()) {
+                if (m.from == version) { match = &m; break; }
+            }
+            if (!match) {
+                throw std::runtime_error(
+                    "no migration registered from database schema v" +
+                    std::to_string(version));
+            }
+            std::string error;
+            if (!match->run(migrated, error)) {
+                throw std::runtime_error(
+                    "database migration v" + std::to_string(match->from) + "->v" +
+                    std::to_string(match->to) + " failed: " + error);
+            }
+            version = match->to;
+        }
+        migrated["schema_version"] = kCurrentSchemaVersion;
+        if (!WriteAtomic(migrated)) {
+            throw std::runtime_error(
+                "failed to write migrated database (original + pre-migrate backup kept)");
+        }
+        m_data = std::move(migrated);
+    }
+
     EnsureDefaults();
+    if (!m_data.contains("schema_version")) {
+        m_data["schema_version"] = kCurrentSchemaVersion;
+    }
 
     // Start background writer
     m_writeThread = std::thread(&DatabaseService::WriterThread, this);
+}
+
+int DatabaseService::GetSchemaVersion() const
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    return m_data.value("schema_version", 0);
 }
 
 // ── Atomic persist ───────────────────────────────────────────────
