@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
 import i18n from '../../i18n'
 import { useSettingsStore, type AccentColor } from '../../stores/settingsStore'
+import { downloadText } from '../../utils/download'
 
 interface GlobalSettingsProps {
   onBack: () => void
@@ -442,6 +443,8 @@ function AboutPage() {
   const [diagState, setDiagState] = useState<'idle' | 'exporting' | 'done' | 'error'>('idle')
   const [diagPath, setDiagPath] = useState('')
   const [backupMsg, setBackupMsg] = useState('')
+  const [exportAllBusy, setExportAllBusy] = useState(false)
+  const [exportAllMsg, setExportAllMsg] = useState('')
   const [backupBusy, setBackupBusy] = useState<'create' | 'restore' | ''>('')
   const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const { t } = useTranslation()
@@ -484,6 +487,14 @@ function AboutPage() {
     ]
     return () => { unsubs.forEach((u) => u()); if (idleTimerRef.current) clearTimeout(idleTimerRef.current) }
   }, [])
+
+  const handleExportAll = (format: 'markdown' | 'csv' | 'json') => {
+    setExportAllBusy(true); setExportAllMsg('')
+    window.electronAPI.exportAnnotations(0, format)
+      .then((r) => { downloadText(r.content, r.fileName, r.mimeType); setExportAllMsg(t('已导出：{{name}}', { name: r.fileName })) })
+      .catch(() => setExportAllMsg(t('导出失败')))
+      .finally(() => setExportAllBusy(false))
+  }
 
   const handleCreateBackup = () => {
     setBackupBusy('create'); setBackupMsg('')
@@ -588,6 +599,23 @@ function AboutPage() {
             {t('检查更新')}
           </button>
         )}
+      </div>
+
+      {/* Export all annotations */}
+      <div className="settings-card">
+        <SectionTitle>{t('导出全部标注')}</SectionTitle>
+        <p className="text-sm mb-3" style={{ color: 'var(--text-secondary)' }}>
+          {t('把全书库的书签、高亮与笔记导出为文件。Markdown 适合阅读，CSV 适合表格，JSON 适合备份/二次处理。')}
+        </p>
+        <div className="flex gap-2">
+          {(['markdown', 'csv', 'json'] as const).map((fmt) => (
+            <button key={fmt} onClick={() => handleExportAll(fmt)} disabled={exportAllBusy}
+              className="btn-secondary flex-1">
+              {fmt === 'markdown' ? 'Markdown' : fmt.toUpperCase()}
+            </button>
+          ))}
+        </div>
+        {exportAllMsg && <p className="mt-3 text-xs break-all" style={{ color: 'var(--text-secondary)' }}>{exportAllMsg}</p>}
       </div>
 
       {/* Backup / restore */}

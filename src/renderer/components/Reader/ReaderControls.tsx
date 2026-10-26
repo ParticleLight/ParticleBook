@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useReaderStore } from '../../stores/readerStore'
 import { useSettingsStore } from '../../stores/settingsStore'
+import { downloadText } from '../../utils/download'
 
 interface ReaderControlsProps {
   bookId: number
@@ -35,6 +36,8 @@ export function ReaderControls({ bookId, format, onOpenSettings }: ReaderControl
 
   const [showNoteInput, setShowNoteInput] = useState(false)
   const [noteText, setNoteText] = useState('')
+  const [showExport, setShowExport] = useState(false)
+  const [exportBusy, setExportBusy] = useState(false)
 
   const toggleNoteInput = () => {
     const next = !showNoteInput
@@ -76,6 +79,17 @@ export function ReaderControls({ bookId, format, onOpenSettings }: ReaderControl
   // 快捷键必须用同一套判断（cfi 优先、页码兜底），否则两处会漂移。
   const handleToggleBookmark = () => { void toggleBookmarkAtProgress() }
 
+  const handleExport = (format: 'markdown' | 'csv' | 'json') => {
+    setExportBusy(true)
+    window.electronAPI.exportAnnotations(bookId, format)
+      .then((res) => {
+        downloadText(res.content, res.fileName, res.mimeType)
+        setShowExport(false)
+      })
+      .catch(() => {})
+      .finally(() => setExportBusy(false))
+  }
+
   const handleAddNote = () => {
     if (!noteText.trim()) return
     addNote({
@@ -115,6 +129,19 @@ export function ReaderControls({ bookId, format, onOpenSettings }: ReaderControl
             <button onClick={handleAddNote} className={`${ctrlClasses.btnPrimary} bg-[var(--reader-accent)] hover:brightness-110`}>{t('保存')}</button>
             <button onClick={toggleNoteInput} className={`${ctrlClasses.dialogBtn} bg-[var(--reader-sidebar)] text-[var(--reader-text)] border border-[var(--reader-border)]`}>{t('取消')}</button>
           </div>
+        </div>
+      )}
+
+      {showExport && (
+        <div className="max-w-2xl mx-auto mb-3 flex items-center gap-2">
+          <span className="text-xs" style={{ color: 'var(--reader-text)', opacity: 0.6 }}>{t('导出本书标注')}</span>
+          {(['markdown', 'csv', 'json'] as const).map((fmt) => (
+            <button key={fmt} onClick={() => handleExport(fmt)} disabled={exportBusy}
+              className={`${ctrlClasses.dialogBtn} bg-[var(--reader-sidebar)] text-[var(--reader-text)] border border-[var(--reader-border)]`}>
+              {fmt === 'markdown' ? 'Markdown' : fmt.toUpperCase()}
+            </button>
+          ))}
+          <button onClick={() => setShowExport(false)} className={`${ctrlClasses.dialogBtn} text-[var(--reader-text)] opacity-60`}>{t('取消')}</button>
         </div>
       )}
 
@@ -232,6 +259,17 @@ export function ReaderControls({ bookId, format, onOpenSettings }: ReaderControl
             </button>
           ))}
         </div>
+
+        <button
+          onClick={() => setShowExport(!showExport)}
+          className={`${ctrlClasses.btn} ${showExport ? 'text-[var(--reader-accent)] bg-[var(--color-indigo-bg)]' : ctrlClasses.btnDefault}`}
+          title={t('导出标注')}
+          aria-label={t('导出标注')}
+        >
+          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v12m0 0l-4-4m4 4l4-4M4 20h16" />
+          </svg>
+        </button>
 
         <button onClick={onOpenSettings} className={`${ctrlClasses.btn} ${ctrlClasses.btnDefault}`} title={t('设置')} aria-label={t('设置')}>
           <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">

@@ -732,6 +732,14 @@ export const contract = [
     params: [],
     returns: "Promise<string | null>"
   },
+  // PB-004: export bookmarks/highlights/notes (bookId 0 = whole library).
+  {
+    member: "exportAnnotations", method: "export:annotations",
+    kind: "invoke",
+    group: "Files",
+    params: [{ n: "bookId", t: "number" }, { n: "format", t: "'markdown' | 'csv' | 'json'" }],
+    returns: "Promise<{ ok: boolean; code: string; error: string; fileName: string; mimeType: string; content: string }>"
+  },
   // PB-011: local zip backup / restore (no cloud).
   {
     member: "createBackup", method: "backup:create",
