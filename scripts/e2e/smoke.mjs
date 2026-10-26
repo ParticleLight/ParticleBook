@@ -19,7 +19,7 @@
 //   7) tts                     getTtsVoices 非空 → setVolume(0) → speak → status.speaking → stop（静音）
 //   8) backup                  createBackup 返回沙箱内 zip/path/bookCount → restoreBackup 返回 bookCount + pre-restore 文件
 //   9) translation             translationHasKey false→setKey→true→clearKey→false；Key 不进 reader.json / 明文 secrets.dat
-//  10) schema                  当前库 schema_version=3；预置 v2 库启动后迁移到 3 且留 pre-migrate 备份
+//  10) schema                  当前库 schema_version=4；预置 v2 库启动后迁移到 4 且留 pre-migrate 备份
 //  11) search                  书架搜索框过滤（2→1→0→2）+ 直接 invoke search:status/build/query（PB-006 全文索引）
 //  12) pdf                     生成 1 页文本 PDF → importBooks → pdfOpen/extractText/renderPage → UI 打开/翻页/关闭
 //  13) zlib                    离线下验证 Z-Library API 面 + 只读 mirror/downloadPath + 事件订阅；不触发真实导航/下载
@@ -644,7 +644,7 @@ async function smokeTranslationKey() {
 async function smokeSchema() {
   // A) 当前沙箱：应用自己写出的库必须是 v3
   const current = parseDataFile(await readJsonFile(state.sandbox.dataFile))
-  assertEqual(current.schema_version, 3,
+  assertEqual(current.schema_version, 4,
     'current reader.json schema_version (DatabaseService::kCurrentSchemaVersion)')
 
   // B) 迁移：先关掉扩展阶段实例，手写一个 v2 库，启动后必须迁移到 v3 且留 pre-migrate 备份。
@@ -666,7 +666,7 @@ async function smokeSchema() {
 
   const phase3 = await startAppOnSandbox(migrationSandbox, 'app-schema-migration.log')
   try {
-    const migrated = await waitForFileJson(dbFile, (data) => data.schema_version === 3,
+    const migrated = await waitForFileJson(dbFile, (data) => data.schema_version === 4,
       'v2 -> v3 migration', options.timeout)
     assert(Array.isArray(migrated.annotations),
       'migrated DB must contain the unified annotations array (PB-021)')
@@ -676,7 +676,7 @@ async function smokeSchema() {
       `pre-migrate backup missing in ${dataDir}; files=${JSON.stringify(entries)}`)
     const backup = await readJsonFile(path.join(dataDir, backups[0]))
     assertEqual(backup.schema_version, 2, 'pre-migrate backup must preserve the original v2 payload')
-    log(`schema ok: fresh=${current.schema_version}, migrated v2->v3, pre-migrate backup=${backups[0]}`)
+    log(`schema ok: fresh=${current.schema_version}, migrated v2->v4, pre-migrate backup=${backups[0]}`)
   } finally {
     await closeAppGracefully(phase3.app, 'schema migration app')
   }
