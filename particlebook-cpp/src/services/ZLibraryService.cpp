@@ -3,6 +3,7 @@
 #include "WebViewHost.h"
 #include "services/DatabaseService.h"
 #include "App.h"
+#include "platform/LogService.h"
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <shellapi.h>
@@ -206,17 +207,37 @@ static int MirrorRank(const ZlibMirrorStat& s) {
 static ZlibMirrorStat ProbeMirrorOnce(const std::string& url) {
     ZlibMirrorStat st; st.url = url;
     std::string host, path; bool https = true;
-    if (!SplitUrl(url, host, path, https)) { st.kind = ZMK_FAIL; return st; }
+    if (!SplitUrl(url, host, path, https)) {
+        // 探测失败在镜像探测里是常态（死线路就是靠这里筛掉的），记 Debug 不记 Warn，
+        // 免得每次进站都往日志里灌几十行；汇总失败在 ProbeAndRank 记 Warn。
+        pb::LogDebug("zlib", "probe: invalid mirror url: " + url);
+        st.kind = ZMK_FAIL;
+        return st;
+    }
 
     HINTERNET hS = WinHttpOpen(L"PB/2.1 (mirror-probe)", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, nullptr, nullptr, 0);
-    if (!hS) { st.kind = ZMK_FAIL; return st; }
+    if (!hS) {
+        pb::LogDebug("zlib", "probe: WinHttpOpen failed: " + url);
+        st.kind = ZMK_FAIL;
+        return st;
+    }
     // 超时必须显式设：WinHTTP 的 resolve 默认是 0 = 无限等待（下载线程踩过同一个坑）
     WinHttpSetTimeouts(hS, 3000, 4000, 4000, 6000);
     HINTERNET hC = WinHttpConnect(hS, ToWide(host).c_str(), https ? 443 : 80, 0);
-    if (!hC) { WinHttpCloseHandle(hS); st.kind = ZMK_FAIL; return st; }
+    if (!hC) {
+        WinHttpCloseHandle(hS);
+        pb::LogDebug("zlib", "probe: connect failed: " + url);
+        st.kind = ZMK_FAIL;
+        return st;
+    }
     HINTERNET hR = WinHttpOpenRequest(hC, L"GET", ToWide(path).c_str(), nullptr, nullptr, nullptr,
                                       https ? WINHTTP_FLAG_SECURE : 0);
-    if (!hR) { WinHttpCloseHandle(hC); WinHttpCloseHandle(hS); st.kind = ZMK_FAIL; return st; }
+    if (!hR) {
+        WinHttpCloseHandle(hC); WinHttpCloseHandle(hS);
+        pb::LogDebug("zlib", "probe: open request failed: " + url);
+        st.kind = ZMK_FAIL;
+        return st;
+    }
 
     // 与 WebView2 会话保持一致：会话期间应用本来就放行证书错误；探测若严格校验证书，
     // 会出现「浏览器能开、探测判死」的错判。
@@ -233,6 +254,8 @@ static ZlibMirrorStat ProbeMirrorOnce(const std::string& url) {
                 std::chrono::steady_clock::now() - t0).count();
     if (!ok) {
         WinHttpCloseHandle(hR); WinHttpCloseHandle(hC); WinHttpCloseHandle(hS);
+        pb::LogDebug("zlib", "probe: request timed out / no response (" +
+                                 std::to_string(st.ms) + " ms): " + url);
         st.kind = ZMK_FAIL;
         return st;
     }
@@ -309,14 +332,29 @@ static std::string FetchUrl(const std::string& url) {
         : (host = url.substr(hs), path = "/");
     auto toW = [](const std::string& s) { return ToWide(s); };
     HINTERNET hS = WinHttpOpen(L"PB/1.9", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, nullptr, nullptr, 0);
-    if (!hS) return "";
+    if (!hS) {
+        pb::LogWarn("zlib", "mirror fetch: WinHttpOpen failed: " + url);
+        return "";
+    }
     WinHttpSetTimeouts(hS, 10000, 10000, 10000, 20000);  // 镜像列表抓取同样不能无限等
     HINTERNET hC = WinHttpConnect(hS, toW(host).c_str(), https ? 443 : 80, 0);
-    if (!hC) { WinHttpCloseHandle(hS); return ""; }
+    if (!hC) {
+        WinHttpCloseHandle(hS);
+        pb::LogWarn("zlib", "mirror fetch: connect failed: " + url);
+        return "";
+    }
     HINTERNET hR = WinHttpOpenRequest(hC, L"GET", toW(path).c_str(), nullptr, nullptr, nullptr, https ? WINHTTP_FLAG_SECURE : 0);
-    if (!hR) { WinHttpCloseHandle(hC); WinHttpCloseHandle(hS); return ""; }
+    if (!hR) {
+        WinHttpCloseHandle(hC); WinHttpCloseHandle(hS);
+        pb::LogWarn("zlib", "mirror fetch: open request failed: " + url);
+        return "";
+    }
     if (!WinHttpSendRequest(hR, nullptr, 0, nullptr, 0, 0, 0) || !WinHttpReceiveResponse(hR, nullptr))
-    { WinHttpCloseHandle(hR); WinHttpCloseHandle(hC); WinHttpCloseHandle(hS); return ""; }
+    {
+        WinHttpCloseHandle(hR); WinHttpCloseHandle(hC); WinHttpCloseHandle(hS);
+        pb::LogWarn("zlib", "mirror fetch: no response: " + url);
+        return "";
+    }
     std::string r; DWORD br; char b[8192];
     while (WinHttpReadData(hR, b, sizeof(b), &br) && br > 0) r.append(b, br);
     WinHttpCloseHandle(hR); WinHttpCloseHandle(hC); WinHttpCloseHandle(hS); return r;
@@ -340,6 +378,8 @@ json ZLibraryService::FetchMirrors() {
 
     if (html.empty()) {
         std::lock_guard<std::mutex> lk(m_mirrorMutex);
+        pb::LogWarn("zlib", "mirror list unavailable; keeping " +
+                                std::to_string(m_mirrors.size()) + " fallback mirror(s)");
         json r; r["mirrors"] = m_mirrors; r["current"] = m_currentMirror; return r;
     }
 
@@ -721,6 +761,7 @@ void ZLibraryService::SetupDownloadHandler()
     });
     m_host->SetDownloadFailCallback([this](const std::string& fileName, const std::string& reason) {
         m_zlibDlInProgress = false;
+        pb::LogError("zlib", "download failed: " + fileName + " (" + reason + ")");
         m_bridge->EmitEvent("zlib:downloadError", {{"fileName", fileName}, {"error", reason}});
     });
 
@@ -991,6 +1032,9 @@ void ZLibraryService::StartDownloadThread(const std::string& startUrl, const std
     HWND hwnd = m_hwnd;
     std::thread([startUrl, fn, downloadPath, cookies, hwnd]() {
         auto fail = [&](const std::string& reason) {
+            // PB-016-B：失败原因（错误码）与文件名进本地诊断日志；URL 不在这里写，
+            // 下载链接通常带一次性 token、且对排障帮助有限。
+            pb::LogError("zlib", "download failed: " + reason + " (file=" + fn + ")");
             if (hwnd) {
                 auto* d = new DLFail{fn, reason};
                 PostMessage(hwnd, WM_ZLIB_DOWNLOAD_FAILED, 0, reinterpret_cast<LPARAM>(d));
@@ -1177,6 +1221,7 @@ void ZLibraryService::DoImport(const std::string& downloadPath, const std::strin
             if (!success) errMsg = "import_failed";
         } catch (const std::exception& e) {
             errMsg = std::string("import_exception:") + e.what();
+            pb::LogError("zlib", "import exception for " + fileName + ": " + e.what());
         }
         if (hwnd) {
             auto* r = new ImportResult{fileName, success, errMsg};
@@ -1189,10 +1234,12 @@ void ZLibraryService::DoImport(const std::string& downloadPath, const std::strin
 void ZLibraryService::OnImportDone(const std::string& fileName, bool success, const std::string& errMsg)
 {
     if (success) {
+        pb::LogInfo("zlib", "imported " + fileName);
         m_bridge->EmitEvent("zlib:importComplete", {{"fileName", fileName}});
         // 通知渲染层刷新书架（下载完成的书要出现在书架上）
         m_bridge->EmitEvent("library:changed", json::object());
     } else {
+        pb::LogError("zlib", "import failed: " + fileName + " (" + errMsg + ")");
         m_bridge->EmitEvent("zlib:importError", {{"fileName", fileName}, {"error", errMsg}});
     }
 }
@@ -1339,6 +1386,15 @@ void ZLibraryService::ProbeAndRank() {
     {
         std::lock_guard<std::mutex> lk(m_mirrorMutex);
         m_probeFinishedAt = std::chrono::steady_clock::now();
+        // PB-016-B：逐条探测失败只记 Debug；这里才是用户能感知的结论。
+        bool anyApp = false;
+        for (const auto& s : m_mirrorStats) {
+            if (s.kind == ZMK_ZLIB_APP) { anyApp = true; break; }
+        }
+        if (!anyApp) {
+            pb::LogWarn("zlib", "no working Z-Library mirror after probing " +
+                                    std::to_string(m_mirrorStats.size()) + " mirror(s)");
+        }
     }
     m_probeRunning = false;
 }
@@ -1389,6 +1445,8 @@ void ZLibraryService::ClassifyLoadedDocument() {
 void ZLibraryService::AdvanceMirrorOnFailure() {
     std::string nextUrl, pending;
     bool retry = false;
+    pb::LogWarn("zlib", "mirror navigation failed (HTTP " + std::to_string(m_lastDocStatus) +
+                            "), advancing to next mirror");
     {
         std::lock_guard<std::mutex> lk(m_mirrorMutex);
         if (m_navRetryCount < m_retryMirrorCount && m_navRetryCount < (int)m_mirrors.size()) {
@@ -1421,6 +1479,7 @@ void ZLibraryService::AdvanceMirrorOnFailure() {
     }
     m_entryNav = false;
     m_probePause = false;
+    pb::LogError("zlib", "all mirrors failed to load");
     m_bridge->EmitEvent("zlib:allMirrorsFailed", json::object());
     m_bridge->EmitEvent("zlib:mirrorChanged", GetMirrorInfo());
 }

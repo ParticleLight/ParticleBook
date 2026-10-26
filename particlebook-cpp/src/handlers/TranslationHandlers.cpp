@@ -102,6 +102,11 @@ void RegisterTranslationHandlers(BridgeServer* bridge, DatabaseService* db,
                 [translation, config, segments, sourceLang, targetLang, context, out](pb::JobContext&) {
                     const auto result = translation->TranslateBatch(
                         config, segments, sourceLang, targetLang, context);
+                    if (!result.ok) {
+                        pb::LogError("translation", std::string("provider error: ")
+                            + pb::TranslationErrorCodeName(result.code)
+                            + (result.error.empty() ? "" : ": " + result.error));
+                    }
                     json reply;
                     reply["ok"] = result.ok;
                     reply["code"] = pb::TranslationErrorCodeName(result.code);

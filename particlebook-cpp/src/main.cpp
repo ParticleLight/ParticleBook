@@ -2,6 +2,7 @@
 #include <windows.h>
 #include <shellapi.h>
 #include "App.h"
+#include "platform/LogService.h"
 #include "platform/SingleInstance.h"
 #include "utils/encoding.h"
 
@@ -48,7 +49,16 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int nCmdShow)
         App::Instance().Shutdown();
         return 0;
     } catch (const std::exception& e) {
+        // PB-016-B: 未捕获的 C++ 异常要进本地诊断日志（无上传）。LogService 的
+        // 全局实例可能已经随 Init 装好，也可能还没装 — 未装时 LogError 是空操作，
+        // 这里绝不能因为日志失败而改变退出行为。
+        pb::LogError("app", std::string("fatal: uncaught std::exception: ") + e.what());
         MessageBoxA(nullptr, e.what(), "ParticleBook Fatal Error", MB_OK | MB_ICONERROR);
         return 1;
+    } catch (...) {
+        // 非 std::exception 的未捕获异常：记录后原样重抛，保持「未捕获即终止」
+        // 的语义不变（只是多了一行日志）。
+        pb::LogError("app", "fatal: uncaught non-std exception");
+        throw;
     }
 }

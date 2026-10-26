@@ -4,6 +4,7 @@
 #include "BridgeServer.h"
 #include "App.h"
 #include "platform/JobService.h"
+#include "platform/LogService.h"
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <winhttp.h>
@@ -14,6 +15,15 @@
 #include <memory>
 
 #pragma comment(lib, "winhttp.lib")
+
+namespace {
+// PB-016-B：日志里的 URL 只保留前缀 —— 关键词百分号编码后可能很长，而且
+// 查询串里若出现 token=... 之类的键会由 LogService 自动脱敏，这里只控制长度。
+std::string LogUrl(const std::string& url)
+{
+    return url.size() <= 200 ? url : url.substr(0, 200) + "...";
+}
+} // namespace
 
 BookSourceService::BookSourceService(std::shared_ptr<DatabaseService> db, std::shared_ptr<BridgeServer> bridge)
     : m_db(std::move(db)), m_bridge(std::move(bridge))
@@ -63,33 +73,53 @@ std::string BookSourceService::FetchUrl(const std::string& url, const std::strin
     }
 
     int wlen = MultiByteToWideChar(CP_UTF8, 0, host.c_str(), (int)host.size(), nullptr, 0);
-    if (wlen <= 0) return "";
+    if (wlen <= 0) {
+        pb::LogWarn("booksource", "fetch: host UTF-8 decode failed: " + LogUrl(url));
+        return "";
+    }
     std::wstring whost(wlen, L'\0');
     MultiByteToWideChar(CP_UTF8, 0, host.c_str(), (int)host.size(), &whost[0], wlen);
 
     wlen = MultiByteToWideChar(CP_UTF8, 0, path.c_str(), (int)path.size(), nullptr, 0);
-    if (wlen <= 0) return "";
+    if (wlen <= 0) {
+        pb::LogWarn("booksource", "fetch: path UTF-8 decode failed: " + LogUrl(url));
+        return "";
+    }
     std::wstring wpath(wlen, L'\0');
     MultiByteToWideChar(CP_UTF8, 0, path.c_str(), (int)path.size(), &wpath[0], wlen);
 
     HINTERNET hSession = WinHttpOpen(L"ParticleBook/1.9",
         WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, nullptr, nullptr, 0);
-    if (!hSession) return "";
+    if (!hSession) {
+        pb::LogWarn("booksource", "fetch: WinHttpOpen failed: " + LogUrl(url));
+        return "";
+    }
 
     HINTERNET hConnect = WinHttpConnect(hSession, whost.c_str(),
         https ? INTERNET_DEFAULT_HTTPS_PORT : INTERNET_DEFAULT_HTTP_PORT, 0);
-    if (!hConnect) { WinHttpCloseHandle(hSession); return ""; }
+    if (!hConnect) {
+        WinHttpCloseHandle(hSession);
+        pb::LogWarn("booksource", "fetch: connect failed: " + LogUrl(url));
+        return "";
+    }
 
     HINTERNET hRequest = WinHttpOpenRequest(hConnect, L"GET", wpath.c_str(),
         nullptr, nullptr, nullptr, https ? WINHTTP_FLAG_SECURE : 0);
-    if (!hRequest) { WinHttpCloseHandle(hConnect); WinHttpCloseHandle(hSession); return ""; }
+    if (!hRequest) {
+        WinHttpCloseHandle(hConnect);
+        WinHttpCloseHandle(hSession);
+        pb::LogWarn("booksource", "fetch: WinHttpOpenRequest failed: " + LogUrl(url));
+        return "";
+    }
 
     if (!WinHttpSendRequest(hRequest, nullptr, 0, nullptr, 0, 0, 0)) {
         WinHttpCloseHandle(hRequest); WinHttpCloseHandle(hConnect); WinHttpCloseHandle(hSession);
+        pb::LogWarn("booksource", "fetch: send failed: " + LogUrl(url));
         return "";
     }
     if (!WinHttpReceiveResponse(hRequest, nullptr)) {
         WinHttpCloseHandle(hRequest); WinHttpCloseHandle(hConnect); WinHttpCloseHandle(hSession);
+        pb::LogWarn("booksource", "fetch: no response: " + LogUrl(url));
         return "";
     }
 
@@ -257,15 +287,27 @@ std::string BookSourceService::BuildSearchUrl(const json& source, const std::str
 json BookSourceService::SearchOne(int sourceId, const std::string& keyword, int page)
 {
     json source = m_db->GetBookSource(sourceId);
-    if (source.is_null()) return json::array();
+    if (source.is_null()) {
+        pb::LogWarn("booksource", "search: source " + std::to_string(sourceId) + " not found");
+        return json::array();
+    }
 
     std::string url = BuildSearchUrl(source, keyword, page);
     std::string html = FetchUrl(url);
-    if (html.empty()) return json::array();
+    if (html.empty()) {
+        // 关键词本身不写日志（可能是用户的私人搜索词），只记长度。
+        pb::LogWarn("booksource", "search: no response from source " + std::to_string(sourceId) +
+                                      " (keyword " + std::to_string(keyword.size()) + " bytes)");
+        return json::array();
+    }
 
     auto rules = source.value("ruleSearch", json::object());
     std::string listSelector = rules.value("bookList", "");
-    if (listSelector.empty()) return json::array();
+    if (listSelector.empty()) {
+        pb::LogWarn("booksource", "search: source " + std::to_string(sourceId) +
+                                      " has no ruleSearch.bookList");
+        return json::array();
+    }
 
     // Extract book list items
     auto ps = ParseSelector(listSelector);
@@ -381,10 +423,16 @@ std::string BookSourceService::ExtractAttr(const std::string& html, const std::s
 json BookSourceService::GetBookInfo(int sourceId, const std::string& bookUrl)
 {
     json source = m_db->GetBookSource(sourceId);
-    if (source.is_null()) return json::object();
+    if (source.is_null()) {
+        pb::LogWarn("booksource", "bookInfo: source " + std::to_string(sourceId) + " not found");
+        return json::object();
+    }
 
     std::string html = FetchUrl(bookUrl);
-    if (html.empty()) return json::object();
+    if (html.empty()) {
+        pb::LogWarn("booksource", "bookInfo: no response: " + LogUrl(bookUrl));
+        return json::object();
+    }
 
     auto rules = source.value("ruleBookInfo", json::object());
     json info;
@@ -408,17 +456,27 @@ json BookSourceService::GetBookInfo(int sourceId, const std::string& bookUrl)
 json BookSourceService::GetChapterList(int sourceId, const std::string& tocUrl)
 {
     json source = m_db->GetBookSource(sourceId);
-    if (source.is_null()) return json::array();
+    if (source.is_null()) {
+        pb::LogWarn("booksource", "toc: source " + std::to_string(sourceId) + " not found");
+        return json::array();
+    }
 
     std::string html = FetchUrl(tocUrl);
-    if (html.empty()) return json::array();
+    if (html.empty()) {
+        pb::LogWarn("booksource", "toc: no response: " + LogUrl(tocUrl));
+        return json::array();
+    }
 
     auto rules = source.value("ruleToc", json::object());
     std::string listSelector = rules.value("chapterList", "");
     std::string nameRule = rules.value("chapterName", "");
     std::string urlRule = rules.value("chapterUrl", "");
 
-    if (listSelector.empty() || nameRule.empty() || urlRule.empty()) return json::array();
+    if (listSelector.empty() || nameRule.empty() || urlRule.empty()) {
+        pb::LogWarn("booksource", "toc: source " + std::to_string(sourceId) +
+                                      " has incomplete ruleToc (chapterList/chapterName/chapterUrl)");
+        return json::array();
+    }
 
     auto ps = ParseSelector(listSelector);
     std::string tag = ps.tag.empty() ? "li" : ps.tag;
@@ -468,6 +526,12 @@ int BookSourceService::DownloadBook(int sourceId, const std::string& bookUrl,
     // error 是机器可读码，由前端映射成本地化文案。
     auto fail = [&](const char* code, int current, int total) -> int {
         outErrorCode = code;
+        // PB-016-B：下载失败是用户最常报的「为什么没下来」，错误码 + 书源 +
+        // 书名进本地日志；URL 由 LogService 脱敏后写入，不上传。
+        pb::LogError("booksource",
+                     std::string("download failed: ") + code +
+                         " (source=" + std::to_string(sourceId) +
+                         ", book=" + bookName + ", url=" + LogUrl(bookUrl) + ")");
         m_bridge->EmitEvent("bookSource:downloadProgress",
                             {{"status", "error"},
                              {"error", code},
@@ -579,6 +643,8 @@ int BookSourceService::DownloadBook(int sourceId, const std::string& bookUrl,
     }
 
     if (bookId > 0) {
+        pb::LogInfo("booksource", "download complete: source=" + std::to_string(sourceId) +
+                                      " book=" + bookName + " id=" + std::to_string(bookId));
         m_bridge->EmitEvent("bookSource:downloadProgress",
                             {{"status", "done"},
                              {"bookId", bookId},

@@ -12,6 +12,7 @@
 #include "services/LibraryService.h"
 #include "services/ContentCache.h"
 #include "platform/JobService.h"
+#include "platform/LogService.h"
 #include <fstream>
 #include <vector>
 #include <cstdlib>
@@ -276,33 +277,58 @@ static json CheckUpdateImpl()
 
     // Fetch latest.yml from GitHub Releases (no API rate limit)
     HINTERNET hS = WinHttpOpen(L"PB/2.0", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, nullptr, nullptr, 0);
-    if (!hS) return json(nullptr);
+    if (!hS) {
+        pb::LogWarn("update", "update check: WinHttpOpen failed");
+        return json(nullptr);
+    }
 
     HINTERNET hC = WinHttpConnect(hS, wBase.c_str(), 443, 0);
-    if (!hC) { WinHttpCloseHandle(hS); return json(nullptr); }
+    if (!hC) {
+        WinHttpCloseHandle(hS);
+        pb::LogWarn("update", "update check: connect failed (" + baseHost + ")");
+        return json(nullptr);
+    }
 
     // Try latest.yml from releases/latest/download/ (redirects handled by WinHTTP)
     HINTERNET hR = WinHttpOpenRequest(hC, L"GET",
         L"/ParticleLight/ParticleBook/releases/latest/download/latest.yml",
         nullptr, nullptr, nullptr, WINHTTP_FLAG_SECURE);
-    if (!hR) { WinHttpCloseHandle(hC); WinHttpCloseHandle(hS); return json(nullptr); }
+    if (!hR) {
+        WinHttpCloseHandle(hC); WinHttpCloseHandle(hS);
+        pb::LogWarn("update", "update check: open request failed");
+        return json(nullptr);
+    }
 
     WinHttpAddRequestHeaders(hR, L"User-Agent: ParticleBook/2.0\r\n", (DWORD)-1, WINHTTP_ADDREQ_FLAG_ADD);
 
     if (!WinHttpSendRequest(hR, nullptr, 0, nullptr, 0, 0, 0) || !WinHttpReceiveResponse(hR, nullptr)) {
         // Fallback to API
         WinHttpCloseHandle(hR); WinHttpCloseHandle(hC); WinHttpCloseHandle(hS);
+        pb::LogDebug("update", "update check: latest.yml unavailable (" + baseHost +
+                                   "), falling back to GitHub API");
 
         hS = WinHttpOpen(L"PB/2.0", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, nullptr, nullptr, 0);
-        if (!hS) return json(nullptr);
+        if (!hS) {
+            pb::LogWarn("update", "update check: WinHttpOpen failed (api fallback)");
+            return json(nullptr);
+        }
         hC = WinHttpConnect(hS, wApi.c_str(), 443, 0);
-        if (!hC) { WinHttpCloseHandle(hS); return json(nullptr); }
+        if (!hC) {
+            WinHttpCloseHandle(hS);
+            pb::LogWarn("update", "update check: connect failed (" + apiHost + ")");
+            return json(nullptr);
+        }
         hR = WinHttpOpenRequest(hC, L"GET", L"/repos/ParticleLight/ParticleBook/releases/latest",
             nullptr, nullptr, nullptr, WINHTTP_FLAG_SECURE);
-        if (!hR) { WinHttpCloseHandle(hC); WinHttpCloseHandle(hS); return json(nullptr); }
+        if (!hR) {
+            WinHttpCloseHandle(hC); WinHttpCloseHandle(hS);
+            pb::LogWarn("update", "update check: API open request failed");
+            return json(nullptr);
+        }
         WinHttpAddRequestHeaders(hR, L"User-Agent: ParticleBook/2.0\r\nAccept: application/vnd.github+json\r\n", (DWORD)-1, WINHTTP_ADDREQ_FLAG_ADD);
         if (!WinHttpSendRequest(hR, nullptr, 0, nullptr, 0, 0, 0) || !WinHttpReceiveResponse(hR, nullptr)) {
             WinHttpCloseHandle(hR); WinHttpCloseHandle(hC); WinHttpCloseHandle(hS);
+            pb::LogWarn("update", "update check: API network error (" + apiHost + ")");
             return json(nullptr);
         }
     }
@@ -344,7 +370,11 @@ static json CheckUpdateImpl()
         } catch (...) {}
     }
 
-    if (latestVer.empty() || dlUrl.empty()) return json(nullptr);
+    if (latestVer.empty() || dlUrl.empty()) {
+        // 网络通了但内容不是预期格式（代理注入页面 / API 改版），不当作错误刷日志。
+        pb::LogDebug("update", "update check: no usable release metadata in response");
+        return json(nullptr);
+    }
 
     // Semantic version comparison (pure, unit-tested in utils/update_meta.h)
     if (pb::VersionGreater(latestVer, PB_VERSION_STRING)) {
@@ -468,12 +498,17 @@ static json ImportPaths(DatabaseService* db, const json& paths, pb::JobContext& 
         paths.is_array() ? 1 : 0, paths.is_array() ? paths.size() : 0);
     DebugLog(debugBuf);
 
-    if (!paths.is_array()) return result;
+    if (!paths.is_array()) {
+        pb::LogWarn("import", "book:import: paths is not an array");
+        return result;
+    }
+    const size_t requested = paths.size();
 
     for (const auto& pathJson : paths) {
         if (job.IsCancelled()) break;
+        std::string path;   // 提到 try 外：catch 里要记录是哪个文件失败
         try {
-            std::string path = pathJson.get<std::string>();
+            path = pathJson.get<std::string>();
 
             snprintf(debugBuf, sizeof(debugBuf), "book:import processing: %s", path.c_str());
             DebugLog(debugBuf);
@@ -489,12 +524,21 @@ static json ImportPaths(DatabaseService* db, const json& paths, pb::JobContext& 
             std::string format = DetectFormat(path);
             snprintf(debugBuf, sizeof(debugBuf), "book:import: format=%s", format.c_str());
             DebugLog(debugBuf);
-            if (format.empty()) { DebugLog("book:import: unknown format, skip"); continue; }
+            if (format.empty()) {
+                DebugLog("book:import: unknown format, skip");
+                pb::LogWarn("import", "book:import: unknown format, skipped: " + GetFileName(path));
+                continue;
+            }
 
             int64_t fileSize = GetFileSizeSafe(path);
             snprintf(debugBuf, sizeof(debugBuf), "book:import: fileSize=%lld", (long long)fileSize);
             DebugLog(debugBuf);
-            if (fileSize <= 0) { DebugLog("book:import: file_size failed"); continue; }
+            if (fileSize <= 0) {
+                DebugLog("book:import: file_size failed");
+                pb::LogWarn("import", "book:import: cannot read file size (" +
+                                          std::to_string((long long)fileSize) + "): " + GetFileName(path));
+                continue;
+            }
 
             // Extract rich metadata (may crash on corrupt files)
             DebugLog("book:import: extracting metadata");
@@ -502,7 +546,9 @@ static json ImportPaths(DatabaseService* db, const json& paths, pb::JobContext& 
             ExtractedMetadata em;
             if (format == "epub") {
                 DebugLog("book:import: calling ExtractEpubMetadata");
-                lib.ExtractEpubMetadata(path, em);
+                if (!lib.ExtractEpubMetadata(path, em)) {
+                    pb::LogWarn("import", "book:import: EPUB metadata extraction failed: " + GetFileName(path));
+                }
                 snprintf(debugBuf, sizeof(debugBuf),
                     "book:import: epub metadata done, title=%s coverFile=%s",
                     em.title.c_str(), em.coverFile.c_str());
@@ -516,16 +562,23 @@ static json ImportPaths(DatabaseService* db, const json& paths, pb::JobContext& 
                     DebugLog("book:import: NO COVER FOUND in OPF");
                 }
             } else if (format == "pdf") {
-                lib.ExtractPdfMetadata(path, em);
+                if (!lib.ExtractPdfMetadata(path, em)) {
+                    pb::LogWarn("import", "book:import: PDF metadata extraction failed: " + GetFileName(path));
+                }
                 DebugLog("book:import: rendering PDF cover");
                 em.coverPath = lib.ExtractPdfCover(path);
+                if (em.coverPath.empty()) {
+                    pb::LogDebug("import", "book:import: PDF cover unavailable: " + GetFileName(path));
+                }
                 DebugLog("book:import: PDF cover done");
             } else if (format == "cbz" || format == "cbr") {
                 DebugLog("book:import: rendering CBZ/CBR cover");
                 em.coverPath = lib.ExtractPdfCover(path);
                 DebugLog("book:import: CBZ/CBR cover done");
             } else if (format == "fb2") {
-                lib.ExtractFb2Metadata(path, em);
+                if (!lib.ExtractFb2Metadata(path, em)) {
+                    pb::LogWarn("import", "book:import: FB2 metadata extraction failed: " + GetFileName(path));
+                }
             }
             DebugLog("book:import: metadata extraction complete");
 
@@ -549,12 +602,16 @@ static json ImportPaths(DatabaseService* db, const json& paths, pb::JobContext& 
         } catch (const std::exception& e) {
             snprintf(debugBuf, sizeof(debugBuf), "book:import: exception: %s", e.what());
             DebugLog(debugBuf);
+            pb::LogError("import", "book:import: exception for " + GetFileName(path) + ": " + e.what());
         } catch (...) {
             DebugLog("book:import: unknown crash, skipping file");
+            pb::LogError("import", "book:import: unknown exception for " + GetFileName(path));
         }
     }
     snprintf(debugBuf, sizeof(debugBuf), "book:import: returning %zu books", result.size());
     DebugLog(debugBuf);
+    pb::LogInfo("import", "book:import: imported " + std::to_string(result.size()) + "/" +
+                              std::to_string(requested) + " book(s)");
     return result;
 }
 
@@ -714,13 +771,19 @@ void RegisterFileHandlers(BridgeServer* bridge, DatabaseService* db, ContentCach
     bridge->RegisterMethod("app:downloadUpdate", [bridge](const json& p) -> json {
         std::string downloadUrl = p.value("url", "");
         std::string sha512 = p.value("sha512", "");
-        if (downloadUrl.empty()) return json(nullptr);
+        if (downloadUrl.empty()) {
+            pb::LogWarn("update", "downloadUpdate: empty download url");
+            return json(nullptr);
+        }
 
         // Integrity + trust: only accept official GitHub release URLs. Combined
         // with the origin gate in HandleMessage, this prevents any page from
         // making us download an arbitrary binary.
         const char* kOfficialPrefix = "https://github.com/ParticleLight/ParticleBook/releases/download/";
-        if (downloadUrl.rfind(kOfficialPrefix, 0) != 0) return json(nullptr);
+        if (downloadUrl.rfind(kOfficialPrefix, 0) != 0) {
+            pb::LogWarn("update", "downloadUpdate: rejected non-official url");
+            return json(nullptr);
+        }
 
         // Download in background to avoid blocking UI thread
         HWND hwnd = bridge->GetWebViewHost() ? bridge->GetWebViewHost()->GetHwnd() : nullptr;
@@ -749,7 +812,11 @@ void RegisterFileHandlers(BridgeServer* bridge, DatabaseService* db, ContentCach
             auto fetchWithWinHttp = [hwnd](const std::wstring& url, const std::wstring& out) -> bool {
                 std::wstring cur = url;
                 for (int redir = 0; redir < 8; redir++) {
-                    size_t se = cur.find(L"://"); if (se == std::wstring::npos) return false;
+                    size_t se = cur.find(L"://");
+                    if (se == std::wstring::npos) {
+                        pb::LogWarn("update", "update download: invalid url (no scheme)");
+                        return false;
+                    }
                     bool https = (cur.substr(0, se) == L"https");
                     size_t hs = se + 3;
                     size_t ps = cur.find(L'/', hs);
@@ -757,13 +824,28 @@ void RegisterFileHandlers(BridgeServer* bridge, DatabaseService* db, ContentCach
                     if (ps != std::wstring::npos) { host = cur.substr(hs, ps - hs); path = cur.substr(ps); }
                     else { host = cur.substr(hs); path = L"/"; }
                     HINTERNET hS = WinHttpOpen(L"ParticleBook/2.0 Updater", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, nullptr, nullptr, 0);
-                    if (!hS) return false;
+                    if (!hS) {
+                        pb::LogWarn("update", "update download: WinHttpOpen failed");
+                        return false;
+                    }
                     HINTERNET hC = WinHttpConnect(hS, host.c_str(), https ? 443 : 80, 0);
-                    if (!hC) { WinHttpCloseHandle(hS); return false; }
+                    if (!hC) {
+                        WinHttpCloseHandle(hS);
+                        pb::LogWarn("update", "update download: connect failed (" + pb::WideToUtf8(host) + ")");
+                        return false;
+                    }
                     HINTERNET hR = WinHttpOpenRequest(hC, L"GET", path.c_str(), nullptr, nullptr, nullptr, https ? WINHTTP_FLAG_SECURE : 0);
-                    if (!hR) { WinHttpCloseHandle(hC); WinHttpCloseHandle(hS); return false; }
+                    if (!hR) {
+                        WinHttpCloseHandle(hC); WinHttpCloseHandle(hS);
+                        pb::LogWarn("update", "update download: open request failed");
+                        return false;
+                    }
                     BOOL sent = WinHttpSendRequest(hR, nullptr, 0, nullptr, 0, 0, 0) && WinHttpReceiveResponse(hR, nullptr);
-                    if (!sent) { WinHttpCloseHandle(hR); WinHttpCloseHandle(hC); WinHttpCloseHandle(hS); return false; }
+                    if (!sent) {
+                        WinHttpCloseHandle(hR); WinHttpCloseHandle(hC); WinHttpCloseHandle(hS);
+                        pb::LogWarn("update", "update download: network error (" + pb::WideToUtf8(host) + ")");
+                        return false;
+                    }
                     DWORD sc = 0, sz = sizeof(sc);
                     WinHttpQueryHeaders(hR, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER, nullptr, &sc, &sz, nullptr);
                     if (sc == 301 || sc == 302 || sc == 303 || sc == 307) {
@@ -774,11 +856,20 @@ void RegisterFileHandlers(BridgeServer* bridge, DatabaseService* db, ContentCach
                             continue;
                         }
                         WinHttpCloseHandle(hR); WinHttpCloseHandle(hC); WinHttpCloseHandle(hS);
+                        pb::LogWarn("update", "update download: redirect without Location header");
                         return false;
                     }
-                    if (sc >= 400) { WinHttpCloseHandle(hR); WinHttpCloseHandle(hC); WinHttpCloseHandle(hS); return false; }
+                    if (sc >= 400) {
+                        WinHttpCloseHandle(hR); WinHttpCloseHandle(hC); WinHttpCloseHandle(hS);
+                        pb::LogWarn("update", "update download: HTTP " + std::to_string((unsigned long)sc));
+                        return false;
+                    }
                     HANDLE hFile = CreateFileW(out.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
-                    if (hFile == INVALID_HANDLE_VALUE) { WinHttpCloseHandle(hR); WinHttpCloseHandle(hC); WinHttpCloseHandle(hS); return false; }
+                    if (hFile == INVALID_HANDLE_VALUE) {
+                        WinHttpCloseHandle(hR); WinHttpCloseHandle(hC); WinHttpCloseHandle(hS);
+                        pb::LogWarn("update", "update download: cannot write temp file");
+                        return false;
+                    }
                     // Report download progress to the UI thread (~1MB steps)
                     DWORD total = 0; DWORD tsz = sizeof(total);
                     WinHttpQueryHeaders(hR, WINHTTP_QUERY_CONTENT_LENGTH | WINHTTP_QUERY_FLAG_NUMBER, nullptr, &total, &tsz, nullptr);
@@ -808,6 +899,7 @@ void RegisterFileHandlers(BridgeServer* bridge, DatabaseService* db, ContentCach
             }
             if (FAILED(hr)) {
                 // Error code (localized by the frontend) — not a user-facing string
+                pb::LogError("update", "update package download failed (WinHTTP + urlmon fallback)");
                 auto* errStr = new std::string("download_failed_network");
                 PostMessage(hwnd, WM_UPDATE_DOWNLOAD_DONE, 0, (LPARAM)errStr);
                 return;
@@ -822,6 +914,7 @@ void RegisterFileHandlers(BridgeServer* bridge, DatabaseService* db, ContentCach
                 if (!ComputeFileSha512(exePath, actual) || _stricmp(actual.c_str(), sha512.c_str()) != 0) {
                     DeleteFileW(exePath.c_str());
                     // Error code (localized by the frontend)
+                    pb::LogError("update", "update package SHA-512 mismatch; temp file removed");
                     auto* errStr = new std::string("hash_mismatch");
                     PostMessage(hwnd, WM_UPDATE_DOWNLOAD_DONE, 0, (LPARAM)errStr);
                     return;
