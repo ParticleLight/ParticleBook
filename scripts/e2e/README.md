@@ -169,3 +169,29 @@ App 的数据目录由 `SHGetFolderPathW(CSIDL_APPDATA)` 决定。实测**只改
 - 读写 DOM / iframe：见 `iframeHas()` / `iframeTextExpression()`；
 - 断言失败直接 `throw new Error(...)`，框架自动截图（用当前活跃 cdp）/ 写 report / 退出码 1；
 - 需要新 fixture 时在 `lib/fixtures.mjs` 里生成（保持 store-only ZIP、无外部依赖）。
+## PB-018-C 补充（搜索 / PDF / Z-Library）
+
+smoke 现在是 **13 步**（前 10 步见上；11-13 为 PB-018-C 追加，schema 之后在同一沙箱重开实例）：
+
+11. **search**：书架搜索框过滤 2→1→0→2；再通过原始桥接 invoke 调 PB-006 全文接口
+    （渲染层存根暂未暴露 search 成员）：`search:build` 索引 2 本 EPUB → `search:status`
+    → `search:query "reader"` 命中第一本、snippet 含关键词。rawBridgeInvoke 走真实
+    BridgeServer/JobService，不是 mock。
+12. **pdf**：脚本生成 1 页文本 PDF（`/Title` + 唯一 TEXT MARKER，零依赖手写 xref）→
+    `pdfOpen`（pageCount=1、pageBounds 有效）→ `pdfExtractText` 含 MARKER →
+    `pdfRenderPage` 返回 `/_pb_pdf/` URL 且 PNG 文件存在 → `pdfClose` → `importBooks`
+    （format=pdf、title 来自 metadata）→ 点开书卡 → PdfRenderer 挂载 `img[alt="Page 1"]`
+    且页码 `1 / 1` → ArrowRight 单页边界仍停在第 1 页 → Esc 回书架。
+13. **zlib**：**不联网、不触发真实导航/下载**；验证 `electronAPI` 的 zlib API 面 + 只读
+    `zlibGetMirrorInfo` / `zlibGetDownloadPath`（返回 `{path}`）+ 3 个 `onZlib*` 事件可
+    退订；report.notes 记录「真实进站/下载 skip（依赖外网）」。
+
+`--fail-at` 新增可选值：`search` / `pdf` / `zlib`。
+
+副作用与依赖：PDF 渲染页由 PdfService 写到
+`build2/renderer/_pb_pdf/doc_<id>_page_<n>.png`；smoke 开始前快照该目录、结束只删本次
+新增 PNG（不碰既有缓存）；`_pb_files` 缓存清理现在含 2 EPUB + 1 PDF。PDF 步骤依赖 exe
+旁边的 `mutool.exe`（CMake POST_BUILD 已拷）；Z-Library 步骤完全离线。
+
+未覆盖：CBZ/TXT/FB2/Markdown 阅读；PDF 多页/大文件/扫描版；跨书全文搜索的**渲染层 UI**
+（当前直接调 bridge handler）；Z-Library 真实进站、登录、下载、镜像切换（外网依赖）。

@@ -263,3 +263,39 @@ export async function assertIsolation(sandbox) {
   // App::UserDataPath() 确实跟随了临时 profile。
   await waitForPath(path.join(sandbox.dataDir, 'EBWebView'), 20000)
 }
+
+/**
+ * 快照目录里的文件名（目录不存在 → 空集合）。用于 PB-018-C 的 PDF 渲染缓存：
+ * PdfService 把 PNG 写到 build2/renderer/_pb_pdf/doc_<id>_page_<n>.png，
+ * 结束时只删本次 run 新产生的文件（不碰开发者既有缓存）。
+ */
+export async function snapshotDir(dir) {
+  try {
+    const entries = await fs.readdir(dir)
+    return new Set(entries)
+  } catch {
+    return new Set()
+  }
+}
+
+/** 删除 dir 中不在 before 快照里的文件；返回删除列表。 */
+export async function removeNewFiles(dir, before) {
+  const removed = []
+  if (!before) return removed
+  try {
+    const entries = await fs.readdir(dir)
+    for (const name of entries) {
+      if (before.has(name)) continue
+      const target = path.join(dir, name)
+      try {
+        await fs.unlink(target)
+        removed.push(target)
+      } catch {
+        // ignore
+      }
+    }
+  } catch {
+    // dir missing
+  }
+  return removed
+}

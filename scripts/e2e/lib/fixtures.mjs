@@ -226,3 +226,46 @@ export async function writeSampleEpub(dir, fileName, options) {
   await fs.writeFile(filePath, buffer)
   return { path: filePath, title: options.title, ch1: options.ch1, ch2: options.ch2 }
 }
+
+// ── 最小 1 页文本 PDF（零依赖；mutool / PdfService 可解析）─────────────
+// PDF 全 ASCII（latin1），xref 偏移按字节精确计算；/Title 让导入元数据可断言。
+const PDF_BACKSLASH = String.fromCharCode(92)
+const pdfEscape = (text) => String(text)
+  .split(PDF_BACKSLASH).join(PDF_BACKSLASH + PDF_BACKSLASH)
+  .split('(').join(PDF_BACKSLASH + '(')
+  .split(')').join(PDF_BACKSLASH + ')')
+
+export function makeSamplePdf(options) {
+  const title = options.title || 'ParticleBook E2E PDF'
+  const text = options.text || 'ParticleBook E2E PDF text'
+  const stream = 'BT /F1 18 Tf 72 700 Td (' + pdfEscape(text) + ') Tj ET'
+  const objects = [
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>',
+    '<< /Length ' + Buffer.byteLength(stream, 'latin1') + ' >>\nstream\n' + stream + '\nendstream',
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+    '<< /Title (' + pdfEscape(title) + ') /Author (ParticleBook E2E) /Producer (ParticleBook E2E) >>',
+  ]
+  let pdf = '%PDF-1.4\n'
+  const offsets = [0]
+  for (let i = 1; i <= objects.length; i++) {
+    offsets[i] = Buffer.byteLength(pdf, 'latin1')
+    pdf += i + ' 0 obj\n' + objects[i - 1] + '\nendobj\n'
+  }
+  const xrefOffset = Buffer.byteLength(pdf, 'latin1')
+  pdf += 'xref\n0 ' + (objects.length + 1) + '\n'
+  pdf += '0000000000 65535 f \n'
+  for (let i = 1; i <= objects.length; i++) {
+    pdf += String(offsets[i]).padStart(10, '0') + ' 00000 n \n'
+  }
+  pdf += 'trailer\n<< /Size ' + (objects.length + 1) + ' /Root 1 0 R /Info 6 0 R >>\nstartxref\n' + xrefOffset + '\n%%EOF\n'
+  return Buffer.from(pdf, 'latin1')
+}
+
+export async function writeSamplePdf(dir, fileName, options) {
+  await fs.mkdir(dir, { recursive: true })
+  const filePath = path.join(dir, fileName)
+  await fs.writeFile(filePath, makeSamplePdf(options))
+  return { path: filePath, title: options.title, text: options.text }
+}

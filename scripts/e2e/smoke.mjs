@@ -9,7 +9,7 @@
 // WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS 打开随机空闲端口的 CDP，用 Node 内置
 // WebSocket 驱动：真实窗口 + 真实 DOM + 真实桥接调用。
 //
-// 10 步 smoke（前 5 条是 PB-018-A 基础链路，后 5 步是 PB-018-B 追加）：
+// 13 步 smoke（5 条 PB-018-A 基础 + 5 步 PB-018-B + 3 步 PB-018-C）：
 //   1) launch-and-cdp          启动、CDP 就绪、页面 title、桥接 shim、沙箱隔离
 //   2) bridge-read             getPendingOpenFiles / getBooks / getSettings
 //   3) import-epub             生成最小 EPUB → importBooks → 书架出现
@@ -20,6 +20,9 @@
 //   8) backup                  createBackup 返回沙箱内 zip/path/bookCount → restoreBackup 返回 bookCount + pre-restore 文件
 //   9) translation             translationHasKey false→setKey→true→clearKey→false；Key 不进 reader.json / 明文 secrets.dat
 //  10) schema                  当前库 schema_version=3；预置 v2 库启动后迁移到 3 且留 pre-migrate 备份
+//  11) search                  书架搜索框过滤（2→1→0→2）+ 直接 invoke search:status/build/query（PB-006 全文索引）
+//  12) pdf                     生成 1 页文本 PDF → importBooks → pdfOpen/extractText/renderPage → UI 打开/翻页/关闭
+//  13) zlib                    离线下验证 Z-Library API 面 + 只读 mirror/downloadPath + 事件订阅；不触发真实导航/下载
 //
 // 失败时：CDP 截图 + 页面 console + app stdout/stderr + reader.json 快照写入
 // artifacts，退出码 1。--fail-at <step> 故意失败，用来验证失败路径。
@@ -28,7 +31,7 @@ import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { CdpClient, findFreePort, iframeTextExpression, sleep, waitForPageTarget } from './lib/cdp.mjs'
-import { writeSampleEpub } from './lib/fixtures.mjs'
+import { writeSampleEpub, writeSamplePdf } from './lib/fixtures.mjs'
 import * as appLib from './lib/app.mjs'
 
 const USAGE = `ParticleBook E2E smoke (PB-018)
@@ -47,7 +50,8 @@ Options:
                         (DANGEROUS: the running instance would receive test files)
   --fail-at <step>      Force a failure at a step (launch-and-cdp | bridge-read |
                         import-epub | open-read-turn-close | settings-forward-exit |
-                        extended-app | tts | backup | translation | schema)
+                        extended-app | tts | backup | translation | schema |
+                        search | pdf | zlib)
   --verbose             Print extra detail
   -h, --help            Show this help
 `
@@ -116,6 +120,13 @@ const state = {
   phase2: null,
   allApps: [],
   tempSandboxes: [],
+  // PB-018-C：搜索 / PDF / Z-Library 阶段（schema 之后重新开一个实例）。
+  phase4: null,
+  pdfFixture: null,
+  pdfBookId: null,
+  pdfCacheDir: null,
+  pdfCacheBefore: null,
+  notes: [],
 }
 
 const log = (...args) => console.log('[e2e]', ...args)
@@ -201,6 +212,65 @@ async function waitForProgress(bookId, predicate, label, timeoutMs = 20000) {
 async function bridgeOn(cdp, method, ...args) {
   const call = `window.electronAPI.${method}(${args.map((arg) => JSON.stringify(arg)).join(', ')})`
   return cdp.evaluate(call)
+}
+
+// PB-018-C：search:* 已在 C++ 注册，但渲染层 window.electronAPI 存根还没暴露
+// （契约里暂时没有 search 成员）。这里直接给桥接发 invoke，绕过存根 —— 仍然是
+// 真实 BridgeServer / JobService 路径，不是 mock。id 必须是数字：BridgeServer
+// 用 int 解析并原样回包。
+let rawBridgeSeq = 900000
+async function rawBridgeInvoke(method, params = {}, timeoutMs = 60000) {
+  const id = ++rawBridgeSeq
+  const expression = `(async () => {
+    const id = ${JSON.stringify(id)};
+    return await new Promise((resolve, reject) => {
+      const handler = (event) => {
+        try {
+          const msg = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
+          if (!msg || msg.type !== 'response' || msg.id !== id) return;
+          window.chrome.webview.removeEventListener('message', handler);
+          resolve({ ok: !msg.error, result: msg.result, error: msg.error || null });
+        } catch (error) {
+          // ignore malformed bridge traffic
+        }
+      };
+      window.chrome.webview.addEventListener('message', handler);
+      window.chrome.webview.postMessage(JSON.stringify({
+        type: 'invoke', id, method: ${JSON.stringify(method)}, params: ${JSON.stringify(params)},
+      }));
+      setTimeout(() => {
+        window.chrome.webview.removeEventListener('message', handler);
+        reject(new Error('raw bridge invoke timed out: ' + method));
+      }, ${timeoutMs});
+    });
+  })()`
+  const outcome = await state.cdp.evaluate(expression, { timeoutMs: timeoutMs + 5000 })
+  assert(outcome && typeof outcome === 'object', `raw bridge ${method} returned ${JSON.stringify(outcome)}`)
+  if (!outcome.ok) throw new Error(`raw bridge ${method} failed: ${JSON.stringify(outcome.error)}`)
+  return outcome.result
+}
+
+// 页面上「文本完全等于 text 的叶子元素」数量（藏书卡片标题 / 过滤断言用）。
+function textElementCountExpression(text) {
+  return `(() => {
+    const wanted = ${JSON.stringify(text)};
+    return Array.from(document.querySelectorAll('p, span, div, h1, h2, h3, h4, a, button'))
+      .filter((element) => element.children.length === 0
+        && (element.textContent || '').trim() === wanted).length;
+  })()`
+}
+
+// 用 React 认可的方式改受控 input（native setter + input 事件）。
+function setLibrarySearchExpression(value) {
+  return `(() => {
+    const input = Array.from(document.querySelectorAll('input[type="text"]'))
+      .find((element) => /搜索|search/i.test(element.placeholder || ''));
+    if (!input) return false;
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+    setter.call(input, ${JSON.stringify(value)});
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    return true;
+  })()`
 }
 
 async function waitForCdpTargetFor(app, port, timeoutMs) {
@@ -606,6 +676,185 @@ async function smokeSchema() {
   }
 }
 
+// ── PB-018-C：搜索 / PDF / Z-Library（13 步中的后 3 步）──────────────
+async function smokeSearch() {
+  // schema 步骤结尾已把所有实例关掉；这里在同一沙箱重开主实例（2 本书）。
+  state.phase4 = await startAppOnSandbox(state.sandbox, 'app-search.log')
+  const books = await bridge('getBooks')
+  assert(Array.isArray(books) && books.length === 2,
+    `search phase expects 2 books, got ${JSON.stringify(books)}`)
+
+  const title1 = state.fixture1.title
+  const title2 = state.fixture2.title
+  await state.cdp.waitFor(`(${textElementCountExpression(title1)}) > 0`, {
+    timeoutMs: options.timeout, label: 'book one visible on the bookshelf',
+  })
+  await state.cdp.waitFor(`(${textElementCountExpression(title2)}) > 0`, {
+    timeoutMs: options.timeout, label: 'book two visible on the bookshelf',
+  })
+
+  // 1) 书架搜索框（现有 UI）过滤：2 -> 1 -> 0 -> 2
+  assertEqual(await state.cdp.evaluate(setLibrarySearchExpression('sample one')), true,
+    'library search input not found')
+  await state.cdp.waitFor(
+    `(${textElementCountExpression(title1)}) > 0 && (${textElementCountExpression(title2)}) === 0`,
+    { timeoutMs: options.timeout, label: 'library filter narrowed to book one' })
+  await state.cdp.screenshot(path.join(state.artifacts, '05-search.png'))
+
+  assertEqual(await state.cdp.evaluate(setLibrarySearchExpression('zzz-no-such-book')), true,
+    'library search input not found (no-match)')
+  await state.cdp.waitFor(
+    `(${textElementCountExpression(title1)}) === 0 && (${textElementCountExpression(title2)}) === 0`,
+    { timeoutMs: options.timeout, label: 'library filter shows no matches' })
+
+  assertEqual(await state.cdp.evaluate(setLibrarySearchExpression('')), true,
+    'library search input not found (clear)')
+  await state.cdp.waitFor(
+    `(${textElementCountExpression(title1)}) > 0 && (${textElementCountExpression(title2)}) > 0`,
+    { timeoutMs: options.timeout, label: 'library filter cleared (both books back)' })
+
+  // 2) PB-006 全文索引：bridge handler 已注册，但 electronAPI 存根暂未暴露，
+  //    用 rawBridgeInvoke 走真实 BridgeServer/JobService（不是 mock）。
+  const build = await rawBridgeInvoke('search:build', {}, 90000)
+  assert(build && build.ok === true, `search:build failed: ${JSON.stringify(build)}`)
+  assert(build.indexed >= 2,
+    `search:build indexed ${build.indexed} books (expected the 2 EPUB fixtures)`)
+  const status = await rawBridgeInvoke('search:status')
+  assert(status && status.books >= 2 && status.terms > 0,
+    `search:status after build looks wrong: ${JSON.stringify(status)}`)
+  const query = await rawBridgeInvoke('search:query', { query: 'reader', maxHits: 10 })
+  assert(query && Array.isArray(query.hits) && query.hits.length > 0,
+    `search:query "reader" returned no hits: ${JSON.stringify(query)}`)
+  const hit = query.hits.find((entry) => entry.bookTitle === title1)
+  assert(hit, `search hit does not include fixture one; hits=${JSON.stringify(query.hits)}`)
+  assert(typeof hit.snippet === 'string' && hit.snippet.toLowerCase().includes('reader'),
+    `unexpected search snippet: ${JSON.stringify(hit.snippet)}`)
+  log(`search ok: UI filter 2->1->0->2; index books=${status.books} terms=${status.terms}; ` +
+      `query 'reader' hits=${query.hits.length} booksMatched=${query.booksMatched}`)
+}
+
+async function smokePdf() {
+  const marker = `PB-E2E-${state.sandbox.id} PDF TEXT MARKER`
+  state.pdfFixture = await writeSamplePdf(state.sandbox.files, 'pb-e2e-book.pdf', {
+    title: `PB-E2E-${state.sandbox.id} PDF Sample`,
+    text: marker,
+  })
+  // PdfService 把渲染 PNG 写到 build2/renderer/_pb_pdf/doc_<id>_page_<n>.png；
+  // 先快照，finalize 只删本次 run 新产生的文件。
+  state.pdfCacheDir = path.join(path.dirname(state.exePath), 'renderer', '_pb_pdf')
+  state.pdfCacheBefore = await appLib.snapshotDir(state.pdfCacheDir)
+
+  // 1) bridge 层：open -> extractText -> renderPage -> close
+  const opened = await bridge('pdfOpen', state.pdfFixture.path)
+  assert(opened && typeof opened.id === 'number' && opened.pageCount === 1,
+    `pdfOpen returned unexpected payload: ${JSON.stringify(opened)}`)
+  assert(Array.isArray(opened.pageBounds) && opened.pageBounds.length === 1
+    && opened.pageBounds[0].width > 0, `pdfOpen.pageBounds looks wrong: ${JSON.stringify(opened.pageBounds)}`)
+
+  const extracted = await bridge('pdfExtractText', opened.id)
+  assert(extracted && Array.isArray(extracted.pages) && extracted.pages.length >= 1,
+    `pdfExtractText returned unexpected payload: ${JSON.stringify(extracted)}`)
+  // mutool 的 text 输出可能把结尾换行也分段（1 页 PDF 可能出现第二条空页），
+  // 所以按"所有页文本拼起来包含 marker"断言，而不是死抠页数。
+  const extractedText = extracted.pages.map((page) => page.text || '').join('\n')
+  assert(extractedText.includes(marker),
+    `PDF text layer missing marker; got ${JSON.stringify(extracted.pages)}`)
+
+  const pageUrl = await bridge('pdfRenderPage', opened.id, 0, 600, 776)
+  assert(typeof pageUrl === 'string' && pageUrl.includes('/_pb_pdf/'),
+    `pdfRenderPage returned unexpected url: ${JSON.stringify(pageUrl)}`)
+  await assertFile(path.join(state.pdfCacheDir, path.basename(pageUrl)), 'rendered PDF page PNG')
+  await bridge('pdfClose', opened.id)
+
+  // 2) 导入 + 书架
+  const imported = await bridge('importBooks', [state.pdfFixture.path])
+  assert(Array.isArray(imported) && imported.length === 1,
+    `importBooks(PDF) returned ${JSON.stringify(imported)}`)
+  const pdfBook = imported[0]
+  assertEqual(pdfBook.format, 'pdf', 'imported PDF format')
+  assertEqual(pdfBook.title, state.pdfFixture.title, 'imported PDF title (/Title metadata)')
+  state.pdfBookId = pdfBook.id
+  const books = await bridge('getBooks')
+  assertEqual(books.length, 3, 'books after PDF import')
+  await state.cdp.waitFor(`(${textElementCountExpression(pdfBook.title)}) > 0`, {
+    timeoutMs: options.timeout, label: 'PDF book visible on the bookshelf',
+  })
+
+  // 3) UI：点开 PDF -> PdfRenderer 挂载（页图 + 页码）-> 单页边界翻页 -> 关闭
+  const pageImageSelector = 'img[alt="Page 1"]'
+  await state.cdp.clickText(pdfBook.title, { timeoutMs: options.timeout })
+  await state.cdp.waitFor(`!!document.querySelector(${JSON.stringify(pageImageSelector)})`, {
+    timeoutMs: options.timeout, label: 'PDF renderer mounted (page image)',
+  })
+  await state.cdp.waitFor("document.body.innerText.includes('1 / 1')", {
+    timeoutMs: options.timeout, label: 'PDF page indicator shows 1 / 1',
+  })
+  await state.cdp.screenshot(path.join(state.artifacts, '06-pdf.png'))
+  await pressKey('ArrowRight')
+  await sleep(700)
+  assert(await state.cdp.evaluate("document.body.innerText.includes('1 / 1')"),
+    'single-page PDF should stay on page 1 after ArrowRight (renderer clamps)')
+
+  await pressKey('Escape')
+  await state.cdp.waitFor(`!document.querySelector(${JSON.stringify(pageImageSelector)})`, {
+    timeoutMs: options.timeout, label: 'PDF reader closed back to the library',
+  })
+  await state.cdp.waitFor(`(${textElementCountExpression(pdfBook.title)}) > 0`, {
+    timeoutMs: options.timeout, label: 'bookshelf visible again after closing the PDF',
+  })
+  log(`pdf ok: 1-page text PDF imported (#${pdfBook.id}), text layer + renderPage verified, ` +
+      `PdfRenderer mounted and page indicator 1 / 1`)
+}
+
+async function smokeZlib() {
+  // Z-Library 真实进入/下载依赖外网，E2E 不触发：只验证暴露的 API 面与
+  // 不联网的只读方法，并显式在 report 里记录 skip 原因。
+  const surface = await state.cdp.evaluate(`(() => {
+    const api = window.electronAPI;
+    const names = ['zlibShow', 'zlibGetMirrorInfo', 'zlibGetDownloadPath',
+      'zlibPickDownloadFolder', 'onZlibMirrorChanged', 'onZlibAllMirrorsFailed',
+      'onZlibDownloadError'];
+    return Object.fromEntries(names.map((name) => [name, typeof api[name]]));
+  })()`)
+  for (const [name, kind] of Object.entries(surface)) {
+    assertEqual(kind, 'function', `electronAPI.${name} should be a function`)
+  }
+
+  const mirrorInfo = await bridge('zlibGetMirrorInfo')
+  assert(mirrorInfo && typeof mirrorInfo === 'object',
+    `zlibGetMirrorInfo returned ${JSON.stringify(mirrorInfo)}`)
+  assertEqual(typeof mirrorInfo.index, 'number', 'zlibGetMirrorInfo.index type')
+  assertEqual(typeof mirrorInfo.url, 'string', 'zlibGetMirrorInfo.url type')
+  assert(Array.isArray(mirrorInfo.mirrors), 'zlibGetMirrorInfo.mirrors must be an array')
+
+  const downloadPath = await bridge('zlibGetDownloadPath')
+  // 返回 {"path": "..."}（GetDownloadPathStr 的契约形状），不是裸字符串。
+  assert(downloadPath && typeof downloadPath === 'object',
+    `zlibGetDownloadPath returned ${JSON.stringify(downloadPath)}`)
+  assertEqual(typeof downloadPath.path, 'string', 'zlibGetDownloadPath.path type')
+  assert(downloadPath.path.length > 0, 'zlibGetDownloadPath.path should not be empty')
+
+  const subscribed = await state.cdp.evaluate(`(() => {
+    const offs = [
+      window.electronAPI.onZlibMirrorChanged(() => {}),
+      window.electronAPI.onZlibAllMirrorsFailed(() => {}),
+      window.electronAPI.onZlibDownloadError(() => {}),
+    ];
+    if (offs.some((off) => typeof off !== 'function')) return false;
+    offs.forEach((off) => off());
+    return true;
+  })()`)
+  assertEqual(subscribed, true, 'zlib event subscribe/unsubscribe failed')
+
+  const note = 'zlib: real navigation / download NOT executed (network-dependent); ' +
+    'verified API surface + zlibGetMirrorInfo + zlibGetDownloadPath + event subscribe/unsubscribe only'
+  state.notes.push(note)
+  log('zlib ok (offline): ' + note)
+
+  // 本阶段最后一步：关闭 PB-018-C 阶段实例（优雅退出 → 落盘）。
+  await closeAppGracefully(state.phase4.app, 'search/pdf/zlib phase app')
+}
+
 // ── 失败采集 / 清理 / 报告 ───────────────────────────────────────
 async function captureFailureArtifacts(error) {
   const prefix = sanitize(state.currentStep)
@@ -659,12 +908,23 @@ async function finalize(fatal) {
     await appLib.copyIfExists(state.sandbox.dataFile, path.join(state.artifacts, 'reader.json'))
   }
 
-  // 只清理本次 fixture 在 renderer/_pb_files 的缓存副本
+  // 只清理本次 fixture 在 renderer/_pb_files 的缓存副本（EPUB / PDF）
   if (state.exePath && state.fixture1) {
-    const fixtures = [state.fixture1, state.fixture2].filter(Boolean).map((fixture) => fixture.path)
+    const fixtures = [state.fixture1, state.fixture2, state.pdfFixture]
+      .filter(Boolean).map((fixture) => fixture.path)
     try {
       const removed = await appLib.cleanupFixtureCache(state.exePath, fixtures)
       if (removed.length > 0) verbose(`cleaned ${removed.length} fixture cache file(s)`)
+    } catch {
+      // ignore
+    }
+  }
+
+  // 只清理本次 run 在 renderer/_pb_pdf 新产生的 PDF 渲染 PNG
+  if (state.pdfCacheDir && state.pdfCacheBefore) {
+    try {
+      const removed = await appLib.removeNewFiles(state.pdfCacheDir, state.pdfCacheBefore)
+      if (removed.length > 0) verbose(`cleaned ${removed.length} PDF render cache file(s)`)
     } catch {
       // ignore
     }
@@ -684,9 +944,11 @@ async function finalize(fatal) {
     dataDir: state.sandbox?.dataDir || null,
     sandboxRoot: state.sandbox?.root || null,
     artifactsDir: state.artifacts,
-    fixtures: [state.fixture1, state.fixture2].filter(Boolean).map((fixture) => ({
+    fixtures: [state.fixture1, state.fixture2, state.pdfFixture].filter(Boolean).map((fixture) => ({
       path: fixture.path, title: fixture.title,
     })),
+    pdf: state.pdfFixture ? { path: state.pdfFixture.path, title: state.pdfFixture.title, bookId: state.pdfBookId } : null,
+    notes: state.notes,
     steps: state.steps,
     failure: state.failure,
     appLogTail: state.app ? state.app.output.join('').slice(-8000) : null,
@@ -811,6 +1073,11 @@ async function run() {
     await step('backup', smokeBackup)
     await step('translation', smokeTranslationKey)
     await step('schema', smokeSchema)
+
+    // ── PB-018-C：search（UI 过滤 + PB-006 全文索引）/ PDF / Z-Library ──
+    await step('search', smokeSearch)
+    await step('pdf', smokePdf)
+    await step('zlib', smokeZlib)
     state.ok = true
   } catch (error) {
     state.failure = {
