@@ -48,6 +48,8 @@ add_executable(ParticleBook WIN32
     src/services/ZLibraryService.cpp
     src/services/ContentCache.cpp
     src/services/BackupService.cpp
+    src/services/DictionaryService.cpp
+    src/services/TranslationService.cpp
     src/domain/Locator.cpp
     src/domain/Annotation.cpp
     src/utils/ZipReader.cpp
@@ -232,3 +234,32 @@ target_include_directories(annotation_test PRIVATE
     "${CMAKE_SOURCE_DIR}/third_party"
 )
 add_test(NAME annotation_test COMMAND annotation_test)
+
+# ── PB-010 DictionaryService (ECDICT/StarDict; miniz tinfl) ─────────
+add_executable(dictionary_service_test
+    tests/unit/dictionary_service_test.cpp
+    src/services/DictionaryService.cpp
+    third_party/miniz.c
+    third_party/miniz_tinfl.c
+    third_party/miniz_tdef.c
+)
+target_compile_options(dictionary_service_test PRIVATE /EHa /utf-8)
+target_include_directories(dictionary_service_test PRIVATE
+    src/
+    "${CMAKE_SOURCE_DIR}/third_party"
+)
+add_test(NAME dictionary_service_test COMMAND dictionary_service_test)
+
+# ── PB-002 TranslationService (OpenAI-compatible; mockable transport) ─
+add_executable(translation_service_test
+    tests/unit/translation_service_test.cpp
+    src/services/TranslationService.cpp
+    src/platform/SettingsService.cpp
+)
+target_compile_options(translation_service_test PRIVATE /EHa /utf-8)
+target_include_directories(translation_service_test PRIVATE
+    src/
+    "${CMAKE_BINARY_DIR}/src/"
+    "${CMAKE_SOURCE_DIR}/third_party"
+)
+add_test(NAME translation_service_test COMMAND translation_service_test)
