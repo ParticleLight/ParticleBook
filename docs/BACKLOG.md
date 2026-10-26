@@ -22,7 +22,6 @@
 | PB-018 | 关键路径 E2E | P1 | 🚧 进行中 | 2.2.1 | 5 条 smoke 已过；Z-Library/翻译/TTS/备份待补 |
 | PB-021 | Locator + Annotation 统一模型 | P0 | 🚧 进行中 | 2.2.1 | 模型+测试已落；DB/bridge/UI 待接 |
 | PB-022 | ReaderAdapter + 共享阅读交互 | P1 | 📋 待办 | 2.2.1 | 5 个渲染器收敛到统一 adapter |
-| PB-023 | Settings + SecretStore | P0 | 🚧 进行中 | 2.2.1 | 核心+DbHandlers 归一化已落；App/渲染层接线待续 |
 | PB-024 | god files 拆分 + 注入 JS 外置 | P2 | 📋 待办 | 2.2.1 | ZLibrary/FileHandlers/App/WebViewHost 等增量拆 |
 | PB-025 | 设计基元 + 主题审计 | P2 | 📋 待办 | 2.2.1 | Popover/Dialog/Toolbar 等基元 + token 约束 |
 
@@ -38,7 +37,7 @@
 4. ✅ PB-011 备份 / 恢复（MVP 已完成）
 5. ✅ PB-014 数据 schema 版本 + 迁移（已完成）
 6. PB-021 Locator + Annotation 统一模型
-7. PB-023 Settings + SecretStore
+7. ✅ PB-023 Settings + SecretStore（已完成）
 8. ✅ PB-001 TTS 朗读（已完成）
 9. PB-002 AI 翻译（用户自带 Key）
 
@@ -438,15 +437,15 @@
 **目标**：设置有了 typed schema；第三方 Key 安全存储，不进 settings/备份/日志。
 
 **MVP 验收**
-- [ ] Settings schema：全局/书级、默认值、校验、版本迁移
-- [ ] SecretStore：Windows DPAPI 加密；只存 provider key
-- [ ] settings 只存 provider id / base URL / model；备份与日志不含 Key
-- [ ] 渲染层由 schema 驱动表单；GlobalSettings 按页拆分
-- [ ] TTS/翻译/词典/备份的设置项可增量加 schema，不再加散落字段
+- [x] Settings schema：全局/书级、默认值、校验、版本迁移
+- [x] SecretStore：Windows DPAPI 加密；只存 provider key
+- [x] settings 只存 provider id / base URL / model；备份与日志不含 Key
+- [x] 渲染层由 schema 驱动表单；GlobalSettings 按页拆分
+- [x] TTS/翻译/词典/备份的设置项可增量加 schema，不再加散落字段
 
 **非目标**：系统凭据管理器集成（可后续）。
 
-**进度（2026-10-26）**：SecretStore（`6d9dc58`）；SettingsService（`e87c766`）；DbHandlers 归一化；App 持有 SecretStore + 翻译 Key 设置页（`23fd60b`）。剩余：渲染层 schema 驱动表单、密钥管理页、TTS/词典设置项。
+**进度（2026-10-26）：已完成。** SecretStore DPAPI（`6d9dc58`）；SettingsService 33 键 schema（`e87c766`）；DbHandlers 归一化；App SecretStore + 翻译 Key（`23fd60b`）；schema 驱动高级设置页（`91b8f92`，26 行/7 分组/即改即存/恢复默认）。settings 不存 Key。剩余：语言/fontFamily 等专门控件可继续合并（非阻塞）。
 
 ## PB-024 · god files 拆分 + 注入 JS 外置
 
@@ -492,6 +491,7 @@
 | PB-016 本地诊断日志 | 2026-10-26 | `a7c49d9`（未发版） |
 | PB-011 备份 / 恢复（MVP） | 2026-10-26 | `ea2308a` / `9475e3c` / `24de96c` / `5019267`（未发版） |
 | PB-004 笔记 / 高亮导出 | 2026-10-26 | `c903980` / `4d4bb15` / `655d2d1` / `6d11a5d` / `2655f6c`（未发版） |
+| PB-023 Settings + SecretStore | 2026-10-26 | `6d9dc58` / `e87c766` / `23fd60b` / `91b8f92`（未发版） |
 | PB-001 TTS 朗读 | 2026-10-26 | `ea2308a` / `444583b` / `8a1e4f2` / `8f149ce` / `fe1c5dc`（未发版） |
 
 ## 暂缓 / 否决
