@@ -6,6 +6,7 @@
 #include <chrono>
 #include <ctime>
 #include <cstdio>
+#include <unordered_map>
 #include <windows.h>
 #include <stdexcept>
 
@@ -30,9 +31,99 @@ namespace {
         return true;
     }
 
+    // PB-021: keep the legacy tables (renderer still reads them) and add one
+    // unified "annotations" array. Old ids are preserved in legacy_id; the new
+    // id comes from nextAnnotationId so bookmark/highlight/note ids can't clash.
+    json LegacyLocator(const json& row, const std::string& bookFormat) {
+        const std::string cfi = row.value("cfi", "");
+        const int page = row.value("page", 0);
+        const double progress = row.value("progress", 0.0);
+        json loc = { {"version", 1}, {"kind", "scroll"}, {"percent", 0.0} };
+        if (!cfi.empty()) {
+            loc["kind"] = "epub";
+            loc["cfi"] = cfi;
+        } else if (page > 0) {
+            const bool pdf = bookFormat == "pdf" || bookFormat == "cbz" || bookFormat == "cbr";
+            loc["kind"] = pdf ? "pdf" : "text";
+            if (pdf) loc["page"] = page;
+            else loc["offset"] = 0;
+        } else if (progress > 0.0) {
+            loc["kind"] = "scroll";
+            loc["percent"] = progress;
+        }
+        return loc;
+    }
+
+    bool MigrateV2ToV3(json& data, std::string& error) {
+        (void)error;
+        json annotations = json::array();
+        if (!data.contains("annotations") || !data["annotations"].is_array()) {
+            data["annotations"] = json::array();
+        } else {
+            annotations = data["annotations"];
+        }
+        int nextId = data.value("nextAnnotationId", 1);
+        if (!data.contains("nextAnnotationId")) data["nextAnnotationId"] = 1;
+
+        std::unordered_map<int, std::string> formats;
+        if (data.contains("books") && data["books"].is_array()) {
+            for (const auto& book : data["books"]) {
+                if (book.is_object()) formats[book.value("id", 0)] = book.value("format", "");
+            }
+        }
+
+        auto add = [&](const json& row, const char* type, const std::string& title,
+                       const std::string& content, const std::string& color,
+                       const std::string& quote, int related) {
+            if (!row.is_object()) return;
+            const int bookId = row.value("book_id", 0);
+            if (bookId <= 0) return;
+            json loc = LegacyLocator(row, formats.count(bookId) ? formats[bookId] : "");
+            if (!quote.empty()) loc["quote"] = quote;
+            json ann = {
+                {"version", 1},
+                {"id", nextId++},
+                {"bookId", bookId},
+                {"type", type},
+                {"locator", loc},
+                {"title", title},
+                {"note", content},
+                {"color", color},
+                {"createdAt", row.value("created_at", "")},
+                {"updatedAt", row.value("updated_at", row.value("created_at", ""))},
+                {"legacyId", row.value("id", 0)},
+                {"legacyType", type},
+            };
+            if (related > 0) ann["relatedId"] = related;
+            annotations.push_back(std::move(ann));
+        };
+
+        if (data.contains("bookmarks") && data["bookmarks"].is_array()) {
+            for (const auto& row : data["bookmarks"]) {
+                add(row, "bookmark", row.value("title", ""), row.value("note", ""), "", "", 0);
+            }
+        }
+        if (data.contains("highlights") && data["highlights"].is_array()) {
+            for (const auto& row : data["highlights"]) {
+                add(row, "highlight", "", row.value("note", ""), row.value("color", ""),
+                    row.value("text", ""), 0);
+            }
+        }
+        if (data.contains("notes") && data["notes"].is_array()) {
+            for (const auto& row : data["notes"]) {
+                add(row, "note", "", row.value("content", ""), "", "",
+                    row.value("highlight_id", 0));
+            }
+        }
+        data["annotations"] = std::move(annotations);
+        data["nextAnnotationId"] = nextId;
+        return true;
+    }
+
     const std::vector<Migration>& Migrations() {
         static const std::vector<Migration> migrations = {
             { 1, 2, "add schema_version", &MigrateV1ToV2 },
+            { 2, 3, "unified annotations", &MigrateV2ToV3 },
         };
         return migrations;
     }
@@ -283,6 +374,8 @@ void DatabaseService::EnsureDefaults()
     if (!m_data.contains("book_sources"))     m_data["book_sources"] = json::array();
     if (!m_data.contains("settings"))         m_data["settings"] = json::object();
     if (!m_data.contains("book_settings"))    m_data["book_settings"] = json::object();
+    if (!m_data.contains("annotations"))      m_data["annotations"] = json::array();
+    if (!m_data.contains("nextAnnotationId")) m_data["nextAnnotationId"] = 1;
     if (!m_data.contains("nextId"))           m_data["nextId"] = 1;
 }
 
@@ -543,6 +636,16 @@ void DatabaseService::DeleteHighlight(int id)
 }
 
 // ── Notes ────────────────────────────────────────────────────────
+
+json DatabaseService::GetAnnotations(int bookId) const
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    json out = json::array();
+    for (const auto& a : m_data["annotations"]) {
+        if (a.value("bookId", 0) == bookId) out.push_back(a);
+    }
+    return out;
+}
 
 json DatabaseService::GetNotes(int bookId) const
 {

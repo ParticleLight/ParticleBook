@@ -260,5 +260,34 @@ int main()
         fs::remove_all(dir);
     }
 
+    // ── 10. v2 -> v3 unified annotations migration ─────────────────────
+    {
+        auto dir = MakeScratch("schema-v3");
+        auto dbPath = dir / "db.json";
+        WriteText(dbPath, R"json({
+            "schema_version": 2,
+            "books": [{"id": 1, "title": "Unified", "format": "epub"}],
+            "bookmarks": [{"id": 10, "book_id": 1, "cfi": "epubcfi(/6/2)", "title": "BM", "created_at": "2026-01-01T00:00:00Z"}],
+            "highlights": [{"id": 11, "book_id": 1, "cfi": "epubcfi(/6/4)", "text": "hello", "color": "#ff0", "note": "hl note", "created_at": "2026-01-02T00:00:00Z"}],
+            "notes": [{"id": 12, "book_id": 1, "cfi": "epubcfi(/6/6)", "content": "note body", "highlight_id": 11, "created_at": "2026-01-03T00:00:00Z"}],
+            "nextId": 2
+        })json");
+        {
+            DatabaseService db;
+            db.Load(dbPath.string());
+            CHECK_EQ(db.GetSchemaVersion(), DatabaseService::kCurrentSchemaVersion);
+            const json annotations = db.GetAnnotations(1);
+            CHECK_EQ((int)annotations.size(), 3);
+            CHECK_TRUE(annotations[0]["type"] == "bookmark");
+            CHECK_TRUE(annotations[1]["type"] == "highlight");
+            CHECK_TRUE(annotations[2]["type"] == "note");
+            CHECK_EQ(annotations[1]["locator"]["kind"].get<std::string>(), "epub");
+            CHECK_EQ(annotations[2]["relatedId"].get<int>(), 11);
+            db.FlushSync();
+        }
+        CHECK_EQ(CountPrefixed(dir, "db.json.pre-migrate-v2-"), 1);
+        fs::remove_all(dir);
+    }
+
     return pb_t::Summary("database_test");
 }

@@ -16,7 +16,7 @@ public:
 
     // PB-014: bump when the on-disk shape changes; every bump needs a
     // migration entry in DatabaseService.cpp and a database_test case.
-    static constexpr int kCurrentSchemaVersion = 2;
+    static constexpr int kCurrentSchemaVersion = 3;
 
     void Load(const std::string& path);
     int GetSchemaVersion() const;
@@ -61,6 +61,8 @@ public:
 
     // Notes
     json GetNotes(int bookId) const;
+    // PB-021: unified annotation rows (schema v3 migration; dual-write later).
+    json GetAnnotations(int bookId) const;
     void AddNote(const json& note);
     void UpdateNote(int id, const std::string& content);
     void DeleteNote(int id);
