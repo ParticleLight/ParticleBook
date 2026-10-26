@@ -75,6 +75,22 @@
   --notify-success-bg: rgba(34, 197, 94, 0.18);
   --notify-info-text: #a5b4fc;
   --notify-info-bg: rgba(99, 102, 241, 0.18);
+
+  /* === shared/ui 语义 token（PB-025-A）===
+     基元（Popover/Dialog/Switch/Field/List/Toolbar）只读这些变量，
+     不写死色值；三个主题各自覆盖，见下方 .light / .sepia 同名块。 */
+  --ui-backdrop: rgba(0, 0, 0, 0.55);
+  --ui-surface-raised: #2b2b2b;
+  --ui-surface-sunken: rgba(255, 255, 255, 0.03);
+  --ui-input-bg: var(--bg-tertiary);
+  --ui-switch-off: rgba(255, 255, 255, 0.16);
+  --ui-switch-on: var(--accent);
+  --ui-switch-thumb: #ffffff;
+  --ui-list-hover: var(--surface-hover);
+  --ui-list-selected: var(--color-indigo-bg);
+  --ui-focus-ring: var(--border-focus);
+  --ui-danger: var(--color-red);
+  --ui-danger-bg: var(--color-red-bg);
 }
 
 /* === 亮色主题 === */
@@ -125,6 +141,20 @@
   --notify-success-bg: rgba(34, 197, 94, 0.10);
   --notify-info-text: #4f46e5;
   --notify-info-bg: rgba(99, 102, 241, 0.10);
+
+  /* shared/ui（亮色）：浮层用纯白、遮罩更淡、开关轨道更深一点保证对比 */
+  --ui-backdrop: rgba(0, 0, 0, 0.35);
+  --ui-surface-raised: #ffffff;
+  --ui-surface-sunken: rgba(0, 0, 0, 0.03);
+  --ui-input-bg: var(--bg-tertiary);
+  --ui-switch-off: rgba(0, 0, 0, 0.22);
+  --ui-switch-on: var(--accent);
+  --ui-switch-thumb: #ffffff;
+  --ui-list-hover: var(--surface-hover);
+  --ui-list-selected: var(--color-indigo-bg);
+  --ui-focus-ring: var(--border-focus);
+  --ui-danger: var(--color-red);
+  --ui-danger-bg: var(--color-red-bg);
 }
 
 /* === 护眼主题 (保持暖调，同时应用 Fluent 结构) === */
@@ -176,6 +206,20 @@
   --notify-success-bg: rgba(34, 197, 94, 0.20);
   --notify-info-text: #d4a574;
   --notify-info-bg: rgba(184, 134, 11, 0.20);
+
+  /* shared/ui（护眼）：暖色纸面 + 暖色遮罩，避免纯黑/纯白破坏暖调 */
+  --ui-backdrop: rgba(0, 0, 0, 0.55);
+  --ui-surface-raised: #2b241c;
+  --ui-surface-sunken: rgba(212, 196, 168, 0.03);
+  --ui-input-bg: var(--bg-tertiary);
+  --ui-switch-off: rgba(212, 196, 168, 0.20);
+  --ui-switch-on: var(--accent);
+  --ui-switch-thumb: #ffffff;
+  --ui-list-hover: var(--surface-hover);
+  --ui-list-selected: var(--color-indigo-bg);
+  --ui-focus-ring: var(--border-focus);
+  --ui-danger: var(--color-red);
+  --ui-danger-bg: var(--color-red-bg);
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -621,3 +665,193 @@ input[type="range"]::-webkit-slider-thumb:active {
   max-width: 100%;
   height: auto;
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   shared/ui primitives（PB-025-A）
+   只使用 CSS 变量 token，因此亮 / 暗 / 护眼三套主题自动适配。
+   组件内的结构性样式（布局、尺寸）仍由组件的 Tailwind class 承担；
+   这里只放「无法用 Tailwind 表达」的状态、键盘焦点与动画。
+   ═══════════════════════════════════════════════════════════════ */
+
+/* 统一焦点环：键盘可见，鼠标点击不出现 */
+.pb-focus-ring:focus-visible,
+.pb-toolbar :focus-visible,
+.pb-switch:focus-visible,
+.pb-popover:focus-visible,
+.pb-dialog:focus-visible,
+.pb-list-item:focus-visible,
+.pb-field :focus-visible {
+  outline: 2px solid var(--ui-focus-ring);
+  outline-offset: 2px;
+}
+
+/* Popover */
+.pb-popover {
+  position: fixed;
+  z-index: 70;
+  min-width: 180px;
+  max-width: min(420px, calc(100vw - 16px));
+  padding: 8px;
+  background: var(--ui-surface-raised);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  animation: pb-pop-in 120ms ease-out;
+}
+
+/* Dialog */
+.pb-dialog-backdrop {
+  background: var(--ui-backdrop);
+}
+.pb-dialog {
+  background: var(--ui-surface-raised);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-lg);
+}
+.pb-dialog-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.pb-dialog-description {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.pb-dialog-footer {
+  border-top: 1px solid var(--border);
+}
+
+/* Toolbar */
+.pb-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.pb-toolbar[aria-orientation="vertical"] {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+/* Switch */
+.pb-switch {
+  position: relative;
+  width: 40px;
+  height: 20px;
+  padding: 0;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--ui-switch-off);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 160ms ease, border-color 160ms ease;
+}
+.pb-switch[data-state="on"] {
+  background: var(--ui-switch-on);
+  border-color: var(--ui-switch-on);
+}
+.pb-switch:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.pb-switch::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--ui-switch-thumb);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+  transition: transform 160ms ease;
+}
+.pb-switch[data-state="on"]::after {
+  transform: translateX(20px);
+}
+.pb-switch-sm {
+  width: 32px;
+  height: 16px;
+}
+.pb-switch-sm::after {
+  width: 10px;
+  height: 10px;
+}
+.pb-switch-sm[data-state="on"]::after {
+  transform: translateX(16px);
+}
+
+/* Field */
+.pb-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.pb-field-label {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+.pb-field-required {
+  color: var(--ui-danger);
+}
+.pb-field-hint {
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+.pb-field-error {
+  font-size: 11px;
+  color: var(--ui-danger);
+}
+.pb-field :is(input, select, textarea) {
+  background: var(--ui-input-bg);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 6px 10px;
+  font-size: 13px;
+}
+.pb-field :is(input, select, textarea):focus {
+  outline: none;
+  border-color: var(--border-focus);
+}
+.pb-field [aria-invalid="true"] {
+  border-color: var(--ui-danger);
+}
+
+/* List */
+.pb-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.pb-list-item {
+  padding: 6px 10px;
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-size: 13px;
+  cursor: pointer;
+}
+.pb-list-item:hover {
+  background: var(--ui-list-hover);
+}
+.pb-list-item[data-selected="true"] {
+  background: var(--ui-list-selected);
+}
+
+@keyframes pb-pop-in {
+  from { opacity: 0; transform: translateY(-2px); }
+  to { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pb-popover,
+  .pb-switch,
+  .pb-switch::after {
+    animation: none;
+    transition: none;
+  }
+}
+
