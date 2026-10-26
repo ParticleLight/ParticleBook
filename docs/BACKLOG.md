@@ -362,11 +362,11 @@
 **目标**：同一时间只允许一个 ParticleBook 进程；第二次启动把文件路径转给已运行实例。
 
 **MVP 验收**
-- [ ] 命名 mutex（Local\ParticleBook.SingleInstance）；第二次启动不进入主流程
-- [ ] 命名管道或 WM_COPYDATA 转发路径（可多个），支持「导入」/「打开」两种动作
-- [ ] 第一个实例收到后恢复窗口并导入/打开
-- [ ] 同一 DB 无并发写；退出时转发端不挂起
-- [ ] PB-012 文件关联之前完成
+- [x] 命名 mutex（Local\ParticleBook.SingleInstance）；第二次启动不进入主流程
+- [x] 命名管道或 WM_COPYDATA 转发路径（可多个），支持「导入」/「打开」两种动作
+- [x] 第一个实例收到后恢复窗口并导入/打开
+- [x] 同一 DB 无并发写；退出时转发端不挂起
+- [x] PB-012 文件关联之前完成
 
 **非目标**：多窗口 / 标签页。
 
@@ -377,12 +377,12 @@
 **目标**：长任务不再占用 WebView2 UI 线程；所有后台事件统一回 UI 线程。
 
 **MVP 验收**
-- [ ] UiDispatcher：单一 WM_APP 消息 + std::function 队列，替代散落的 WM_USER+N 与裸指针 LPARAM
-- [ ] JobService：submit/cancel/progress；worker 池；事件 job:progress / job:done / job:error
-- [ ] 迁移：book:import、file:read（大文件/MOBI）、pdf:open/render/extractText、bookSource:search/searchOne/getBookInfo/getChapterList
-- [ ] 长任务 handler 立即返回 jobId；UI 不阻塞
-- [ ] Shutdown 先停 JobService/join，再拆 bridge/webview/db
-- [ ] 为 TTS/翻译/备份/索引预留同一套 job 接口
+- [x] UiDispatcher：单一 WM_APP 消息 + std::function 队列，替代散落的 WM_USER+N 与裸指针 LPARAM
+- [x] JobService：submit/cancel/progress；worker 池；事件 job:progress / job:done / job:error
+- [x] 迁移：book:import、file:read（大文件/MOBI）、pdf:open/render/extractText、bookSource:search/searchOne/getBookInfo/getChapterList
+- [x] 长任务 handler 立即返回 jobId；UI 不阻塞
+- [x] Shutdown 先停 JobService/join，再拆 bridge/webview/db
+- [x] 为 TTS/翻译/备份/索引预留同一套 job 接口
 
 **非目标**：多进程 worker；先做单进程线程池。
 
