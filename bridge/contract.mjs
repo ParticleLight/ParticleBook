@@ -868,6 +868,38 @@ export const contract = [
     params: [{ n: "callback", t: "() => void" }],
     returns: "() => void"
   },
+  // PB-010: local offline dictionary (ECDICT CSV / StarDict import + lookup).
+  {
+    member: "dictionaryImport", method: "dictionary:import",
+    kind: "invoke", group: "Files",
+    params: [{ n: "path", t: "string", o: true }],
+    returns: "Promise<{ ok: boolean; code: string; error: string; entries: number; bytes: number; skipped: number; elapsedMs: number; source: string; cachePath: string }>"
+  },
+  {
+    member: "onDictionaryProgress", method: "dictionary:progress",
+    kind: "event", group: "Files",
+    params: [{ n: "callback", t: "(p: { percent: number; message: string; name: string }) => void" }],
+    returns: "() => void"
+  },
+  {
+    member: "dictionaryLookup", method: "dictionary:lookup",
+    kind: "invoke", group: "Files",
+    params: [
+      { n: "word", t: "string" },
+      { n: "options", t: "{ prefix?: boolean; caseInsensitive?: boolean; morphology?: boolean; maxResults?: number }", o: true }
+    ],
+    returns: "Promise<{ ok: boolean; found: boolean; code: string; error: string; query: string; hits: Array<{ word: string; phonetic: string; translation: string; definition: string; pos: string; tag: string; exchange: string; example: string; kind: string; matched: string; verified: boolean }> }>"
+  },
+  {
+    member: "dictionaryStatus", method: "dictionary:status",
+    kind: "invoke", group: "Files", params: [],
+    returns: "Promise<{ ok: boolean; loaded: boolean; source: string; entries: number; bytes: number }>"
+  },
+  {
+    member: "dictionaryClear", method: "dictionary:clear",
+    kind: "invoke", group: "Files", params: [],
+    returns: "Promise<{ ok: boolean; entries: number }>"
+  },
   // PB-012: open the Windows default-apps page (never hijack defaults).
   {
     member: "openDefaultApps", method: "app:openDefaultApps",

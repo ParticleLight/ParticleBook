@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { useReaderStore } from '../../stores/readerStore'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { copyText, downloadText } from '../../utils/download'
+import { DictionaryPopup } from './DictionaryPopup'
 
 interface ReaderControlsProps {
   bookId: number
@@ -22,6 +23,8 @@ export function ReaderControls({ bookId, format, onOpenSettings, onOpenTts, ttsA
   const setSidebarTab = useReaderStore((s) => s.setSidebarTab)
   const setControlsLocked = useReaderStore((s) => s.setControlsLocked)
   const seekTo = useReaderStore((s) => s.seekTo)
+  // PB-010-B：本地词典弹层（数据来自 C++ DictionaryService，离线）。
+  const [dictionaryOpen, setDictionaryOpen] = useState(false)
 
   const showSearch = useReaderStore((s) => s.showSearch)
   const setShowSearch = useReaderStore((s) => s.setShowSearch)
@@ -311,6 +314,17 @@ export function ReaderControls({ bookId, format, onOpenSettings, onOpenTts, ttsA
           </svg>
         </button>
 
+        <button
+          onClick={() => setDictionaryOpen(true)}
+          className={`${ctrlClasses.btn} ${ctrlClasses.btnDefault}`}
+          title={t('词典')}
+          aria-label={t('词典')}
+        >
+          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+          </svg>
+        </button>
+
         <button onClick={onOpenSettings} className={`${ctrlClasses.btn} ${ctrlClasses.btnDefault}`} title={t('设置')} aria-label={t('设置')}>
           <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
@@ -333,6 +347,8 @@ export function ReaderControls({ bookId, format, onOpenSettings, onOpenTts, ttsA
           </div>
         </div>
       )}
+
+      <DictionaryPopup open={dictionaryOpen} onClose={() => setDictionaryOpen(false)} />
     </div>
   )
 }

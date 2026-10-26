@@ -378,6 +378,11 @@ std::string BridgeServer::GenerateBridgeScript()
     createBackup: function() { return invoke('backup:create'); },
     onBackupProgress: function(cb) { return onEvent('backup:progress', cb); },
     restoreBackup: function(path) { return invoke('backup:restore', {path:path||''}); },
+    dictionaryImport: function(path) { return invoke('dictionary:import', {path:path||''}); },
+    onDictionaryProgress: function(cb) { return onEvent('dictionary:progress', cb); },
+    dictionaryLookup: function(word, options) { return invoke('dictionary:lookup', Object.assign({word:word}, options||{})); },
+    dictionaryStatus: function() { return invoke('dictionary:status'); },
+    dictionaryClear: function() { return invoke('dictionary:clear'); },
     onOpenFiles: function(cb) { return onEvent('app:openFiles', cb); },
 
     checkUpdate: function()    { return invoke('app:checkUpdate'); },

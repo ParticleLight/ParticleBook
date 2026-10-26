@@ -375,6 +375,13 @@ interface ElectronAPI {
   // Library
   onLibraryChanged: (callback: () => void) => () => void
 
+  // Files
+  dictionaryImport: (path?: string) => Promise<{ ok: boolean; code: string; error: string; entries: number; bytes: number; skipped: number; elapsedMs: number; source: string; cachePath: string }>
+  onDictionaryProgress: (callback: (p: { percent: number; message: string; name: string }) => void) => () => void
+  dictionaryLookup: (word: string, options?: { prefix?: boolean; caseInsensitive?: boolean; morphology?: boolean; maxResults?: number }) => Promise<{ ok: boolean; found: boolean; code: string; error: string; query: string; hits: Array<{ word: string; phonetic: string; translation: string; definition: string; pos: string; tag: string; exchange: string; example: string; kind: string; matched: string; verified: boolean }> }>
+  dictionaryStatus: () => Promise<{ ok: boolean; loaded: boolean; source: string; entries: number; bytes: number }>
+  dictionaryClear: () => Promise<{ ok: boolean; entries: number }>
+
   // Utilities
   openDefaultApps: () => Promise<void>
 

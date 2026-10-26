@@ -17,13 +17,17 @@
 #include "platform/SecretStore.h"
 #include "services/TranslationService.h"
 #include "services/SearchIndexService.h"
+#include "services/DictionaryService.h"
+#include "handlers/DictionaryHandlers.h"
 #include "handlers/TtsHandlers.h"
 #include "handlers/TranslationHandlers.h"
 #include "handlers/SearchHandlers.h"
 #include "pb_version.h"
 #include <shlobj.h>
 #include <shellapi.h>
+#include <filesystem>
 #include <fstream>
+#include <memory>
 #include <sstream>
 
 // Forward declaration from BookSourceService.cpp
@@ -36,6 +40,21 @@ void RegisterBackupHandlers(BridgeServer* bridge, DatabaseService* db, pb::JobSe
 void RegisterExportHandlers(BridgeServer* bridge, DatabaseService* db, pb::JobService* jobs);
 void RegisterTranslationHandlers(BridgeServer* bridge, DatabaseService* db, pb::JobService* jobs, SecretStore* secrets, pb::TranslationService* translation);
 void RegisterSearchHandlers(BridgeServer* bridge, DatabaseService* db, pb::JobService* jobs, pb::SearchIndexService* index);
+
+// PB-010-B：词典服务由 App 持有。App.h 不在本轮写范围，所以用文件内单例
+// 保存它（生命周期与进程一致，进程退出时释放），缓存落在
+// <UserData>/data/dictionary/dictionary.pbdict。
+namespace {
+struct DictionaryRuntime {
+    std::unique_ptr<pb::DictionaryService> service;
+    std::string cachePath;
+};
+DictionaryRuntime& GetDictionaryRuntime()
+{
+    static DictionaryRuntime runtime;
+    return runtime;
+}
+} // namespace
 
 // Utf8ToWide moved to utils/encoding.h (pb::Utf8ToWide)
 
@@ -304,6 +323,24 @@ void App::Init(HINSTANCE hInstance, std::vector<std::string> startupPaths, Singl
     RegisterTtsHandlers(m_bridge.get(), m_tts.get());
     RegisterTranslationHandlers(m_bridge.get(), m_db.get(), m_jobs.get(), m_secrets.get(), m_translation.get());
     RegisterSearchHandlers(m_bridge.get(), m_db.get(), m_jobs.get(), m_search.get());
+
+    // PB-010-B：本地词典 —— 启动优先加载磁盘缓存（解析 ECDICT 很慢）。
+    {
+        DictionaryRuntime& runtime = GetDictionaryRuntime();
+        const std::string dictionaryDir = UserDataPath() + "/data/dictionary";
+        const std::wstring wideDir = pb::Utf8ToWide(dictionaryDir);
+        if (!wideDir.empty()) {
+            std::error_code dirError;
+            std::filesystem::create_directories(wideDir, dirError);
+        }
+        runtime.cachePath = dictionaryDir + "/dictionary.pbdict";
+        runtime.service = std::make_unique<pb::DictionaryService>();
+        std::string cacheError;
+        runtime.service->LoadCache(runtime.cachePath, &cacheError);
+        RegisterDictionaryHandlers(m_bridge.get(), runtime.service.get(), m_jobs.get(),
+                                   runtime.cachePath);
+    }
+
     RegisterZlibHandlers(m_bridge.get(), m_zlib.get());
 
     // UI language switch — called from frontend when the user changes language.
