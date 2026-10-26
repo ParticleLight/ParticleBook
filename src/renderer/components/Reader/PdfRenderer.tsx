@@ -14,6 +14,8 @@ export function PdfRenderer({ book, content: _content, bookId }: PdfRendererProp
   const [visiblePage, setVisiblePage] = useState(1)
   const [pageBounds, setPageBounds] = useState<Array<{ width: number; height: number }>>([])
   const [pageImages, setPageImages] = useState<Map<number, string>>(new Map())
+  const [pdfAnnotations, setPdfAnnotations] = useState<PbAnnotation[]>([])
+  const [dragRect, setDragRect] = useState<{ page: number; x0: number; y0: number; x1: number; y1: number } | null>(null)
   const [fitScale, setFitScale] = useState(1)
   const [zoom, _setZoom] = useState(savedZoom)
   const docIdRef = useRef<number | null>(null)
@@ -36,6 +38,28 @@ export function PdfRenderer({ book, content: _content, bookId }: PdfRendererProp
   const currentSearchIndex = useReaderStore((s) => s.currentSearchIndex)
   const setSearchMatches = useReaderStore((s) => s.setSearchMatches)
   const theme = useSettingsStore((s) => s.theme)
+
+  const loadPdfAnnotations = useCallback(() => {
+    window.electronAPI.getAnnotations(bookId)
+      .then((rows) => setPdfAnnotations(rows.filter((a) => a.locator?.kind === 'pdf' && a.locator.page)))
+      .catch(() => {})
+  }, [bookId])
+
+  useEffect(() => { loadPdfAnnotations() }, [loadPdfAnnotations])
+
+  const finishDrag = useCallback((page: number, x0: number, y0: number, x1: number, y1: number) => {
+    const x = Math.max(0, Math.min(x0, x1))
+    const y = Math.max(0, Math.min(y0, y1))
+    const w = Math.min(1 - x, Math.abs(x1 - x0))
+    const h = Math.min(1 - y, Math.abs(y1 - y0))
+    if (w < 0.01 || h < 0.01) return
+    window.electronAPI.addAnnotation({
+      bookId,
+      type: 'highlight',
+      locator: { version: 1, kind: 'pdf', page, rect: { x, y, w, h }, quote: '' },
+      color: '#ffd54f',
+    }).then(() => loadPdfAnnotations()).catch(() => {})
+  }, [bookId, loadPdfAnnotations])
 
   const pdfPageMatchesRef = useRef<number[]>([])
 
@@ -254,11 +278,47 @@ export function PdfRenderer({ book, content: _content, bookId }: PdfRendererProp
           const height = bounds ? bounds.height * fitScale : 1000
           const img = pageImages.get(pageNum)
           return (
-            <div key={pageNum} data-page={pageNum} className="relative py-2" style={{ contentVisibility: 'auto', containIntrinsicSize: `auto ${height}px` }}>
+            <div key={pageNum} data-page={pageNum} className="relative py-2 select-none" style={{ contentVisibility: 'auto', containIntrinsicSize: `auto ${height}px` }}
+              onMouseDown={(e) => {
+                if (e.button !== 0) return
+                const r = e.currentTarget.getBoundingClientRect()
+                setDragRect({ page: pageNum, x0: (e.clientX - r.left) / r.width, y0: (e.clientY - r.top) / r.height, x1: (e.clientX - r.left) / r.width, y1: (e.clientY - r.top) / r.height })
+              }}
+              onMouseMove={(e) => {
+                if (!dragRect || dragRect.page !== pageNum) return
+                const r = e.currentTarget.getBoundingClientRect()
+                setDragRect({ ...dragRect, x1: (e.clientX - r.left) / r.width, y1: (e.clientY - r.top) / r.height })
+              }}
+              onMouseUp={(e) => {
+                if (!dragRect || dragRect.page !== pageNum) return
+                const r = e.currentTarget.getBoundingClientRect()
+                finishDrag(pageNum, dragRect.x0, dragRect.y0, (e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height)
+                setDragRect(null)
+              }}
+            >
               {img ? (
-                <img src={img} alt={`Page ${pageNum}`} style={{ filter: filterStyle, width: '100%', height: `${height}px`, objectFit: 'contain' }} />
+                <img src={img} alt={`Page ${pageNum}`} draggable={false} style={{ filter: filterStyle, width: '100%', height: `${height}px`, objectFit: 'contain' }} />
               ) : (
                 <div style={{ width: '100%', height: `${height}px`, background: 'var(--reader-bg)', flexShrink: 0 }} />
+              )}
+              {pdfAnnotations.filter((a) => a.locator.page === pageNum && a.locator.rect).map((a) => {
+                const rect = a.locator.rect!
+                return (
+                  <div key={a.id}
+                    className="absolute rounded-sm"
+                    style={{ left: `${rect.x * 100}%`, top: `${rect.y * 100}%`, width: `${rect.w * 100}%`, height: `${rect.h * 100}%`, background: 'rgba(255,213,79,0.35)', border: '1px solid rgba(255,213,79,0.8)' }}
+                    onClick={(ev) => ev.stopPropagation()}
+                  >
+                    <button
+                      className="absolute -top-2 -right-2 w-4 h-4 rounded-full text-[10px] bg-black/60 text-white"
+                      onClick={(ev) => { ev.stopPropagation(); window.electronAPI.deleteAnnotation(a.id).then(loadPdfAnnotations).catch(() => {}) }}
+                      aria-label="删除标注"
+                    >×</button>
+                  </div>
+                )
+              })}
+              {dragRect && dragRect.page === pageNum && (
+                <div className="absolute pointer-events-none rounded-sm" style={{ left: `${Math.min(dragRect.x0, dragRect.x1) * 100}%`, top: `${Math.min(dragRect.y0, dragRect.y1) * 100}%`, width: `${Math.abs(dragRect.x1 - dragRect.x0) * 100}%`, height: `${Math.abs(dragRect.y1 - dragRect.y0) * 100}%`, background: 'rgba(96,205,255,0.35)', border: '1px solid rgba(96,205,255,0.9)' }} />
               )}
             </div>
           )
