@@ -444,6 +444,7 @@ function AboutPage() {
   const [diagState, setDiagState] = useState<'idle' | 'exporting' | 'done' | 'error'>('idle')
   const [diagPath, setDiagPath] = useState('')
   const [backupMsg, setBackupMsg] = useState('')
+  const [backupProgress, setBackupProgress] = useState(0)
   const [exportAllBusy, setExportAllBusy] = useState(false)
   const [exportAllMsg, setExportAllMsg] = useState('')
   const [backupBusy, setBackupBusy] = useState<'create' | 'restore' | ''>('')
@@ -452,6 +453,7 @@ function AboutPage() {
 
   useEffect(() => {
     window.electronAPI.getAppVersion().then((v) => setAppVersion(v))
+    const unsubBackup = window.electronAPI.onBackupProgress((p) => setBackupProgress(p.percent))
 
     // checkUpdate runs on a C++ background thread and emits app:updateChecked
     // with the result. Both the startup auto-check and the manual button below
@@ -486,7 +488,7 @@ function AboutPage() {
       }),
       window.electronAPI.onUpdateDownloadProgress((p) => { setUpdateStatus('downloading'); setDownloadPercent(p.percent) }),
     ]
-    return () => { unsubs.forEach((u) => u()); if (idleTimerRef.current) clearTimeout(idleTimerRef.current) }
+    return () => { unsubs.forEach((u) => u()); unsubBackup(); if (idleTimerRef.current) clearTimeout(idleTimerRef.current) }
   }, [])
 
   const handleCopyAll = () => {
@@ -648,6 +650,11 @@ function AboutPage() {
             {backupBusy === 'restore' ? t('正在处理...') : t('恢复备份')}
           </button>
         </div>
+        {!!backupBusy && (
+          <div className="mt-3 h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--border)' }}>
+            <div className="h-full rounded-full transition-all" style={{ width: `${Math.max(5, backupProgress)}%`, background: 'var(--accent)' }} />
+          </div>
+        )}
         {backupMsg && <p className="mt-3 text-xs break-all" style={{ color: 'var(--text-secondary)' }}>{backupMsg}</p>}
       </div>
 

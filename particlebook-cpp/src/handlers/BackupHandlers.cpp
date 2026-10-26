@@ -62,7 +62,7 @@ std::string PickBackupFile(BridgeServer* bridge)
 void RegisterBackupHandlers(BridgeServer* bridge, DatabaseService* db, pb::JobService* jobs)
 {
     bridge->RegisterAsyncMethod("backup:create",
-        [db, jobs](const json&,
+        [bridge, db, jobs](const json&,
                    std::function<void(json)> respond,
                    std::function<void(std::string)> reject) {
             if (!jobs || !db) { reject("job_service_unavailable"); return; }
@@ -78,11 +78,20 @@ void RegisterBackupHandlers(BridgeServer* bridge, DatabaseService* db, pb::JobSe
             auto out = std::make_shared<json>(BackupError("backup_failed", "backup did not finish"));
             const pb::JobId id = jobs->Submit(
                 "backup:create",
-                [db, dbPath, zipPath, out](pb::JobContext&) {
+                [db, dbPath, zipPath, out](pb::JobContext& job) {
                     db->FlushSync();
                     pb::BackupOptions options;
                     options.appVersion = PB_VERSION_STRING;
-                    const auto result = pb::BackupService::CreateBackup(dbPath, zipPath, options);
+                    auto progress = [&job](const pb::BackupProgress& p) {
+                        double pct = 10.0;
+                        if (p.stage == "reading_db") pct = 10.0;
+                        else if (p.stage == "reading_covers") pct = 35.0;
+                        else if (p.stage == "writing_archive") pct = 80.0;
+                        else if (p.stage == "done") pct = 100.0;
+                        job.Progress(pct, p.stage);
+                    };
+                    const auto result = pb::BackupService::CreateBackup(
+                        dbPath, zipPath, options, progress, &job.Cancelled());
                     if (!result.ok) {
                         *out = BackupError(result.code, result.error);
                         return;
@@ -96,7 +105,11 @@ void RegisterBackupHandlers(BridgeServer* bridge, DatabaseService* db, pb::JobSe
                         {"bytes", result.archiveBytes},
                     };
                 },
-                nullptr,
+                [bridge](const pb::JobProgress& p) {
+                    bridge->EmitEvent("backup:progress", {
+                        {"percent", p.percent}, {"message", p.message}, {"name", p.name},
+                    });
+                },
                 [out, respond, reject](const pb::JobResult& job) {
                     if (!job.ok) { reject(job.cancelled ? "cancelled" : job.error); return; }
                     if (!out->value("ok", false)) {
@@ -128,8 +141,19 @@ void RegisterBackupHandlers(BridgeServer* bridge, DatabaseService* db, pb::JobSe
             auto out = std::make_shared<json>(RestoreError("restore_failed", "restore did not finish"));
             const pb::JobId id = jobs->Submit(
                 "backup:restore",
-                [zipPath, dbPath, out](pb::JobContext&) {
-                    const auto result = pb::BackupService::RestoreBackup(zipPath, dbPath);
+                [zipPath, dbPath, out](pb::JobContext& job) {
+                    auto progress = [&job](const pb::BackupProgress& p) {
+                        double pct = 10.0;
+                        if (p.stage == "inspecting") pct = 10.0;
+                        else if (p.stage == "extracting") pct = 25.0;
+                        else if (p.stage == "restoring_covers") pct = 45.0;
+                        else if (p.stage == "backup_current") pct = 65.0;
+                        else if (p.stage == "writing_db") pct = 85.0;
+                        else if (p.stage == "done") pct = 100.0;
+                        job.Progress(pct, p.stage);
+                    };
+                    const auto result = pb::BackupService::RestoreBackup(
+                        zipPath, dbPath, pb::RestoreOptions{}, progress, &job.Cancelled());
                     if (!result.ok) {
                         *out = RestoreError(result.code, result.error);
                         return;
@@ -142,7 +166,11 @@ void RegisterBackupHandlers(BridgeServer* bridge, DatabaseService* db, pb::JobSe
                         {"preRestorePath", result.preRestoreBackupPath},
                     };
                 },
-                nullptr,
+                [bridge](const pb::JobProgress& p) {
+                    bridge->EmitEvent("backup:progress", {
+                        {"percent", p.percent}, {"message", p.message}, {"name", p.name},
+                    });
+                },
                 [db, out, respond, reject](const pb::JobResult& job) {
                     try {
                         db->Resume();
