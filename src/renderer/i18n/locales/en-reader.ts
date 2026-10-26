@@ -106,4 +106,12 @@ export const enReader: Record<string, string> = {
   '暂停失败': 'Could not pause',
   '继续失败': 'Could not resume',
   '切换音色失败': 'Could not switch voice',
+
+  // TtsBar 睡眠定时（PB-001-C）
+  '睡眠定时': 'Sleep timer',
+  '关闭定时': 'Off',
+  '{{n}} 分钟': '{{n}} min',
+  '到本章结束': 'End of chapter',
+  '睡眠定时已到，朗读已停止': 'Sleep timer reached — reading stopped',
+  '已读完本章，朗读已停止': 'End of chapter — reading stopped',
 }

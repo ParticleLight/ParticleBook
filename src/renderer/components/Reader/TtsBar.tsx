@@ -28,6 +28,12 @@ import { useSettingsStore } from '../../stores/settingsStore'
 //   * 选区模式下没有 offset→DOM 映射，所以不画高亮（只在条上显示当前句）。
 //
 // 生命周期：组件卸载（关条 / 关书 / 切书）一定 ttsStop。
+//
+// PB-001-C 睡眠定时：5/15/30/60 分钟 + 「到本章结束」。倒计时按 Date.now()
+// 计算（不依赖 interval 累加，系统休眠/掉帧都不会漂），到点 ttsStop 并清除
+// 定时器；手动停止 / 关闭朗读条 / 切书（组件卸载）都会清掉定时器。
+// 「到本章结束」= 读完本次加载的这段文本就停（本实现不会自动续读下一章），
+// 读完时在条上给一句提示。
 
 const MAX_SPEAK_CHARS = 8000
 const HIGHLIGHT_NAME = 'pb-tts'
@@ -63,6 +69,17 @@ interface TtsBarProps {
 }
 
 type Phase = 'idle' | 'playing' | 'paused'
+
+// 睡眠定时：off / 分钟数 / 到本章结束
+type SleepMode = 'off' | '5' | '15' | '30' | '60' | 'chapter'
+const SLEEP_MINUTES = [5, 15, 30, 60] as const
+
+function formatCountdown(milliseconds: number): string {
+  const total = Math.max(0, Math.ceil(milliseconds / 1000))
+  const minutes = Math.floor(total / 60)
+  const seconds = total % 60
+  return (minutes < 10 ? '0' : '') + minutes + ':' + (seconds < 10 ? '0' : '') + seconds
+}
 
 // ── DOM 文本抽取 ────────────────────────────────────────────────────
 
@@ -140,16 +157,22 @@ function readSelection(): { text: string; doc: Document | null; win: Window | nu
 
 // ── 句子切分 ────────────────────────────────────────────────────────
 
+// 中英文句子切分：中文看 。！？；… 与换行；英文看 . ! ? 后面跟空白/结尾。
+// 之所以要单独处理英文句号：中文标点正则里没有 ASCII '.'，而 PDF / 英文书里
+// 全是 "xxx. Yyy."，不切分的话整页会当成一句（句子事件只有 1 条，进度显示 1/1）。
+// 数字里的点（3.14 / 1.2.3）不切。
+const SENTENCE_TERMINATORS = '。！？!?；;…'
+const TRAILING_QUOTES = '"”』’'
+
 function splitSentences(text: string): Sentence[] {
   const out: Sentence[] = []
-  const re = /[^。！？!?；;…\n]+[。！？!?；;…]*/g
-  let match: RegExpExecArray | null
-  while ((match = re.exec(text))) {
-    const raw = match[0]
+
+  const pushPiece = (from: number, to: number) => {
+    const raw = text.slice(from, to)
     const trimmed = raw.trim()
-    if (!trimmed) continue
+    if (!trimmed) return
     const leading = raw.length - raw.replace(/^\s+/, '').length
-    const start = match.index + leading
+    const start = from + leading
     // 没有标点的超长片段（整段没句号）按 300 字硬切，避免一次朗读太久无法定位
     if (trimmed.length > 300) {
       for (let offset = 0; offset < trimmed.length; offset += 300) {
@@ -159,6 +182,27 @@ function splitSentences(text: string): Sentence[] {
       out.push({ text: trimmed, start })
     }
   }
+
+  let start = 0
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i]
+    let isEnd = SENTENCE_TERMINATORS.includes(c) || c === '\n'
+    if (!isEnd && c === '.') {
+      const next = text[i + 1]
+      const prev = text[i - 1] || ''
+      const nextIsBreak = next === undefined || /\s/.test(next) || TRAILING_QUOTES.includes(next)
+      if (nextIsBreak && !/[0-9]/.test(prev)) isEnd = true
+    }
+    if (!isEnd) continue
+
+    let end = i + 1
+    // 吸收连续终止符与收尾引号，避免出现 "。。" / "。"" 这样的碎片
+    while (end < text.length && (SENTENCE_TERMINATORS.includes(text[end]) || TRAILING_QUOTES.includes(text[end]))) end++
+    pushPiece(start, end)
+    start = end
+    i = end - 1
+  }
+  if (start < text.length) pushPiece(start, text.length)
   return out
 }
 
@@ -241,8 +285,11 @@ export function TtsBar({ bookId, filePath, format, onClose }: TtsBarProps) {
   const [sentences, setSentences] = useState<string[]>([])
   const [current, setCurrent] = useState(-1)
   const [error, setError] = useState('')
-  const [hint] = useState('')
+  const [hint, setHint] = useState('')
   const [busy, setBusy] = useState(false)
+  // PB-001-C 睡眠定时
+  const [sleepMode, setSleepMode] = useState<SleepMode>('off')
+  const [sleepLeft, setSleepLeft] = useState('')
 
   const activeRef = useRef(false)
   // 用户「想暂停」的意图。SapiTts（PB-001-A）在句子开始事件里会清 paused 标志，
@@ -255,6 +302,7 @@ export function TtsBar({ bookId, filePath, format, onClose }: TtsBarProps) {
   const spokenRef = useRef<SpokenDoc | null>(null)
   const voiceIdRef = useRef('')
   const ratePersistTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const sleepModeRef = useRef<SleepMode>('off')
 
   const unsupported = format === 'cbz' || format === 'cbr'
 
@@ -265,6 +313,12 @@ export function TtsBar({ bookId, filePath, format, onClose }: TtsBarProps) {
         clearHighlightsIn(frame.contentWindow)
       } catch { /* ignore */ }
     }
+  }, [])
+
+  // 清掉睡眠定时（手动停止 / 关闭条 / 切书 / 朗读自然结束都走这里）
+  const clearSleepTimer = useCallback(() => {
+    setSleepMode('off')
+    setSleepLeft('')
   }, [])
 
   // 取文本：选区 > 可见正文（按格式）
@@ -409,6 +463,10 @@ export function TtsBar({ bookId, filePath, format, onClose }: TtsBarProps) {
             setPhase('idle')
             setCurrent(-1)
             cleanupHighlight()
+            // 自然读完：定时器没用了；「到本章结束」给一句提示
+            const chapterMode = sleepModeRef.current === 'chapter'
+            clearSleepTimer()
+            if (chapterMode) setHint(t('已读完本章，朗读已停止'))
           }
           break
         case 'error':
@@ -417,6 +475,7 @@ export function TtsBar({ bookId, filePath, format, onClose }: TtsBarProps) {
           setPhase('idle')
           setCurrent(-1)
           cleanupHighlight()
+          clearSleepTimer()
           setError(ev.error ? t('朗读失败：{{error}}', { error: ev.error }) : t('朗读失败'))
           break
         default:
@@ -424,7 +483,7 @@ export function TtsBar({ bookId, filePath, format, onClose }: TtsBarProps) {
       }
     })
     return off
-  }, [cleanupHighlight, highlightSentence, t])
+  }, [cleanupHighlight, clearSleepTimer, highlightSentence, t])
 
   const stop = useCallback(async () => {
     activeRef.current = false
@@ -434,13 +493,46 @@ export function TtsBar({ bookId, filePath, format, onClose }: TtsBarProps) {
     setCurrent(-1)
     cleanupHighlight()
     setBusy(false)
+    // 手动停止也清睡眠定时（定时器只为「正在朗读」服务）
+    clearSleepTimer()
     try { await window.electronAPI.ttsStop() } catch { /* ignore */ }
-  }, [cleanupHighlight])
+  }, [cleanupHighlight, clearSleepTimer])
+
+  // 睡眠定时：同步 ref（事件回调里要读当前值）+ 倒计时
+  useEffect(() => {
+    sleepModeRef.current = sleepMode
+  }, [sleepMode])
+
+  useEffect(() => {
+    if (sleepMode === 'off' || sleepMode === 'chapter') {
+      setSleepLeft('')
+      return
+    }
+    const minutes = Number(sleepMode)
+    if (!Number.isFinite(minutes) || minutes <= 0) return
+    // 按绝对截止时间算，而不是累加 interval —— 窗口最小化/系统睡眠恢复后不会漂
+    const deadline = Date.now() + minutes * 60000
+    const tick = () => {
+      const left = deadline - Date.now()
+      if (left <= 0) {
+        setSleepMode('off')
+        setSleepLeft('')
+        setHint(t('睡眠定时已到，朗读已停止'))
+        void stop()
+        return
+      }
+      setSleepLeft(formatCountdown(left))
+    }
+    tick()
+    const id = setInterval(tick, 1000)
+    return () => clearInterval(id)
+  }, [sleepMode, stop, t])
 
   const startReading = useCallback(async () => {
     if (busy) return
     setBusy(true)
     setError('')
+    setHint('')
     try {
       if (unsupported) { setError(t('这本书暂不支持朗读')); return }
       if (!voices.length) { setError(t('没有可用的语音，请在 Windows 设置里安装语音包')); return }
@@ -597,6 +689,31 @@ export function TtsBar({ bookId, filePath, format, onClose }: TtsBarProps) {
           aria-label={t('语速')}
         />
         <span className="text-xs w-6 text-center tabular-nums">{rate > 0 ? '+' + rate : rate}</span>
+      </div>
+
+      {/* 睡眠定时（PB-001-C） */}
+      <div className="hidden md:flex items-center gap-1 shrink-0" title={t('睡眠定时')}>
+        <svg className="w-4 h-4 opacity-60" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+        <select
+          value={sleepMode}
+          onChange={(e) => { setHint(''); setSleepMode(e.target.value as SleepMode) }}
+          className="shrink-0 px-2 py-1 rounded-lg text-xs border"
+          style={{ background: 'var(--reader-bg)', borderColor: 'var(--reader-border)', color: 'var(--reader-text)' }}
+          title={t('睡眠定时')}
+          aria-label={t('睡眠定时')}
+          data-tts-sleep="1"
+        >
+          <option value="off">{t('关闭定时')}</option>
+          {SLEEP_MINUTES.map((minutes) => (
+            <option key={minutes} value={String(minutes)}>{t('{{n}} 分钟', { n: minutes })}</option>
+          ))}
+          <option value="chapter">{t('到本章结束')}</option>
+        </select>
+        {sleepLeft && (
+          <span className="text-xs tabular-nums opacity-70 min-w-[2.6rem] text-center" data-tts-sleep-left="1">{sleepLeft}</span>
+        )}
       </div>
 
       {/* 音色 */}
