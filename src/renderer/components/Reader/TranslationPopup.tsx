@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { copyText } from '../../utils/download'
+import { useReaderAdapter, type ReaderAdapter } from '../../reader'
 
 // ── PB-002-B：阅读器「选中文本 → 翻译」浮层 ──────────────────────────
 //
@@ -141,12 +142,12 @@ export function clearTranslationCache(): number {
 }
 
 
+// PB-021-F：选区由 ReaderAdapter 统一提供（text + 视口 rect）。原来的
+// doc/win/frame/context 字段不再需要：触发按钮位置只用 rect，翻译上下文
+// 用空串（translationTranslate 的 context 是可选参数）。
 interface SelectionInfo {
   text: string
   context: string
-  doc: Document
-  win: Window
-  frame: HTMLIFrameElement | null
   rect: { left: number; top: number; right: number; bottom: number; width: number; height: number }
 }
 
@@ -170,66 +171,22 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), Math.max(min, max))
 }
 
-function buildContext(range: Range, doc: Document): string {
-  try {
-    const node: Node | null = range.startContainer
-    let element: Element | null = node && node.nodeType === Node.ELEMENT_NODE ? (node as Element) : (node ? node.parentElement : null)
-    while (element && element !== doc.body) {
-      const tag = element.tagName
-      if (tag === 'P' || tag === 'DIV' || tag === 'LI' || tag === 'TD' || tag === 'BLOCKQUOTE' || tag === 'SECTION' || tag === 'ARTICLE') {
-        const text = (element.textContent || '').replace(/\s+/g, ' ').trim()
-        return text.slice(0, 300)
-      }
-      element = element.parentElement
-    }
-  } catch { /* ignore */ }
-  return ''
-}
-
-function readSelectionFrom(doc: Document, win: Window, frame: HTMLIFrameElement | null): SelectionInfo | null {
-  try {
-    const selection = win.getSelection()
-    if (!selection || selection.isCollapsed || selection.rangeCount === 0) return null
-    const text = selection.toString().replace(/\s+/g, ' ').trim()
-    if (!text) return null
-
-    const anchor = selection.anchorNode
-    const anchorElement = anchor
-      ? (anchor.nodeType === Node.ELEMENT_NODE ? (anchor as Element) : anchor.parentElement)
-      : null
-    if (anchorElement && anchorElement.closest('input, textarea, select, [contenteditable="true"], [contenteditable=""]')) return null
-
-    const range = selection.getRangeAt(0)
-    const rect = range.getBoundingClientRect()
-    const frameRect = frame ? frame.getBoundingClientRect() : { left: 0, top: 0 }
-    const viewportRect = {
-      left: rect.left + frameRect.left,
-      top: rect.top + frameRect.top,
-      right: rect.right + frameRect.left,
-      bottom: rect.bottom + frameRect.top,
-      width: rect.width,
-      height: rect.height,
-    }
-    if (viewportRect.width === 0 && viewportRect.height === 0) return null
-    return { text, context: buildContext(range, doc), doc, win, frame, rect: viewportRect }
-  } catch {
-    return null
+// 选区 → 浮层坐标：完全来自 adapter（主文档 / EPUB iframe 都由它归一化）。
+function selectionFromAdapter(adapter: ReaderAdapter | null): SelectionInfo | null {
+  const selected = adapter?.getSelection()
+  if (!selected || !selected.text.trim()) return null
+  const text = selected.text.replace(/\s+/g, ' ').trim().slice(0, MAX_SELECTION_CHARS)
+  if (!text) return null
+  const rect = selected.rect
+  const left = rect ? rect.x : Math.max(MARGIN, window.innerWidth / 2 - 40)
+  const top = rect ? rect.y : 80
+  const width = rect ? rect.width : 0
+  const height = rect ? rect.height : 0
+  return {
+    text,
+    context: '',
+    rect: { left, top, right: left + width, bottom: top + height, width, height },
   }
-}
-
-function findSelection(): SelectionInfo | null {
-  const main = readSelectionFrom(document, window, null)
-  if (main) return main
-  for (const frame of Array.from(document.querySelectorAll('iframe'))) {
-    try {
-      const doc = frame.contentDocument
-      const win = frame.contentWindow
-      if (!doc || !win) continue
-      const found = readSelectionFrom(doc, win, frame)
-      if (found) return found
-    } catch { /* 跨域 iframe */ }
-  }
-  return null
 }
 
 // 错误码 → 中文文案 key。Settings 页的「测试连接」复用它，保持文案一致。
@@ -269,6 +226,8 @@ const EMPTY_PANEL: PanelState = {
 
 export function TranslationPopup({ bottomInset = 120, onOpenSettings }: TranslationPopupProps) {
   const { t } = useTranslation()
+  // PB-021-F：选区统一走 ReaderAdapter（EPUB iframe / TXT / HTML 同一入口）。
+  const adapter = useReaderAdapter()
   const [selection, setSelection] = useState<SelectionInfo | null>(null)
   const [triggerPos, setTriggerPos] = useState<{ left: number; top: number } | null>(null)
   const [panel, setPanel] = useState<PanelState>(EMPTY_PANEL)
@@ -293,7 +252,7 @@ export function TranslationPopup({ bottomInset = 120, onOpenSettings }: Translat
   // 选中文本 → 在选区下方算「翻译」按钮位置（避开朗读条）
   const refreshSelection = useCallback(() => {
     if (panel.open) return
-    const found = findSelection()
+    const found = selectionFromAdapter(adapter)
     if (!found) { clearSelection(); return }
     found.text = found.text.slice(0, MAX_SELECTION_CHARS)
     selectionRef.current = found
@@ -303,7 +262,7 @@ export function TranslationPopup({ bottomInset = 120, onOpenSettings }: Translat
     if (top + 32 > maxBottom) top = found.rect.top - 38
     const left = clamp(found.rect.left + Math.min(40, Math.max(0, found.rect.width / 2)), MARGIN, window.innerWidth - 96 - MARGIN)
     setTriggerPos({ left, top: clamp(top, MARGIN, Math.max(MARGIN, maxBottom - 32)) })
-  }, [bottomInset, clearSelection, panel.open])
+  }, [adapter, bottomInset, clearSelection, panel.open])
 
   const placePanel = useCallback((found: SelectionInfo) => {
     const maxBottom = window.innerHeight - bottomInset

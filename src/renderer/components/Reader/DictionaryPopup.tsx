@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useReaderAdapter } from '../../reader'
+import { useReaderStore } from '../../stores/readerStore'
 
 // ── PB-010-B：本地词典弹层（离线查词）──────────────────────────────
 // 工具栏「词典」打开：输入单词查词 / 从当前选区取词；显示音标、释义、词性、
@@ -55,20 +57,6 @@ const EXCHANGE_LABELS: Record<string, string> = {
   '1': '词形变化',
 }
 
-function readSelectionText(): string {
-  try {
-    const main = window.getSelection()?.toString().replace(/\s+/g, ' ').trim()
-    if (main) return main.slice(0, 200)
-  } catch { /* ignore */ }
-  for (const frame of Array.from(document.querySelectorAll('iframe'))) {
-    try {
-      const text = frame.contentWindow?.getSelection()?.toString().replace(/\s+/g, ' ').trim()
-      if (text) return text.slice(0, 200)
-    } catch { /* cross-origin */ }
-  }
-  return ''
-}
-
 function firstToken(text: string): string {
   const match = text.match(/[A-Za-z][A-Za-z'-]*|[\u4e00-\u9fff]+/)
   return match ? match[0] : text
@@ -76,6 +64,9 @@ function firstToken(text: string): string {
 
 export function DictionaryPopup({ open, onClose }: DictionaryPopupProps) {
   const { t } = useTranslation()
+  // PB-021-F：取选区统一走 ReaderAdapter（EPUB iframe / TXT / HTML 同一入口）；
+  // readerStore.selection 是 ReaderView 同步的等价快照，作为 adapter 缺失时的兜底。
+  const adapter = useReaderAdapter()
   const [status, setStatus] = useState<DictionaryStatus | null>(null)
   const [word, setWord] = useState('')
   const [result, setResult] = useState<LookupResult | null>(null)
@@ -157,7 +148,9 @@ export function DictionaryPopup({ open, onClose }: DictionaryPopupProps) {
   }, [])
 
   const useSelection = () => {
-    const text = readSelectionText()
+    const fromAdapter = adapter?.getSelection()?.text ?? ''
+    const fromStore = useReaderStore.getState().selection?.text ?? ''
+    const text = (fromAdapter || fromStore).replace(/\s+/g, ' ').trim().slice(0, 200)
     if (!text) return
     const token = firstToken(text)
     setWord(token)

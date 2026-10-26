@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useReaderStore } from '../../stores/readerStore'
 import { useSettingsStore } from '../../stores/settingsStore'
+import { useReaderAdapter } from '../../reader'
 
 // ── PB-001-B：阅读器内的 TTS 控制条 ──────────────────────────────────
 //
@@ -140,21 +141,6 @@ function firstVisibleOffset(segments: TextSegment[]): number {
   return 0
 }
 
-function readSelection(): { text: string; doc: Document | null; win: Window | null } | null {
-  try {
-    const text = window.getSelection()?.toString().trim()
-    if (text) return { text, doc: document, win: window }
-  } catch { /* ignore */ }
-  for (const frame of Array.from(document.querySelectorAll('iframe'))) {
-    try {
-      const win = frame.contentWindow
-      const text = win?.getSelection()?.toString().trim()
-      if (text) return { text, doc: win?.document ?? null, win: win ?? null }
-    } catch { /* cross-origin iframe */ }
-  }
-  return null
-}
-
 // ── 句子切分 ────────────────────────────────────────────────────────
 
 // 中英文句子切分：中文看 。！？；… 与换行；英文看 . ! ? 后面跟空白/结尾。
@@ -276,6 +262,8 @@ function highlightRange(doc: Document | null, win: Window | null, segments: Text
 
 export function TtsBar({ bookId, filePath, format, onClose }: TtsBarProps) {
   const { t } = useTranslation()
+  // PB-021-F：选区统一走 ReaderAdapter（主文档 / EPUB iframe 都由 adapter 归一化）。
+  const adapter = useReaderAdapter()
   const pdfPage = useReaderStore((s) => s.progress.page)
 
   const [voices, setVoices] = useState<Array<{ id: string; name: string; language: string; gender: string; oneCore: boolean }>>([])
@@ -321,12 +309,25 @@ export function TtsBar({ bookId, filePath, format, onClose }: TtsBarProps) {
     setSleepLeft('')
   }, [])
 
-  // 取文本：选区 > 可见正文（按格式）
+  // 取文本：adapter 选区 > 可见正文（按格式）
+  //
+  // PB-021-F：选区不再自己遍历 document/iframe，统一用 adapter.getSelection()。
+  // 无选区时的正文仍走各渲染器的 DOM 分段（segments）—— 分段是「句子高亮」的
+  // 映射基础（offset ↔ 文本节点），adapter.getTextModel() 是其兜底：当渲染器
+  // 结构变化 / 分段抽取失败时，用 adapter 的纯文本模型直接朗读（此时无句高亮）。
   const extractSpokenText = useCallback(async (): Promise<SpokenDoc | null> => {
-    const selection = readSelection()
-    if (selection) {
-      const text = selection.text.slice(0, MAX_SPEAK_CHARS)
-      return { text, baseOffset: 0, segments: [], doc: selection.doc, win: selection.win, source: 'selection' }
+    const selected = adapter?.getSelection()
+    if (selected && selected.text.trim()) {
+      const text = selected.text.replace(/\s+/g, ' ').trim().slice(0, MAX_SPEAK_CHARS)
+      return { text, baseOffset: 0, segments: [], doc: null, win: null, source: 'selection' }
+    }
+
+    // 无选区时：adapter 文本模型兜底（渲染器 DOM 分段拿不到时的最后一级）。
+    const fromAdapterModel = (): SpokenDoc | null => {
+      const model = adapter?.getTextModel()
+      const text = model?.text ? model.text.replace(/\r\n/g, '\n').slice(0, MAX_SPEAK_CHARS) : ''
+      if (!text.trim()) return null
+      return { text, baseOffset: 0, segments: [], doc: null, win: null, source: 'document' }
     }
 
     if (format === 'pdf') {
@@ -367,24 +368,25 @@ export function TtsBar({ bookId, filePath, format, onClose }: TtsBarProps) {
           return { text, baseOffset: base, segments, doc, win: frame.contentWindow, source: 'document' }
         } catch { /* cross-origin */ }
       }
-      return null
+      // 分段抽取失败（渲染器结构变化 / 跨域限制）：用 adapter 章节文本兜底
+      return fromAdapterModel()
     }
 
     // TXT / MOBI / FB2 / HTML / Markdown：渲染器统一用 .reader-content
     const root = document.querySelector('.reader-content')
-    if (!root) return null
+    if (!root) return fromAdapterModel()
     try {
       const segments = collectSegments(root, document)
-      if (!segments.length) return null
+      if (!segments.length) return fromAdapterModel()
       const full = textOfSegments(segments)
       const base = firstVisibleOffset(segments)
       const text = full.slice(base, base + MAX_SPEAK_CHARS)
       if (!text.trim()) return null
       return { text, baseOffset: base, segments, doc: document, win: window, source: 'document' }
     } catch {
-      return null
+      return fromAdapterModel()
     }
-  }, [format, filePath, pdfPage])
+  }, [adapter, format, filePath, pdfPage])
 
   const highlightSentence = useCallback((index: number, charOffset = 0, charLength = 0) => {
     const spoken = spokenRef.current
