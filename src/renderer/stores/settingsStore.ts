@@ -20,6 +20,12 @@ export interface SettingsState {
   defaultViewMode: 'grid' | 'list'
   defaultSortBy: 'title' | 'author' | 'added_at' | 'last_opened'
 
+  // TTS（PB-001-B）：全局偏好，不按书保存
+  //   ttsVoiceId = SAPI token id（registry 路径，跨进程稳定，见 PB-001-A SapiTts.h）
+  //   ttsRate    = -10..10（0 = 正常语速）
+  ttsVoiceId: string
+  ttsRate: number
+
   // 语言（全局，不进 SETTINGS_KEYS —— 语言不能被写进书级设置或被覆盖）
   language: Lang
 
@@ -36,6 +42,8 @@ export interface SettingsState {
   setShowReadingTime: (v: boolean) => void
   setDefaultViewMode: (mode: 'grid' | 'list') => void
   setDefaultSortBy: (sort: 'title' | 'author' | 'added_at' | 'last_opened') => void
+  setTtsVoiceId: (id: string) => void
+  setTtsRate: (rate: number) => void
   setLanguage: (lang: Lang) => void
   saveSettings: () => void
   loadSettings: () => Promise<void>
@@ -47,6 +55,10 @@ const SETTINGS_KEYS = [
   'theme', 'accentColor', 'fontSize', 'fontFamily', 'lineHeight', 'margin', 'textAlign',
   'autoSaveProgress', 'showReadingTime',
   'defaultViewMode', 'defaultSortBy',
+  // TTS 偏好：全局。C++ 的 SettingsService 采用 Preserve 策略，本版本 schema
+  // 还没登记的键会原样保留（见 platform/SettingsService.h），所以不需要先改 C++；
+  // 后续 PB-023 补 schema 时把它们登记成 tts.voiceId / tts.rate 即可。
+  'ttsVoiceId', 'ttsRate',
 ] as const
 
 // 只有【阅读排版】类设置才按书保存（与读者设置面板暴露的项一致）。其余都是全局偏好：
@@ -70,6 +82,9 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   defaultViewMode: 'grid',
   defaultSortBy: 'last_opened',
 
+  ttsVoiceId: '',
+  ttsRate: 0,
+
   language: i18n.language === 'en' ? 'en' : 'zh',
 
   activeBookId: null,
@@ -85,6 +100,8 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   setShowReadingTime: (showReadingTime) => { set({ showReadingTime }); get().saveSettings() },
   setDefaultViewMode: (defaultViewMode) => { set({ defaultViewMode }); get().saveSettings() },
   setDefaultSortBy: (defaultSortBy) => { set({ defaultSortBy }); get().saveSettings() },
+  setTtsVoiceId: (ttsVoiceId) => { set({ ttsVoiceId }); get().saveSettings() },
+  setTtsRate: (ttsRate) => { set({ ttsRate }); get().saveSettings() },
 
   setLanguage: (language) => {
     i18n.changeLanguage(language)
@@ -120,7 +137,11 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 
   loadSettings: async () => {
     try {
-      const settings = await window.electronAPI.getSettings()
+      // PbSettings 是生成物（bridge 契约里登记的字段）；TTS 的 ttsVoiceId/ttsRate
+      // 是本版本新加的、C++ schema 还没登记的键，SettingsService 按 Preserve 策略
+      // 原样保留（见 particlebook-cpp/src/platform/SettingsService.h），所以这里
+      // 用宽松类型读回，等 PB-023 补 schema 后再收紧。
+      const settings: Record<string, any> = await window.electronAPI.getSettings()
       const patch: Record<string, any> = {}
       for (const key of SETTINGS_KEYS) {
         if (settings[key] !== undefined) patch[key] = settings[key]
@@ -138,7 +159,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 
   loadBookSettings: async (bookId: number) => {
     try {
-      const globalSettings = await window.electronAPI.getSettings()
+      const globalSettings: Record<string, any> = await window.electronAPI.getSettings()
       const baseSettings: Record<string, any> = {}
       for (const key of SETTINGS_KEYS) {
         if (globalSettings[key] !== undefined) baseSettings[key] = globalSettings[key]

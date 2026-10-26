@@ -26,6 +26,7 @@ function useAnimatedMount(isOpen: boolean, duration = 200) {
 }
 import { Sidebar } from './Sidebar'
 import { ReaderControls } from './ReaderControls'
+import { TtsBar } from './TtsBar'
 import { formatReadingTime } from '../../utils/format'
 import { readBookFile } from '../../utils/fileReader'
 import { ConfirmDialog } from '../UI/ConfirmDialog'
@@ -72,12 +73,15 @@ export function ReaderView({ bookId, onClose }: ReaderViewProps) {
   const [book, setBook] = useState<Book | null>(null)
   const [bookContent, setBookContent] = useState<Uint8Array | null>(null)
   const [showSettings, setShowSettings] = useState(false)
+  const [showTts, setShowTts] = useState(false)
   const [showArrows, setShowArrows] = useState(false)
   const [loadError, setLoadError] = useState<LoadError | null>(null)
   const [confirmRemove, setConfirmRemove] = useState(false)
   const arrowTimerRef = useRef<number | null>(null)
   const sessionActiveRef = useRef(false)
   const settingsOpenRef = useRef(false)
+  // PB-001-B：Esc 需要知道朗读条是否开着（事件处理器里不能读闭包里的旧 state）
+  const ttsOpenRef = useRef(false)
   const bookIdRef = useRef(bookId)
 
   const showSidebar = useReaderStore((s) => s.showSidebar)
@@ -158,6 +162,17 @@ export function ReaderView({ bookId, onClose }: ReaderViewProps) {
     settingsOpenRef.current = showSettings
   }, [showSettings])
 
+  // PB-001-B：朗读条状态同步 + 切书时收起并停止朗读
+  useEffect(() => {
+    ttsOpenRef.current = showTts
+  }, [showTts])
+
+  useEffect(() => {
+    // 换书：旧书的朗读必须停（TtsBar 卸载时也会 stop，这里兜住"同实例换书"的情况）
+    setShowTts(false)
+    window.electronAPI.ttsStop().catch(() => {})
+  }, [bookId])
+
   // Start reading session when both bookId and content are ready
   useEffect(() => {
     if (!bookContent || !book) return
@@ -209,6 +224,8 @@ export function ReaderView({ bookId, onClose }: ReaderViewProps) {
         const { showSearch: srch, clearSearch: cls, showSidebar: sidebar, setShowSidebar } = useReaderStore.getState()
         if (srch) { cls(); return }
         if (settingsOpenRef.current) { setShowSettings(false); return }
+        // 朗读条优先于侧边栏关闭：Esc 先收朗读（并停读），再逐层往外
+        if (ttsOpenRef.current) { setShowTts(false); return }
         if (sidebar) { setShowSidebar(false); return }
         await endReadingSession()
         await flushProgress()
@@ -434,9 +451,23 @@ export function ReaderView({ bookId, onClose }: ReaderViewProps) {
           </svg>
         </button>
 
-        {/* Controls */}
-        <div className={`absolute bottom-0 left-0 right-0 transition-opacity duration-300 ${(showControls || showSearch) ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
-          <ReaderControls bookId={bookId} format={book?.format || ''} onOpenSettings={() => setShowSettings(true)} />
+        {/* TTS 朗读条 + Controls（PB-001-B） */}
+        <div className={`absolute bottom-0 left-0 right-0 transition-opacity duration-300 ${(showControls || showSearch || showTts) ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
+          {showTts && book && (
+            <TtsBar
+              bookId={bookId}
+              filePath={book.file_path}
+              format={book.format}
+              onClose={() => setShowTts(false)}
+            />
+          )}
+          <ReaderControls
+            bookId={bookId}
+            format={book?.format || ''}
+            onOpenSettings={() => setShowSettings(true)}
+            onOpenTts={() => setShowTts((v) => !v)}
+            ttsActive={showTts}
+          />
         </div>
 
         {/* Page indicator */}

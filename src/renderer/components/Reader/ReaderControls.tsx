@@ -8,9 +8,12 @@ interface ReaderControlsProps {
   bookId: number
   format: string
   onOpenSettings: () => void
+  // PB-001-B：打开/收起朗读条（TTS）。状态由 ReaderView 持有。
+  onOpenTts: () => void
+  ttsActive: boolean
 }
 
-export function ReaderControls({ bookId, format, onOpenSettings }: ReaderControlsProps) {
+export function ReaderControls({ bookId, format, onOpenSettings, onOpenTts, ttsActive }: ReaderControlsProps) {
   const { t } = useTranslation()
   const progress = useReaderStore((s) => s.progress)
   const bookmarks = useReaderStore((s) => s.bookmarks)
@@ -277,6 +280,17 @@ export function ReaderControls({ bookId, format, onOpenSettings }: ReaderControl
         >
           <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v12m0 0l-4-4m4 4l4-4M4 20h16" />
+          </svg>
+        </button>
+
+        <button
+          onClick={onOpenTts}
+          className={`${ctrlClasses.btn} ${ttsActive ? 'text-[var(--reader-accent)] bg-[var(--color-indigo-bg)]' : ctrlClasses.btnDefault}`}
+          title={t('朗读 (TTS)')}
+          aria-label={t('朗读 (TTS)')}
+        >
+          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.536 8.464a5 5 0 010 7.072M18.364 5.636a9 9 0 010 12.728M5 10v4a1 1 0 001 1h2.586l3.293 3.293A1 1 0 0014 17.586V6.414a1 1 0 00-1.707-.707L9.586 9H6a1 1 0 00-1 1z" />
           </svg>
         </button>
 

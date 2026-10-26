@@ -84,4 +84,26 @@ export const enReader: Record<string, string> = {
   // ComicRenderer
   '正在解压漫画...': 'Extracting comic...',
   '未找到图片': 'No images found',
+
+  // TtsBar / ReaderControls（PB-001-B 朗读）
+  '朗读 (TTS)': 'Read aloud (TTS)',
+  '开始朗读': 'Start reading aloud',
+  '暂停朗读': 'Pause reading',
+  '继续朗读': 'Resume reading',
+  '停止朗读': 'Stop reading',
+  '关闭朗读条': 'Close read-aloud bar',
+  '语速': 'Speed',
+  '音色': 'Voice',
+  '无可用音色': 'No voices available',
+  '这本书暂不支持朗读': 'Read-aloud is not available for this book',
+  '点击播放开始朗读（优先朗读选中文字）': 'Press play to start. Selected text is read first.',
+  '没有可用的语音，请在 Windows 设置里安装语音包': 'No voices installed. Add one in Windows Settings.',
+  '没有找到可朗读的文本': 'No readable text found',
+  '这一页没有可朗读的文本（可能是扫描版）': 'This page has no readable text (it may be a scanned page)',
+  '朗读失败': 'Read-aloud failed',
+  '朗读失败：{{error}}': 'Read-aloud failed: {{error}}',
+  '朗读失败（没有可用音色或被系统拒绝）': 'Read-aloud failed (no voice available or blocked by the system)',
+  '暂停失败': 'Could not pause',
+  '继续失败': 'Could not resume',
+  '切换音色失败': 'Could not switch voice',
 }
