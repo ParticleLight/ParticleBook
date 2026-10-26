@@ -14,9 +14,11 @@ class BookSourceService;
 class ZLibraryService;
 class ContentCache;
 class SingleInstance;
+class SecretStore;
 namespace pb { class JobService; }
 namespace pb { class LogService; }
 namespace pb { class SapiTts; }
+namespace pb { class TranslationService; }
 
 class App {
 public:
@@ -59,6 +61,8 @@ private:
     std::shared_ptr<pb::JobService> m_jobs;
     std::shared_ptr<pb::LogService> m_log;
     std::unique_ptr<pb::SapiTts> m_tts;
+    std::unique_ptr<SecretStore> m_secrets;
+    std::unique_ptr<pb::TranslationService> m_translation;
 
     SingleInstance* m_single = nullptr;
     std::mutex m_openMutex;

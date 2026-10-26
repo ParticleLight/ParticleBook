@@ -132,7 +132,16 @@ export const types = [
       '  showReadingTime?: boolean',
       "  defaultViewMode?: 'grid' | 'list'",
       "  defaultSortBy?: 'title' | 'author' | 'added_at' | 'last_opened'",
-      "  language?: 'zh' | 'en'"
+      "  language?: 'zh' | 'en'",
+      // PB-001 / PB-002: optional settings added after v2.2.0.
+      '  ttsVoiceId?: string',
+      '  ttsRate?: number',
+      "  'translation.enabled'?: boolean",
+      "  'translation.provider'?: string",
+      "  'translation.baseUrl'?: string",
+      "  'translation.model'?: string",
+      "  'translation.targetLanguage'?: string",
+      "  'translation.timeoutSeconds'?: number"
     ]
   },
   {
@@ -778,6 +787,25 @@ export const contract = [
     member: "openDefaultApps", method: "app:openDefaultApps",
     kind: "invoke", group: "Utilities", params: [],
     returns: "Promise<void>"
+  },
+  // ── AI translation (PB-002; Key lives in SecretStore, never settings) ──
+  {
+    member: "translationSetKey", method: "translation:setKey",
+    kind: "invoke", group: "Utilities", params: [{ n: "key", t: "string" }],
+    returns: "Promise<boolean>"
+  },
+  { member: "translationHasKey", method: "translation:hasKey", kind: "invoke", group: "Utilities", params: [], returns: "Promise<boolean>" },
+  { member: "translationClearKey", method: "translation:clearKey", kind: "invoke", group: "Utilities", params: [], returns: "Promise<boolean>" },
+  {
+    member: "translationTranslate", method: "translation:translate",
+    kind: "invoke", group: "Utilities",
+    params: [
+      { n: "segments", t: "Array<{ id: string; text: string }>" },
+      { n: "sourceLang", t: "string" },
+      { n: "targetLang", t: "string" },
+      { n: "context", t: "string", o: true }
+    ],
+    returns: "Promise<{ ok: boolean; code: string; error: string; segments: Array<{ id: string; text: string }>; httpStatus: number; requestsSent: number; segmentsTranslated: number; elapsedMs: number }>"
   },
   // ── TTS (PB-001) ──
   {

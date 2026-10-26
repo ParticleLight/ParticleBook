@@ -13,7 +13,10 @@
 #include "platform/JobService.h"
 #include "platform/LogService.h"
 #include "platform/SapiTts.h"
+#include "platform/SecretStore.h"
+#include "services/TranslationService.h"
 #include "handlers/TtsHandlers.h"
+#include "handlers/TranslationHandlers.h"
 #include "pb_version.h"
 #include <shlobj.h>
 #include <shellapi.h>
@@ -28,6 +31,7 @@ void RegisterBookSourceHandlers(BridgeServer* bridge, std::shared_ptr<BookSource
 void RegisterZlibHandlers(BridgeServer* bridge, ZLibraryService* zlib);
 void RegisterBackupHandlers(BridgeServer* bridge, DatabaseService* db, pb::JobService* jobs);
 void RegisterExportHandlers(BridgeServer* bridge, DatabaseService* db, pb::JobService* jobs);
+void RegisterTranslationHandlers(BridgeServer* bridge, DatabaseService* db, pb::JobService* jobs, SecretStore* secrets, pb::TranslationService* translation);
 
 // Utf8ToWide moved to utils/encoding.h (pb::Utf8ToWide)
 
@@ -67,6 +71,10 @@ void App::Init(HINSTANCE hInstance, std::vector<std::string> startupPaths, Singl
 
     // 2. Bridge (message dispatch)
     m_bridge = std::make_shared<BridgeServer>();
+
+    // PB-023/PB-002: DPAPI-backed provider keys + translation client.
+    m_secrets = std::make_unique<SecretStore>(SecretStore::DefaultPath());
+    m_translation = std::make_unique<pb::TranslationService>();
 
     // PB-001: one in-process SAPI voice instance (SAPI audio is process-wide).
     m_tts = std::make_unique<pb::SapiTts>();
@@ -287,6 +295,7 @@ void App::Init(HINSTANCE hInstance, std::vector<std::string> startupPaths, Singl
     RegisterPdfHandlers(m_bridge.get(), m_pdf.get(), m_jobs.get());
     RegisterBookSourceHandlers(m_bridge.get(), m_bookSource, m_jobs.get());
     RegisterTtsHandlers(m_bridge.get(), m_tts.get());
+    RegisterTranslationHandlers(m_bridge.get(), m_db.get(), m_jobs.get(), m_secrets.get(), m_translation.get());
     RegisterZlibHandlers(m_bridge.get(), m_zlib.get());
 
     // UI language switch — called from frontend when the user changes language.

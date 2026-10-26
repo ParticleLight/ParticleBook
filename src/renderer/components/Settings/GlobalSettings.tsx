@@ -4,6 +4,7 @@ import type { TFunction } from 'i18next'
 import i18n from '../../i18n'
 import { useSettingsStore, type AccentColor } from '../../stores/settingsStore'
 import { copyText, downloadText } from '../../utils/download'
+import { TranslationSettings } from './TranslationSettings'
 
 interface GlobalSettingsProps {
   onBack: () => void
@@ -608,6 +609,9 @@ function AboutPage() {
           </button>
         )}
       </div>
+
+      {/* AI translation config */}
+      <TranslationSettings />
 
       {/* Export all annotations */}
       <div className="settings-card">

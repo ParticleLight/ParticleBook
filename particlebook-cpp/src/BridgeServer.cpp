@@ -350,6 +350,12 @@ std::string BridgeServer::GenerateBridgeScript()
     exportDiagnostics: function() { return invoke('app:exportDiagnostics'); },
     exportAnnotations: function(bookId, format) { return invoke('export:annotations', {bookId:bookId||0, format:format||'markdown'}); },
     openDefaultApps: function() { return invoke('app:openDefaultApps'); },
+    translationSetKey: function(key) { return invoke('translation:setKey', {key:key||''}); },
+    translationHasKey: function() { return invoke('translation:hasKey'); },
+    translationClearKey: function() { return invoke('translation:clearKey'); },
+    translationTranslate: function(segments, sourceLang, targetLang, context) {
+      return invoke('translation:translate', {segments:segments||[], sourceLang:sourceLang||'auto', targetLang:targetLang||'zh', context:context||''});
+    },
     getTtsVoices: function() { return invoke('tts:voices'); },
     ttsSpeak: function(text, tag, flush) { return invoke('tts:speak', {text:text||'', tag:tag||'', flush:flush===undefined?true:!!flush}); },
     ttsPause: function() { return invoke('tts:pause'); },

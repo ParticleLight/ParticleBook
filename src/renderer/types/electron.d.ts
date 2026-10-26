@@ -106,6 +106,14 @@ interface PbSettings {
   defaultViewMode?: 'grid' | 'list'
   defaultSortBy?: 'title' | 'author' | 'added_at' | 'last_opened'
   language?: 'zh' | 'en'
+  ttsVoiceId?: string
+  ttsRate?: number
+  'translation.enabled'?: boolean
+  'translation.provider'?: string
+  'translation.baseUrl'?: string
+  'translation.model'?: string
+  'translation.targetLanguage'?: string
+  'translation.timeoutSeconds'?: number
 }
 
 interface PbBookSourceInput {
@@ -323,6 +331,10 @@ interface ElectronAPI {
 
   // Utilities
   openDefaultApps: () => Promise<void>
+  translationSetKey: (key: string) => Promise<boolean>
+  translationHasKey: () => Promise<boolean>
+  translationClearKey: () => Promise<boolean>
+  translationTranslate: (segments: Array<{ id: string; text: string }>, sourceLang: string, targetLang: string, context?: string) => Promise<{ ok: boolean; code: string; error: string; segments: Array<{ id: string; text: string }>; httpStatus: number; requestsSent: number; segmentsTranslated: number; elapsedMs: number }>
   getTtsVoices: () => Promise<Array<{ id: string; name: string; language: string; gender: string; oneCore: boolean }>>
   ttsSpeak: (text: string, tag?: string, flush?: boolean) => Promise<number>
   ttsPause: () => Promise<boolean>
