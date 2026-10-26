@@ -611,7 +611,8 @@ struct SapiTts::Impl {
             } else {
                 current.reset();
             }
-            paused.store(false, std::memory_order_relaxed);
+            // Do NOT clear paused here: a Pause() that lands before the first
+            // START event must survive (UI can pause immediately after Speak).
             if (current) out.push_back(MakeEventLocked(TtsEventType::Started, current));
             break;
         }
