@@ -69,6 +69,7 @@ export const enUi: Record<string, string> = {
   '未知作者': 'Unknown author',
   '最新: {{chapter}}': 'Latest: {{chapter}}',
   '下载': 'Download',
+  '朗读': 'Read aloud',
   '中文按 2 字词查询：{{word}}': 'Chinese lookup by 2-character word: {{word}}',
   '禁用词典': 'Disable dictionary',
   '启用词典': 'Enable dictionary',

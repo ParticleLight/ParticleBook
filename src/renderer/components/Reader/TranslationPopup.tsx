@@ -440,6 +440,11 @@ export function TranslationPopup({ bottomInset = 120, onOpenSettings }: Translat
 
   useEffect(() => () => { selectionRef.current = null }, [])
 
+  const speakSource = useCallback(() => {
+    if (!panel.source) return
+    window.electronAPI.ttsSpeak(panel.source, 'translate-selection').catch(() => {})
+  }, [panel.source])
+
   const copyTranslation = useCallback(() => {
     if (!panel.translation) return
     copyText(panel.translation)
@@ -503,6 +508,14 @@ export function TranslationPopup({ bottomInset = 120, onOpenSettings }: Translat
               )}
             </span>
             <div className="flex items-center gap-1">
+              <button
+                onClick={speakSource}
+                className="px-2 py-0.5 rounded text-xs opacity-70 hover:opacity-100"
+                title={t('朗读')}
+                aria-label={t('朗读')}
+              >
+                {t('朗读')}
+              </button>
               {panel.translation && (
                 <button
                   onClick={copyTranslation}
