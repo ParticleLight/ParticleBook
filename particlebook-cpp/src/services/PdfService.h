@@ -23,6 +23,9 @@ public:
     PdfOpenResult Open(const std::string& filePath);
     std::string RenderPage(int id, uint32_t pageIndex, int pixelWidth, int pixelHeight);
     std::string ExtractText(int id);
+    // PB-003: per-page character boxes for a selectable text layer.
+    // Returns JSON { page, width, height, chars:[{x,y,w,h,c}] } or "" on failure.
+    std::string ExtractTextLayer(int id, uint32_t pageIndex);
     void Close(int id);
 
 private:

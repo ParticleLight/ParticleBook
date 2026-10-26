@@ -358,6 +358,12 @@ export const contract = [
     returns: "Promise<{ id: number; pageCount: number; pageBounds: { width: number; height: number }[] } | null>"
   },
   {
+    member: "pdfTextLayer", method: "pdf:textLayer",
+    kind: "invoke", group: "PDF",
+    params: [{ n: "id", t: "number" }, { n: "pageNum", t: "number" }],
+    returns: "Promise<{ page: number; width: number; height: number; chars: Array<{ x: number; y: number; w: number; h: number; c: string }> } | null>"
+  },
+  {
     member: "pdfRenderPage", method: "pdf:renderPage",
     kind: "invoke",
     group: "PDF",

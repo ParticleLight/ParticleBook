@@ -370,6 +370,139 @@ std::string PdfService::ExtractText(int id)
     return result.dump();
 }
 
+static std::string DecimalToUtf8(unsigned int cp)
+{
+    std::string out;
+    if (cp <= 0x7F) out.push_back(static_cast<char>(cp));
+    else if (cp <= 0x7FF) {
+        out.push_back(static_cast<char>(0xC0 | (cp >> 6)));
+        out.push_back(static_cast<char>(0x80 | (cp & 0x3F)));
+    } else if (cp <= 0xFFFF) {
+        out.push_back(static_cast<char>(0xE0 | (cp >> 12)));
+        out.push_back(static_cast<char>(0x80 | ((cp >> 6) & 0x3F)));
+        out.push_back(static_cast<char>(0x80 | (cp & 0x3F)));
+    } else {
+        out.push_back(static_cast<char>(0xF0 | (cp >> 18)));
+        out.push_back(static_cast<char>(0x80 | ((cp >> 12) & 0x3F)));
+        out.push_back(static_cast<char>(0x80 | ((cp >> 6) & 0x3F)));
+        out.push_back(static_cast<char>(0x80 | (cp & 0x3F)));
+    }
+    return out;
+}
+
+static std::string DecodeXmlText(const std::string& text)
+{
+    std::string out;
+    for (std::size_t i = 0; i < text.size();) {
+        if (text[i] == '&') {
+            const std::size_t semi = text.find(';', i);
+            if (semi != std::string::npos) {
+                const std::string entity = text.substr(i + 1, semi - i - 1);
+                if (!entity.empty() && entity[0] == '#') {
+                    const bool hex = entity.size() > 1 && (entity[1] == 'x' || entity[1] == 'X');
+                    unsigned int cp = 0;
+                    try {
+                        cp = hex ? std::stoul(entity.substr(2), nullptr, 16)
+                                 : std::stoul(entity.substr(1), nullptr, 10);
+                    } catch (...) { cp = 0; }
+                    if (cp) out += DecimalToUtf8(cp);
+                } else if (entity == "amp") out += '&';
+                else if (entity == "lt") out += '<';
+                else if (entity == "gt") out += '>';
+                else if (entity == "quot") out += '"';
+                else if (entity == "apos") out += '\'';
+                i = semi + 1;
+                continue;
+            }
+        }
+        out.push_back(text[i++]);
+    }
+    return out;
+}
+
+static double AttrDouble(const std::string& tag, const char* name)
+{
+    const std::string needle = std::string(name) + "=\"";
+    const std::size_t p = tag.find(needle);
+    if (p == std::string::npos) return 0.0;
+    const std::size_t start = p + needle.size();
+    const std::size_t end = tag.find('"', start);
+    if (end == std::string::npos) return 0.0;
+    try { return std::stod(tag.substr(start, end - start)); } catch (...) { return 0.0; }
+}
+
+static std::string AttrString(const std::string& tag, const char* name)
+{
+    const std::string needle = std::string(name) + "=\"";
+    const std::size_t p = tag.find(needle);
+    if (p == std::string::npos) return "";
+    const std::size_t start = p + needle.size();
+    const std::size_t end = tag.find('"', start);
+    if (end == std::string::npos) return "";
+    return tag.substr(start, end - start);
+}
+
+std::string PdfService::ExtractTextLayer(int id, uint32_t pageIndex)
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    DocEntry* entry = nullptr;
+    for (auto& e : m_docs) {
+        if (e.id == id) { entry = &e; break; }
+    }
+    if (!entry || pageIndex >= entry->pageCount) return "";
+
+    std::string output;
+    const std::string args = "draw -F stext -o - "
+        + pb::WideToUtf8(pb::QuoteCmdArg(pb::Utf8ToWide(entry->filePath)).c_str())
+        + " " + std::to_string(pageIndex + 1);
+    if (!RunMutool(args, output, 30000) || output.empty()) return "";
+
+    json result;
+    result["page"] = pageIndex;
+    double pageW = 0.0, pageH = 0.0;
+    const std::size_t pageTag = output.find("<page");
+    if (pageTag != std::string::npos) {
+        const std::size_t end = output.find('>', pageTag);
+        const std::string tag = output.substr(pageTag, end == std::string::npos ? std::string::npos : end - pageTag + 1);
+        pageW = AttrDouble(tag, "width");
+        pageH = AttrDouble(tag, "height");
+    }
+    if (pageW <= 0.0 && pageIndex < entry->pageBounds.size()) pageW = entry->pageBounds[pageIndex].width;
+    if (pageH <= 0.0 && pageIndex < entry->pageBounds.size()) pageH = entry->pageBounds[pageIndex].height;
+    result["width"] = pageW;
+    result["height"] = pageH;
+    result["chars"] = json::array();
+
+    std::size_t pos = 0;
+    int count = 0;
+    while (count < 20000) {
+        const std::size_t start = output.find("<char", pos);
+        if (start == std::string::npos) break;
+        const std::size_t end = output.find("/>", start);
+        if (end == std::string::npos) break;
+        const std::string tag = output.substr(start, end - start + 2);
+        pos = end + 2;
+        const std::string quad = AttrString(tag, "quad");
+        if (quad.empty()) continue;
+        double q[8] = {};
+        std::istringstream qs(quad);
+        bool ok = true;
+        for (double& v : q) { if (!(qs >> v)) { ok = false; break; } }
+        if (!ok) continue;
+        const double x = q[0], y = q[1];
+        const double w = q[2] - q[0];
+        const double h = q[5] - q[1];
+        if (w <= 0.0 || h <= 0.0) continue;
+        const std::string raw = AttrString(tag, "c");
+        if (raw.empty()) continue;
+        result["chars"].push_back({
+            {"x", x}, {"y", y}, {"w", w}, {"h", h}, {"c", DecodeXmlText(raw)},
+        });
+        count += 1;
+    }
+    return result.dump();
+}
+
 // ── Close PDF ────────────────────────────────────────────────────────
 
 void PdfService::Close(int id)
@@ -472,6 +605,29 @@ void RegisterPdfHandlers(BridgeServer* bridge, PdfService* pdf, pb::JobService* 
             const pb::JobId jid = jobs->Submit(
                 "pdf:extractText",
                 [pdf, id, out](pb::JobContext&) { *out = pdf->ExtractText(id); },
+                nullptr,
+                [out, respond, reject](const pb::JobResult& r) {
+                    if (!r.ok) { reject(r.cancelled ? "cancelled" : r.error); return; }
+                    if (out->empty()) { respond(json(nullptr)); return; }
+                    try { respond(json::parse(*out)); }
+                    catch (...) { reject("parse_error"); }
+                });
+            if (jid == pb::kInvalidJobId) reject("job_service_unavailable");
+        });
+
+    bridge->RegisterAsyncMethod("pdf:textLayer",
+        [pdf, jobs](const json& p,
+                    std::function<void(json)> respond,
+                    std::function<void(std::string)> reject) {
+            const int id = p.value("id", 0);
+            const uint32_t pageNum = p.value("pageNum", 0u);
+            if (id <= 0 || !jobs) { reject("invalid_params"); return; }
+            auto out = std::make_shared<std::string>();
+            const pb::JobId jid = jobs->Submit(
+                "pdf:textLayer",
+                [pdf, id, pageNum, out](pb::JobContext&) {
+                    *out = pdf->ExtractTextLayer(id, pageNum);
+                },
                 nullptr,
                 [out, respond, reject](const pb::JobResult& r) {
                     if (!r.ok) { reject(r.cancelled ? "cancelled" : r.error); return; }

@@ -7,6 +7,7 @@ import { isTypingTarget } from '../../utils/keyboard'
 let savedZoom = 1.0
 
 interface PdfRendererProps { book: Book; content: Uint8Array; bookId: number }
+interface PdfTextLayer { page: number; width: number; height: number; chars: Array<{ x: number; y: number; w: number; h: number; c: string }> }
 
 export function PdfRenderer({ book, content: _content, bookId }: PdfRendererProps) {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -16,6 +17,7 @@ export function PdfRenderer({ book, content: _content, bookId }: PdfRendererProp
   const [pageImages, setPageImages] = useState<Map<number, string>>(new Map())
   const [pdfAnnotations, setPdfAnnotations] = useState<PbAnnotation[]>([])
   const [dragRect, setDragRect] = useState<{ page: number; x0: number; y0: number; x1: number; y1: number } | null>(null)
+  const [textLayers, setTextLayers] = useState<Map<number, PdfTextLayer>>(new Map())
   const [fitScale, setFitScale] = useState(1)
   const [zoom, _setZoom] = useState(savedZoom)
   const docIdRef = useRef<number | null>(null)
@@ -46,6 +48,22 @@ export function PdfRenderer({ book, content: _content, bookId }: PdfRendererProp
   }, [bookId])
 
   useEffect(() => { loadPdfAnnotations() }, [loadPdfAnnotations])
+
+  // PB-003: fetch selectable character boxes for current page +/- 1.
+  useEffect(() => {
+    const docId = docIdRef.current
+    if (!docId || totalPages <= 0) return
+    const pages = [visiblePage - 1, visiblePage, visiblePage + 1].filter((p) => p >= 1 && p <= totalPages)
+    for (const pageNum of pages) {
+      if (textLayers.has(pageNum)) continue
+      window.electronAPI.pdfTextLayer(docId, pageNum - 1)
+        .then((layer) => {
+          if (!layer) return
+          setTextLayers((prev) => { if (prev.has(pageNum)) return prev; const next = new Map(prev); next.set(pageNum, layer); return next })
+        })
+        .catch(() => {})
+    }
+  }, [visiblePage, totalPages, textLayers])
 
   const finishDrag = useCallback((page: number, x0: number, y0: number, x1: number, y1: number) => {
     const x = Math.max(0, Math.min(x0, x1))
@@ -291,6 +309,7 @@ export function PdfRenderer({ book, content: _content, bookId }: PdfRendererProp
               }}
               onMouseUp={(e) => {
                 if (!dragRect || dragRect.page !== pageNum) return
+                if (window.getSelection()?.toString().trim()) { setDragRect(null); return }
                 const r = e.currentTarget.getBoundingClientRect()
                 finishDrag(pageNum, dragRect.x0, dragRect.y0, (e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height)
                 setDragRect(null)
@@ -317,6 +336,31 @@ export function PdfRenderer({ book, content: _content, bookId }: PdfRendererProp
                   </div>
                 )
               })}
+              {(() => {
+                const layer = textLayers.get(pageNum)
+                if (!layer || layer.chars.length === 0) return null
+                return (
+                  <div className="absolute inset-0 select-text" style={{ zIndex: 2 }} data-pdf-text-layer={pageNum}>
+                    {layer.chars.map((ch, idx) => (
+                      <span key={idx}
+                        style={{
+                          position: 'absolute',
+                          left: `${(ch.x / layer.width) * 100}%`,
+                          top: `${(ch.y / layer.height) * 100}%`,
+                          width: `${(ch.w / layer.width) * 100}%`,
+                          height: `${(ch.h / layer.height) * 100}%`,
+                          fontSize: `${(ch.h / layer.height) * height}px`,
+                          lineHeight: 1,
+                          color: 'transparent',
+                          whiteSpace: 'pre',
+                          userSelect: 'text',
+                          cursor: 'text',
+                        }}
+                      >{ch.c}</span>
+                    ))}
+                  </div>
+                )
+              })()}
               {dragRect && dragRect.page === pageNum && (
                 <div className="absolute pointer-events-none rounded-sm" style={{ left: `${Math.min(dragRect.x0, dragRect.x1) * 100}%`, top: `${Math.min(dragRect.y0, dragRect.y1) * 100}%`, width: `${Math.abs(dragRect.x1 - dragRect.x0) * 100}%`, height: `${Math.abs(dragRect.y1 - dragRect.y0) * 100}%`, background: 'rgba(96,205,255,0.35)', border: '1px solid rgba(96,205,255,0.9)' }} />
               )}

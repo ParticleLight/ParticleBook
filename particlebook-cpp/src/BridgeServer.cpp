@@ -401,6 +401,7 @@ std::string BridgeServer::GenerateBridgeScript()
     onUpdateDownloadProgress: function(cb) { return onEvent('app:downloadProgress', cb); },
 
     pdfOpen: function(path)    { return invoke('pdf:open', {filePath:path}); },
+    pdfTextLayer: function(id,pageNum) { return invoke('pdf:textLayer', {id:id, pageNum:pageNum||0}); },
     pdfRenderPage: function(id,p,w,h) { return invoke('pdf:renderPage', {id:id, pageNum:p, width:w, height:h}); },
     pdfExtractText: function(id) { return invoke('pdf:extractText', {id:id}); },
     pdfClose: function(id)    { return invoke('pdf:close', {id:id}); },

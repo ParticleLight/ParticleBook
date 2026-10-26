@@ -296,6 +296,7 @@ interface ElectronAPI {
 
   // PDF
   pdfOpen: (filePath: string) => Promise<{ id: number; pageCount: number; pageBounds: { width: number; height: number }[] } | null>
+  pdfTextLayer: (id: number, pageNum: number) => Promise<{ page: number; width: number; height: number; chars: Array<{ x: number; y: number; w: number; h: number; c: string }> } | null>
   pdfRenderPage: (id: number, pageNum: number, width: number, height: number) => Promise<string | null>
   pdfExtractText: (id: number) => Promise<PbPdfText | null>
   pdfClose: (id: number) => Promise<void>
