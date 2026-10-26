@@ -458,6 +458,106 @@ static json ReadFileForRenderer(ContentCache* cache, const std::string& path)
 }
 
 
+static json ImportPaths(DatabaseService* db, const json& paths, pb::JobContext& job)
+{
+    json result = json::array();
+
+    char debugBuf[1024];
+    snprintf(debugBuf, sizeof(debugBuf),
+        "book:import called, paths is_array=%d, size=%zu",
+        paths.is_array() ? 1 : 0, paths.is_array() ? paths.size() : 0);
+    DebugLog(debugBuf);
+
+    if (!paths.is_array()) return result;
+
+    for (const auto& pathJson : paths) {
+        if (job.IsCancelled()) break;
+        try {
+            std::string path = pathJson.get<std::string>();
+
+            snprintf(debugBuf, sizeof(debugBuf), "book:import processing: %s", path.c_str());
+            DebugLog(debugBuf);
+
+            // Check for existing
+            json existing = db->GetBookByPath(path);
+            if (!existing.is_null()) {
+                DebugLog("book:import: already exists");
+                result.push_back(existing);
+                continue;
+            }
+
+            std::string format = DetectFormat(path);
+            snprintf(debugBuf, sizeof(debugBuf), "book:import: format=%s", format.c_str());
+            DebugLog(debugBuf);
+            if (format.empty()) { DebugLog("book:import: unknown format, skip"); continue; }
+
+            int64_t fileSize = GetFileSizeSafe(path);
+            snprintf(debugBuf, sizeof(debugBuf), "book:import: fileSize=%lld", (long long)fileSize);
+            DebugLog(debugBuf);
+            if (fileSize <= 0) { DebugLog("book:import: file_size failed"); continue; }
+
+            // Extract rich metadata (may crash on corrupt files)
+            DebugLog("book:import: extracting metadata");
+            LibraryService lib;
+            ExtractedMetadata em;
+            if (format == "epub") {
+                DebugLog("book:import: calling ExtractEpubMetadata");
+                lib.ExtractEpubMetadata(path, em);
+                snprintf(debugBuf, sizeof(debugBuf),
+                    "book:import: epub metadata done, title=%s coverFile=%s",
+                    em.title.c_str(), em.coverFile.c_str());
+                DebugLog(debugBuf);
+                if (!em.coverFile.empty()) {
+                    DebugLog("book:import: extracting cover");
+                    auto coverPath = lib.ExtractEpubCover(path, em.coverFile);
+                    if (!coverPath.empty()) em.coverPath = coverPath;
+                    DebugLog("book:import: cover done");
+                } else {
+                    DebugLog("book:import: NO COVER FOUND in OPF");
+                }
+            } else if (format == "pdf") {
+                lib.ExtractPdfMetadata(path, em);
+                DebugLog("book:import: rendering PDF cover");
+                em.coverPath = lib.ExtractPdfCover(path);
+                DebugLog("book:import: PDF cover done");
+            } else if (format == "cbz" || format == "cbr") {
+                DebugLog("book:import: rendering CBZ/CBR cover");
+                em.coverPath = lib.ExtractPdfCover(path);
+                DebugLog("book:import: CBZ/CBR cover done");
+            } else if (format == "fb2") {
+                lib.ExtractFb2Metadata(path, em);
+            }
+            DebugLog("book:import: metadata extraction complete");
+
+            std::string title = em.title.empty() ? GetFileName(path) : em.title;
+            json book;
+            book["title"] = title;
+            book["author"] = em.author.empty() ? nullptr : json(em.author);
+            book["format"] = format;
+            book["file_path"] = path;
+            book["file_size"] = fileSize;
+            book["description"] = em.description.empty() ? nullptr : json(em.description);
+            book["publisher"] = em.publisher.empty() ? nullptr : json(em.publisher);
+            book["cover_path"] = em.coverPath.empty() ? nullptr : json(em.coverPath);
+            book["language"] = em.language.empty() ? nullptr : json(em.language);
+            book["isbn"] = em.isbn.empty() ? nullptr : json(em.isbn);
+
+            auto inserted = db->InsertBook(book);
+            snprintf(debugBuf, sizeof(debugBuf), "book:import: inserted id=%d", inserted.value("id", -1));
+            DebugLog(debugBuf);
+            result.push_back(inserted);
+        } catch (const std::exception& e) {
+            snprintf(debugBuf, sizeof(debugBuf), "book:import: exception: %s", e.what());
+            DebugLog(debugBuf);
+        } catch (...) {
+            DebugLog("book:import: unknown crash, skipping file");
+        }
+    }
+    snprintf(debugBuf, sizeof(debugBuf), "book:import: returning %zu books", result.size());
+    DebugLog(debugBuf);
+    return result;
+}
+
 void RegisterFileHandlers(BridgeServer* bridge, DatabaseService* db, ContentCache* cache, pb::JobService* jobs)
 {
     // ── dialog:openFile ───────────────────────────────────────
@@ -494,107 +594,20 @@ void RegisterFileHandlers(BridgeServer* bridge, DatabaseService* db, ContentCach
             if (id == pb::kInvalidJobId) reject("job_service_unavailable");
         });
 
-    // ── book:import ────────────────────────────────────────────
-    bridge->RegisterMethod("book:import", [db, bridge](const json& p) -> json {
-        json result = json::array();
-        auto paths = p["paths"];
-
-        char debugBuf[1024];
-        snprintf(debugBuf, sizeof(debugBuf),
-            "book:import called, paths is_array=%d, size=%zu",
-            paths.is_array() ? 1 : 0, paths.is_array() ? paths.size() : 0);
-        DebugLog(debugBuf);
-
-        if (!paths.is_array()) return result;
-
-        for (const auto& pathJson : paths) {
-            try {
-                std::string path = pathJson.get<std::string>();
-
-                snprintf(debugBuf, sizeof(debugBuf), "book:import processing: %s", path.c_str());
-                DebugLog(debugBuf);
-
-                // Check for existing
-                json existing = db->GetBookByPath(path);
-                if (!existing.is_null()) {
-                    DebugLog("book:import: already exists");
-                    result.push_back(existing);
-                    continue;
-                }
-
-                std::string format = DetectFormat(path);
-                snprintf(debugBuf, sizeof(debugBuf), "book:import: format=%s", format.c_str());
-                DebugLog(debugBuf);
-                if (format.empty()) { DebugLog("book:import: unknown format, skip"); continue; }
-
-                int64_t fileSize = GetFileSizeSafe(path);
-                snprintf(debugBuf, sizeof(debugBuf), "book:import: fileSize=%lld", (long long)fileSize);
-                DebugLog(debugBuf);
-                if (fileSize <= 0) { DebugLog("book:import: file_size failed"); continue; }
-
-                // Extract rich metadata (may crash on corrupt files)
-                DebugLog("book:import: extracting metadata");
-                LibraryService lib;
-                ExtractedMetadata em;
-                if (format == "epub") {
-                    DebugLog("book:import: calling ExtractEpubMetadata");
-                    lib.ExtractEpubMetadata(path, em);
-                    snprintf(debugBuf, sizeof(debugBuf),
-                        "book:import: epub metadata done, title=%s coverFile=%s",
-                        em.title.c_str(), em.coverFile.c_str());
-                    DebugLog(debugBuf);
-                    if (!em.coverFile.empty()) {
-                        DebugLog("book:import: extracting cover");
-                        auto coverPath = lib.ExtractEpubCover(path, em.coverFile);
-                        if (!coverPath.empty()) em.coverPath = coverPath;
-                        DebugLog("book:import: cover done");
-                    } else {
-                        DebugLog("book:import: NO COVER FOUND in OPF");
-                    }
-                } else if (format == "pdf") {
-                    lib.ExtractPdfMetadata(path, em);
-                    DebugLog("book:import: rendering PDF cover");
-                    em.coverPath = lib.ExtractPdfCover(path);
-                    DebugLog("book:import: PDF cover done");
-                } else if (format == "cbz" || format == "cbr") {
-                    DebugLog("book:import: rendering CBZ/CBR cover");
-                    em.coverPath = lib.ExtractPdfCover(path);
-                    DebugLog("book:import: CBZ/CBR cover done");
-                } else if (format == "fb2") {
-                    lib.ExtractFb2Metadata(path, em);
-                }
-                DebugLog("book:import: metadata extraction complete");
-
-                std::string title = em.title.empty() ? GetFileName(path) : em.title;
-                json book;
-                book["title"] = title;
-                book["author"] = em.author.empty() ? nullptr : json(em.author);
-                book["format"] = format;
-                book["file_path"] = path;
-                book["file_size"] = fileSize;
-                book["description"] = em.description.empty() ? nullptr : json(em.description);
-                book["publisher"] = em.publisher.empty() ? nullptr : json(em.publisher);
-                book["cover_path"] = em.coverPath.empty() ? nullptr : json(em.coverPath);
-                book["language"] = em.language.empty() ? nullptr : json(em.language);
-                book["isbn"] = em.isbn.empty() ? nullptr : json(em.isbn);
-
-                auto inserted = db->InsertBook(book);
-                snprintf(debugBuf, sizeof(debugBuf), "book:import: inserted id=%d", inserted.value("id", -1));
-                DebugLog(debugBuf);
-                result.push_back(inserted);
-            } catch (const std::exception& e) {
-                snprintf(debugBuf, sizeof(debugBuf), "book:import: exception: %s", e.what());
-                DebugLog(debugBuf);
-            } catch (...) {
-                DebugLog("book:import: unknown crash, skipping file");
-            }
-        }
-        snprintf(debugBuf, sizeof(debugBuf), "book:import: returning %zu books", result.size());
-        DebugLog(debugBuf);
-        return result;
-    });
-
-
+    bridge->RegisterAsyncMethod("book:import",
+        [db, jobs](const json& p, std::function<void(json)> respond, std::function<void(std::string)> reject) {
+            if (!jobs) { reject("job_service_unavailable"); return; }
+            const json paths = p.value("paths", json::array());
+            auto out = std::make_shared<json>(json::array());
+            const pb::JobId id = jobs->Submit("book:import",
+                [db, paths, out](pb::JobContext& job) { *out = ImportPaths(db, paths, job); },
+                nullptr,
+                [out, respond, reject](const pb::JobResult& r) {
+                    if (!r.ok) { reject(r.cancelled ? "cancelled" : r.error); return; }
+                    respond(*out);
+                });
+            if (id == pb::kInvalidJobId) reject("job_service_unavailable");
+        });
 
     // ── book:cover ─────────────────────────────────────────────
     bridge->RegisterMethod("book:cover", [db](const json& p) -> json {
