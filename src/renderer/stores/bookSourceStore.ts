@@ -22,6 +22,9 @@ interface BookSourceState {
   updateSource: (id: number, updates: Partial<PbBookSourceInput>) => Promise<boolean>
   insertSource: (source: PbBookSourceInput) => Promise<PbBookSource | null>
   importSourcesFromJson: (raw: string) => Promise<BookSourceImportSummary>
+  // PB-013-B：批量操作（逐条调用 bridge，返回成功/失败计数）
+  setEnabledMany: (ids: number[], enabled: boolean) => Promise<{ ok: number; failed: number }>
+  deleteMany: (ids: number[]) => Promise<{ ok: number; failed: number }>
   search: (keyword: string, page?: number) => Promise<void>
   clearSearch: () => void
   // The C++ side starts the download on a worker and returns immediately;
@@ -201,6 +204,41 @@ export const useBookSourceStore = create<BookSourceState>((set, get) => ({
       console.error('insertBookSource failed:', e)
       return null
     }
+  },
+
+  // ── PB-013-B：批量启用/禁用、批量删除 ───────────────────────────
+  // updateBookSource(id, { enabled }) 是幂等的：已经是目标状态再写一遍也不会出错，
+  // 比逐条 toggle 安全（toggle 会把「本来就想禁用」的源又打开）。
+  setEnabledMany: async (ids, enabled) => {
+    let ok = 0
+    let failed = 0
+    for (const id of ids) {
+      try {
+        await window.electronAPI.updateBookSource(id, { enabled })
+        ok++
+      } catch (e) {
+        console.error('updateBookSource(enabled) failed:', e)
+        failed++
+      }
+    }
+    if (ok > 0) await get().loadSources()
+    return { ok, failed }
+  },
+
+  deleteMany: async (ids) => {
+    let ok = 0
+    let failed = 0
+    for (const id of ids) {
+      try {
+        await window.electronAPI.deleteBookSource(id)
+        ok++
+      } catch (e) {
+        console.error('deleteBookSource failed:', e)
+        failed++
+      }
+    }
+    if (ok > 0) await get().loadSources()
+    return { ok, failed }
   },
 
   // 从任意来源拿到的 JSON 文本 → 批量导入；按 bookSourceUrl 去重（与现有列表比较，

@@ -315,8 +315,8 @@ export const enSettings: Record<string, string> = {
   '导入失败：{{error}}': 'Import failed: {{error}}',
   '文件「{{name}}」不是合法的书源 JSON': 'File "{{name}}" is not valid book-source JSON',
   '请填写书源 JSON 的 URL': 'Enter the URL of the book-source JSON',
-  '从 URL 拉取失败：{{error}}（应用安全策略只允许同源地址；外部地址请先用浏览器下载，再用「从文件导入」或「粘贴 JSON」）':
-    'Fetching from the URL failed: {{error}} (app security policy only allows same-origin URLs; download external files in a browser first, then use "From file" or "Paste JSON")',
+  '从 URL 拉取失败：{{error}}（外部地址需要 https:// 且可被应用直接访问；仍失败时请下载后用「从文件导入」或「粘贴 JSON」）':
+    'Fetching from the URL failed: {{error}} (external URLs must use https:// and be reachable; if it still fails, download the file and use "From file" or "Paste JSON")',
   '剪贴板里没有文本': 'The clipboard has no text',
   '剪贴板读取失败（可能没有权限，请改用「粘贴 JSON」）': 'Could not read the clipboard (permission denied?) — use "Paste JSON" instead',
   '{{field}} 不是合法 JSON': '{{field}} is not valid JSON',
@@ -324,4 +324,22 @@ export const enSettings: Record<string, string> = {
   '没有改动': 'No changes',
   '请输入测试关键词': 'Enter a test keyword',
   '测试失败：{{error}}': 'Test failed: {{error}}',
+
+  // 书源管理：分组筛选 / 排序 / 批量（PB-013-B）
+  '筛选分组': 'Filter by group',
+  '全部分组': 'All groups',
+  '排序方式': 'Sort by',
+  '按名称': 'Name',
+  '按分组': 'Group',
+  '按添加时间': 'Date added',
+  '全选': 'Select all',
+  '已选择 {{count}} 个': '{{count}} selected',
+  '批量启用': 'Enable selected',
+  '批量禁用': 'Disable selected',
+  '批量删除': 'Delete selected',
+  '批量操作完成：成功 {{ok}} · 失败 {{failed}}': 'Bulk operation finished: {{ok}} succeeded · {{failed}} failed',
+  '当前分组没有书源': 'No book sources in this group',
+  '选择书源': 'Select book source',
+  '删除选中的 {{count}} 个书源？': 'Delete the {{count}} selected book source(s)?',
+  '删除后不能再用它们搜索或下载。': 'They can no longer be used for searching or downloading.',
 }

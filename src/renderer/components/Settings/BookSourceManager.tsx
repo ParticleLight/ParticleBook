@@ -91,6 +91,8 @@ export function BookSourceManager() {
   const loadSources = useBookSourceStore((s) => s.loadSources)
   const updateSource = useBookSourceStore((s) => s.updateSource)
   const importSourcesFromJson = useBookSourceStore((s) => s.importSourcesFromJson)
+  const setEnabledMany = useBookSourceStore((s) => s.setEnabledMany)
+  const deleteMany = useBookSourceStore((s) => s.deleteMany)
 
   const [importOpen, setImportOpen] = useState(false)
   const [importTab, setImportTab] = useState<ImportTab>('paste')
@@ -121,9 +123,109 @@ export function BookSourceManager() {
   const [confirmClear, setConfirmClear] = useState(false)
   const [busyIds, setBusyIds] = useState<number[]>([])
 
+  // PB-013-B：分组筛选 / 排序 / 批量选择
+  const [groupFilter, setGroupFilter] = useState('__all__')
+  const [sortBy, setSortBy] = useState<'name' | 'group' | 'added'>('name')
+  const [selectedIds, setSelectedIds] = useState<number[]>([])
+  const [bulkBusy, setBulkBusy] = useState(false)
+  const [confirmBulkDelete, setConfirmBulkDelete] = useState(false)
+  const [bulkNotice, setBulkNotice] = useState('')
+
   useEffect(() => { void loadSources() }, [loadSources])
 
   const enabledCount = useMemo(() => sources.filter((s) => s.enabled !== false).length, [sources])
+
+  // 现有分组（去重、按名称排序），供筛选下拉使用
+  const groupOptions = useMemo(() => {
+    const set = new Set<string>()
+    for (const source of sources) {
+      const group = asText(sourceRecord(source).bookSourceGroup).trim()
+      if (group) set.add(group)
+    }
+    return Array.from(set).sort((a, b) => a.localeCompare(b, 'zh-Hans-CN'))
+  }, [sources])
+
+  // 筛选 + 排序后的列表（筛选按分组；排序支持名称/分组/添加时间）
+  const visibleSources = useMemo(() => {
+    const filtered = groupFilter === '__all__'
+      ? sources.slice()
+      : sources.filter((source) => asText(sourceRecord(source).bookSourceGroup).trim() === groupFilter)
+    const nameOf = (source: BookSourceInfo) => asText(sourceRecord(source).bookSourceName) || asText(sourceRecord(source).bookSourceUrl)
+    filtered.sort((a, b) => {
+      if (sortBy === 'group') {
+        const groupCompare = asText(sourceRecord(a).bookSourceGroup).localeCompare(asText(sourceRecord(b).bookSourceGroup), 'zh-Hans-CN')
+        if (groupCompare !== 0) return groupCompare
+        return nameOf(a).localeCompare(nameOf(b), 'zh-Hans-CN')
+      }
+      if (sortBy === 'added') {
+        // C++ 数据模型里只有 added_at（没有 updated_at），这里按添加时间倒序
+        return asText(sourceRecord(b).added_at).localeCompare(asText(sourceRecord(a).added_at))
+      }
+      return nameOf(a).localeCompare(nameOf(b), 'zh-Hans-CN')
+    })
+    return filtered
+  }, [sources, groupFilter, sortBy])
+
+  // 数据变化后裁掉已不存在的选中项（删除/导入后不留幽灵选择）
+  useEffect(() => {
+    setSelectedIds((prev) => {
+      const alive = new Set(sources.map((s) => s.id))
+      const next = prev.filter((id) => alive.has(id))
+      return next.length === prev.length ? prev : next
+    })
+  }, [sources])
+
+  const visibleSelectedIds = useMemo(
+    () => visibleSources.filter((s) => selectedIds.includes(s.id)).map((s) => s.id),
+    [visibleSources, selectedIds],
+  )
+  const allVisibleSelected = visibleSources.length > 0 && visibleSelectedIds.length === visibleSources.length
+
+  const toggleSelect = useCallback((id: number) => {
+    setSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
+  }, [])
+
+  const toggleSelectAll = useCallback(() => {
+    setSelectedIds((prev) => {
+      const visibleIds = visibleSources.map((s) => s.id)
+      if (visibleIds.every((id) => prev.includes(id))) {
+        return prev.filter((id) => !visibleIds.includes(id))
+      }
+      const merged = new Set(prev)
+      for (const id of visibleIds) merged.add(id)
+      return Array.from(merged)
+    })
+  }, [visibleSources])
+
+  const bulkSetEnabled = useCallback(async (enabled: boolean) => {
+    const ids = visibleSelectedIds.length > 0 ? visibleSelectedIds : []
+    if (ids.length === 0) return
+    setBulkBusy(true)
+    setBulkNotice('')
+    try {
+      const result = await setEnabledMany(ids, enabled)
+      setBulkNotice(t('批量操作完成：成功 {{ok}} · 失败 {{failed}}', { ok: result.ok, failed: result.failed }))
+      setSelectedIds([])
+    } finally {
+      setBulkBusy(false)
+    }
+  }, [setEnabledMany, t, visibleSelectedIds])
+
+  const bulkDelete = useCallback(async () => {
+    const ids = visibleSelectedIds.slice()
+    setConfirmBulkDelete(false)
+    if (ids.length === 0) return
+    setBulkBusy(true)
+    setBulkNotice('')
+    try {
+      const result = await deleteMany(ids)
+      setBulkNotice(t('批量操作完成：成功 {{ok}} · 失败 {{failed}}', { ok: result.ok, failed: result.failed }))
+      setSelectedIds([])
+      setRowError({})   // 删掉的行的错误提示没有意义了
+    } finally {
+      setBulkBusy(false)
+    }
+  }, [deleteMany, t, visibleSelectedIds])
 
   const setRowBusy = useCallback((id: number, busy: boolean) => {
     setBusyIds((prev) => (busy ? [...prev, id] : prev.filter((x) => x !== id)))
@@ -237,7 +339,7 @@ export function BookSourceManager() {
     } catch (e) {
       // CSP（index.html: connect-src 'self' ...）只允许同源/白名单地址；外部
       // URL 在渲染层会被浏览器直接拦掉，所以这里给出可操作的替代路径。
-      setImportError(t('从 URL 拉取失败：{{error}}（应用安全策略只允许同源地址；外部地址请先用浏览器下载，再用「从文件导入」或「粘贴 JSON」）', { error: errorText(e) }))
+      setImportError(t('从 URL 拉取失败：{{error}}（外部地址需要 https:// 且可被应用直接访问；仍失败时请下载后用「从文件导入」或「粘贴 JSON」）', { error: errorText(e) }))
     } finally {
       setImporting(false)
     }
@@ -498,13 +600,66 @@ export function BookSourceManager() {
           <p className="text-sm" style={{ color: 'var(--text-tertiary)' }} data-source-empty="1">{t('还没有书源，点「导入书源」开始')}</p>
         ) : (
           <div>
-            {sources.map((source) => {
+            {/* PB-013-B：分组筛选 / 排序 / 批量操作 */}
+            <div className="flex items-center gap-2 flex-wrap pb-2 mb-1" style={{ borderBottom: '1px solid var(--border)' }}>
+              <select
+                value={groupFilter}
+                onChange={(e) => { setGroupFilter(e.target.value); setSelectedIds([]) }}
+                className="text-xs rounded-md px-2 py-1"
+                style={inputStyle}
+                aria-label={t('筛选分组')}
+                data-source-group-filter="1"
+              >
+                <option value="__all__">{t('全部分组')}</option>
+                {groupOptions.map((option) => (
+                  <option key={option} value={option}>{option}</option>
+                ))}
+              </select>
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value as 'name' | 'group' | 'added')}
+                className="text-xs rounded-md px-2 py-1"
+                style={inputStyle}
+                aria-label={t('排序方式')}
+                data-source-sort="1"
+              >
+                <option value="name">{t('按名称')}</option>
+                <option value="group">{t('按分组')}</option>
+                <option value="added">{t('按添加时间')}</option>
+              </select>
+              <label className="flex items-center gap-1 text-xs cursor-pointer" style={{ color: 'var(--text-secondary)' }}>
+                <input type="checkbox" checked={allVisibleSelected} onChange={toggleSelectAll} data-source-select-all="1" />
+                {t('全选')}
+              </label>
+              <span className="text-xs" style={{ color: 'var(--text-tertiary)' }} data-source-selected-count={visibleSelectedIds.length}>
+                {t('已选择 {{count}} 个', { count: visibleSelectedIds.length })}
+              </span>
+              <div className="flex items-center gap-1 ml-auto">
+                <button onClick={() => { void bulkSetEnabled(true) }} disabled={bulkBusy || visibleSelectedIds.length === 0} className="btn-secondary text-xs" data-source-bulk-enable="1">{t('批量启用')}</button>
+                <button onClick={() => { void bulkSetEnabled(false) }} disabled={bulkBusy || visibleSelectedIds.length === 0} className="btn-secondary text-xs" data-source-bulk-disable="1">{t('批量禁用')}</button>
+                <button onClick={() => setConfirmBulkDelete(true)} disabled={bulkBusy || visibleSelectedIds.length === 0} className="btn-secondary text-xs" data-source-bulk-delete="1">{t('批量删除')}</button>
+              </div>
+            </div>
+            {bulkNotice && (
+              <p className="text-xs pb-1" style={{ color: 'var(--text-secondary)' }} data-source-bulk-notice="1">{bulkNotice}</p>
+            )}
+            {visibleSources.length === 0 ? (
+              <p className="text-sm py-3" style={{ color: 'var(--text-tertiary)' }} data-source-filter-empty="1">{t('当前分组没有书源')}</p>
+            ) : visibleSources.map((source) => {
               const group = asText(sourceRecord(source).bookSourceGroup)
               const url = asText(sourceRecord(source).bookSourceUrl)
               const disabled = busyIds.includes(source.id)
               const unknown = unknownFieldCount(source)
               return (
                 <div key={source.id} className="py-2.5 flex items-start gap-3 settings-row" style={{ alignItems: 'flex-start' }} data-source-row={source.id}>
+                  <input
+                    type="checkbox"
+                    checked={selectedIds.includes(source.id)}
+                    onChange={() => toggleSelect(source.id)}
+                    aria-label={t('选择书源')}
+                    data-source-select={source.id}
+                    style={{ marginTop: 4 }}
+                  />
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="text-sm font-medium truncate" style={{ color: 'var(--text-primary)' }} data-source-name={source.id}>
@@ -551,6 +706,22 @@ export function BookSourceManager() {
             <div className="flex justify-end gap-2">
               <button onClick={() => setConfirmDelete(null)} className="btn-secondary text-xs">{t('取消')}</button>
               <button onClick={() => { void remove(confirmDelete) }} className="btn-primary text-xs" data-source-delete-confirm="1">{t('删除')}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 批量删除确认 */}
+      {confirmBulkDelete && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center" style={overlayStyle} onClick={() => setConfirmBulkDelete(false)}>
+          <div className="relative w-[440px] max-w-[90vw] rounded-xl p-5" style={panelStyle} onClick={(e) => e.stopPropagation()}>
+            <p className="text-sm mb-3" style={{ color: 'var(--text-primary)' }}>
+              {t('删除选中的 {{count}} 个书源？', { count: visibleSelectedIds.length })}
+            </p>
+            <p className="text-xs mb-4" style={{ color: 'var(--text-tertiary)' }}>{t('删除后不能再用它们搜索或下载。')}</p>
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setConfirmBulkDelete(false)} className="btn-secondary text-xs">{t('取消')}</button>
+              <button onClick={() => { void bulkDelete() }} className="btn-primary text-xs" data-source-bulk-delete-confirm="1">{t('删除')}</button>
             </div>
           </div>
         </div>

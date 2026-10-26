@@ -3,7 +3,10 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self' blob: about: file:; script-src 'self' 'unsafe-inline' blob: about:; style-src 'self' 'unsafe-inline' blob: about: file:; font-src 'self' blob: data: about: file:; img-src 'self' data: blob: about: file:; connect-src 'self' https://unpkg.com blob: file:; worker-src 'self' blob:; frame-src 'self' blob: data: about: book-file:;" />
+  <!-- PB-013-B：connect-src 放宽到 https: —— 书源管理需要从外部 https URL 拉取
+       Legado 书源 JSON（此前只允许 self/unpkg，外部地址会被 CSP 拦掉）。
+       仍然禁掉明文 http: 与任意协议；script/style/img 等其它限制保持不变。 -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' blob: about: file:; script-src 'self' 'unsafe-inline' blob: about:; style-src 'self' 'unsafe-inline' blob: about: file:; font-src 'self' blob: data: about: file:; img-src 'self' data: blob: about: file:; connect-src 'self' https: blob: file:; worker-src 'self' blob:; frame-src 'self' blob: data: about: book-file:;" />
   <title>ParticleBook</title>
 </head>
 <body>
