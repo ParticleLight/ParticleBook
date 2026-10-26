@@ -12,6 +12,10 @@
 #include <ctime>
 
 #include "tinyxml2.h"
+#include "utils/base64.h"
+
+#include <cstring>
+#include <map>
 using namespace tinyxml2;
 
 // ── Format Detection ───────────────────────────────────────────────
@@ -27,6 +31,8 @@ std::string DetectFormat(const std::string& path)
     if (ext == ".epub")   return "epub";
     if (ext == ".pdf")    return "pdf";
     if (ext == ".mobi")   return "mobi";
+    if (ext == ".azw3" || ext == ".azw") return "azw3";  // PB-008-A：Kindle，走 mutool 文本转换
+    if (ext == ".docx")   return "docx";                 // PB-008-A：导入时转成 HTML
     if (ext == ".txt")    return "txt";
     if (ext == ".fb2")    return "fb2";
     if (ext == ".cbz")    return "cbz";
@@ -365,3 +371,341 @@ bool LibraryService::ExtractFb2Metadata(const std::string& filePath, ExtractedMe
 
     return !meta.title.empty();
 }
+
+// ── PB-008-A: DOCX (OOXML) → self-contained HTML ───────────────────
+namespace {
+
+std::string LowerAscii(std::string value)
+{
+    for (char& c : value) {
+        if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');
+    }
+    return value;
+}
+
+std::string EscapeHtmlText(const std::string& text)
+{
+    std::string out;
+    out.reserve(text.size());
+    for (const char c : text) {
+        switch (c) {
+        case '&': out += "&amp;"; break;
+        case '<': out += "&lt;"; break;
+        case '>': out += "&gt;"; break;
+        case '"': out += "&quot;"; break;
+        case '\'': out += "&#39;"; break;
+        default: out.push_back(c); break;
+        }
+    }
+    return out;
+}
+
+// OOXML 关系目标 → zip 条目名（相对 word/ 目录，处理 ./ 与 ../）。
+std::string ResolveDocxTarget(const std::string& target)
+{
+    if (target.empty()) return "";
+    std::string path = target;
+    for (char& c : path) {
+        if (c == '\\') c = '/';
+    }
+    if (!path.empty() && path[0] == '/') return path.substr(1);
+    std::vector<std::string> parts{ "word" };
+    std::size_t start = 0;
+    while (start <= path.size()) {
+        const std::size_t slash = path.find('/', start);
+        const std::string part = path.substr(start, slash == std::string::npos ? std::string::npos : slash - start);
+        if (part == "..") {
+            if (!parts.empty()) parts.pop_back();
+        } else if (!part.empty() && part != ".") {
+            parts.push_back(part);
+        }
+        if (slash == std::string::npos) break;
+        start = slash + 1;
+    }
+    std::string out;
+    for (const std::string& part : parts) {
+        if (!out.empty()) out += '/';
+        out += part;
+    }
+    return out;
+}
+
+std::string ImageMimeFromBytes(const std::string& data, std::string& ext)
+{
+    const auto starts = [&data](const char* sig, std::size_t len) {
+        return data.size() >= len && std::memcmp(data.data(), sig, len) == 0;
+    };
+    if (starts("\x89PNG\r\n\x1a\n", 8)) { ext = "png"; return "image/png"; }
+    if (starts("\xFF\xD8\xFF", 3)) { ext = "jpg"; return "image/jpeg"; }
+    if (starts("GIF8", 4)) { ext = "gif"; return "image/gif"; }
+    if (data.size() > 12 && data.compare(0, 4, "RIFF") == 0 && data.compare(8, 4, "WEBP") == 0) {
+        ext = "webp";
+        return "image/webp";
+    }
+    ext = "bin";
+    return "";
+}
+
+struct DocxInlineContext {
+    const std::string* docxPath = nullptr;
+    std::map<std::string, std::string> rels;   // rId → target
+    std::string coverData;
+    std::string coverExt;
+    int imageCount = 0;
+};
+
+void FindBlipEmbed(XMLElement* node, std::string& embedId, int depth)
+{
+    if (!node || depth > 12 || !embedId.empty()) return;
+    for (XMLElement* child = node->FirstChildElement(); child; child = child->NextSiblingElement()) {
+        if (std::strcmp(child->Name(), "a:blip") == 0) {
+            if (const char* value = child->Attribute("r:embed")) {
+                embedId = value;
+                return;
+            }
+        }
+        FindBlipEmbed(child, embedId, depth + 1);
+        if (!embedId.empty()) return;
+    }
+}
+
+void AppendDocxImage(DocxInlineContext& context, const std::string& relId, std::string& out)
+{
+    const auto found = context.rels.find(relId);
+    if (found == context.rels.end()) return;
+    const std::string entry = ResolveDocxTarget(found->second);
+    if (entry.empty()) return;
+    std::string data;
+    if (!ReadZipEntry(*context.docxPath, entry, data)) return;
+    if (data.empty() || data.size() > 32ull * 1024ull * 1024ull) return;
+    std::string ext;
+    const std::string mime = ImageMimeFromBytes(data, ext);
+    if (mime.empty()) return;
+    out += "<img src=\"data:" + mime + ";base64," + pb::Base64Encode(data) +
+           "\" alt=\"\" style=\"max-width:100%;height:auto;display:block;margin:12px 0;\" />";
+    if (context.coverData.empty()) {
+        context.coverData = data;
+        context.coverExt = ext;
+    }
+    ++context.imageCount;
+}
+
+void AppendDocxInline(DocxInlineContext& context, XMLElement* node, std::string& out, int depth)
+{
+    if (!node || depth > 40) return;
+    for (XMLElement* child = node->FirstChildElement(); child; child = child->NextSiblingElement()) {
+        const char* name = child->Name() ? child->Name() : "";
+        if (std::strcmp(name, "w:t") == 0) {
+            const char* text = child->GetText();
+            if (text) out += EscapeHtmlText(text);
+        } else if (std::strcmp(name, "w:tab") == 0) {
+            out += "&nbsp;&nbsp;";
+        } else if (std::strcmp(name, "w:br") == 0) {
+            out += "<br/>";
+        } else if (std::strcmp(name, "w:r") == 0) {
+            bool bold = false;
+            bool italic = false;
+            if (XMLElement* runProps = child->FirstChildElement("w:rPr")) {
+                if (XMLElement* flag = runProps->FirstChildElement("w:b")) {
+                    const char* value = flag->Attribute("w:val");
+                    bold = !(value && (std::strcmp(value, "0") == 0 || LowerAscii(value) == "false"));
+                }
+                if (XMLElement* flag = runProps->FirstChildElement("w:i")) {
+                    const char* value = flag->Attribute("w:val");
+                    italic = !(value && (std::strcmp(value, "0") == 0 || LowerAscii(value) == "false"));
+                }
+            }
+            std::string inner;
+            AppendDocxInline(context, child, inner, depth + 1);
+            if (bold) inner = "<strong>" + inner + "</strong>";
+            if (italic) inner = "<em>" + inner + "</em>";
+            out += inner;
+        } else if (std::strcmp(name, "w:drawing") == 0 || std::strcmp(name, "w:pict") == 0 ||
+                   std::strcmp(name, "w:object") == 0) {
+            std::string embedId;
+            FindBlipEmbed(child, embedId, 0);
+            if (!embedId.empty()) AppendDocxImage(context, embedId, out);
+        } else if (std::strcmp(name, "w:hyperlink") == 0 || std::strcmp(name, "w:ins") == 0 ||
+                   std::strcmp(name, "w:smartTag") == 0 || std::strcmp(name, "w:sdt") == 0 ||
+                   std::strcmp(name, "w:sdtContent") == 0 || std::strcmp(name, "w:fldSimple") == 0) {
+            AppendDocxInline(context, child, out, depth + 1);
+        }
+    }
+}
+
+std::string ParagraphStyle(XMLElement* paragraph)
+{
+    XMLElement* props = paragraph ? paragraph->FirstChildElement("w:pPr") : nullptr;
+    XMLElement* style = props ? props->FirstChildElement("w:pStyle") : nullptr;
+    const char* value = style ? style->Attribute("w:val") : nullptr;
+    return value ? value : "";
+}
+
+int HeadingLevelFromStyle(const std::string& style)
+{
+    if (style == "Title") return 1;
+    if (style == "Subtitle") return 2;
+    const std::string lower = LowerAscii(style);
+    std::string digits;
+    for (const char c : lower) {
+        if (c >= '0' && c <= '9') digits.push_back(c);
+    }
+    if (!digits.empty()) {
+        const int level = digits[0] - '0';
+        if (level >= 1 && level <= 6) return level;
+    }
+    return 0;
+}
+
+// 按本地名（忽略命名空间前缀）找第一个非空文本。
+std::string FindTextByLocalName(XMLElement* node, const std::string& localName, int depth)
+{
+    if (!node || depth > 8) return "";
+    for (XMLElement* child = node->FirstChildElement(); child; child = child->NextSiblingElement()) {
+        const char* rawName = child->Name() ? child->Name() : "";
+        std::string name = rawName;
+        const std::size_t colon = name.find(':');
+        if (colon != std::string::npos) name = name.substr(colon + 1);
+        if (name == localName) {
+            const char* text = child->GetText();
+            if (text && text[0] != '\0') return text;
+        }
+        const std::string nested = FindTextByLocalName(child, localName, depth + 1);
+        if (!nested.empty()) return nested;
+    }
+    return "";
+}
+
+std::string RenderDocxParagraph(DocxInlineContext& context, XMLElement* paragraph, int& paragraphCount)
+{
+    const std::string style = ParagraphStyle(paragraph);
+    const int headingLevel = HeadingLevelFromStyle(style);
+    std::string inlineHtml;
+    AppendDocxInline(context, paragraph, inlineHtml, 0);
+    if (inlineHtml.empty()) return "";
+    ++paragraphCount;
+    if (headingLevel > 0) {
+        const std::string tag = "h" + std::to_string(headingLevel);
+        return "<" + tag + ">" + inlineHtml + "</" + tag + ">";
+    }
+    return "<p>" + inlineHtml + "</p>";
+}
+
+std::string RenderDocxTable(DocxInlineContext& context, XMLElement* table, int& paragraphCount)
+{
+    std::string html = "<table>";
+    for (XMLElement* row = table->FirstChildElement("w:tr"); row; row = row->NextSiblingElement("w:tr")) {
+        html += "<tr>";
+        for (XMLElement* cell = row->FirstChildElement("w:tc"); cell; cell = cell->NextSiblingElement("w:tc")) {
+            std::string cellHtml;
+            for (XMLElement* paragraph = cell->FirstChildElement("w:p"); paragraph;
+                 paragraph = paragraph->NextSiblingElement("w:p")) {
+                std::string inlineHtml;
+                AppendDocxInline(context, paragraph, inlineHtml, 0);
+                if (inlineHtml.empty()) continue;
+                if (!cellHtml.empty()) cellHtml += "<br/>";
+                cellHtml += inlineHtml;
+                ++paragraphCount;
+            }
+            html += "<td>" + cellHtml + "</td>";
+        }
+        html += "</tr>";
+    }
+    return html + "</table>";
+}
+
+} // namespace
+
+DocxConversion LibraryService::ConvertDocxToHtml(const std::string& filePath)
+{
+    DocxConversion result;
+
+    std::string documentXml;
+    if (!ReadZipEntry(filePath, "word/document.xml", documentXml)) {
+        result.error = "missing_document";
+        return result;
+    }
+    if (documentXml.size() > 64ull * 1024ull * 1024ull) {
+        result.error = "document_too_large";
+        return result;
+    }
+    XMLDocument document;
+    if (document.Parse(documentXml.c_str(), documentXml.size()) != XML_SUCCESS) {
+        result.error = "bad_xml";
+        return result;
+    }
+    XMLElement* root = document.RootElement();
+    XMLElement* body = root ? root->FirstChildElement("w:body") : nullptr;
+    if (!body) {
+        result.error = "missing_body";
+        return result;
+    }
+
+    DocxInlineContext context;
+    context.docxPath = &filePath;
+
+    std::string relsXml;
+    if (ReadZipEntry(filePath, "word/_rels/document.xml.rels", relsXml)) {
+        XMLDocument relsDocument;
+        if (relsDocument.Parse(relsXml.c_str(), relsXml.size()) == XML_SUCCESS) {
+            for (XMLElement* rel = relsDocument.RootElement()
+                                       ? relsDocument.RootElement()->FirstChildElement("Relationship")
+                                       : nullptr;
+                 rel; rel = rel->NextSiblingElement("Relationship")) {
+                const char* id = rel->Attribute("Id");
+                const char* target = rel->Attribute("Target");
+                if (id && target) context.rels[id] = target;
+            }
+        }
+    }
+
+    std::string coreXml;
+    if (ReadZipEntry(filePath, "docProps/core.xml", coreXml)) {
+        XMLDocument coreDocument;
+        if (coreDocument.Parse(coreXml.c_str(), coreXml.size()) == XML_SUCCESS) {
+            result.title = FindTextByLocalName(coreDocument.RootElement(), "title", 0);
+            result.author = FindTextByLocalName(coreDocument.RootElement(), "creator", 0);
+            result.language = FindTextByLocalName(coreDocument.RootElement(), "language", 0);
+        }
+    }
+
+    std::string html = "<!DOCTYPE html>\n<html>\n<head>\n<meta charset=\"utf-8\" />\n<title>";
+    html += EscapeHtmlText(result.title);
+    html += "</title>\n<style>body{font-family:Georgia,'Times New Roman',serif;line-height:1.7;"
+            "margin:24px auto;padding:0 18px;max-width:52em;color:#1f2937;}"
+            "p{margin:0 0 0.9em;}h1,h2,h3,h4,h5,h6{line-height:1.3;margin:1.2em 0 0.6em;}"
+            "img{max-width:100%;height:auto;}table{border-collapse:collapse;margin:0.8em 0;}"
+            "td{border:1px solid #ddd;padding:4px 8px;vertical-align:top;}"
+            "strong{font-weight:600;}</style>\n</head>\n<body>\n";
+
+    for (XMLElement* child = body->FirstChildElement(); child; child = child->NextSiblingElement()) {
+        const char* name = child->Name() ? child->Name() : "";
+        if (std::strcmp(name, "w:p") == 0) {
+            html += RenderDocxParagraph(context, child, result.paragraphCount);
+        } else if (std::strcmp(name, "w:tbl") == 0) {
+            html += RenderDocxTable(context, child, result.paragraphCount);
+        } else if (std::strcmp(name, "w:sdt") == 0) {
+            for (XMLElement* paragraph = child->FirstChildElement("w:sdtContent");
+                 paragraph; paragraph = nullptr) {
+                for (XMLElement* inner = paragraph->FirstChildElement("w:p"); inner;
+                     inner = inner->NextSiblingElement("w:p")) {
+                    html += RenderDocxParagraph(context, inner, result.paragraphCount);
+                }
+            }
+        }
+    }
+    html += "\n</body>\n</html>\n";
+
+    if (result.paragraphCount == 0 && context.imageCount == 0) {
+        result.error = "empty_document";
+        return result;
+    }
+
+    result.html = std::move(html);
+    result.imageCount = context.imageCount;
+    result.coverData = std::move(context.coverData);
+    result.coverExt = std::move(context.coverExt);
+    result.ok = true;
+    return result;
+}
+

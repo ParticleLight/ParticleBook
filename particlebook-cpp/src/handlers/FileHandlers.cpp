@@ -140,6 +140,10 @@ static std::string DetectFormat(const std::string& path)
     if (ext == ".epub")   return "epub";
     if (ext == ".pdf")    return "pdf";
     if (ext == ".mobi")   return "mobi";
+    // PB-008-A：Keep in sync with LibraryService::DetectFormat (this local copy
+    // shadows the global one for book:import).
+    if (ext == ".azw3" || ext == ".azw") return "azw3";
+    if (ext == ".docx")   return "docx";
     if (ext == ".txt")    return "txt";
     if (ext == ".fb2")    return "fb2";
     if (ext == ".cbz")    return "cbz";
@@ -401,7 +405,7 @@ static json ReadFileForRenderer(ContentCache* cache, const std::string& path)
     // the frontend fetch the bytes directly. MOBI stays on the JSON path
     // below because it must go through ConvertMobiToText (encoding fix).
     std::string format = DetectFormat(path);
-    if (format != "mobi") {
+    if (format != "mobi" && format != "azw3") {
         // Copy to renderer temp dir (bounded — evict oldest beyond a cap;
         // _pb_files are re-copied on demand, so eviction is always safe)
         wchar_t exePath[MAX_PATH];
@@ -488,6 +492,27 @@ static json ReadFileForRenderer(ContentCache* cache, const std::string& path)
 }
 
 
+// PB-008-A：DOCX 转换产物的落盘 / 路径小工具（UTF-8 进出，内部走 W API）。
+static bool WriteUtf8File(const std::string& path, const std::string& bytes)
+{
+    const std::wstring wide = pb::Utf8ToWide(path);
+    if (wide.empty()) return false;
+    HANDLE handle = CreateFileW(wide.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
+                                FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (handle == INVALID_HANDLE_VALUE) return false;
+    DWORD written = 0;
+    const bool ok = WriteFile(handle, bytes.data(), static_cast<DWORD>(bytes.size()),
+                              &written, nullptr) != FALSE && written == bytes.size();
+    CloseHandle(handle);
+    return ok;
+}
+
+static std::string ParentDirOf(const std::string& path)
+{
+    const std::size_t slash = path.find_last_of("\\/");
+    return slash == std::string::npos ? std::string(".") : path.substr(0, slash);
+}
+
 static json ImportPaths(DatabaseService* db, const json& paths, pb::JobContext& job)
 {
     json result = json::array();
@@ -529,6 +554,12 @@ static json ImportPaths(DatabaseService* db, const json& paths, pb::JobContext& 
                 pb::LogWarn("import", "book:import: unknown format, skipped: " + GetFileName(path));
                 continue;
             }
+
+            // PB-008-A：DOCX 会转成 HTML，book.file_path 指向转换产物，
+            // original_path 保留原 docx；其它格式两者相同。
+            std::string storedFormat = format;
+            std::string storedPath = path;
+            std::string originalPath;
 
             int64_t fileSize = GetFileSizeSafe(path);
             snprintf(debugBuf, sizeof(debugBuf), "book:import: fileSize=%lld", (long long)fileSize);
@@ -579,6 +610,45 @@ static json ImportPaths(DatabaseService* db, const json& paths, pb::JobContext& 
                 if (!lib.ExtractFb2Metadata(path, em)) {
                     pb::LogWarn("import", "book:import: FB2 metadata extraction failed: " + GetFileName(path));
                 }
+            } else if (format == "docx") {
+                // PB-008-A：OOXML → 自包含 HTML（图片内联 data URL），
+                // 落盘到 <数据目录>/docx/<fnv1a>.html；原 docx 路径记在 original_path。
+                DocxConversion converted = lib.ConvertDocxToHtml(path);
+                if (!converted.ok) {
+                    pb::LogWarn("import", "book:import: DOCX conversion failed (" + converted.error +
+                                              "): " + GetFileName(path));
+                    continue;
+                }
+                const std::string docxDir = ParentDirOf(db->Path()) + "/docx";
+                CreateDirectoryW(pb::Utf8ToWide(docxDir).c_str(), nullptr);
+                const std::string hash = pb::Fnv1a64Hex(path);
+                const std::string htmlPath = docxDir + "/" + hash + ".html";
+                if (!WriteUtf8File(htmlPath, converted.html)) {
+                    pb::LogWarn("import", "book:import: cannot write converted DOCX html: " + htmlPath);
+                    continue;
+                }
+                storedPath = htmlPath;
+                storedFormat = "docx";
+                originalPath = path;
+                if (!converted.title.empty()) em.title = converted.title;
+                if (!converted.author.empty()) em.author = converted.author;
+                if (!converted.language.empty()) em.language = converted.language;
+                if (!converted.coverData.empty()) {
+                    const std::string coverPath = docxDir + "/" + hash + ".cover." + converted.coverExt;
+                    if (WriteUtf8File(coverPath, converted.coverData)) em.coverPath = coverPath;
+                }
+                pb::LogInfo("import", "book:import: DOCX converted (" +
+                                          std::to_string(converted.paragraphCount) + " paragraphs, " +
+                                          std::to_string(converted.imageCount) + " images)");
+            } else if (format == "azw3") {
+                // PB-008-A：AZW3/AZW 复用 MOBI 文本管线（mutool convert -F text）。
+                // 先探一次，转不出文字（KF8 不支持 / 有 DRM）就不入库，避免空书。
+                const std::string probe = ConvertMobiToText(path);
+                if (probe.empty()) {
+                    pb::LogWarn("import", "book:import: AZW3 text conversion unavailable "
+                                              "(MuPDF unsupported or DRM): " + GetFileName(path));
+                    continue;
+                }
             }
             DebugLog("book:import: metadata extraction complete");
 
@@ -586,8 +656,9 @@ static json ImportPaths(DatabaseService* db, const json& paths, pb::JobContext& 
             json book;
             book["title"] = title;
             book["author"] = em.author.empty() ? nullptr : json(em.author);
-            book["format"] = format;
-            book["file_path"] = path;
+            book["format"] = storedFormat;
+            book["file_path"] = storedPath;
+            if (!originalPath.empty()) book["original_path"] = originalPath;
             book["file_size"] = fileSize;
             book["description"] = em.description.empty() ? nullptr : json(em.description);
             book["publisher"] = em.publisher.empty() ? nullptr : json(em.publisher);
@@ -623,7 +694,7 @@ void RegisterFileHandlers(BridgeServer* bridge, DatabaseService* db, ContentCach
 
         OPENFILENAMEW ofn = {};
         ofn.lStructSize = sizeof(ofn);
-        ofn.lpstrFilter = L"E-Books\0*.epub;*.pdf;*.mobi;*.txt;*.fb2;*.cbz;*.cbr;*.html;*.md\0All Files\0*.*\0";
+        ofn.lpstrFilter = L"E-Books\0*.epub;*.pdf;*.mobi;*.azw3;*.azw;*.docx;*.txt;*.fb2;*.cbz;*.cbr;*.html;*.md\0All Files\0*.*\0";
         ofn.lpstrFile = fileBuf;
         ofn.nMaxFile = sizeof(fileBuf) / sizeof(wchar_t);
         ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_EXPLORER;

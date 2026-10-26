@@ -88,6 +88,7 @@ export function HtmlRenderer({ book, content, bookId }: HtmlRendererProps) {
         setHtmlContent(DOMPurify.sanitize(parseFb2(text, t)))
         break
       case 'html':
+      case 'docx': // PB-008-A：导入时已转成自包含 HTML
         setHtmlContent(DOMPurify.sanitize(text))
         break
       default:

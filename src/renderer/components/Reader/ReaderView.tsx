@@ -460,6 +460,7 @@ export function ReaderView({ bookId, onClose }: ReaderViewProps) {
             case 'fb2':
             case 'html':
             case 'markdown':
+            case 'docx':   // PB-008-A：导入时已转成自包含 HTML
               // HTML/FB2 走 HtmlRenderer：竖排靠继承 writing-mode 实现（仅竖排开关；
               // 分栏对 HTML 不适用，工具栏也不显示分栏按钮）。
               return verticalText && (book.format === 'html' || book.format === 'fb2')
@@ -471,6 +472,7 @@ export function ReaderView({ bookId, onClose }: ReaderViewProps) {
                 : <HtmlRenderer {...props} />
             case 'txt':
             case 'mobi':
+            case 'azw3':   // PB-008-A：AZW3/AZW 走 mutool 文本管线
             default: return <TextRenderer {...props} />
           }
         })()}
@@ -599,7 +601,7 @@ export function ReaderView({ bookId, onClose }: ReaderViewProps) {
 
         {/* Page indicator */}
         <div className="absolute bottom-3 right-3 z-10 bg-black/40 backdrop-blur-sm text-white/70 text-xs px-3 py-1.5 rounded-full flex items-center gap-3">
-          <span>{['txt','mobi','fb2','html','markdown'].includes(book.format) ? `${(progress.progress || 0).toFixed(2)}%` : progress.page != null ? t('第 {{page}} 页', { page: progress.page }) : `${Math.round(progress.progress || 0)}%`}</span>
+          <span>{['txt','mobi','azw3','fb2','html','markdown','docx'].includes(book.format) ? `${(progress.progress || 0).toFixed(2)}%` : progress.page != null ? t('第 {{page}} 页', { page: progress.page }) : `${Math.round(progress.progress || 0)}%`}</span>
           <span className="opacity-70">|</span>
           <ReadingTimeDisplay />
         </div>
