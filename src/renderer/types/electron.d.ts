@@ -380,6 +380,11 @@ interface ElectronAPI {
   onDictionaryProgress: (callback: (p: { percent: number; message: string; name: string }) => void) => () => void
   dictionaryLookup: (word: string, options?: { prefix?: boolean; caseInsensitive?: boolean; morphology?: boolean; maxResults?: number }) => Promise<{ ok: boolean; found: boolean; code: string; error: string; query: string; hits: Array<{ word: string; phonetic: string; translation: string; definition: string; pos: string; tag: string; exchange: string; example: string; kind: string; matched: string; verified: boolean }> }>
   dictionaryStatus: () => Promise<{ ok: boolean; loaded: boolean; source: string; entries: number; bytes: number }>
+
+  // Utilities
+  dictionarySetEnabled: (enabled: boolean) => Promise<{ ok: boolean; enabled: boolean }>
+
+  // Files
   dictionaryClear: () => Promise<{ ok: boolean; entries: number }>
 
   // Utilities

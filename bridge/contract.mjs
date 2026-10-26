@@ -896,6 +896,12 @@ export const contract = [
     returns: "Promise<{ ok: boolean; loaded: boolean; source: string; entries: number; bytes: number }>"
   },
   {
+    member: "dictionarySetEnabled", method: "dictionary:setEnabled",
+    kind: "invoke", group: "Utilities",
+    params: [{ n: "enabled", t: "boolean" }],
+    returns: "Promise<{ ok: boolean; enabled: boolean }>"
+  },
+  {
     member: "dictionaryClear", method: "dictionary:clear",
     kind: "invoke", group: "Files", params: [],
     returns: "Promise<{ ok: boolean; entries: number }>"

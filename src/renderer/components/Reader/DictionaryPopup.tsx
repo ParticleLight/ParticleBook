@@ -32,6 +32,7 @@ interface LookupResult {
 interface DictionaryStatus {
   ok: boolean
   loaded: boolean
+  enabled?: boolean
   source: string
   entries: number
   bytes: number
@@ -128,10 +129,24 @@ export function DictionaryPopup({ open, onClose }: DictionaryPopupProps) {
     setBusy(true)
     setMessage('')
     try {
-      const lookupResult = await window.electronAPI.dictionaryLookup(query, {
+      let lookupResult = await window.electronAPI.dictionaryLookup(query, {
         prefix: true,
         morphology: true,
       })
+      // PB-010: ECDICT is EN→ZH. For a Chinese phrase, try 2-char windows so
+      // selecting a sentence still finds a word; first hit wins.
+      if (!lookupResult.found && /[\u4e00-\u9fff]/.test(query) && query.length > 1) {
+        for (let i = 0; i + 2 <= query.length; i += 1) {
+          const part = query.slice(i, i + 2)
+          if (!/[\u4e00-\u9fff]/.test(part)) continue
+          const partResult = await window.electronAPI.dictionaryLookup(part, { prefix: false, morphology: false })
+          if (partResult.found) {
+            lookupResult = { ...partResult, query }
+            setMessage(t('中文按 2 字词查询：{{word}}', { word: part }))
+            break
+          }
+        }
+      }
       setResult(lookupResult)
     } catch (error) {
       const code = error instanceof Error ? error.message : String(error)
@@ -187,6 +202,14 @@ export function DictionaryPopup({ open, onClose }: DictionaryPopupProps) {
     color: 'var(--reader-text, #e5e7eb)',
   }
   const loaded = !!(status && status.loaded)
+  const enabled = status?.enabled !== false
+
+  const toggleEnabled = async () => {
+    try {
+      const res = await window.electronAPI.dictionarySetEnabled(!enabled)
+      if (res?.ok) await refreshStatus()
+    } catch { /* ignore */ }
+  }
   const hitLabel = (kind: string) =>
     kind === 'prefix' ? t('前缀匹配') : kind === 'morphology' ? t('词形还原') : t('精确匹配')
 
@@ -238,6 +261,11 @@ export function DictionaryPopup({ open, onClose }: DictionaryPopupProps) {
             <button onClick={() => void clearDictionary()} disabled={importing || !loaded} className="px-3 py-1.5 rounded-lg text-xs border opacity-80" style={{ borderColor: 'var(--reader-border, #374151)' }}>
               {t('清空词库')}
             </button>
+            {loaded && (
+              <button onClick={() => void toggleEnabled()} disabled={importing} className="px-3 py-1.5 rounded-lg text-xs border opacity-80" style={{ borderColor: 'var(--reader-border, #374151)' }}>
+                {enabled ? t('禁用词典') : t('启用词典')}
+              </button>
+            )}
             {importing && <span className="text-[11px] opacity-70">{t('正在导入… {{percent}}%', { percent: Math.round(progress) })}</span>}
           </div>
 

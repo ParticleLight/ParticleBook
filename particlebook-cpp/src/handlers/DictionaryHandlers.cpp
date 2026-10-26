@@ -10,11 +10,14 @@
 #include <windows.h>
 #include <commdlg.h>
 
+#include <atomic>
 #include <filesystem>
 #include <memory>
 #include <string>
 
 namespace {
+
+std::atomic_bool g_dictionaryEnabled{true};
 
 std::string PickDictionaryFile(BridgeServer* bridge)
 {
@@ -98,6 +101,7 @@ void RegisterDictionaryHandlers(BridgeServer* bridge,
             return json{
                 {"ok", true},
                 {"loaded", info.loaded},
+                {"enabled", g_dictionaryEnabled.load(std::memory_order_relaxed)},
                 {"source", SourceName(info.source)},
                 {"entries", info.entries},
                 {"bytes", info.bytes},
@@ -109,6 +113,11 @@ void RegisterDictionaryHandlers(BridgeServer* bridge,
             if (!dictionary) {
                 return json{{"ok", false}, {"found", false}, {"code", "dictionary_unavailable"},
                             {"error", "dictionary is not available"}, {"query", ""},
+                            {"hits", json::array()}};
+            }
+            if (!g_dictionaryEnabled.load(std::memory_order_relaxed)) {
+                return json{{"ok", false}, {"found", false}, {"code", "dictionary_disabled"},
+                            {"error", "dictionary is disabled"}, {"query", p.value("word", "")},
                             {"hits", json::array()}};
             }
             pb::DictionaryLookupOptions options;
@@ -129,6 +138,13 @@ void RegisterDictionaryHandlers(BridgeServer* bridge,
                 {"query", result.query},
                 {"hits", hits},
             };
+        });
+
+    bridge->RegisterMethod("dictionary:setEnabled",
+        [](const json& p) {
+            const bool enabled = p.value("enabled", true);
+            g_dictionaryEnabled.store(enabled, std::memory_order_relaxed);
+            return json{{"ok", true}, {"enabled", enabled}};
         });
 
     bridge->RegisterMethod("dictionary:clear",

@@ -382,6 +382,7 @@ std::string BridgeServer::GenerateBridgeScript()
     onDictionaryProgress: function(cb) { return onEvent('dictionary:progress', cb); },
     dictionaryLookup: function(word, options) { return invoke('dictionary:lookup', Object.assign({word:word}, options||{})); },
     dictionaryStatus: function() { return invoke('dictionary:status'); },
+    dictionarySetEnabled: function(enabled) { return invoke('dictionary:setEnabled', {enabled:!!enabled}); },
     dictionaryClear: function() { return invoke('dictionary:clear'); },
     onOpenFiles: function(cb) { return onEvent('app:openFiles', cb); },
 
