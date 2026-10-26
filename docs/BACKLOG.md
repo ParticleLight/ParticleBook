@@ -9,18 +9,18 @@
 
 | ID | 事项 | 优先级 | 状态 | 版本 | 一句话说明 |
 |---|---|---|---|---|---|
-| PB-002 | AI 翻译（用户自带 Key） | P0 | 🚧 进行中 | 2.2.1 | TranslationService 核心已落；SecretStore/UI/handler 待接 |
+| PB-002 | AI 翻译（用户自带 Key） | P0 | 🚧 进行中 | 2.2.1 | 全链已接；真实 provider/共用弹层待补 |
 | PB-003 | PDF 标注 | P1 | 📋 待办 | 2.2.1 | 文本层 + 高亮/批注；导出复用 PB-004 |
 | PB-005 | 元数据 / 标签 / 系列 / 评分 | P1 | 📋 待办 | 2.2.1 | 书库管理深度：可编辑、可筛选 |
-| PB-006 | 跨书全文搜索 | P1 | 📋 待办 | 2.2.1 | 全书库建索引，结果可跳转 |
+| PB-006 | 跨书全文搜索 | P1 | 🚧 进行中 | 2.2.1 | 搜索 UI/索引已接；精确跳转/PDF/FB2 待补 |
 | PB-007 | 统计升级 | P2 | 📋 待办 | 2.2.1 | 热力图、连续天数、目标 |
 | PB-008 | 格式补齐 | P2 | 📋 待办 | 2.2.1 | AZW3 / DOCX 优先，其余评估 |
 | PB-009 | 双栏 / 分屏 / 竖排 | P2 | 📋 待办 | 2.2.1 | 大屏与竖排阅读 |
-| PB-010 | 本地词典 | P1 | 🚧 进行中 | 2.2.1 | DictionaryService 核心已落；导入/查词 UI 待接 |
+| PB-010 | 本地词典 | P1 | 🚧 进行中 | 2.2.1 | 导入/查词弹层已接；启用禁用/StarDict UI 待补 |
 | PB-013 | 书源生态增强 | P1 | 📋 待办 | 2.2.1 | URL/剪贴板导入、规则编辑、单源测试 |
 | PB-017 | 大书库性能 | P2 | 📋 待办 | 2.2.1 | 虚拟列表、封面缓存、索引性能 |
-| PB-018 | 关键路径 E2E | P1 | 🚧 进行中 | 2.2.1 | 5 条 smoke 已过；Z-Library/翻译/TTS/备份待补 |
-| PB-021 | Locator + Annotation 统一模型 | P0 | 🚧 进行中 | 2.2.1 | 模型+测试已落；DB/bridge/UI 待接 |
+| PB-018 | 关键路径 E2E | P1 | 🚧 进行中 | 2.2.1 | 15 条 smoke 全过；Z-Library 真实下载未做 |
+| PB-021 | Locator + Annotation 统一模型 | P0 | 🚧 进行中 | 2.2.1 | CRUD/双写/标注 UI 已落；ReaderAdapter/PDF rect 待补 |
 | PB-022 | ReaderAdapter + 共享阅读交互 | P1 | 📋 待办 | 2.2.1 | 5 个渲染器收敛到统一 adapter |
 | PB-024 | god files 拆分 + 注入 JS 外置 | P2 | 📋 待办 | 2.2.1 | ZLibrary/FileHandlers/App/WebViewHost 等增量拆 |
 | PB-025 | 设计基元 + 主题审计 | P2 | 📋 待办 | 2.2.1 | Popover/Dialog/Toolbar 等基元 + token 约束 |
@@ -241,7 +241,7 @@
 
 **非目标**：AI 词典解释、MDX（后续）、在线词典。
 
-**进度（2026-10-26）**：`DictionaryService` 核心 + 14 组单测已落（commit `bfc4fd2`）：ECDICT/StarDict 导入、二分查词、词形还原、缓存。词库导入/查词弹层 UI 待接。
+**进度（2026-10-26）**：DictionaryService + 14 组单测（`bfc4fd2`）；bridge/JobService/导入缓存/阅读器查词弹层（`84f68ea`），CDP 实测 ECDICT 小词库/前缀/词形/缓存/清空。剩余：StarDict UI 导入、启用/禁用、中文词库、设置页管理。
 
 ## PB-011 · 备份 / 恢复
 
@@ -366,7 +366,7 @@
 
 **非目标**：全量 UI 覆盖；先覆盖 5–8 条关键路径。
 
-**进度（2026-10-26）**：E2E 13 条 smoke（`be52dbe`/`d990a19`/`3db7d31`），本机 13/13 PASS（10.2s）：启动/桥接/导入/阅读/单实例/TTS/备份/翻译 Key/schema/搜索/PDF/Z-Library API。剩余：Z-Library 真实导航/下载、翻译真实 mock 请求（当前仅 Key 生命周期）。
+**进度（2026-10-26）**：E2E 15 条 smoke（`be52dbe`/`d990a19`/`3db7d31`/`ceddc7b`），本机 15/15 PASS（10.5s）：启动/桥接/导入/阅读/单实例/TTS/备份/翻译 Key/schema/搜索/PDF/Z-Library API/翻译 mock/Z-Library 合成事件。剩余：Z-Library 真实导航/下载。
 
 
 ## PB-019 · 单实例 + 文件打开转发
@@ -417,7 +417,7 @@
 
 **非目标**：手写笔迹；先做文本/矩形标注。
 
-**进度（2026-10-26）**：Locator/Annotation（`3839b27`）+ schema v3（`8a017be`）+ CRUD/旧表双写（`b30877a`）+ renderer 数据层（`2ed55a6`）。剩余：阅读器标注 UI/旧侧栏切 annotations、旧 API 反向同步。
+**进度（2026-10-26）**：Locator/Annotation（`3839b27`）+ schema v3（`8a017be`）+ CRUD/双写（`b30877a`）+ renderer store（`2ed55a6`）+ 阅读器标注侧栏（`b6b14af`，书签/笔记/过滤/跳转/删除 + 旧侧栏同步）。剩余：ReaderAdapter 统一读写、PDF 页内 rect、旧 API 反向回流。
 
 ## PB-022 · ReaderAdapter + 共享阅读交互
 
