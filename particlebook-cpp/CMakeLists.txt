@@ -48,6 +48,8 @@ add_executable(ParticleBook WIN32
     src/services/ZLibraryService.cpp
     src/services/ContentCache.cpp
     src/services/BackupService.cpp
+    src/domain/Locator.cpp
+    src/domain/Annotation.cpp
     src/utils/ZipReader.cpp
     src/handlers/DbHandlers.cpp
     src/handlers/FileHandlers.cpp
@@ -216,3 +218,16 @@ target_include_directories(backup_service_test PRIVATE
     "${CMAKE_SOURCE_DIR}/third_party"
 )
 add_test(NAME backup_service_test COMMAND backup_service_test)
+
+# ── PB-021 Locator / Annotation model (pure std + json) ────────────
+add_executable(annotation_test
+    tests/unit/annotation_test.cpp
+    src/domain/Locator.cpp
+    src/domain/Annotation.cpp
+)
+target_compile_options(annotation_test PRIVATE /EHa /utf-8)
+target_include_directories(annotation_test PRIVATE
+    src/
+    "${CMAKE_SOURCE_DIR}/third_party"
+)
+add_test(NAME annotation_test COMMAND annotation_test)
