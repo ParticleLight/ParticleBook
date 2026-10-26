@@ -50,6 +50,7 @@ add_executable(ParticleBook WIN32
     src/services/BackupService.cpp
     src/services/DictionaryService.cpp
     src/services/TranslationService.cpp
+    src/services/ExportService.cpp
     src/domain/Locator.cpp
     src/domain/Annotation.cpp
     src/utils/ZipReader.cpp
@@ -263,3 +264,15 @@ target_include_directories(translation_service_test PRIVATE
     "${CMAKE_SOURCE_DIR}/third_party"
 )
 add_test(NAME translation_service_test COMMAND translation_service_test)
+
+# ── PB-004 ExportService (notes/highlights; Markdown/CSV/JSON) ──────
+add_executable(export_service_test
+    tests/unit/export_service_test.cpp
+    src/services/ExportService.cpp
+)
+target_compile_options(export_service_test PRIVATE /EHa /utf-8)
+target_include_directories(export_service_test PRIVATE
+    src/
+    "${CMAKE_SOURCE_DIR}/third_party"
+)
+add_test(NAME export_service_test COMMAND export_service_test)
