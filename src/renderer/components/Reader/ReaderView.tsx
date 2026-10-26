@@ -25,6 +25,7 @@ function useAnimatedMount(isOpen: boolean, duration = 200) {
   return { shouldRender, isClosing }
 }
 import { Sidebar } from './Sidebar'
+import { AnnotationPanel } from './AnnotationPanel'
 import { ReaderControls } from './ReaderControls'
 import { TtsBar } from './TtsBar'
 import { TranslationPopup } from './TranslationPopup'
@@ -75,6 +76,8 @@ export function ReaderView({ bookId, onClose }: ReaderViewProps) {
   const [bookContent, setBookContent] = useState<Uint8Array | null>(null)
   const [showSettings, setShowSettings] = useState(false)
   const [showTts, setShowTts] = useState(false)
+  // PB-021-D：统一标注面板（annotations API）；与旧 Sidebar 互斥。
+  const [showAnnotations, setShowAnnotations] = useState(false)
   const [showArrows, setShowArrows] = useState(false)
   const [loadError, setLoadError] = useState<LoadError | null>(null)
   const [confirmRemove, setConfirmRemove] = useState(false)
@@ -83,6 +86,8 @@ export function ReaderView({ bookId, onClose }: ReaderViewProps) {
   const settingsOpenRef = useRef(false)
   // PB-001-B：Esc 需要知道朗读条是否开着（事件处理器里不能读闭包里的旧 state）
   const ttsOpenRef = useRef(false)
+  // PB-021-D：标注面板同理（Esc / 滚轮处理器里要读最新值）
+  const annotationsOpenRef = useRef(false)
   const bookIdRef = useRef(bookId)
 
   const showSidebar = useReaderStore((s) => s.showSidebar)
@@ -109,6 +114,7 @@ export function ReaderView({ bookId, onClose }: ReaderViewProps) {
   const { loadBookSettings, clearBookSettings } = useSettingsStore()
   const { shouldRender: renderSidebar, isClosing: sidebarClosing } = useAnimatedMount(showSidebar, 200)
   const { shouldRender: renderSettings, isClosing: settingsClosing } = useAnimatedMount(showSettings, 200)
+  const { shouldRender: renderAnnotations, isClosing: annotationsClosing } = useAnimatedMount(showAnnotations, 200)
 
   useEffect(() => {
     bookIdRef.current = bookId
@@ -168,9 +174,19 @@ export function ReaderView({ bookId, onClose }: ReaderViewProps) {
     ttsOpenRef.current = showTts
   }, [showTts])
 
+  // PB-021-D：标注面板状态同步 + 与旧侧栏互斥（两个都是全屏遮罩层）
+  useEffect(() => {
+    annotationsOpenRef.current = showAnnotations
+  }, [showAnnotations])
+
+  useEffect(() => {
+    if (showAnnotations && showSidebar) setShowSidebar(false)
+  }, [showAnnotations, showSidebar, setShowSidebar])
+
   useEffect(() => {
     // 换书：旧书的朗读必须停（TtsBar 卸载时也会 stop，这里兜住"同实例换书"的情况）
     setShowTts(false)
+    setShowAnnotations(false)
     window.electronAPI.ttsStop().catch(() => {})
   }, [bookId])
 
@@ -227,6 +243,7 @@ export function ReaderView({ bookId, onClose }: ReaderViewProps) {
         if (settingsOpenRef.current) { setShowSettings(false); return }
         // 朗读条优先于侧边栏关闭：Esc 先收朗读（并停读），再逐层往外
         if (ttsOpenRef.current) { setShowTts(false); return }
+        if (annotationsOpenRef.current) { setShowAnnotations(false); return }
         if (sidebar) { setShowSidebar(false); return }
         await endReadingSession()
         await flushProgress()
@@ -260,7 +277,7 @@ export function ReaderView({ bookId, onClose }: ReaderViewProps) {
 
       // Don't turn pages when sidebar or settings is open
       const { showSidebar } = useReaderStore.getState()
-      if (showSidebar || settingsOpenRef.current) return
+      if (showSidebar || annotationsOpenRef.current || settingsOpenRef.current) return
 
       e.preventDefault()
       if (wheelTimer) return
@@ -415,6 +432,35 @@ export function ReaderView({ bookId, onClose }: ReaderViewProps) {
         </div>
       )}
 
+      {/* 标注面板（PB-021-D）：右侧滑入，与旧 Sidebar 互斥 */}
+      {renderAnnotations && (
+        <div
+          className={
+            'absolute inset-0 z-40 flex justify-end ' +
+            (annotationsClosing ? 'animate-fade-out' : '')
+          }
+        >
+          <div
+            className={'absolute inset-0 bg-black/40 ' + (annotationsClosing ? 'opacity-0' : '')}
+            style={{ transition: 'opacity 0.2s' }}
+            onClick={() => setShowAnnotations(false)}
+          />
+          <div
+            className={
+              'relative w-96 max-w-[90vw] h-full border-l border-[var(--reader-border)] shadow-2xl ' +
+              (annotationsClosing ? 'animate-slide-out-right' : 'animate-slide-in-right')
+            }
+            style={{ backgroundColor: 'var(--reader-sidebar)', opacity: 0.97 }}
+          >
+            <AnnotationPanel
+              bookId={bookId}
+              format={book.format}
+              onClose={() => setShowAnnotations(false)}
+            />
+          </div>
+        </div>
+      )}
+
       {/* Main Content */}
       <div className="flex-1 relative overflow-hidden">
         {/* Back button */}
@@ -424,6 +470,21 @@ export function ReaderView({ bookId, onClose }: ReaderViewProps) {
         >
           <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+          </svg>
+        </button>
+
+        {/* 标注面板入口（PB-021-D）。旧侧栏仍由 ReaderControls 的目录按钮打开；
+            两者互斥，本按钮不替代旧侧栏。 */}
+        <button
+          onClick={() => setShowAnnotations((value) => !value)}
+          className="absolute top-4 right-4 z-30 p-2 rounded-lg bg-black/20 hover:bg-black/40 text-white/70 hover:text-white transition-all backdrop-blur-sm"
+          title={t('标注')}
+          aria-label={t('标注')}
+          data-testid="annotation-toggle"
+        >
+          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                  d="M7 8h10M7 12h6m-4 8l-4-4V6a2 2 0 012-2h12a2 2 0 012 2v8a2 2 0 01-2 2H9l-6 6z" />
           </svg>
         </button>
 
