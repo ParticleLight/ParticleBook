@@ -27,7 +27,7 @@
 | PB-016 | 本地诊断日志 | P1 | 📋 待办 | 2.2.1 | 脱敏日志 + 导出诊断包，无遥测 |
 | PB-017 | 大书库性能 | P2 | 📋 待办 | 2.2.1 | 虚拟列表、封面缓存、索引性能 |
 | PB-018 | 关键路径 E2E | P1 | 📋 待办 | 2.2.1 | CI 跑 5–8 条关键链路 |
-| PB-020 | UiDispatcher + JobService + 长任务迁移 | P0 | 🚧 进行中 | 2.2.1 | 平台核心已落；App/WebViewHost 接线待续 |
+| PB-020 | UiDispatcher + JobService + 长任务迁移 | P0 | 🚧 进行中 | 2.2.1 | 已接线；pdf:open 已异步化；import/file:read/书源搜索待迁 |
 | PB-021 | Locator + Annotation 统一模型 | P0 | 📋 待办 | 2.2.1 | 统一 cfi/offset/page/rect；标注/搜索/TTS 共用 |
 | PB-022 | ReaderAdapter + 共享阅读交互 | P1 | 📋 待办 | 2.2.1 | 5 个渲染器收敛到统一 adapter |
 | PB-023 | Settings + SecretStore | P0 | 🚧 进行中 | 2.2.1 | SecretStore 已落；Settings schema/接线待续 |
@@ -387,7 +387,9 @@
 
 **非目标**：多进程 worker；先做单进程线程池。
 
-**进度（2026-10-26）**：平台核心 6 文件 + 单测已落（commit `6d9dc58`）；App/WebViewHost 接线待续。首次集成尝试会破坏桥接消息投递（页面 invoke 无响应），已整体回退；下一步按最小步集成：先只接 UiDispatcher，再逐项接 JobService。
+**进度（2026-10-26）**：平台核心 6 文件 + 单测已落（commit `6d9dc58`）；UiDispatcher/JobService 已接入 App/WebViewHost，`pdf:open` 已异步化（commit `fecad16`），CDP 实测同步桥接与 1 页 PDF 打开均正常。**剩余**：book:import、file:read（大文件/MOBI）、bookSource:search 等长任务仍同步；`BridgeServer` 的 async 响应已就绪，迁移时按同一模式。
+
+> 踩坑：改 `WebViewHost.h` 的构造函数后未全量重编，出现桥接消息断流 / 多重定义；按 AGENTS 规则删 `*.obj` 全量重建后恢复。
 
 ## PB-021 · Locator + Annotation 统一模型
 
