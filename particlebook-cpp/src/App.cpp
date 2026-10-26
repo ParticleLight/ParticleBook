@@ -19,7 +19,7 @@
 class BridgeServer;
 class BookSourceService;
 class ZLibraryService;
-void RegisterBookSourceHandlers(BridgeServer* bridge, std::shared_ptr<BookSourceService> svc);
+void RegisterBookSourceHandlers(BridgeServer* bridge, std::shared_ptr<BookSourceService> svc, pb::JobService* jobs);
 void RegisterZlibHandlers(BridgeServer* bridge, ZLibraryService* zlib);
 
 // Utf8ToWide moved to utils/encoding.h (pb::Utf8ToWide)
@@ -228,7 +228,7 @@ void App::Init(HINSTANCE hInstance, std::vector<std::string> startupPaths, Singl
     RegisterDbHandlers(m_bridge.get(), m_db.get());
     RegisterFileHandlers(m_bridge.get(), m_db.get(), m_cache.get());
     RegisterPdfHandlers(m_bridge.get(), m_pdf.get(), m_jobs.get());
-    RegisterBookSourceHandlers(m_bridge.get(), m_bookSource);
+    RegisterBookSourceHandlers(m_bridge.get(), m_bookSource, m_jobs.get());
     RegisterZlibHandlers(m_bridge.get(), m_zlib.get());
 
     // UI language switch — called from frontend when the user changes language.

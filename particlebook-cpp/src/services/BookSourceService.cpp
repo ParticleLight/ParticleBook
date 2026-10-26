@@ -3,6 +3,7 @@
 #include "services/DatabaseService.h"
 #include "BridgeServer.h"
 #include "App.h"
+#include "platform/JobService.h"
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <winhttp.h>
@@ -613,20 +614,64 @@ void BookSourceService::WorkerThread()
 // ── Handler Registration ─────────────────────────────────────────
 
 class BridgeServer;
-void RegisterBookSourceHandlers(BridgeServer* bridge, std::shared_ptr<BookSourceService> svc)
+
+namespace {
+// PB-020: book-source search hits the network. Run it on a JobService worker
+// and resolve the original bridge promise when the job finishes.
+void SubmitJsonJob(pb::JobService* jobs, const char* name,
+                   std::function<json()> work,
+                   std::function<void(json)> respond,
+                   std::function<void(std::string)> reject)
 {
-    bridge->RegisterMethod("bookSource:search", [svc](const json& p) -> json {
-        return svc->SearchAll(p.value("keyword", ""), p.value("page", 1));
-    });
-    bridge->RegisterMethod("bookSource:searchOne", [svc](const json& p) -> json {
-        return svc->SearchOne(p["sourceId"].get<int>(), p.value("keyword", ""), p.value("page", 1));
-    });
-    bridge->RegisterMethod("bookSource:getBookInfo", [svc](const json& p) -> json {
-        return svc->GetBookInfo(p["sourceId"].get<int>(), p["bookUrl"].get<std::string>());
-    });
-    bridge->RegisterMethod("bookSource:getChapterList", [svc](const json& p) -> json {
-        return svc->GetChapterList(p["sourceId"].get<int>(), p["tocUrl"].get<std::string>());
-    });
+    if (!jobs) { reject("job_service_unavailable"); return; }
+    auto out = std::make_shared<json>(nullptr);
+    const pb::JobId id = jobs->Submit(
+        name,
+        [work = std::move(work), out](pb::JobContext&) { *out = work(); },
+        nullptr,
+        [out, respond, reject](const pb::JobResult& r) {
+            if (!r.ok) { reject(r.cancelled ? "cancelled" : r.error); return; }
+            respond(*out);
+        });
+    if (id == pb::kInvalidJobId) reject("job_service_unavailable");
+}
+} // namespace
+
+void RegisterBookSourceHandlers(BridgeServer* bridge, std::shared_ptr<BookSourceService> svc, pb::JobService* jobs)
+{
+    bridge->RegisterAsyncMethod("bookSource:search",
+        [svc, jobs](const json& p, std::function<void(json)> respond, std::function<void(std::string)> reject) {
+            const std::string keyword = p.value("keyword", "");
+            const int page = p.value("page", 1);
+            SubmitJsonJob(jobs, "bookSource:search",
+                [svc, keyword, page] { return svc->SearchAll(keyword, page); },
+                respond, reject);
+        });
+    bridge->RegisterAsyncMethod("bookSource:searchOne",
+        [svc, jobs](const json& p, std::function<void(json)> respond, std::function<void(std::string)> reject) {
+            const int sourceId = p.value("sourceId", 0);
+            const std::string keyword = p.value("keyword", "");
+            const int page = p.value("page", 1);
+            SubmitJsonJob(jobs, "bookSource:searchOne",
+                [svc, sourceId, keyword, page] { return svc->SearchOne(sourceId, keyword, page); },
+                respond, reject);
+        });
+    bridge->RegisterAsyncMethod("bookSource:getBookInfo",
+        [svc, jobs](const json& p, std::function<void(json)> respond, std::function<void(std::string)> reject) {
+            const int sourceId = p.value("sourceId", 0);
+            const std::string bookUrl = p.value("bookUrl", "");
+            SubmitJsonJob(jobs, "bookSource:getBookInfo",
+                [svc, sourceId, bookUrl] { return svc->GetBookInfo(sourceId, bookUrl); },
+                respond, reject);
+        });
+    bridge->RegisterAsyncMethod("bookSource:getChapterList",
+        [svc, jobs](const json& p, std::function<void(json)> respond, std::function<void(std::string)> reject) {
+            const int sourceId = p.value("sourceId", 0);
+            const std::string tocUrl = p.value("tocUrl", "");
+            SubmitJsonJob(jobs, "bookSource:getChapterList",
+                [svc, sourceId, tocUrl] { return svc->GetChapterList(sourceId, tocUrl); },
+                respond, reject);
+        });
     bridge->RegisterMethod("bookSource:download", [svc](const json& p) -> json {
         int sourceId = p["sourceId"].get<int>();
         std::string bookUrl = p["bookUrl"].get<std::string>();
