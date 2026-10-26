@@ -51,6 +51,9 @@ add_executable(ParticleBook WIN32
     src/handlers/DbHandlers.cpp
     src/handlers/FileHandlers.cpp
     src/platform/SingleInstance.cpp
+    src/platform/UiDispatcher.cpp
+    src/platform/JobService.cpp
+    src/platform/SecretStore.cpp
     third_party/tinyxml2.cpp
     third_party/miniz.c
     third_party/miniz_tdef.c
@@ -80,6 +83,7 @@ target_link_libraries(ParticleBook PRIVATE
     shlwapi
     version
     comdlg32
+    crypt32
 )
 
 # Copy WebView2 DLL to output (edge runtime dependency, present on Win11 anyway)
@@ -142,3 +146,21 @@ target_include_directories(database_test PRIVATE
     "${CMAKE_SOURCE_DIR}/third_party"   # nlohmann/json.hpp
 )
 add_test(NAME database_test COMMAND database_test)
+
+# ── PB-020 JobService / PB-023 SecretStore ────────────────────────
+add_executable(job_service_test
+    tests/unit/job_service_test.cpp
+    src/platform/JobService.cpp
+)
+target_compile_options(job_service_test PRIVATE /EHa /utf-8)
+target_include_directories(job_service_test PRIVATE src/)
+add_test(NAME job_service_test COMMAND job_service_test)
+
+add_executable(secret_store_test
+    tests/unit/secret_store_test.cpp
+    src/platform/SecretStore.cpp
+)
+target_compile_options(secret_store_test PRIVATE /EHa /utf-8)
+target_include_directories(secret_store_test PRIVATE src/)
+target_link_libraries(secret_store_test PRIVATE crypt32)
+add_test(NAME secret_store_test COMMAND secret_store_test)

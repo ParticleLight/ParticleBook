@@ -112,7 +112,7 @@ function walkCppFiles(dir, out = []) {
 function scanRegisteredMethods() {
   const files = walkCppFiles(CPP_SRC)
   const methods = new Map() // name -> [{ file, line }]
-  const re = /RegisterMethod\s*\(\s*"([^"\\]+)"/g
+  const re = /Register(?:Async)?Method\s*\(\s*"([^"\\]+)"/g
   for (const file of files) {
     const code = stripComments(fs.readFileSync(file, "utf8"))
     let m
