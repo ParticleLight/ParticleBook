@@ -366,7 +366,7 @@ interface ElectronAPI {
   // Files
   getPendingOpenFiles: () => Promise<string[]>
   exportDiagnostics: () => Promise<string | null>
-  exportAnnotations: (bookId: number, format: 'markdown' | 'csv' | 'json') => Promise<{ ok: boolean; code: string; error: string; fileName: string; mimeType: string; content: string }>
+  exportAnnotations: (bookId: number, format: 'markdown' | 'csv' | 'json', options?: { includeBookmarks?: boolean; includeHighlights?: boolean; includeNotes?: boolean }) => Promise<{ ok: boolean; code: string; error: string; fileName: string; mimeType: string; content: string }>
   createBackup: () => Promise<{ ok: boolean; code: string; error: string; path: string; bookCount: number; bytes: number }>
   onBackupProgress: (callback: (p: { percent: number; message: string; name: string }) => void) => () => void
   restoreBackup: (path?: string) => Promise<{ ok: boolean; code: string; error: string; bookCount: number; preRestorePath: string }>
@@ -377,6 +377,11 @@ interface ElectronAPI {
 
   // Utilities
   openDefaultApps: () => Promise<void>
+
+  // Settings
+  getSettingsSchema: () => Promise<Array<{ key: string; type: string; default: unknown; bookScoped: boolean; min?: number; max?: number; maxLength?: number; format?: string; allowed?: string[] }>>
+
+  // Utilities
   searchBuild: () => Promise<{ ok: boolean; indexed: number; reused: number; removed: number; skipped: number; skippedPdf: number; failed: number; cancelled: boolean; totalChars: number; termCount: number; elapsedMs: number; errors: string[]; saved: boolean; saveError: string }>
   searchQuery: (query: string, maxHits?: number) => Promise<{ hits: Array<{ bookId: number; bookTitle: string; bookFormat: string; snippet: string; offset: number; matchLength: number; page: number; score: number; termHits: number }>; booksMatched: number; truncated: boolean; cancelled: boolean }>
   searchStatus: () => Promise<{ books: number; terms: number; chars: number } | null>

@@ -42,6 +42,7 @@ export function ReaderControls({ bookId, format, onOpenSettings, onOpenTts, ttsA
   const [showExport, setShowExport] = useState(false)
   const [exportBusy, setExportBusy] = useState(false)
   const [preview, setPreview] = useState<{ content: string; fileName: string; mimeType: string } | null>(null)
+  const [exportRange, setExportRange] = useState({ bookmarks: true, highlights: true, notes: true })
 
   const toggleNoteInput = () => {
     const next = !showNoteInput
@@ -85,7 +86,7 @@ export function ReaderControls({ bookId, format, onOpenSettings, onOpenTts, ttsA
 
   const handlePreview = () => {
     setExportBusy(true)
-    window.electronAPI.exportAnnotations(bookId, 'markdown')
+    window.electronAPI.exportAnnotations(bookId, 'markdown', { includeBookmarks: exportRange.bookmarks, includeHighlights: exportRange.highlights, includeNotes: exportRange.notes })
       .then((res) => setPreview({ content: res.content, fileName: res.fileName, mimeType: res.mimeType }))
       .catch(() => {})
       .finally(() => setExportBusy(false))
@@ -93,7 +94,7 @@ export function ReaderControls({ bookId, format, onOpenSettings, onOpenTts, ttsA
 
   const handleCopyExport = () => {
     setExportBusy(true)
-    window.electronAPI.exportAnnotations(bookId, 'markdown')
+    window.electronAPI.exportAnnotations(bookId, 'markdown', { includeBookmarks: exportRange.bookmarks, includeHighlights: exportRange.highlights, includeNotes: exportRange.notes })
       .then((res) => copyText(res.content))
       .catch(() => {})
       .finally(() => setExportBusy(false))
@@ -101,7 +102,7 @@ export function ReaderControls({ bookId, format, onOpenSettings, onOpenTts, ttsA
 
   const handleExport = (format: 'markdown' | 'csv' | 'json') => {
     setExportBusy(true)
-    window.electronAPI.exportAnnotations(bookId, format)
+    window.electronAPI.exportAnnotations(bookId, format, { includeBookmarks: exportRange.bookmarks, includeHighlights: exportRange.highlights, includeNotes: exportRange.notes })
       .then((res) => {
         downloadText(res.content, res.fileName, res.mimeType)
         setShowExport(false)
@@ -155,6 +156,12 @@ export function ReaderControls({ bookId, format, onOpenSettings, onOpenTts, ttsA
       {showExport && (
         <div className="max-w-2xl mx-auto mb-3 flex items-center gap-2">
           <span className="text-xs" style={{ color: 'var(--reader-text)', opacity: 0.6 }}>{t('导出本书标注')}</span>
+          {([['bookmarks', t('书签')], ['highlights', t('高亮')], ['notes', t('笔记')]] as const).map(([key, label]) => (
+            <label key={key} className="flex items-center gap-1 text-xs" style={{ color: 'var(--reader-text)', opacity: 0.75 }}>
+              <input type="checkbox" checked={exportRange[key]} onChange={(e) => setExportRange({ ...exportRange, [key]: e.target.checked })} />
+              {label}
+            </label>
+          ))}
           {(['markdown', 'csv', 'json'] as const).map((fmt) => (
             <button key={fmt} onClick={() => handleExport(fmt)} disabled={exportBusy}
               className={`${ctrlClasses.dialogBtn} bg-[var(--reader-sidebar)] text-[var(--reader-text)] border border-[var(--reader-border)]`}>

@@ -48,6 +48,10 @@ void RegisterExportHandlers(BridgeServer* bridge, DatabaseService* db, pb::JobSe
 
             const int bookId = p.value("bookId", 0);
             const std::string formatText = p.value("format", "markdown");
+            const json opts = p.value("options", json::object());
+            const bool includeBookmarks = opts.value("includeBookmarks", true);
+            const bool includeHighlights = opts.value("includeHighlights", true);
+            const bool includeNotes = opts.value("includeNotes", true);
             pb::ExportFormat format = pb::ExportFormat::Markdown;
             if (!pb::ParseExportFormat(formatText, format)) { reject("invalid_format"); return; }
             const bool allBooks = bookId <= 0;
@@ -55,9 +59,12 @@ void RegisterExportHandlers(BridgeServer* bridge, DatabaseService* db, pb::JobSe
             auto out = std::make_shared<json>(ExportError("export_failed", "export did not finish"));
             const pb::JobId id = jobs->Submit(
                 "export:annotations",
-                [db, bookId, allBooks, format, out](pb::JobContext&) {
+                [db, bookId, allBooks, format, includeBookmarks, includeHighlights, includeNotes, out](pb::JobContext&) {
                     pb::ExportOptions options;
                     options.format = format;
+                    options.includeBookmarks = includeBookmarks;
+                    options.includeHighlights = includeHighlights;
+                    options.includeNotes = includeNotes;
 
                     if (allBooks) {
                         std::vector<pb::ExportBook> books;

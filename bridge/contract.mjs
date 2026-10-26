@@ -822,7 +822,11 @@ export const contract = [
     member: "exportAnnotations", method: "export:annotations",
     kind: "invoke",
     group: "Files",
-    params: [{ n: "bookId", t: "number" }, { n: "format", t: "'markdown' | 'csv' | 'json'" }],
+    params: [
+      { n: "bookId", t: "number" },
+      { n: "format", t: "'markdown' | 'csv' | 'json'" },
+      { n: "options", t: "{ includeBookmarks?: boolean; includeHighlights?: boolean; includeNotes?: boolean }", o: true }
+    ],
     returns: "Promise<{ ok: boolean; code: string; error: string; fileName: string; mimeType: string; content: string }>"
   },
   // PB-011: local zip backup / restore (no cloud).
@@ -869,6 +873,12 @@ export const contract = [
     member: "openDefaultApps", method: "app:openDefaultApps",
     kind: "invoke", group: "Utilities", params: [],
     returns: "Promise<void>"
+  },
+  // ── Settings schema (PB-023) ──
+  {
+    member: "getSettingsSchema", method: "settings:schema",
+    kind: "invoke", group: "Settings", params: [],
+    returns: "Promise<Array<{ key: string; type: string; default: unknown; bookScoped: boolean; min?: number; max?: number; maxLength?: number; format?: string; allowed?: string[] }>>"
   },
   // ── Full-text search (PB-006) ──
   {
