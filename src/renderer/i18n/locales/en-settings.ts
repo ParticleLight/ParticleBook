@@ -187,4 +187,68 @@ export const enSettings: Record<string, string> = {
   '{{count}} 小时_other': '{{count}} hours',
   '{{hours}} 小时 {{minutes}} 分钟': '{{hours}}h {{minutes}}m',
   '阅读 {{time}}': 'Read {{time}}',
+
+  // 高级设置 / SettingsSchemaForm（PB-023-B，schema 驱动表单）
+  '高级设置': 'Advanced',
+  '这些设置项由 C++ Settings schema 自动生成，修改后立即保存；范围、枚举与 URL 还会由后端再校验一次。':
+    'These settings are generated from the C++ settings schema. Changes save immediately; ranges, enums and URLs are validated again on the backend.',
+  '由 C++ Settings schema 自动生成，共 {{count}} 项；只显示全局设置（字号/行距/边距/对齐这些书级排版请到阅读设置里调整）。':
+    'Generated from the C++ settings schema — {{count}} items. Only global settings are shown (per-book typography such as font size, line height, margins and alignment lives in reading settings).',
+  '正在加载设置 schema…': 'Loading the settings schema…',
+  '加载设置 schema 失败：{{error}}': 'Could not load the settings schema: {{error}}',
+  '高级设置依赖 C++ 的 settings:schema 接口；这里失败不影响其它设置页。':
+    'Advanced settings depend on the C++ settings:schema endpoint; a failure here does not affect the other settings pages.',
+  '重试': 'Retry',
+  'schema 里没有可编辑的全局设置项。': 'The schema has no editable global settings.',
+  '恢复本组默认值': 'Reset this group',
+  '已恢复本组默认值': 'Group reset to defaults',
+  '恢复默认值失败：{{error}}': 'Could not reset defaults: {{error}}',
+  '已恢复默认值': 'Default restored',
+  '保存中…': 'Saving…',
+  '保存失败：{{error}}': 'Save failed: {{error}}',
+  '请输入数字': 'Please enter a number',
+  '需要 http(s):// 开头的地址': 'The address must start with http(s)://',
+  '范围 {{min}}–{{max}}': 'Range {{min}}–{{max}}',
+  '开关': 'Toggle',
+  '单选': 'Choice',
+  '整数': 'Integer',
+  '小数': 'Decimal',
+  '文本': 'Text',
+  'URL': 'URL',
+
+  // 分区标题
+  'TTS 朗读': 'TTS read-aloud',
+  '词典': 'Dictionary',
+  '备份': 'Backup',
+  '其他': 'Other',
+
+  // 设置项标签
+  '主题': 'Theme',
+  '启用朗读': 'Enable read-aloud',
+  '默认音色 ID': 'Default voice ID',
+  '音量': 'Volume',
+  '高亮当前句': 'Highlight current sentence',
+  '睡眠定时（分钟）': 'Sleep timer (minutes)',
+  '启用 AI 翻译': 'Enable AI translation',
+  '翻译提供方': 'Translation provider',
+  'Base URL': 'Base URL',
+  '模型': 'Model',
+  '超时（秒）': 'Timeout (seconds)',
+  '启用词典': 'Enable dictionary',
+  '词典来源': 'Dictionary source',
+  '自动查词': 'Auto lookup',
+  '最多释义条数': 'Max results',
+  '启用自动备份': 'Enable automatic backup',
+  '备份目录': 'Backup folder',
+  '备份间隔（天）': 'Backup interval (days)',
+  '保留份数': 'Backups to keep',
+  '中文': 'Chinese',
+
+  // 设置项说明
+  'CSS 字体串，例如 Georgia, Noto Serif SC, serif': 'CSS font stack, e.g. Georgia, Noto Serif SC, serif',
+  'SAPI 音色 token id；留空用系统默认音色': 'SAPI voice token id; leave empty to use the system default voice',
+  '-10 最慢，10 最快，0 为正常语速': '-10 slowest, 10 fastest, 0 is normal speed',
+  'OpenAI 兼容接口地址，例如 https://api.deepseek.com/v1': 'OpenAI-compatible endpoint, e.g. https://api.deepseek.com/v1',
+  '单次请求超时时间': 'Timeout for a single request',
+  '备份文件存放目录，留空用默认位置': 'Where backup files are stored; leave empty for the default location',
 }

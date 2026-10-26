@@ -109,6 +109,9 @@ void RegisterDbHandlers(BridgeServer* bridge, DatabaseService* db)
     });
 
     // ── Settings ────────────────────────────────────
+    bridge->RegisterMethod("settings:schema", [](const json&) {
+        return pb::SettingsService::SchemaJson();
+    });
     bridge->RegisterMethod("db:getSettings", [db](const json&) {
         // PB-023: expose a schema-normalized object (defaults filled, legacy
         // types repaired, secret-looking keys dropped). Preserve unknown keys
