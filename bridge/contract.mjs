@@ -773,6 +773,41 @@ export const contract = [
     params: [{ n: "callback", t: "() => void" }],
     returns: "() => void"
   },
+  // PB-012: open the Windows default-apps page (never hijack defaults).
+  {
+    member: "openDefaultApps", method: "app:openDefaultApps",
+    kind: "invoke", group: "Utilities", params: [],
+    returns: "Promise<void>"
+  },
+  // ── TTS (PB-001) ──
+  {
+    member: "getTtsVoices", method: "tts:voices",
+    kind: "invoke", group: "Utilities", params: [],
+    returns: "Promise<Array<{ id: string; name: string; language: string; gender: string; oneCore: boolean }>>"
+  },
+  {
+    member: "ttsSpeak", method: "tts:speak",
+    kind: "invoke", group: "Utilities",
+    params: [{ n: "text", t: "string" }, { n: "tag", t: "string", o: true }, { n: "flush", t: "boolean", o: true }],
+    returns: "Promise<number>"
+  },
+  { member: "ttsPause", method: "tts:pause", kind: "invoke", group: "Utilities", params: [], returns: "Promise<boolean>" },
+  { member: "ttsResume", method: "tts:resume", kind: "invoke", group: "Utilities", params: [], returns: "Promise<boolean>" },
+  { member: "ttsStop", method: "tts:stop", kind: "invoke", group: "Utilities", params: [], returns: "Promise<boolean>" },
+  {
+    member: "ttsStatus", method: "tts:status",
+    kind: "invoke", group: "Utilities", params: [],
+    returns: "Promise<{ speaking: boolean; paused: boolean; voiceId: string; voiceName: string; rate: number; volume: number }>"
+  },
+  { member: "ttsSetVoice", method: "tts:setVoice", kind: "invoke", group: "Utilities", params: [{ n: "voiceId", t: "string" }], returns: "Promise<boolean>" },
+  { member: "ttsSetRate", method: "tts:setRate", kind: "invoke", group: "Utilities", params: [{ n: "rate", t: "number" }], returns: "Promise<boolean>" },
+  { member: "ttsSetVolume", method: "tts:setVolume", kind: "invoke", group: "Utilities", params: [{ n: "volume", t: "number" }], returns: "Promise<boolean>" },
+  {
+    member: "onTtsEvent", method: "tts:event",
+    kind: "event", group: "Utilities",
+    params: [{ n: "callback", t: "(ev: { type: string; utteranceId: number; tag: string; charOffset: number; charLength: number; byteOffset: number; byteLength: number; error: string }) => void" }],
+    returns: "() => void"
+  },
   // ── Auto Updater ──
   {
     member: "checkUpdate", method: "app:checkUpdate",

@@ -321,6 +321,19 @@ interface ElectronAPI {
   // Library
   onLibraryChanged: (callback: () => void) => () => void
 
+  // Utilities
+  openDefaultApps: () => Promise<void>
+  getTtsVoices: () => Promise<Array<{ id: string; name: string; language: string; gender: string; oneCore: boolean }>>
+  ttsSpeak: (text: string, tag?: string, flush?: boolean) => Promise<number>
+  ttsPause: () => Promise<boolean>
+  ttsResume: () => Promise<boolean>
+  ttsStop: () => Promise<boolean>
+  ttsStatus: () => Promise<{ speaking: boolean; paused: boolean; voiceId: string; voiceName: string; rate: number; volume: number }>
+  ttsSetVoice: (voiceId: string) => Promise<boolean>
+  ttsSetRate: (rate: number) => Promise<boolean>
+  ttsSetVolume: (volume: number) => Promise<boolean>
+  onTtsEvent: (callback: (ev: { type: string; utteranceId: number; tag: string; charOffset: number; charLength: number; byteOffset: number; byteLength: number; error: string }) => void) => () => void
+
   // Auto Updater
   checkUpdate: () => Promise<PbUpdateInfo | null>
   getAppVersion: () => Promise<string>

@@ -4,6 +4,10 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
+  schedule:
+    # PB-018: 每周一 03:17 UTC 跑一次 E2E smoke；push/PR 不跑，避免阻塞日常 build。
+    - cron: '17 3 * * 1'
 
 jobs:
   build-windows:
@@ -61,3 +65,45 @@ jobs:
           if (!(Test-Path particlebook-cpp/build2/ParticleBook.exe)) { throw "ParticleBook.exe missing" }
           if (!(Test-Path particlebook-cpp/build2/renderer/index.html)) { throw "renderer/index.html missing" }
           Write-Output "OK: exe + renderer present"
+
+  # ── PB-018: 关键路径 E2E（手动 / 每周定时；不挂在 push/PR，不阻塞日常 build）──
+  e2e-smoke:
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      # E2E 用 Node 内置 WebSocket 走 CDP，需要 Node 22+（build-windows 仍是 20）。
+      - name: Setup Node (E2E needs Node 22+ for global WebSocket)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install frontend deps
+        run: npm ci
+
+      - name: Build frontend
+        run: npm run build
+
+      - name: Set MSVC environment
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Configure CMake (NMake)
+        run: cmake -S particlebook-cpp -B particlebook-cpp/build2 -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build C++ backend
+        run: cmake --build particlebook-cpp/build2
+
+      - name: Run E2E smoke (real app + WebView2 CDP)
+        run: node scripts/e2e/smoke.mjs --app particlebook-cpp/build2/ParticleBook.exe --artifacts e2e-artifacts
+
+      - name: Upload E2E artifacts (screenshots / logs / report.json)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-artifacts
+          path: e2e-artifacts
+          if-no-files-found: ignore
+          retention-days: 14

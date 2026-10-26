@@ -51,6 +51,7 @@ add_executable(ParticleBook WIN32
     src/services/DictionaryService.cpp
     src/services/TranslationService.cpp
     src/services/ExportService.cpp
+    src/services/SearchIndexService.cpp
     src/domain/Locator.cpp
     src/domain/Annotation.cpp
     src/utils/ZipReader.cpp
@@ -58,6 +59,7 @@ add_executable(ParticleBook WIN32
     src/handlers/FileHandlers.cpp
     src/handlers/BackupHandlers.cpp
     src/handlers/ExportHandlers.cpp
+    src/handlers/TtsHandlers.cpp
     src/platform/SingleInstance.cpp
     src/platform/UiDispatcher.cpp
     src/platform/JobService.cpp
@@ -277,3 +279,19 @@ target_include_directories(export_service_test PRIVATE
     "${CMAKE_SOURCE_DIR}/third_party"
 )
 add_test(NAME export_service_test COMMAND export_service_test)
+
+# ── PB-006 SearchIndexService (EPUB/TXT/HTML/MD full-text) ──────────
+add_executable(search_index_test
+    tests/unit/search_index_test.cpp
+    src/services/SearchIndexService.cpp
+    src/utils/ZipReader.cpp
+    third_party/miniz.c
+    third_party/miniz_tdef.c
+    third_party/miniz_tinfl.c
+)
+target_compile_options(search_index_test PRIVATE /EHa /utf-8)
+target_include_directories(search_index_test PRIVATE
+    src/
+    "${CMAKE_SOURCE_DIR}/third_party"
+)
+add_test(NAME search_index_test COMMAND search_index_test)

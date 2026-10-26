@@ -16,6 +16,7 @@ class ContentCache;
 class SingleInstance;
 namespace pb { class JobService; }
 namespace pb { class LogService; }
+namespace pb { class SapiTts; }
 
 class App {
 public:
@@ -57,6 +58,7 @@ private:
     std::unique_ptr<ContentCache> m_cache;
     std::shared_ptr<pb::JobService> m_jobs;
     std::shared_ptr<pb::LogService> m_log;
+    std::unique_ptr<pb::SapiTts> m_tts;
 
     SingleInstance* m_single = nullptr;
     std::mutex m_openMutex;

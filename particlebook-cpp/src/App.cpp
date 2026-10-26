@@ -12,8 +12,11 @@
 #include "platform/SingleInstance.h"
 #include "platform/JobService.h"
 #include "platform/LogService.h"
+#include "platform/SapiTts.h"
+#include "handlers/TtsHandlers.h"
 #include "pb_version.h"
 #include <shlobj.h>
+#include <shellapi.h>
 #include <fstream>
 #include <sstream>
 
@@ -65,12 +68,43 @@ void App::Init(HINSTANCE hInstance, std::vector<std::string> startupPaths, Singl
     // 2. Bridge (message dispatch)
     m_bridge = std::make_shared<BridgeServer>();
 
+    // PB-001: one in-process SAPI voice instance (SAPI audio is process-wide).
+    m_tts = std::make_unique<pb::SapiTts>();
+    if (!m_tts->Initialize()) {
+        pb::LogWarn("tts", "SAPI initialize failed: " + m_tts->LastError());
+    }
+
     // 3. WebView host (window + browser) + background jobs
     m_webview = std::make_unique<WebViewHost>();
     m_jobs = std::make_shared<pb::JobService>(m_webview->Dispatcher());
 
     // Wire bridge <-> WebView
     m_bridge->SetWebView(m_webview.get());
+
+    // PB-001: TTS events arrive on SapiTts' notifier thread; EmitEvent marshals
+    // to the UI thread through UiDispatcher before touching WebView2.
+    if (m_tts) {
+        m_tts->SetEventHandler([this](const pb::TtsEvent& e) {
+            const char* type = "started";
+            switch (e.type) {
+                case pb::TtsEventType::Started: type = "started"; break;
+                case pb::TtsEventType::Ended: type = "ended"; break;
+                case pb::TtsEventType::WordBoundary: type = "word"; break;
+                case pb::TtsEventType::SentenceBoundary: type = "sentence"; break;
+                case pb::TtsEventType::Error: type = "error"; break;
+            }
+            m_bridge->EmitEvent("tts:event", {
+                {"type", type},
+                {"utteranceId", e.utterance},
+                {"tag", e.tag},
+                {"charOffset", e.charOffset},
+                {"charLength", e.charLength},
+                {"byteOffset", e.byteOffset},
+                {"byteLength", e.byteLength},
+                {"error", e.error},
+            });
+        });
+    }
     m_webview->SetOpenFilesCallback([this]() { FlushOpenPaths(); });
     m_webview->SetMessageHandler([this](const std::string& msg, const std::string& source) {
         m_bridge->HandleMessage(msg, source);
@@ -252,6 +286,7 @@ void App::Init(HINSTANCE hInstance, std::vector<std::string> startupPaths, Singl
     RegisterExportHandlers(m_bridge.get(), m_db.get(), m_jobs.get());
     RegisterPdfHandlers(m_bridge.get(), m_pdf.get(), m_jobs.get());
     RegisterBookSourceHandlers(m_bridge.get(), m_bookSource, m_jobs.get());
+    RegisterTtsHandlers(m_bridge.get(), m_tts.get());
     RegisterZlibHandlers(m_bridge.get(), m_zlib.get());
 
     // UI language switch — called from frontend when the user changes language.
@@ -270,6 +305,16 @@ void App::Init(HINSTANCE hInstance, std::vector<std::string> startupPaths, Singl
 
     // PB-016: local diagnostics export (logs + version + system info + settings).
     // No network/telemetry; returns the created directory or null on failure.
+    // PB-012: open Settings > Default apps; we never write UserChoice ourselves.
+    m_bridge->RegisterMethod("app:openDefaultApps", [](const json&) -> json {
+        HINSTANCE r = ShellExecuteW(nullptr, L"open",
+            L"ms-settings:defaultapps?registeredAppUser=ParticleBook", nullptr, nullptr, SW_SHOWNORMAL);
+        if (reinterpret_cast<INT_PTR>(r) <= 32) {
+            ShellExecuteW(nullptr, L"open", L"ms-settings:defaultapps", nullptr, nullptr, SW_SHOWNORMAL);
+        }
+        return json(nullptr);
+    });
+
     m_bridge->RegisterMethod("app:exportDiagnostics", [this](const json&) -> json {
         if (!m_log) return json(nullptr);
         pb::DiagnosticsPackage pkg;
@@ -299,6 +344,7 @@ void App::Shutdown()
 {
     pb::LogInfo("app", "shutdown begin");
     // Stop jobs first, then the UI queue, then the pipe server.
+    if (m_tts) { m_tts->Shutdown(); m_tts.reset(); }
     if (m_jobs) m_jobs->Stop();
     if (m_webview) m_webview->StopDispatcher();
     if (m_single) m_single->Stop();

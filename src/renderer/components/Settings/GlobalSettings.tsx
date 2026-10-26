@@ -624,6 +624,7 @@ function AboutPage() {
           ))}
         </div>
         <button onClick={handleCopyAll} disabled={exportAllBusy} className="btn-secondary w-full mt-2">{t('复制 Markdown')}</button>
+        <button onClick={() => window.electronAPI.openDefaultApps()} className="btn-secondary w-full mt-2">{t('打开默认应用设置')}</button>
         {exportAllMsg && <p className="mt-3 text-xs break-all" style={{ color: 'var(--text-secondary)' }}>{exportAllMsg}</p>}
       </div>
 

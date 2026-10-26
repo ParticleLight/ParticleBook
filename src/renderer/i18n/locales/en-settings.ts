@@ -105,6 +105,7 @@ export const enSettings: Record<string, string> = {
   '检查更新': 'Check for updates',
   '导出全部标注': 'Export all annotations',
   '已导出：{{name}}': 'Exported: {{name}}',
+  '打开默认应用设置': 'Open default apps settings',
   '复制 Markdown': 'Copy Markdown',
   '已复制到剪贴板': 'Copied to clipboard',
   '复制失败': 'Copy failed',
