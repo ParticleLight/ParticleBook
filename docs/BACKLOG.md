@@ -23,15 +23,14 @@
 | PB-012 | 文件关联 / 打开方式 | P1 | 📋 待办 | 2.2.1 | 只进「打开方式」，不抢默认 |
 | PB-013 | 书源生态增强 | P1 | 📋 待办 | 2.2.1 | URL/剪贴板导入、规则编辑、单源测试 |
 | PB-014 | 数据 schema 版本 + 迁移 | P0 | 📋 待办 | 2.2.1 | 工程前置：PB-005/006 之前必做 |
-| PB-015 | 桥接契约扩展 | P0 | 📋 待办 | 2.2.1 | 工程前置：新接口先改契约表 |
+| PB-015 | 桥接契约扩展 | P0 | 🚧 进行中 | 2.2.1 | handler 注册校验已完成；契约拆分/stub 生成/exposure/error 待续 |
 | PB-016 | 本地诊断日志 | P1 | 📋 待办 | 2.2.1 | 脱敏日志 + 导出诊断包，无遥测 |
 | PB-017 | 大书库性能 | P2 | 📋 待办 | 2.2.1 | 虚拟列表、封面缓存、索引性能 |
 | PB-018 | 关键路径 E2E | P1 | 📋 待办 | 2.2.1 | CI 跑 5–8 条关键链路 |
-| PB-019 | 单实例 + 文件打开转发 | P0 | 📋 待办 | 2.2.1 | 单进程 + 二次启动转发路径；防 DB 并发写 |
-| PB-020 | UiDispatcher + JobService + 长任务迁移 | P0 | 📋 待办 | 2.2.1 | 长任务离开 UI 线程；统一进度/取消 |
+| PB-020 | UiDispatcher + JobService + 长任务迁移 | P0 | 🚧 进行中 | 2.2.1 | 平台核心已落；App/WebViewHost 接线待续 |
 | PB-021 | Locator + Annotation 统一模型 | P0 | 📋 待办 | 2.2.1 | 统一 cfi/offset/page/rect；标注/搜索/TTS 共用 |
 | PB-022 | ReaderAdapter + 共享阅读交互 | P1 | 📋 待办 | 2.2.1 | 5 个渲染器收敛到统一 adapter |
-| PB-023 | Settings + SecretStore | P0 | 📋 待办 | 2.2.1 | typed settings + DPAPI；AI Key 不进 settings |
+| PB-023 | Settings + SecretStore | P0 | 🚧 进行中 | 2.2.1 | SecretStore 已落；Settings schema/接线待续 |
 | PB-024 | god files 拆分 + 注入 JS 外置 | P2 | 📋 待办 | 2.2.1 | ZLibrary/FileHandlers/App/WebViewHost 等增量拆 |
 | PB-025 | 设计基元 + 主题审计 | P2 | 📋 待办 | 2.2.1 | Popover/Dialog/Toolbar 等基元 + token 约束 |
 
@@ -41,7 +40,7 @@
 
 ### 批次 1 · P0（9 项，先做）
 
-1. PB-019 单实例 + 文件打开转发
+1. ✅ PB-019 单实例 + 文件打开转发（已完成）
 2. PB-020 UiDispatcher + JobService + 长任务迁移
 3. PB-015 桥接契约扩展（扩为 Bridge 加固）
 4. PB-011 备份 / 恢复
@@ -289,6 +288,8 @@
 
 **非目标**：RSS、TTS 书源、JS 规则完整兼容（按 Legado 规则复杂度逐步补）。
 
+**进度（2026-10-26）**：handler 注册校验已完成（`scripts/check-bridge-handlers.js` + CI，commit `02c62a5`）；契约拆分 / 生成 stub / exposure / error envelope 待续。
+
 ## PB-014 · 数据 schema 版本 + 迁移
 
 **目标**：给 JSON 库加显式版本与可测试迁移，保障升级不丢数据。
@@ -370,6 +371,8 @@
 
 **非目标**：多窗口 / 标签页。
 
+**进度（2026-10-26）**：已完成（commit `9e5943d`）；手工验证二次启动 108ms 退出、主实例收到 `app:openFiles` 事件、仅一个进程。
+
 ## PB-020 · UiDispatcher + JobService + 长任务迁移
 
 **目标**：长任务不再占用 WebView2 UI 线程；所有后台事件统一回 UI 线程。
@@ -383,6 +386,8 @@
 - [ ] 为 TTS/翻译/备份/索引预留同一套 job 接口
 
 **非目标**：多进程 worker；先做单进程线程池。
+
+**进度（2026-10-26）**：平台核心 6 文件 + 单测已落（commit `6d9dc58`）；App/WebViewHost 接线待续。首次集成尝试会破坏桥接消息投递（页面 invoke 无响应），已整体回退；下一步按最小步集成：先只接 UiDispatcher，再逐项接 JobService。
 
 ## PB-021 · Locator + Annotation 统一模型
 
@@ -423,6 +428,8 @@
 
 **非目标**：系统凭据管理器集成（可后续）。
 
+**进度（2026-10-26）**：SecretStore + 13 段单测已落（commit `6d9dc58`）；Settings schema / App 接线待续。
+
 ## PB-024 · god files 拆分 + 注入 JS 外置
 
 **目标**：把 1000+ 行文件和 App.cpp 里的注入 JS 拆成可维护单元；纯重构，不改行为。
@@ -459,6 +466,7 @@
 | 事项 | 完成时间 | 提交 / 版本 |
 |---|---|---|
 | issue #6 亮色设置页文字不可读 | 2026-10-25 | `27d9dcd`（未发版） |
+| PB-019 单实例 + 文件打开转发 | 2026-10-26 | `9e5943d`（未发版） |
 
 ## 暂缓 / 否决
 
