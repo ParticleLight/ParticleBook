@@ -20,11 +20,10 @@
 | PB-009 | 双栏 / 分屏 / 竖排 | P2 | 📋 待办 | 2.2.1 | 大屏与竖排阅读 |
 | PB-010 | 本地词典 | P1 | 🚧 进行中 | 2.2.1 | DictionaryService 核心已落；导入/查词 UI 待接 |
 | PB-011 | 备份 / 恢复 | P0 | 🚧 进行中 | 2.2.1 | 创建/恢复已接线；封面/进度/WebDAV 待补 |
-| PB-012 | 文件关联 / 打开方式 | P1 | 📋 待办 | 2.2.1 | 只进「打开方式」，不抢默认 |
 | PB-013 | 书源生态增强 | P1 | 📋 待办 | 2.2.1 | URL/剪贴板导入、规则编辑、单源测试 |
 | PB-016 | 本地诊断日志 | P1 | 🚧 进行中 | 2.2.1 | 日志+导出已接；网络/AI 失败点待补 |
 | PB-017 | 大书库性能 | P2 | 📋 待办 | 2.2.1 | 虚拟列表、封面缓存、索引性能 |
-| PB-018 | 关键路径 E2E | P1 | 📋 待办 | 2.2.1 | CI 跑 5–8 条关键链路 |
+| PB-018 | 关键路径 E2E | P1 | 🚧 进行中 | 2.2.1 | 5 条 smoke 已过；Z-Library/翻译/TTS/备份待补 |
 | PB-021 | Locator + Annotation 统一模型 | P0 | 🚧 进行中 | 2.2.1 | 模型+测试已落；DB/bridge/UI 待接 |
 | PB-022 | ReaderAdapter + 共享阅读交互 | P1 | 📋 待办 | 2.2.1 | 5 个渲染器收敛到统一 adapter |
 | PB-023 | Settings + SecretStore | P0 | 🚧 进行中 | 2.2.1 | 核心+DbHandlers 归一化已落；App/渲染层接线待续 |
@@ -54,7 +53,7 @@
 3. PB-022 ReaderAdapter + 共享阅读交互
 4. PB-010 本地词典
 5. PB-004 笔记 / 高亮导出
-6. PB-012 文件关联 / 打开方式
+6. ✅ PB-012 文件关联 / 打开方式（已完成）
 7. PB-003 PDF 标注
 8. PB-005 元数据 / 标签 / 系列 / 评分
 9. PB-006 跨书全文搜索
@@ -96,7 +95,7 @@
 
 **备注**：先做 1 天 spike，验证 SAPI 词边界事件、后台播放、Z-Library 导航后不断播。
 
-**进度（2026-10-26）**：`SapiTts` 核心 + 单测已落（commit `ea2308a`）：6 音色枚举去重、Speak 异步队列、Pause/Resume/Stop、句/词边界（UTF-16+UTF-8 偏移）、错误码。bridge/App/UI 待接。
+**进度（2026-10-26）**：`SapiTts` 核心+单测（`ea2308a`）；bridge `tts:*` + App 单例 + `tts:event` 回投（`444583b`），CDP 实测 6 音色/朗读事件/Stop。剩余：阅读器播放条/句高亮/设置持久化/睡眠定时。
 
 ## PB-002 · AI 翻译（用户自带 Key）
 
@@ -183,6 +182,8 @@
 - [ ] 大书库索引大小与搜索延迟可接受
 
 **非目标**：语义搜索、OCR 扫描件、跨书正则 / 高级语法（可后续）。
+
+**进度（2026-10-26）**：`SearchIndexService` 核心 + 8 组单测（`444583b`）：EPUB/TXT/HTML/MD 抽取、CJK unigram+bigram、增量、JSON 持久化、取消。全局搜索 UI/JobService 接线待接。
 
 **备注**：索引单独存储，不塞进主 JSON 库；大库可评估 SQLite FTS5。
 
@@ -274,13 +275,15 @@
 - 与用户已有默认阅读器共存。
 
 **MVP 验收**
-- [ ] 安装器注册 ProgID + OpenWithProgids（EPUB / PDF / MOBI / FB2 / TXT / CBZ / CBR）
-- [ ] 右键「打开方式」可见 ParticleBook
-- [ ] 应用内提供「打开 Windows 默认应用设置」按钮
-- [ ] 卸载清理；不改变任何现有默认关联
-- [ ] 启动参数接收文件路径并导入 / 打开
+- [x] 安装器注册 ProgID + OpenWithProgids（EPUB / PDF / MOBI / FB2 / TXT / CBZ / CBR）
+- [x] 右键「打开方式」可见 ParticleBook
+- [x] 应用内提供「打开 Windows 默认应用设置」按钮
+- [x] 卸载清理；不改变任何现有默认关联
+- [x] 启动参数接收文件路径并导入 / 打开
 
 **非目标**：静默设为默认、系统级文件类型劫持。
+
+**进度（2026-10-26）：已完成。** installer 注册 7 种扩展名 ProgID/OpenWithProgids/Capabilities（不写默认/UserChoice），卸载清理；设置页「打开默认应用设置」深链；makensis 编译与沙箱注册/反注册实测通过。commit `444583b`，说明 `docs/FILE_ASSOCIATION.md`。
 
 ## PB-013 · 书源生态增强
 
@@ -367,6 +370,8 @@
 - [ ] 在 CI（Windows runner）跑；失败附日志 / 截图
 
 **非目标**：全量 UI 覆盖；先覆盖 5–8 条关键路径。
+
+**进度（2026-10-26）**：`scripts/e2e` 框架 + 5 条 smoke（`be52dbe`），本机 5/5 PASS（4.2s），失败采集/截图/CI 手动+每周 job 就绪。剩余：Z-Library 下载、翻译 mock、TTS、备份恢复、schema 迁移用例。
 
 
 ## PB-019 · 单实例 + 文件打开转发
@@ -487,6 +492,7 @@
 | PB-020 UiDispatcher + JobService + 长任务迁移 | 2026-10-26 | `fecad16` / `e60e933` / `e022aa2` / `ff7ffc9`（未发版） |
 | PB-014 数据 schema 版本 + 迁移 | 2026-10-26 | `87331a0`（未发版） |
 | PB-015 桥接契约扩展 | 2026-10-26 | 既有 `02c62a5` + contract/dts/handler/usage 审计全绿（未发版） |
+| PB-012 文件关联 / 打开方式 | 2026-10-26 | `444583b`（未发版） |
 
 ## 暂缓 / 否决
 
