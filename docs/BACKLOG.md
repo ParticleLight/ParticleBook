@@ -27,40 +27,54 @@
 | PB-016 | 本地诊断日志 | P1 | 📋 待办 | 2.2.1 | 脱敏日志 + 导出诊断包，无遥测 |
 | PB-017 | 大书库性能 | P2 | 📋 待办 | 2.2.1 | 虚拟列表、封面缓存、索引性能 |
 | PB-018 | 关键路径 E2E | P1 | 📋 待办 | 2.2.1 | CI 跑 5–8 条关键链路 |
+| PB-019 | 单实例 + 文件打开转发 | P0 | 📋 待办 | 2.2.1 | 单进程 + 二次启动转发路径；防 DB 并发写 |
+| PB-020 | UiDispatcher + JobService + 长任务迁移 | P0 | 📋 待办 | 2.2.1 | 长任务离开 UI 线程；统一进度/取消 |
+| PB-021 | Locator + Annotation 统一模型 | P0 | 📋 待办 | 2.2.1 | 统一 cfi/offset/page/rect；标注/搜索/TTS 共用 |
+| PB-022 | ReaderAdapter + 共享阅读交互 | P1 | 📋 待办 | 2.2.1 | 5 个渲染器收敛到统一 adapter |
+| PB-023 | Settings + SecretStore | P0 | 📋 待办 | 2.2.1 | typed settings + DPAPI；AI Key 不进 settings |
+| PB-024 | god files 拆分 + 注入 JS 外置 | P2 | 📋 待办 | 2.2.1 | ZLibrary/FileHandlers/App/WebViewHost 等增量拆 |
+| PB-025 | 设计基元 + 主题审计 | P2 | 📋 待办 | 2.2.1 | Popover/Dialog/Toolbar 等基元 + token 约束 |
 
 ## 2.2.1 执行顺序
 
-> 全部 18 项都归入 2.2.1；不再拆分 2.3 / 2.4 / 2.5，只按 P0 → P1 → P2 推进。
+> 全部 25 项都归入 2.2.1；只按 P0 → P1 → P2 推进。
 
-### 批次 1 · P0（5 项，先做）
+### 批次 1 · P0（9 项，先做）
 
-1. PB-014 数据 schema 版本 + 迁移
-2. PB-011 备份 / 恢复
-3. PB-015 桥接契约扩展
-4. PB-001 TTS 朗读
-5. PB-002 AI 翻译（用户自带 Key）
+1. PB-019 单实例 + 文件打开转发
+2. PB-020 UiDispatcher + JobService + 长任务迁移
+3. PB-015 桥接契约扩展（扩为 Bridge 加固）
+4. PB-011 备份 / 恢复
+5. PB-014 数据 schema 版本 + 迁移
+6. PB-021 Locator + Annotation 统一模型
+7. PB-023 Settings + SecretStore
+8. PB-001 TTS 朗读
+9. PB-002 AI 翻译（用户自带 Key）
 
-### 批次 2 · P1（9 项）
+### 批次 2 · P1（10 项）
 
-1. PB-016 本地诊断日志
+1. PB-016 本地诊断日志（建议从 P0 起并行）
 2. PB-018 关键路径 E2E（随 P0 开始，持续补）
-3. PB-010 本地词典
-4. PB-004 笔记 / 高亮导出
-5. PB-012 文件关联 / 打开方式
-6. PB-003 PDF 标注
-7. PB-005 元数据 / 标签 / 系列 / 评分
-8. PB-006 跨书全文搜索
-9. PB-013 书源生态增强
+3. PB-022 ReaderAdapter + 共享阅读交互
+4. PB-010 本地词典
+5. PB-004 笔记 / 高亮导出
+6. PB-012 文件关联 / 打开方式
+7. PB-003 PDF 标注
+8. PB-005 元数据 / 标签 / 系列 / 评分
+9. PB-006 跨书全文搜索
+10. PB-013 书源生态增强
 
-### 批次 3 · P2（4 项）
+### 批次 3 · P2（6 项）
 
-1. PB-017 大书库性能
-2. PB-007 统计升级
-3. PB-008 格式补齐
-4. PB-009 双栏 / 分屏 / 竖排
+1. PB-024 god files 拆分 + 注入 JS 外置
+2. PB-025 设计基元 + 主题审计
+3. PB-017 大书库性能
+4. PB-007 统计升级
+5. PB-008 格式补齐
+6. PB-009 双栏 / 分屏 / 竖排
 
 > 优先级：P0 = 先做 / 阻塞项；P1 = 紧跟；P2 = 最后。
-> 依赖：PB-014 在 PB-005/006 前；PB-015 在 TTS / 翻译 / 词典 / 标注前；PB-011 建议在 PB-014 迁移前可用；PB-018 随 P0 起持续补用例。
+> 依赖：PB-019 在 PB-012 前；PB-020 / PB-015 在 TTS / 翻译 / 导入 / 搜索前；PB-011 建议在 PB-014 迁移前可用；PB-021 在 PB-003/004 前（配合 PB-014）；PB-023 在 PB-002 前；PB-018 随 P0 起持续补。
 
 
 ## PB-001 · TTS 朗读
@@ -341,6 +355,99 @@
 - [ ] 在 CI（Windows runner）跑；失败附日志 / 截图
 
 **非目标**：全量 UI 覆盖；先覆盖 5–8 条关键路径。
+
+
+## PB-019 · 单实例 + 文件打开转发
+
+**目标**：同一时间只允许一个 ParticleBook 进程；第二次启动把文件路径转给已运行实例。
+
+**MVP 验收**
+- [ ] 命名 mutex（Local\ParticleBook.SingleInstance）；第二次启动不进入主流程
+- [ ] 命名管道或 WM_COPYDATA 转发路径（可多个），支持「导入」/「打开」两种动作
+- [ ] 第一个实例收到后恢复窗口并导入/打开
+- [ ] 同一 DB 无并发写；退出时转发端不挂起
+- [ ] PB-012 文件关联之前完成
+
+**非目标**：多窗口 / 标签页。
+
+## PB-020 · UiDispatcher + JobService + 长任务迁移
+
+**目标**：长任务不再占用 WebView2 UI 线程；所有后台事件统一回 UI 线程。
+
+**MVP 验收**
+- [ ] UiDispatcher：单一 WM_APP 消息 + std::function 队列，替代散落的 WM_USER+N 与裸指针 LPARAM
+- [ ] JobService：submit/cancel/progress；worker 池；事件 job:progress / job:done / job:error
+- [ ] 迁移：book:import、file:read（大文件/MOBI）、pdf:open/render/extractText、bookSource:search/searchOne/getBookInfo/getChapterList
+- [ ] 长任务 handler 立即返回 jobId；UI 不阻塞
+- [ ] Shutdown 先停 JobService/join，再拆 bridge/webview/db
+- [ ] 为 TTS/翻译/备份/索引预留同一套 job 接口
+
+**非目标**：多进程 worker；先做单进程线程池。
+
+## PB-021 · Locator + Annotation 统一模型
+
+**目标**：给书签、高亮、笔记、PDF 标注、TTS、搜索提供统一的「书内位置」表示。
+
+**MVP 验收**
+- [ ] Locator JSON（带 version/kind）：epub cfi / text offset / html anchor / pdf page+归一化 rect / scroll percent
+- [ ] Annotation 统一：bookmark / highlight / note / pdf-annot；id、book_id、locator、text、color、note、created_at、updated_at
+- [ ] 旧数据迁移：cfi、page、pos-<offset>、scrollPosition 映射到 Locator（配合 PB-014）
+- [ ] ReaderAdapter 用 Locator 读写位置；导出/搜索/TTS 复用
+- [ ] PDF 页内矩形可存取；缩放/换页不丢
+
+**非目标**：手写笔迹；先做文本/矩形标注。
+
+## PB-022 · ReaderAdapter + 共享阅读交互
+
+**目标**：5 个渲染器不再各写一套搜索/进度/高亮；TTS/翻译/词典只对接一层。
+
+**MVP 验收**
+- [ ] ReaderAdapter 接口：getLocator / goTo / getSelection / getTextModel / search / applyAnnotation / removeAnnotation
+- [ ] 共享 SelectionToolbar、SearchController、ProgressController
+- [ ] EPUB / TXT / HTML 先接；PDF / Comic 后续
+- [ ] TTS/翻译/词典/导出只依赖 adapter，不按格式分支
+- [ ] 现有阅读行为不回退
+
+**非目标**：重写渲染器；保留各格式渲染内核。
+
+## PB-023 · Settings + SecretStore
+
+**目标**：设置有了 typed schema；第三方 Key 安全存储，不进 settings/备份/日志。
+
+**MVP 验收**
+- [ ] Settings schema：全局/书级、默认值、校验、版本迁移
+- [ ] SecretStore：Windows DPAPI 加密；只存 provider key
+- [ ] settings 只存 provider id / base URL / model；备份与日志不含 Key
+- [ ] 渲染层由 schema 驱动表单；GlobalSettings 按页拆分
+- [ ] TTS/翻译/词典/备份的设置项可增量加 schema，不再加散落字段
+
+**非目标**：系统凭据管理器集成（可后续）。
+
+## PB-024 · god files 拆分 + 注入 JS 外置
+
+**目标**：把 1000+ 行文件和 App.cpp 里的注入 JS 拆成可维护单元；纯重构，不改行为。
+
+**MVP 验收**
+- [ ] 抽 HttpClient / DownloadManager / ImportService / UpdateService / MirrorService
+- [ ] ZLibraryService / BookSourceService / FileHandlers / WebViewHost 按职责收缩
+- [ ] 注入 JS 移到 resources/zlib_toolbar.js、resources/download_card.js，使用 __pbLang + CSS 变量
+- [ ] GlobalSettings / ReaderView / EpubRenderer 拆到可读大小（按功能改到哪拆到哪）
+- [ ] 重构前后构建、测试、关键路径 smoke 通过
+
+**非目标**：一次性全部拆完；不追求「每文件 < 300 行」的形式指标。
+
+## PB-025 · 设计基元 + 主题审计
+
+**目标**：新 UI（TTS 控制条、翻译/词典弹层、标注侧栏）不再重复主题 bug。
+
+**MVP 验收**
+- [ ] shared/ui 基元：Popover / Dialog / Toolbar / Switch / Field / List
+- [ ] 颜色只走 CSS token；移除 ReaderView 加载页 bg-gray-900 等硬编码深色
+- [ ] 亮色 / 暗色 / 护眼三主题走查：新弹层、菜单、tooltip、空状态
+- [ ] 键盘焦点、ESC 逐层关闭、aria 名称纳入基元
+- [ ] issue #6 同类问题有回归检查
+
+**非目标**：整体视觉重设计。
 
 
 ## 待排期
