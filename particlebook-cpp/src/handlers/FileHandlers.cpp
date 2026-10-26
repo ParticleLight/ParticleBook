@@ -11,6 +11,7 @@
 #include "services/DatabaseService.h"
 #include "services/LibraryService.h"
 #include "services/ContentCache.h"
+#include "platform/JobService.h"
 #include <fstream>
 #include <vector>
 #include <cstdlib>
@@ -359,7 +360,105 @@ static json CheckUpdateImpl()
 }
 
 
-void RegisterFileHandlers(BridgeServer* bridge, DatabaseService* db, ContentCache* cache)
+static json ReadFileForRenderer(ContentCache* cache, const std::string& path)
+{
+    std::vector<uint8_t> cached;
+    if (cache && cache->Get(path, cached)) return json(cached);
+
+    // Serve every format via the virtual-host URL. The old ≤5MB path
+    // serialized the file as a JSON byte array (≈4x expansion + UTF-16
+    // doubling) and froze the UI for multi-MB books; the virtual host lets
+    // the frontend fetch the bytes directly. MOBI stays on the JSON path
+    // below because it must go through ConvertMobiToText (encoding fix).
+    std::string format = DetectFormat(path);
+    if (format != "mobi") {
+        // Copy to renderer temp dir (bounded — evict oldest beyond a cap;
+        // _pb_files are re-copied on demand, so eviction is always safe)
+        wchar_t exePath[MAX_PATH];
+        GetModuleFileNameW(nullptr, exePath, MAX_PATH);
+        auto rendererDir = (std::filesystem::path(exePath).parent_path() / "renderer" / "_pb_files").wstring();
+        CreateDirectoryW(rendererDir.c_str(), nullptr);
+
+        std::error_code ec;
+        std::vector<std::filesystem::directory_entry> entries;
+        for (auto& de : std::filesystem::directory_iterator(rendererDir, ec)) {
+            if (!de.is_directory()) entries.push_back(de);
+        }
+        if (entries.size() > 64) {
+            std::sort(entries.begin(), entries.end(), [](const auto& a, const auto& b) {
+                return a.last_write_time() < b.last_write_time();
+            });
+            for (size_t i = 0; i < entries.size() - 64; i++) {
+                std::filesystem::remove(entries[i].path(), ec);
+            }
+        }
+
+        // Key = stable FNV-1a hash of the full path: pure ASCII (no URL-encoding
+        // issues for names containing '#'/'%'/spaces) and unique per source
+        // path (no same-basename overwrite between different folders). FNV-1a
+        // is deterministic (std::hash is not stable across runs/compilers).
+        std::string fn = pb::Fnv1a64Hex(path);
+
+        std::wstring dest = rendererDir + L"\\" + pb::Utf8ToWide(fn);
+        if (CopyFileW(pb::Utf8ToWide(path).c_str(), dest.c_str(), FALSE)) {
+            std::string url = "http://particlebook.app/_pb_files/" + fn;
+            json r;
+            r["_pb_url"] = url;
+            return r;
+        }
+        // Copy failed → fall through to the JSON byte-array read below
+    }
+
+    // For MOBI files, extract text via mutool (cached)
+    std::string mobiText = ConvertMobiToText(path);
+    if (!mobiText.empty()) {
+        int64_t ft = 0;
+        int wl = MultiByteToWideChar(CP_UTF8, 0, path.c_str(), (int)path.size(), nullptr, 0);
+        if (wl > 0) {
+            std::wstring wp(wl, L'\0');
+            MultiByteToWideChar(CP_UTF8, 0, path.c_str(), (int)path.size(), &wp[0], wl);
+            WIN32_FILE_ATTRIBUTE_DATA attrs;
+            if (GetFileAttributesExW(wp.c_str(), GetFileExInfoStandard, &attrs)) {
+                ft = (static_cast<int64_t>(attrs.ftLastWriteTime.dwHighDateTime) << 32)
+                   | attrs.ftLastWriteTime.dwLowDateTime;
+            }
+        }
+        std::vector<uint8_t> data(mobiText.begin(), mobiText.end());
+        if (cache) cache->Put(path, data, ft);
+        return json(data);
+    }
+
+    // Convert UTF-8 path to wide for Windows API
+    int wlen = MultiByteToWideChar(CP_UTF8, 0, path.c_str(), (int)path.size(), nullptr, 0);
+    if (wlen <= 0) return json(nullptr);
+    std::wstring wpath(wlen, L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, path.c_str(), (int)path.size(), &wpath[0], wlen);
+
+    HANDLE hFile = CreateFileW(wpath.c_str(), GENERIC_READ, FILE_SHARE_READ,
+                               nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (hFile == INVALID_HANDLE_VALUE) return json(nullptr);
+
+    FILETIME ftWrite;
+    GetFileTime(hFile, nullptr, nullptr, &ftWrite);
+    int64_t fileTime = (static_cast<int64_t>(ftWrite.dwHighDateTime) << 32)
+                     | ftWrite.dwLowDateTime;
+
+    LARGE_INTEGER liSize;
+    GetFileSizeEx(hFile, &liSize);
+    size_t size = static_cast<size_t>(liSize.QuadPart);
+
+    std::vector<uint8_t> data(size);
+    DWORD bytesRead = 0;
+    ReadFile(hFile, data.data(), static_cast<DWORD>(size), &bytesRead, nullptr);
+    CloseHandle(hFile);
+
+    data.resize(bytesRead);
+    if (cache) cache->Put(path, data, fileTime);
+    return json(data);
+}
+
+
+void RegisterFileHandlers(BridgeServer* bridge, DatabaseService* db, ContentCache* cache, pb::JobService* jobs)
 {
     // ── dialog:openFile ───────────────────────────────────────
     bridge->RegisterMethod("dialog:openFile", [](const json&) -> json {
@@ -380,107 +479,20 @@ void RegisterFileHandlers(BridgeServer* bridge, DatabaseService* db, ContentCach
 
 
 
-    // ── file:read ─ Return file content as byte array (cached) ───
-    bridge->RegisterMethod("file:read", [cache](const json& p) -> json {
-        std::string path = p["path"].get<std::string>();
-
-        // Check cache first
-        if (cache) {
-            auto* cached = cache->Get(path);
-            if (cached) return json(*cached);
-        }
-
-        // Serve every format via the virtual-host URL. The old ≤5MB path
-        // serialized the file as a JSON byte array (≈4x expansion + UTF-16
-        // doubling) and froze the UI for multi-MB books; the virtual host lets
-        // the frontend fetch the bytes directly. MOBI stays on the JSON path
-        // below because it must go through ConvertMobiToText (encoding fix).
-        std::string format = DetectFormat(path);
-        if (format != "mobi") {
-            // Copy to renderer temp dir (bounded — evict oldest beyond a cap;
-            // _pb_files are re-copied on demand, so eviction is always safe)
-            wchar_t exePath[MAX_PATH];
-            GetModuleFileNameW(nullptr, exePath, MAX_PATH);
-            auto rendererDir = (std::filesystem::path(exePath).parent_path() / "renderer" / "_pb_files").wstring();
-            CreateDirectoryW(rendererDir.c_str(), nullptr);
-
-            std::error_code ec;
-            std::vector<std::filesystem::directory_entry> entries;
-            for (auto& de : std::filesystem::directory_iterator(rendererDir, ec)) {
-                if (!de.is_directory()) entries.push_back(de);
-            }
-            if (entries.size() > 64) {
-                std::sort(entries.begin(), entries.end(), [](const auto& a, const auto& b) {
-                    return a.last_write_time() < b.last_write_time();
+    bridge->RegisterAsyncMethod("file:read",
+        [cache, jobs](const json& p, std::function<void(json)> respond, std::function<void(std::string)> reject) {
+            const std::string path = p.value("path", "");
+            if (path.empty() || !jobs) { reject("invalid_params"); return; }
+            auto out = std::make_shared<json>(nullptr);
+            const pb::JobId id = jobs->Submit("file:read",
+                [cache, path, out](pb::JobContext&) { *out = ReadFileForRenderer(cache, path); },
+                nullptr,
+                [out, respond, reject](const pb::JobResult& r) {
+                    if (!r.ok) { reject(r.cancelled ? "cancelled" : r.error); return; }
+                    respond(*out);
                 });
-                for (size_t i = 0; i < entries.size() - 64; i++) {
-                    std::filesystem::remove(entries[i].path(), ec);
-                }
-            }
-
-            // Key = stable FNV-1a hash of the full path: pure ASCII (no URL-encoding
-            // issues for names containing '#'/'%'/spaces) and unique per source
-            // path (no same-basename overwrite between different folders). FNV-1a
-            // is deterministic (std::hash is not stable across runs/compilers).
-            std::string fn = pb::Fnv1a64Hex(path);
-
-            std::wstring dest = rendererDir + L"\\" + pb::Utf8ToWide(fn);
-            if (CopyFileW(pb::Utf8ToWide(path).c_str(), dest.c_str(), FALSE)) {
-                std::string url = "http://particlebook.app/_pb_files/" + fn;
-                json r;
-                r["_pb_url"] = url;
-                return r;
-            }
-            // Copy failed → fall through to the JSON byte-array read below
-        }
-
-        // For MOBI files, extract text via mutool (cached)
-        std::string mobiText = ConvertMobiToText(path);
-        if (!mobiText.empty()) {
-            int64_t ft = 0;
-            int wl = MultiByteToWideChar(CP_UTF8, 0, path.c_str(), (int)path.size(), nullptr, 0);
-            if (wl > 0) {
-                std::wstring wp(wl, L'\0');
-                MultiByteToWideChar(CP_UTF8, 0, path.c_str(), (int)path.size(), &wp[0], wl);
-                WIN32_FILE_ATTRIBUTE_DATA attrs;
-                if (GetFileAttributesExW(wp.c_str(), GetFileExInfoStandard, &attrs)) {
-                    ft = (static_cast<int64_t>(attrs.ftLastWriteTime.dwHighDateTime) << 32)
-                       | attrs.ftLastWriteTime.dwLowDateTime;
-                }
-            }
-            std::vector<uint8_t> data(mobiText.begin(), mobiText.end());
-            if (cache) cache->Put(path, data, ft);
-            return json(data);
-        }
-
-        // Convert UTF-8 path to wide for Windows API
-        int wlen = MultiByteToWideChar(CP_UTF8, 0, path.c_str(), (int)path.size(), nullptr, 0);
-        if (wlen <= 0) return json(nullptr);
-        std::wstring wpath(wlen, L'\0');
-        MultiByteToWideChar(CP_UTF8, 0, path.c_str(), (int)path.size(), &wpath[0], wlen);
-
-        HANDLE hFile = CreateFileW(wpath.c_str(), GENERIC_READ, FILE_SHARE_READ,
-                                   nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
-        if (hFile == INVALID_HANDLE_VALUE) return json(nullptr);
-
-        FILETIME ftWrite;
-        GetFileTime(hFile, nullptr, nullptr, &ftWrite);
-        int64_t fileTime = (static_cast<int64_t>(ftWrite.dwHighDateTime) << 32)
-                         | ftWrite.dwLowDateTime;
-
-        LARGE_INTEGER liSize;
-        GetFileSizeEx(hFile, &liSize);
-        size_t size = static_cast<size_t>(liSize.QuadPart);
-
-        std::vector<uint8_t> data(size);
-        DWORD bytesRead = 0;
-        ReadFile(hFile, data.data(), static_cast<DWORD>(size), &bytesRead, nullptr);
-        CloseHandle(hFile);
-
-        data.resize(bytesRead);
-        if (cache) cache->Put(path, data, fileTime);
-        return json(data);
-    });
+            if (id == pb::kInvalidJobId) reject("job_service_unavailable");
+        });
 
     // ── book:import ────────────────────────────────────────────
     bridge->RegisterMethod("book:import", [db, bridge](const json& p) -> json {

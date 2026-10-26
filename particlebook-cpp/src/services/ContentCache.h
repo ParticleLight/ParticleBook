@@ -12,8 +12,9 @@ struct CachedContent {
 
 class ContentCache {
 public:
-    // Returns cached data if file unchanged, nullptr if needs reload
-    const std::vector<uint8_t>* Get(const std::string& path);
+    // Copies cached data if the file is unchanged; false = needs reload.
+    // Returns a copy (not a pointer) so a concurrent Put/Clear can't dangle it.
+    bool Get(const std::string& path, std::vector<uint8_t>& out);
 
     // Store file content in cache
     void Put(const std::string& path, std::vector<uint8_t> data, int64_t fileTime);

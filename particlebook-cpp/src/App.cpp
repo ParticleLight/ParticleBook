@@ -226,7 +226,7 @@ void App::Init(HINSTANCE hInstance, std::vector<std::string> startupPaths, Singl
 
     // 6. Register IPC handlers
     RegisterDbHandlers(m_bridge.get(), m_db.get());
-    RegisterFileHandlers(m_bridge.get(), m_db.get(), m_cache.get());
+    RegisterFileHandlers(m_bridge.get(), m_db.get(), m_cache.get(), m_jobs.get());
     RegisterPdfHandlers(m_bridge.get(), m_pdf.get(), m_jobs.get());
     RegisterBookSourceHandlers(m_bridge.get(), m_bookSource, m_jobs.get());
     RegisterZlibHandlers(m_bridge.get(), m_zlib.get());

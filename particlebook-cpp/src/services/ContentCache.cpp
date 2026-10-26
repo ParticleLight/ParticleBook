@@ -2,31 +2,32 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 
-const std::vector<uint8_t>* ContentCache::Get(const std::string& path)
+bool ContentCache::Get(const std::string& path, std::vector<uint8_t>& out)
 {
     std::lock_guard<std::mutex> lock(m_mutex);
     auto it = m_cache.find(path);
-    if (it == m_cache.end()) return nullptr;
+    if (it == m_cache.end()) return false;
 
     // Check if file has been modified since cache
     WIN32_FILE_ATTRIBUTE_DATA attrs;
     int wlen = MultiByteToWideChar(CP_UTF8, 0, path.c_str(), (int)path.size(), nullptr, 0);
-    if (wlen <= 0) return nullptr;
+    if (wlen <= 0) return false;
     std::wstring wpath(wlen, L'\0');
     MultiByteToWideChar(CP_UTF8, 0, path.c_str(), (int)path.size(), &wpath[0], wlen);
 
     if (!GetFileAttributesExW(wpath.c_str(), GetFileExInfoStandard, &attrs))
-        return nullptr;
+        return false;
 
     int64_t ft = (static_cast<int64_t>(attrs.ftLastWriteTime.dwHighDateTime) << 32)
                | attrs.ftLastWriteTime.dwLowDateTime;
 
     if (ft != it->second.fileTime) {
         m_cache.erase(it);
-        return nullptr;
+        return false;
     }
 
-    return &it->second.data;
+    out = it->second.data;
+    return true;
 }
 
 void ContentCache::Put(const std::string& path, std::vector<uint8_t> data, int64_t fileTime)
