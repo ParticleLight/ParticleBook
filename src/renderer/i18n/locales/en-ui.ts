@@ -69,6 +69,8 @@ export const enUi: Record<string, string> = {
   '未知作者': 'Unknown author',
   '最新: {{chapter}}': 'Latest: {{chapter}}',
   '下载': 'Download',
+  '预览': 'Preview',
+  '关闭': 'Close',
   '搜索出错': 'Search error',
   '未找到结果': 'No results found',
   '请检查关键词或启用更多书源': 'Check your keyword or enable more book sources',

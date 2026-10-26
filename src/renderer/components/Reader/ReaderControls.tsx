@@ -41,6 +41,7 @@ export function ReaderControls({ bookId, format, onOpenSettings, onOpenTts, ttsA
   const [noteText, setNoteText] = useState('')
   const [showExport, setShowExport] = useState(false)
   const [exportBusy, setExportBusy] = useState(false)
+  const [preview, setPreview] = useState<{ content: string; fileName: string; mimeType: string } | null>(null)
 
   const toggleNoteInput = () => {
     const next = !showNoteInput
@@ -81,6 +82,14 @@ export function ReaderControls({ bookId, format, onOpenSettings, onOpenTts, ttsA
   // 切换逻辑统一在 readerStore.toggleBookmarkAtProgress：工具栏按钮与全局 'B'
   // 快捷键必须用同一套判断（cfi 优先、页码兜底），否则两处会漂移。
   const handleToggleBookmark = () => { void toggleBookmarkAtProgress() }
+
+  const handlePreview = () => {
+    setExportBusy(true)
+    window.electronAPI.exportAnnotations(bookId, 'markdown')
+      .then((res) => setPreview({ content: res.content, fileName: res.fileName, mimeType: res.mimeType }))
+      .catch(() => {})
+      .finally(() => setExportBusy(false))
+  }
 
   const handleCopyExport = () => {
     setExportBusy(true)
@@ -152,6 +161,7 @@ export function ReaderControls({ bookId, format, onOpenSettings, onOpenTts, ttsA
               {fmt === 'markdown' ? 'Markdown' : fmt.toUpperCase()}
             </button>
           ))}
+          <button onClick={handlePreview} disabled={exportBusy} className={`${ctrlClasses.dialogBtn} bg-[var(--reader-sidebar)] text-[var(--reader-text)] border border-[var(--reader-border)]`}>{t('预览')}</button>
           <button onClick={handleCopyExport} disabled={exportBusy} className={`${ctrlClasses.dialogBtn} bg-[var(--reader-sidebar)] text-[var(--reader-text)] border border-[var(--reader-border)]`}>{t('复制 Markdown')}</button>
           <button onClick={() => setShowExport(false)} className={`${ctrlClasses.dialogBtn} text-[var(--reader-text)] opacity-60`}>{t('取消')}</button>
         </div>
@@ -301,6 +311,21 @@ export function ReaderControls({ bookId, format, onOpenSettings, onOpenTts, ttsA
           </svg>
         </button>
       </div>
+      {preview && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" role="dialog" aria-modal="true">
+          <div className="w-full max-w-3xl max-h-[85vh] flex flex-col rounded-xl border border-[var(--reader-border)]" style={{ background: 'var(--reader-sidebar)' }}>
+            <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--reader-border)]">
+              <span className="text-sm font-medium text-[var(--reader-text)]">{preview.fileName}</span>
+              <button onClick={() => setPreview(null)} className="text-[var(--reader-text)] opacity-60 hover:opacity-100" aria-label={t('关闭')}>{t('关闭')}</button>
+            </div>
+            <pre className="flex-1 overflow-auto p-4 text-xs whitespace-pre-wrap text-[var(--reader-text)]">{preview.content.slice(0, 20000)}</pre>
+            <div className="flex justify-end gap-2 px-4 py-3 border-t border-[var(--reader-border)]">
+              <button onClick={() => downloadText(preview.content, preview.fileName, preview.mimeType)} className="btn-primary text-xs px-3 py-1.5">{t('下载')}</button>
+              <button onClick={() => copyText(preview.content)} className="btn-secondary text-xs px-3 py-1.5">{t('复制 Markdown')}</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
