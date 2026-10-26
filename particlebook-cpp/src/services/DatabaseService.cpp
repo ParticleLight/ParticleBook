@@ -121,10 +121,79 @@ namespace {
         return true;
     }
 
+
+    // ── PB-005：books 行元数据（tags / series_name / series_index / rating）──
+    std::string TrimBookText(const std::string& text) {
+        std::size_t begin = 0;
+        std::size_t end = text.size();
+        while (begin < end && (text[begin] == ' ' || text[begin] == '\t'
+                               || text[begin] == '\n' || text[begin] == '\r')) ++begin;
+        while (end > begin && (text[end - 1] == ' ' || text[end - 1] == '\t'
+                               || text[end - 1] == '\n' || text[end - 1] == '\r')) --end;
+        return text.substr(begin, end - begin);
+    }
+
+    // 缺字段补默认、坏类型就地修复；幂等，迁移 / 加载 / 新增 / 更新都走它。
+    void NormalizeBookMetadata(json& book) {
+        if (!book.is_object()) return;
+
+        json tags = json::array();
+        if (book.contains("tags") && book["tags"].is_array()) {
+            for (const auto& tag : book["tags"]) {
+                if (!tag.is_string()) continue;
+                std::string text = TrimBookText(tag.get<std::string>());
+                if (text.empty()) continue;
+                if (text.size() > 64) text.resize(64);
+                bool duplicate = false;
+                for (const auto& existing : tags) {
+                    if (existing.get<std::string>() == text) { duplicate = true; break; }
+                }
+                if (duplicate) continue;
+                if (tags.size() >= 32) break;
+                tags.push_back(text);
+            }
+        }
+        book["tags"] = std::move(tags);
+
+        if (!book.contains("series_name") || !book["series_name"].is_string()) {
+            book["series_name"] = "";
+        } else {
+            book["series_name"] = TrimBookText(book["series_name"].get<std::string>());
+        }
+
+        double seriesIndex = 0.0;
+        if (book.contains("series_index") && book["series_index"].is_number()) {
+            seriesIndex = book["series_index"].get<double>();
+            if (seriesIndex < 0.0) seriesIndex = 0.0;
+            if (seriesIndex > 10000.0) seriesIndex = 10000.0;
+        }
+        book["series_index"] = seriesIndex;
+
+        int rating = 0;
+        if (book.contains("rating") && book["rating"].is_number_integer()) {
+            rating = book["rating"].get<int>();
+            if (rating < 0) rating = 0;
+            if (rating > 5) rating = 5;
+        }
+        book["rating"] = rating;
+    }
+
+    // PB-005 (schema v4): old rows keep working —— add defaults to every book.
+    bool MigrateV3ToV4(json& data, std::string& error) {
+        (void)error;
+        if (!data.contains("books") || !data["books"].is_array()) {
+            data["books"] = json::array();
+            return true;
+        }
+        for (auto& book : data["books"]) NormalizeBookMetadata(book);
+        return true;
+    }
+
     const std::vector<Migration>& Migrations() {
         static const std::vector<Migration> migrations = {
             { 1, 2, "add schema_version", &MigrateV1ToV2 },
             { 2, 3, "unified annotations", &MigrateV2ToV3 },
+            { 3, 4, "book metadata (tags / series / rating)", &MigrateV3ToV4 },
         };
         return migrations;
     }
@@ -519,6 +588,10 @@ void DatabaseService::EnsureDefaults()
     if (!m_data.contains("annotations"))      m_data["annotations"] = json::array();
     if (!m_data.contains("nextAnnotationId")) m_data["nextAnnotationId"] = 1;
     if (!m_data.contains("nextId"))           m_data["nextId"] = 1;
+    // PB-005：books 行元数据默认值（迁移前的老库 / 手改库 / 旧 Insert 路径都补齐）
+    if (m_data["books"].is_array()) {
+        for (auto& book : m_data["books"]) NormalizeBookMetadata(book);
+    }
 }
 
 void DatabaseService::FlushSync()
@@ -607,9 +680,96 @@ json DatabaseService::InsertBook(const json& book)
         b["id"] = allocNextId(m_data);
     }
     if (!b.contains("added_at")) b["added_at"] = NowISO();
+    // PB-005：新导入的书也要带 tags / series / rating 默认值（渲染层不必判 undefined）
+    NormalizeBookMetadata(b);
     m_data["books"].push_back(b);
     ScheduleWrite();
     return b;
+}
+
+json DatabaseService::UpdateBookMetadata(int id, const json& patch)
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    if (!patch.is_object()) return nullptr;
+
+    for (auto& book : m_data["books"]) {
+        if (book.value("id", 0) != id) continue;
+
+        json candidate = book;
+
+        // 文本字段：允许 string 或 null（null 与空串等价，沿用 books 行的既有表示）。
+        const char* textKeys[] = { "title", "author", "language", "publisher", "description" };
+        for (const char* key : textKeys) {
+            if (!patch.contains(key)) continue;
+            if (!patch[key].is_string() && !patch[key].is_null()) return nullptr;
+            candidate[key] = patch[key];
+        }
+        if (!candidate.contains("title") || !candidate["title"].is_string()) return nullptr;
+        candidate["title"] = TrimBookText(candidate["title"].get<std::string>());
+        if (candidate["title"].get<std::string>().empty()) return nullptr;  // 书名必填
+        const char* trimKeys[] = { "author", "language", "publisher" };
+        for (const char* key : trimKeys) {
+            if (candidate.contains(key) && candidate[key].is_string()) {
+                candidate[key] = TrimBookText(candidate[key].get<std::string>());
+            }
+        }
+
+        if (patch.contains("tags")) {
+            if (!patch["tags"].is_array()) return nullptr;
+            candidate["tags"] = patch["tags"];      // 逐项清洗由 NormalizeBookMetadata 做
+        }
+        if (patch.contains("series_name")) {
+            if (!patch["series_name"].is_string()) return nullptr;
+            candidate["series_name"] = patch["series_name"];
+        }
+        if (patch.contains("series_index")) {
+            if (!patch["series_index"].is_number()) return nullptr;
+            candidate["series_index"] = patch["series_index"];
+        }
+        if (patch.contains("rating")) {
+            if (!patch["rating"].is_number_integer()) return nullptr;
+            candidate["rating"] = patch["rating"];
+        }
+
+        NormalizeBookMetadata(candidate);   // 去重 / 截断 / 夹紧 0..5 与 0..10000
+        book = std::move(candidate);
+        ScheduleWrite();
+        return book;
+    }
+    return nullptr;
+}
+
+json DatabaseService::GetAllTags() const
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    std::vector<std::string> tags;
+    for (const auto& book : m_data["books"]) {
+        if (!book.contains("tags") || !book["tags"].is_array()) continue;
+        for (const auto& tag : book["tags"]) {
+            if (tag.is_string()) tags.push_back(tag.get<std::string>());
+        }
+    }
+    std::sort(tags.begin(), tags.end());
+    tags.erase(std::unique(tags.begin(), tags.end()), tags.end());
+    json result = json::array();
+    for (const std::string& tag : tags) result.push_back(tag);
+    return result;
+}
+
+json DatabaseService::GetAllSeries() const
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    std::vector<std::string> series;
+    for (const auto& book : m_data["books"]) {
+        if (!book.contains("series_name") || !book["series_name"].is_string()) continue;
+        const std::string name = book["series_name"].get<std::string>();
+        if (!name.empty()) series.push_back(name);
+    }
+    std::sort(series.begin(), series.end());
+    series.erase(std::unique(series.begin(), series.end()), series.end());
+    json result = json::array();
+    for (const std::string& name : series) result.push_back(name);
+    return result;
 }
 
 void DatabaseService::DeleteBook(int id)

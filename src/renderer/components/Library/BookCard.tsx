@@ -57,7 +57,8 @@ function BookCardInner({ book, onOpen, onDelete, onRemoveFromShelf, activeShelfI
   const handleContextMenu = (e: React.MouseEvent) => { e.preventDefault(); setMenuPos({ x: e.clientX, y: e.clientY }); setShowShelfMenu(false); setShowMenu(true) }
 
   return (
-    <div className="group relative cursor-pointer" onClick={() => onOpen(book.id)} onContextMenu={handleContextMenu} onMouseLeave={() => setShowMenu(false)}>
+    <div className="group relative cursor-pointer" onClick={() => onOpen(book.id)} onContextMenu={handleContextMenu} onMouseLeave={() => setShowMenu(false)}
+      data-testid="book-card" data-book-id={book.id}>
 
       {/* Cover card */}
       <div className="relative aspect-[2/3] rounded-lg overflow-hidden transition-all duration-300 group-hover:-translate-y-1 group-hover:shadow-win-lg" style={{ boxShadow: 'var(--shadow-sm)' }}>
@@ -89,6 +90,21 @@ function BookCardInner({ book, onOpen, onDelete, onRemoveFromShelf, activeShelfI
       <div className="mt-2 px-0.5">
         <p className="text-sm font-medium truncate" style={{ color: 'var(--text-primary)' }}>{safeText(book.title)}</p>
         <p className="text-xs truncate" style={{ color: 'var(--text-tertiary)' }}>{safeText(book.author) || t('未知作者')}</p>
+        {book.series_name ? (
+          <p className="text-[11px] truncate" style={{ color: 'var(--text-tertiary)' }} title={book.series_name}>
+            {book.series_name}{book.series_index ? ' #' + book.series_index : ''}
+          </p>
+        ) : null}
+        {(book.rating ?? 0) > 0 ? (
+          <div className="flex items-center gap-0.5 mt-0.5" style={{ color: 'var(--color-amber)' }} data-testid="book-rating" title={t('评分')}>
+            {[1, 2, 3, 4, 5].map((star) => (
+              <svg key={star} className="w-3 h-3" viewBox="0 0 24 24"
+                fill={star <= (book.rating ?? 0) ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth={1.4}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M11.48 3.5a.562.562 0 011.04 0l2.1 4.6 5.03.5a.563.563 0 01.31.98l-3.76 3.35 1.06 4.94a.562.562 0 01-.83.6L12 16.6l-4.43 2.42a.562.562 0 01-.83-.6l1.06-4.94-3.76-3.35a.563.563 0 01.31-.98l5.03-.5 2.1-4.6z" />
+              </svg>
+            ))}
+          </div>
+        ) : null}
         {readingTime > 0 && (
           <p className="text-xs mt-0.5 flex items-center gap-1" style={{ color: 'var(--text-tertiary)' }}>
             <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>

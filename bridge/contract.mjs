@@ -60,7 +60,27 @@ export const types = [
       '  language: string | null',
       '  isbn: string | null',
       '  added_at: string',
-      '  last_opened?: string'
+      '  last_opened?: string',
+      '  // PB-005 元数据：schema v4 / InsertBook 都会补齐默认值（[] / "" / 0 / 0）。',
+      '  tags: string[]',
+      '  series_name: string',
+      '  series_index: number',
+      '  rating: number'
+    ]
+  },
+  {
+    name: 'PbBookMetadataPatch',
+    body: [
+      '  // book:updateMetadata 的 patch：只带要改的字段；空书名会被 C++ 拒绝（返回 null）。',
+      '  title?: string',
+      '  author?: string | null',
+      '  language?: string | null',
+      '  publisher?: string | null',
+      '  description?: string | null',
+      '  tags?: string[]',
+      '  series_name?: string',
+      '  series_index?: number',
+      '  rating?: number'
     ]
   },
   {
@@ -379,6 +399,27 @@ export const contract = [
     group: "Books",
     params: [{ n: "id", t: "number" }],
     returns: "Promise<void>"
+  },
+  {
+    member: "updateBookMetadata", method: "book:updateMetadata",
+    kind: "invoke",
+    group: "Books",
+    params: [{ n: "id", t: "number" }, { n: "patch", t: "PbBookMetadataPatch" }],
+    returns: "Promise<PbBook | null>"
+  },
+  {
+    member: "getLibraryTags", method: "library:getTags",
+    kind: "invoke",
+    group: "Books",
+    params: [],
+    returns: "Promise<string[]>"
+  },
+  {
+    member: "getLibrarySeries", method: "library:getSeries",
+    kind: "invoke",
+    group: "Books",
+    params: [],
+    returns: "Promise<string[]>"
   },
   {
     member: "updateReadingProgress", method: "db:updateProgress",

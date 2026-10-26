@@ -26,6 +26,24 @@ interface PbBook {
   isbn: string | null
   added_at: string
   last_opened?: string
+  // PB-005 元数据：schema v4 / InsertBook 都会补齐默认值（[] / "" / 0 / 0）。
+  tags: string[]
+  series_name: string
+  series_index: number
+  rating: number
+}
+
+interface PbBookMetadataPatch {
+  // book:updateMetadata 的 patch：只带要改的字段；空书名会被 C++ 拒绝（返回 null）。
+  title?: string
+  author?: string | null
+  language?: string | null
+  publisher?: string | null
+  description?: string | null
+  tags?: string[]
+  series_name?: string
+  series_index?: number
+  rating?: number
 }
 
 interface PbBookmarkInput {
@@ -286,6 +304,9 @@ interface ElectronAPI {
   getBooks: () => Promise<PbBook[]>
   getBook: (id: number) => Promise<PbBook | null>
   deleteBook: (id: number) => Promise<void>
+  updateBookMetadata: (id: number, patch: PbBookMetadataPatch) => Promise<PbBook | null>
+  getLibraryTags: () => Promise<string[]>
+  getLibrarySeries: () => Promise<string[]>
   updateReadingProgress: (bookId: number, progress: PbProgressInput) => Promise<void>
   getReadingProgress: (bookId: number) => Promise<PbProgressRecord>
 

@@ -16,7 +16,7 @@ public:
 
     // PB-014: bump when the on-disk shape changes; every bump needs a
     // migration entry in DatabaseService.cpp and a database_test case.
-    static constexpr int kCurrentSchemaVersion = 3;
+    static constexpr int kCurrentSchemaVersion = 4;
 
     void Load(const std::string& path);
     int GetSchemaVersion() const;
@@ -42,6 +42,16 @@ public:
     json GetBookByPath(const std::string& path) const;
     json InsertBook(const json& book);
     void DeleteBook(int id);
+
+    // PB-005 (schema v4): book metadata —— tags / series_name / series_index / rating.
+    // 每本新书与每次加载都会补齐默认值（[] / "" / 0 / 0），所以旧行读取兼容：
+    //   * UpdateBookMetadata 只接受白名单字段（书名/作者/语言/出版社/简介 +
+    //     tags / series_name / series_index / rating），非法类型或空书名返回 null
+    //     且不写库；返回更新后的完整 books 行（前端可直接替换本地缓存）。
+    //   * GetAllTags / GetAllSeries 返回去重排序后的字符串数组（书库筛选用）。
+    json UpdateBookMetadata(int id, const json& patch);
+    json GetAllTags() const;
+    json GetAllSeries() const;
 
     // Reading progress
     json GetProgress(int bookId) const;

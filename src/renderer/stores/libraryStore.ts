@@ -20,7 +20,15 @@ export interface LibraryState {
   isLoading: boolean
   viewMode: 'grid' | 'list'
   searchQuery: string
-  sortBy: 'title' | 'author' | 'added_at' | 'last_opened'
+  sortBy: 'title' | 'author' | 'added_at' | 'last_opened' | 'rating' | 'series'
+  // PB-005 元数据筛选（空串 = 不筛）。minRating 0 = 不限，1..5 = 至少 N 星，
+  // -1 = 只看未评分（0 星）。
+  filterTag: string
+  filterSeries: string
+  minRating: number
+  // 去重后的标签 / 系列（由 C++ library:getTags / getSeries 提供，供筛选下拉框）
+  allTags: string[]
+  allSeries: string[]
 
   // Bookshelves
   bookshelves: Bookshelf[]
@@ -39,7 +47,14 @@ export interface LibraryState {
   /** 应用设置页的默认视图/排序（见实现处的说明）。 */
   applyDisplayDefaults: () => void
   setSearchQuery: (query: string) => void
-  setSortBy: (sort: 'title' | 'author' | 'added_at' | 'last_opened') => void
+  setSortBy: (sort: 'title' | 'author' | 'added_at' | 'last_opened' | 'rating' | 'series') => void
+  setFilterTag: (tag: string) => void
+  setFilterSeries: (series: string) => void
+  setMinRating: (rating: number) => void
+  /** 重新拉取标签 / 系列去重列表（元数据变更后调用）。 */
+  loadMetadataFacets: () => Promise<void>
+  /** 保存书籍元数据；成功返回更新后的行（同时更新 books/allBooks 本地缓存）。 */
+  updateBookMetadata: (id: number, patch: Partial<PbBookMetadataPatch>) => Promise<Book | null>
 
   // Bookshelf actions
   loadBookshelves: () => Promise<void>
@@ -62,6 +77,11 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
   viewMode: 'grid',
   searchQuery: '',
   sortBy: 'last_opened',
+  filterTag: '',
+  filterSeries: '',
+  minRating: 0,
+  allTags: [],
+  allSeries: [],
   // 把设置页的「默认视图 / 默认排序」应用到书架。这两个设置此前只写不读
   // （全仓只有设置页自己在用），用户在设置里选"列表"后书架永远是网格。
   // 工具栏上的切换仍是会话内的（不写回设置），符合"默认值"的语义。
@@ -93,6 +113,8 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
         books = allBooks
       }
       set({ books, allBooks })
+      // 标签 / 系列下拉框的数据源（新导入的书没有标签，但删除的书可能带走旧标签）
+      void get().loadMetadataFacets()
     } catch (e) {
       console.error('Failed to load books:', e)
     } finally {
@@ -143,6 +165,38 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
   setViewMode: (viewMode) => set({ viewMode }),
   setSearchQuery: (searchQuery) => set({ searchQuery }),
   setSortBy: (sortBy) => set({ sortBy }),
+  setFilterTag: (filterTag) => set({ filterTag }),
+  setFilterSeries: (filterSeries) => set({ filterSeries }),
+  setMinRating: (minRating) => set({ minRating }),
+
+  loadMetadataFacets: async () => {
+    try {
+      const [allTags, allSeries] = await Promise.all([
+        window.electronAPI.getLibraryTags(),
+        window.electronAPI.getLibrarySeries(),
+      ])
+      set({ allTags: allTags as string[], allSeries: allSeries as string[] })
+    } catch (e) {
+      console.error('Failed to load metadata facets:', e)
+    }
+  },
+
+  updateBookMetadata: async (id, patch) => {
+    try {
+      const updated = (await window.electronAPI.updateBookMetadata(id, patch)) as Book | null
+      if (!updated) return null
+      // 原地替换：BookCard 是 memo 的，book 对象变化才会重渲染；不必整表重拉（避免封面重载）。
+      set((s) => ({
+        books: s.books.map((b) => (b.id === id ? updated : b)),
+        allBooks: s.allBooks.map((b) => (b.id === id ? updated : b)),
+      }))
+      void get().loadMetadataFacets()
+      return updated
+    } catch (e) {
+      console.error('Failed to update book metadata:', e)
+      return null
+    }
+  },
 
   // Bookshelf actions
   loadBookshelves: async () => {

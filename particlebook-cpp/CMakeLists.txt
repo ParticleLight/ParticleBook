@@ -56,6 +56,7 @@ add_executable(ParticleBook WIN32
     src/domain/Annotation.cpp
     src/utils/ZipReader.cpp
     src/handlers/DbHandlers.cpp
+    src/handlers/BookMetadataHandlers.cpp
     src/handlers/FileHandlers.cpp
     src/handlers/BackupHandlers.cpp
     src/handlers/ExportHandlers.cpp

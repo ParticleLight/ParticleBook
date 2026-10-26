@@ -286,6 +286,9 @@ std::string BridgeServer::GenerateBridgeScript()
     getBooks: function()       { return invoke('db:getBooks'); },
     getBook: function(id)      { return invoke('db:getBook', {id:id}); },
     deleteBook: function(id)   { return invoke('db:deleteBook', {id:id}); },
+    updateBookMetadata: function(id, patch) { return invoke('book:updateMetadata', {id:id, patch:patch||{}}); },
+    getLibraryTags: function()   { return invoke('library:getTags'); },
+    getLibrarySeries: function() { return invoke('library:getSeries'); },
     updateReadingProgress: function(bid, prog) { return invoke('db:updateProgress', {bookId:bid, progress:prog}); },
     getReadingProgress: function(bid)          { return invoke('db:getProgress', {bookId:bid}); },
 

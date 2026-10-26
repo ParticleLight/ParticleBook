@@ -107,6 +107,16 @@ export function Library({ onOpenBook, onOpenSettings, onOpenZLibrary, onOpenStat
   const viewMode = useLibraryStore((s) => s.viewMode)
   const searchQuery = useLibraryStore((s) => s.searchQuery)
   const sortBy = useLibraryStore((s) => s.sortBy)
+  // PB-005：标签 / 系列 / 评分筛选
+  const filterTag = useLibraryStore((s) => s.filterTag)
+  const filterSeries = useLibraryStore((s) => s.filterSeries)
+  const minRating = useLibraryStore((s) => s.minRating)
+  const allTags = useLibraryStore((s) => s.allTags)
+  const allSeries = useLibraryStore((s) => s.allSeries)
+  const setFilterTag = useLibraryStore((s) => s.setFilterTag)
+  const setFilterSeries = useLibraryStore((s) => s.setFilterSeries)
+  const setMinRating = useLibraryStore((s) => s.setMinRating)
+  const loadMetadataFacets = useLibraryStore((s) => s.loadMetadataFacets)
   const applyDisplayDefaults = useLibraryStore((s) => s.applyDisplayDefaults)
   // 设置页的「默认视图 / 默认排序」此前只写不读（Library 一直用 store 里硬编码的
   // grid/last_opened）。这里跟随设置值变化应用一次：启动加载设置完成后生效，
@@ -137,7 +147,7 @@ export function Library({ onOpenBook, onOpenSettings, onOpenZLibrary, onOpenStat
   const moreBtnRef = useRef<HTMLButtonElement>(null)
   const { t } = useTranslation()
 
-  useEffect(() => { loadBookshelves(); loadReadingTime(); loadReadingProgress() }, [loadBookshelves, loadReadingTime, loadReadingProgress])
+  useEffect(() => { loadBookshelves(); loadReadingTime(); loadReadingProgress(); loadMetadataFacets() }, [loadBookshelves, loadReadingTime, loadReadingProgress, loadMetadataFacets])
 
   useEffect(() => { applyDisplayDefaults() }, [applyDisplayDefaults, defaultViewMode, defaultSortBy])
 
@@ -153,15 +163,46 @@ export function Library({ onOpenBook, onOpenSettings, onOpenZLibrary, onOpenStat
   }, [])
 
   const sortedBooks = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase()
     const filtered = books.filter((book) => {
-      if (!searchQuery) return true
-      const q = searchQuery.toLowerCase()
-      return safeText(book.title).toLowerCase().includes(q) || safeText(book.author).toLowerCase().includes(q)
+      // PB-005：标签 / 系列 / 评分筛选（空串 / 0 = 不筛；-1 = 只看未评分）
+      if (filterTag && !(Array.isArray(book.tags) && book.tags.includes(filterTag))) return false
+      if (filterSeries && (book.series_name ?? '') !== filterSeries) return false
+      if (minRating === -1) {
+        if ((book.rating ?? 0) !== 0) return false
+      } else if (minRating > 0 && (book.rating ?? 0) < minRating) {
+        return false
+      }
+      if (!query) return true
+      // 搜索覆盖书名 / 作者 / 标签 / 系列（PB-005 验收）
+      const haystack = [
+        safeText(book.title),
+        safeText(book.author),
+        book.series_name ?? '',
+        ...(Array.isArray(book.tags) ? book.tags : []),
+      ].join('\n').toLowerCase()
+      return haystack.includes(query)
     })
     return [...filtered].sort((a, b) => {
-      switch (sortBy) { case 'title': return safeText(a.title).localeCompare(safeText(b.title)); case 'author': return safeText(a.author).localeCompare(safeText(b.author)); case 'added_at': return new Date(b.added_at).getTime() - new Date(a.added_at).getTime(); case 'last_opened': return new Date(b.last_opened || 0).getTime() - new Date(a.last_opened || 0).getTime(); default: return 0 }
+      switch (sortBy) {
+        case 'title': return safeText(a.title).localeCompare(safeText(b.title))
+        case 'author': return safeText(a.author).localeCompare(safeText(b.author))
+        case 'added_at': return new Date(b.added_at).getTime() - new Date(a.added_at).getTime()
+        case 'last_opened': return new Date(b.last_opened || 0).getTime() - new Date(a.last_opened || 0).getTime()
+        case 'rating': {
+          const byRating = (b.rating ?? 0) - (a.rating ?? 0)
+          return byRating !== 0 ? byRating : safeText(a.title).localeCompare(safeText(b.title))
+        }
+        case 'series': {
+          const sa = a.series_name ?? ''
+          const sb = b.series_name ?? ''
+          if (sa !== sb) return sa.localeCompare(sb)
+          return (a.series_index ?? 0) - (b.series_index ?? 0)
+        }
+        default: return 0
+      }
     })
-  }, [books, searchQuery, sortBy])
+  }, [books, searchQuery, sortBy, filterTag, filterSeries, minRating])
 
   const handleImport = useCallback(async () => { const filePath = await window.electronAPI.openFile(); if (filePath) await importBooks([filePath]) }, [importBooks])
 
@@ -246,7 +287,8 @@ export function Library({ onOpenBook, onOpenSettings, onOpenZLibrary, onOpenStat
         {/* Center: search */}
         <div className="no-drag flex-1 max-w-lg mx-auto relative">
           <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" style={{ color: 'var(--text-tertiary)' }}><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
-          <input type="text" placeholder={t('搜索书名或作者...')} value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
+          <input type="text" placeholder={t('搜索书名 / 作者 / 标签 / 系列...')} value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
+            data-testid="library-search-input"
             className="w-full pl-9 pr-10 py-1.5 text-sm rounded-lg transition-all duration-150"
             style={{ background: 'var(--bg-tertiary)', color: 'var(--text-primary)', border: '1px solid transparent' }}
             onFocus={(e) => e.currentTarget.style.borderColor = 'var(--border-focus)'}
@@ -272,8 +314,10 @@ export function Library({ onOpenBook, onOpenSettings, onOpenZLibrary, onOpenStat
         {/* Right: actions */}
         <div className="no-drag flex items-center gap-1">
           <select value={sortBy} onChange={(e) => setSortBy(e.target.value as any)}
+            data-testid="library-sort"
             className="px-2 py-1.5 text-xs rounded-md" style={{ background: 'var(--bg-tertiary)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}>
             <option value="last_opened">{t('最近')}</option><option value="added_at">{t('添加', { context: 'sort' })}</option><option value="title">{t('书名')}</option><option value="author">{t('作者')}</option>
+            <option value="rating">{t('按评分')}</option><option value="series">{t('按系列')}</option>
           </select>
 
           <div className="flex rounded-md overflow-hidden ml-1" style={{ border: '1px solid var(--border)' }}>
@@ -339,6 +383,63 @@ export function Library({ onOpenBook, onOpenSettings, onOpenZLibrary, onOpenStat
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto p-8 relative" style={{ background: 'var(--bg)' }}>
+          {/* PB-005：标签 / 系列 / 评分筛选（与搜索、排序叠加） */}
+          {books.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2 mb-4" data-testid="library-filters">
+              <select
+                value={filterTag}
+                onChange={(e) => setFilterTag(e.target.value)}
+                className="px-2 py-1.5 text-xs rounded-md"
+                style={{ background: 'var(--bg-tertiary)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}
+                title={t('标签')}
+                data-testid="filter-tag"
+              >
+                <option value="">{t('全部标签')}</option>
+                {allTags.map((tag) => <option key={tag} value={tag}>{tag}</option>)}
+              </select>
+              <select
+                value={filterSeries}
+                onChange={(e) => setFilterSeries(e.target.value)}
+                className="px-2 py-1.5 text-xs rounded-md"
+                style={{ background: 'var(--bg-tertiary)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}
+                title={t('系列')}
+                data-testid="filter-series"
+              >
+                <option value="">{t('全部系列')}</option>
+                {allSeries.map((series) => <option key={series} value={series}>{series}</option>)}
+              </select>
+              <select
+                value={String(minRating)}
+                onChange={(e) => setMinRating(Number(e.target.value))}
+                className="px-2 py-1.5 text-xs rounded-md"
+                style={{ background: 'var(--bg-tertiary)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}
+                title={t('评分')}
+                data-testid="filter-rating"
+              >
+                <option value="0">{t('全部评分')}</option>
+                <option value="-1">{t('仅未评分')}</option>
+                {[5, 4, 3, 2, 1].map((n) => (
+                  <option key={n} value={n}>{t('评分 ≥ {{n}} 星', { n })}</option>
+                ))}
+              </select>
+              {(filterTag || filterSeries || minRating !== 0) && (
+                <button
+                  onClick={() => { setFilterTag(''); setFilterSeries(''); setMinRating(0) }}
+                  className="px-2 py-1.5 text-xs rounded-md transition-colors"
+                  style={{ color: 'var(--text-tertiary)', border: '1px solid var(--border)' }}
+                  data-testid="filter-clear"
+                  onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--text-primary)'; e.currentTarget.style.background = 'var(--surface-hover)' }}
+                  onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-tertiary)'; e.currentTarget.style.background = 'transparent' }}
+                >
+                  {t('清除筛选')}
+                </button>
+              )}
+              <span className="text-xs ml-auto" style={{ color: 'var(--text-tertiary)' }}>
+                {t('{{count}} 本书', { count: sortedBooks.length })}
+              </span>
+            </div>
+          )}
+
           {isDragOver && (
             <div className="absolute inset-4 z-50 flex items-center justify-center rounded-xl pointer-events-none animate-scale-in"
               style={{ background: 'var(--color-indigo-bg)', border: '2px dashed var(--accent)' }}>
