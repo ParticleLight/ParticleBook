@@ -27,7 +27,6 @@
 | PB-016 | 本地诊断日志 | P1 | 📋 待办 | 2.2.1 | 脱敏日志 + 导出诊断包，无遥测 |
 | PB-017 | 大书库性能 | P2 | 📋 待办 | 2.2.1 | 虚拟列表、封面缓存、索引性能 |
 | PB-018 | 关键路径 E2E | P1 | 📋 待办 | 2.2.1 | CI 跑 5–8 条关键链路 |
-| PB-020 | UiDispatcher + JobService + 长任务迁移 | P0 | 🚧 进行中 | 2.2.1 | 已接线；pdf:open 已异步化；import/file:read/书源搜索待迁 |
 | PB-021 | Locator + Annotation 统一模型 | P0 | 📋 待办 | 2.2.1 | 统一 cfi/offset/page/rect；标注/搜索/TTS 共用 |
 | PB-022 | ReaderAdapter + 共享阅读交互 | P1 | 📋 待办 | 2.2.1 | 5 个渲染器收敛到统一 adapter |
 | PB-023 | Settings + SecretStore | P0 | 🚧 进行中 | 2.2.1 | SecretStore 已落；Settings schema/接线待续 |
@@ -41,7 +40,7 @@
 ### 批次 1 · P0（9 项，先做）
 
 1. ✅ PB-019 单实例 + 文件打开转发（已完成）
-2. PB-020 UiDispatcher + JobService + 长任务迁移
+2. ✅ PB-020 UiDispatcher + JobService + 长任务迁移（已完成）
 3. PB-015 桥接契约扩展（扩为 Bridge 加固）
 4. PB-011 备份 / 恢复
 5. PB-014 数据 schema 版本 + 迁移
@@ -387,7 +386,9 @@
 
 **非目标**：多进程 worker；先做单进程线程池。
 
-**进度（2026-10-26）**：平台核心 6 文件 + 单测已落（commit `6d9dc58`）；UiDispatcher/JobService 已接入 App/WebViewHost，`pdf:open` 已异步化（commit `fecad16`），CDP 实测同步桥接与 1 页 PDF 打开均正常。**剩余**：book:import、file:read（大文件/MOBI）、bookSource:search 等长任务仍同步；`BridgeServer` 的 async 响应已就绪，迁移时按同一模式。
+**进度（2026-10-26）：已完成。** 平台核心 `6d9dc58`；UiDispatcher/JobService 接线 `fecad16`；pdf:open `fecad16`、pdf:renderPage/extractText、bookSource:search/searchOne/getBookInfo/getChapterList `e60e933`、file:read `e022aa2`、book:import `ff7ffc9` 全部异步化。CDP 实测同步桥接、PDF 打开/渲染/抽取、readFile、importBooks 均正常；ctest 9/9。
+
+> 踩坑：改 `WebViewHost.h` 后未全量重编，出现桥接消息断流/多重定义；按 AGENTS 规则删 `*.obj` 全量重建后恢复。
 
 > 踩坑：改 `WebViewHost.h` 的构造函数后未全量重编，出现桥接消息断流 / 多重定义；按 AGENTS 规则删 `*.obj` 全量重建后恢复。
 
@@ -469,6 +470,7 @@
 |---|---|---|
 | issue #6 亮色设置页文字不可读 | 2026-10-25 | `27d9dcd`（未发版） |
 | PB-019 单实例 + 文件打开转发 | 2026-10-26 | `9e5943d`（未发版） |
+| PB-020 UiDispatcher + JobService + 长任务迁移 | 2026-10-26 | `fecad16` / `e60e933` / `e022aa2` / `ff7ffc9`（未发版） |
 
 ## 暂缓 / 否决
 
