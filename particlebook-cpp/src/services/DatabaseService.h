@@ -20,6 +20,14 @@ public:
 
     void Load(const std::string& path);
     int GetSchemaVersion() const;
+    std::string Path() const;
+
+    // PB-011: restore needs the 300ms writer stopped while the file is
+    // replaced. Suspend() flushes + joins the writer; Resume() reloads the
+    // (possibly replaced) file and starts a fresh writer. Both run on the UI
+    // thread; no other DB call may run between them.
+    void Suspend();
+    void Resume();
     void FlushSync();
     // NOTE: there is deliberately no public "reserve an id" method. Ids are
     // allocated inside the Insert* methods via allocNextId(), which advances

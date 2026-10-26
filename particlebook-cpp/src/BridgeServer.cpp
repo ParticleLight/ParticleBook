@@ -348,6 +348,8 @@ std::string BridgeServer::GenerateBridgeScript()
     onLibraryChanged: function(cb) { return onEvent('library:changed', cb); },
     getPendingOpenFiles: function() { return invoke('app:getPendingOpenFiles'); },
     exportDiagnostics: function() { return invoke('app:exportDiagnostics'); },
+    createBackup: function() { return invoke('backup:create'); },
+    restoreBackup: function(path) { return invoke('backup:restore', {path:path||''}); },
     onOpenFiles: function(cb) { return onEvent('app:openFiles', cb); },
 
     checkUpdate: function()    { return invoke('app:checkUpdate'); },

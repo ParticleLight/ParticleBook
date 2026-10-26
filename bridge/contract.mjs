@@ -732,6 +732,21 @@ export const contract = [
     params: [],
     returns: "Promise<string | null>"
   },
+  // PB-011: local zip backup / restore (no cloud).
+  {
+    member: "createBackup", method: "backup:create",
+    kind: "invoke",
+    group: "Files",
+    params: [],
+    returns: "Promise<{ ok: boolean; code: string; error: string; path: string; bookCount: number; bytes: number }>"
+  },
+  {
+    member: "restoreBackup", method: "backup:restore",
+    kind: "invoke",
+    group: "Files",
+    params: [{ n: "path", t: "string", o: true }],
+    returns: "Promise<{ ok: boolean; code: string; error: string; bookCount: number; preRestorePath: string }>"
+  },
   {
     member: "onOpenFiles", method: "app:openFiles",
     kind: "event",

@@ -313,6 +313,8 @@ interface ElectronAPI {
   // Files
   getPendingOpenFiles: () => Promise<string[]>
   exportDiagnostics: () => Promise<string | null>
+  createBackup: () => Promise<{ ok: boolean; code: string; error: string; path: string; bookCount: number; bytes: number }>
+  restoreBackup: (path?: string) => Promise<{ ok: boolean; code: string; error: string; bookCount: number; preRestorePath: string }>
   onOpenFiles: (callback: (paths: string[]) => void) => () => void
 
   // Library

@@ -441,6 +441,8 @@ function AboutPage() {
   const [errorMessage, setErrorMessage] = useState('')
   const [diagState, setDiagState] = useState<'idle' | 'exporting' | 'done' | 'error'>('idle')
   const [diagPath, setDiagPath] = useState('')
+  const [backupMsg, setBackupMsg] = useState('')
+  const [backupBusy, setBackupBusy] = useState<'create' | 'restore' | ''>('')
   const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const { t } = useTranslation()
 
@@ -482,6 +484,26 @@ function AboutPage() {
     ]
     return () => { unsubs.forEach((u) => u()); if (idleTimerRef.current) clearTimeout(idleTimerRef.current) }
   }, [])
+
+  const handleCreateBackup = () => {
+    setBackupBusy('create'); setBackupMsg('')
+    window.electronAPI.createBackup()
+      .then((r) => setBackupMsg(t('备份已保存：{{path}}', { path: r.path })))
+      .catch(() => setBackupMsg(t('备份失败')))
+      .finally(() => setBackupBusy(''))
+  }
+
+  const handleRestoreBackup = () => {
+    if (!window.confirm(t('恢复会覆盖当前书库、进度与笔记。继续？'))) return
+    setBackupBusy('restore'); setBackupMsg('')
+    window.electronAPI.restoreBackup()
+      .then((r) => {
+        setBackupMsg(t('已恢复 {{count}} 本书，正在重新加载...', { count: r.bookCount }))
+        setTimeout(() => window.location.reload(), 800)
+      })
+      .catch((e) => setBackupMsg(e?.message === 'cancelled' ? '' : t('恢复失败')))
+      .finally(() => setBackupBusy(''))
+  }
 
   const handleExportDiagnostics = () => {
     setDiagState('exporting')
@@ -566,6 +588,25 @@ function AboutPage() {
             {t('检查更新')}
           </button>
         )}
+      </div>
+
+      {/* Backup / restore */}
+      <div className="settings-card">
+        <SectionTitle>{t('备份与恢复')}</SectionTitle>
+        <p className="text-sm mb-3" style={{ color: 'var(--text-secondary)' }}>
+          {t('把书库、进度、标注与设置打包成本地 zip；恢复前会自动备份当前数据。不包含书籍正文与 API Key。')}
+        </p>
+        <div className="flex gap-2">
+          <button onClick={handleCreateBackup} disabled={!!backupBusy} className="btn-secondary flex-1 flex items-center justify-center gap-2">
+            <SvgIcon d="M12 4v12m0 0l-4-4m4 4l4-4M4 20h16" className="w-4 h-4" />
+            {backupBusy === 'create' ? t('正在处理...') : t('创建备份')}
+          </button>
+          <button onClick={handleRestoreBackup} disabled={!!backupBusy} className="btn-secondary flex-1 flex items-center justify-center gap-2">
+            <SvgIcon d="M12 20V8m0 0l-4 4m4-4l4 4M4 4h16" className="w-4 h-4" />
+            {backupBusy === 'restore' ? t('正在处理...') : t('恢复备份')}
+          </button>
+        </div>
+        {backupMsg && <p className="mt-3 text-xs break-all" style={{ color: 'var(--text-secondary)' }}>{backupMsg}</p>}
       </div>
 
       {/* Diagnostics */}

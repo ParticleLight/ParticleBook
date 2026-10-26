@@ -186,7 +186,8 @@ void DatabaseService::Load(const std::string& path)
         m_data["schema_version"] = kCurrentSchemaVersion;
     }
 
-    // Start background writer
+    // Start background writer (also applies after Suspend()/Resume()).
+    m_running = true;
     m_writeThread = std::thread(&DatabaseService::WriterThread, this);
 }
 
@@ -194,6 +195,34 @@ int DatabaseService::GetSchemaVersion() const
 {
     std::lock_guard<std::mutex> lock(m_mutex);
     return m_data.value("schema_version", 0);
+}
+
+std::string DatabaseService::Path() const
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    return m_path;
+}
+
+void DatabaseService::Suspend()
+{
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        if (!m_running) return;
+        m_dirty = true;   // force a final flush before stopping
+        m_running = false;
+    }
+    m_cv.notify_one();
+    if (m_writeThread.joinable()) m_writeThread.join();
+}
+
+void DatabaseService::Resume()
+{
+    std::string path;
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        path = m_path;
+    }
+    if (!path.empty()) Load(path);
 }
 
 // ── Atomic persist ───────────────────────────────────────────────
