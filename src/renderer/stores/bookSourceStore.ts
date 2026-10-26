@@ -18,6 +18,10 @@ interface BookSourceState {
   toggleSource: (id: number) => Promise<void>
   deleteSource: (id: number) => Promise<void>
   clearAllSources: () => Promise<void>
+  // PB-013-A：书源管理页用
+  updateSource: (id: number, updates: Partial<PbBookSourceInput>) => Promise<boolean>
+  insertSource: (source: PbBookSourceInput) => Promise<PbBookSource | null>
+  importSourcesFromJson: (raw: string) => Promise<BookSourceImportSummary>
   search: (keyword: string, page?: number) => Promise<void>
   clearSearch: () => void
   // The C++ side starts the download on a worker and returns immediately;
@@ -25,6 +29,34 @@ interface BookSourceState {
   // no id to hand back (callers ignore the return value).
   startDownload: (sourceId: number, bookUrl: string, bookName: string, format?: string) => Promise<void>
   resetDownload: () => void
+}
+
+export interface BookSourceImportSummary {
+  imported: number
+  duplicates: number
+  invalid: number
+  failed: number
+  // 解析/网络层面的错误（JSON 不合法、URL 拉取失败等）；条目级问题只计数
+  error: string
+}
+
+// 从剪贴板 / URL / 文件读到的书源 JSON → 数组。
+// 兼容三种常见形态：[...]、{ sources: [...] }、{ bookSources: [...] }；
+// 单个对象也算一条（方便手动粘贴一个源）。
+function extractSourceArray(raw: string): unknown[] {
+  const parsed = JSON.parse(raw)
+  if (Array.isArray(parsed)) return parsed
+  if (parsed && typeof parsed === 'object') {
+    const obj = parsed as Record<string, unknown>
+    if (Array.isArray(obj.sources)) return obj.sources
+    if (Array.isArray(obj.bookSources)) return obj.bookSources
+    return [parsed]
+  }
+  return []
+}
+
+function normalizedUrl(value: unknown): string {
+  return typeof value === 'string' ? value.trim().toLowerCase() : ''
 }
 
 export const useBookSourceStore = create<BookSourceState>((set, get) => ({
@@ -140,4 +172,80 @@ export const useBookSourceStore = create<BookSourceState>((set, get) => ({
   },
 
   resetDownload: () => set({ downloadProgress: null, isDownloading: false }),
+
+  // ── PB-013-A：单条更新 / 单条新增 / 批量导入 ─────────────────────────
+  // 只把用户真正改动的键交给 C++（DatabaseService::UpdateBookSource 是逐键 merge），
+  // 因此未知规则字段（Legado 里几十个字段）都不会被覆盖掉。
+  updateSource: async (id, updates) => {
+    try {
+      await window.electronAPI.updateBookSource(id, updates)
+      set({
+        sources: get().sources.map((s) => (s.id === id ? { ...s, ...updates } as BookSourceInfo : s)),
+      })
+      return true
+    } catch (e) {
+      console.error('updateBookSource failed:', e)
+      return false
+    }
+  },
+
+  insertSource: async (source) => {
+    try {
+      const created = await window.electronAPI.insertBookSource(source)
+      if (created && typeof created.id === 'number') {
+        set({ sources: [...get().sources, created] })
+        return created
+      }
+      return null
+    } catch (e) {
+      console.error('insertBookSource failed:', e)
+      return null
+    }
+  },
+
+  // 从任意来源拿到的 JSON 文本 → 批量导入；按 bookSourceUrl 去重（与现有列表比较，
+  // 以及本批次内部去重）。返回逐项计数，供 UI 显示「导入 N / 重复 M / 无效 K」。
+  importSourcesFromJson: async (raw) => {
+    const summary: BookSourceImportSummary = { imported: 0, duplicates: 0, invalid: 0, failed: 0, error: '' }
+    let entries: unknown[] = []
+    try {
+      entries = extractSourceArray(raw)
+    } catch {
+      summary.error = 'invalid_json'
+      return summary
+    }
+    if (entries.length === 0) {
+      summary.error = 'empty'
+      return summary
+    }
+
+    const known = new Set(get().sources.map((s) => normalizedUrl(s.bookSourceUrl)).filter(Boolean))
+    for (const entry of entries) {
+      if (!entry || typeof entry !== 'object' || Array.isArray(entry)) { summary.invalid++; continue }
+      const source = { ...(entry as Record<string, unknown>) } as PbBookSourceInput
+      const name = typeof source.bookSourceName === 'string' ? source.bookSourceName.trim() : ''
+      const url = typeof source.bookSourceUrl === 'string' ? source.bookSourceUrl.trim() : ''
+      if (!name && !url) { summary.invalid++; continue }
+      const key = url.toLowerCase()
+      if (key && known.has(key)) { summary.duplicates++; continue }
+      // 保留原始字段（含 Legado 的未知规则字段），只补齐/规整必填项
+      source.bookSourceName = name
+      source.bookSourceUrl = url
+      if (typeof source.enabled !== 'boolean') source.enabled = true
+      try {
+        const created = await window.electronAPI.insertBookSource(source)
+        if (created && typeof created.id === 'number') {
+          set({ sources: [...get().sources, created] })
+          summary.imported++
+          if (key) known.add(key)
+        } else {
+          summary.failed++
+        }
+      } catch (e) {
+        console.error('insertBookSource failed during import:', e)
+        summary.failed++
+      }
+    }
+    return summary
+  },
 }))

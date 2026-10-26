@@ -6,6 +6,7 @@ import { useSettingsStore, type AccentColor } from '../../stores/settingsStore'
 import { copyText, downloadText } from '../../utils/download'
 import { TranslationSettings } from './TranslationSettings'
 import { SettingsSchemaForm } from './SettingsSchemaForm'
+import { BookSourceManager } from './BookSourceManager'
 
 interface GlobalSettingsProps {
   onBack: () => void
@@ -18,7 +19,7 @@ interface UpdateInfo {
   sha512?: string
 }
 
-type NavKey = 'appearance' | 'reading' | 'library' | 'zlibrary' | 'about' | 'advanced'
+type NavKey = 'appearance' | 'reading' | 'library' | 'zlibrary' | 'about' | 'advanced' | 'booksources'
 
 const NAV_ITEMS = (t: TFunction): { key: NavKey; label: string; icon: string }[] => [
   { key: 'appearance', label: t('外观'), icon: 'M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01' },
@@ -26,6 +27,8 @@ const NAV_ITEMS = (t: TFunction): { key: NavKey; label: string; icon: string }[]
   { key: 'library', label: t('书架'), icon: 'M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10' },
   { key: 'zlibrary', label: 'Z-Library', icon: 'M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9' },
   { key: 'about', label: t('关于'), icon: 'M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z' },
+  // PB-013-A：书源管理（导入/编辑/测试/启停）
+  { key: 'booksources', label: t('书源管理'), icon: 'M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zm0 7a1 1 0 011-1h6a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1v-2zm9 0a1 1 0 011-1h5a1 1 0 011 1v2a1 1 0 01-1 1h-5a1 1 0 01-1-1v-2zM4 18a1 1 0 011-1h14a1 1 0 011 1v1a1 1 0 01-1 1H5a1 1 0 01-1-1v-1z' },
   // PB-023-B：schema 驱动的「高级设置」（新增页，不动现有手动设置页）
   { key: 'advanced', label: t('高级设置'), icon: 'M10.5 6h9.75M10.5 6a1.5 1.5 0 11-3 0m3 0a1.5 1.5 0 10-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-9.75 0h9.75' },
 ]
@@ -887,6 +890,10 @@ function AdvancedSettingsPage() {
   )
 }
 
+function BookSourcesPage() {
+  return <BookSourceManager />
+}
+
 export function GlobalSettings({ onBack }: GlobalSettingsProps) {
   const [activeNav, setActiveNav] = useState<NavKey>('appearance')
   const { t } = useTranslation()
@@ -911,6 +918,7 @@ export function GlobalSettings({ onBack }: GlobalSettingsProps) {
       case 'zlibrary': return <ZLibraryPage />
       case 'about': return <AboutPage />
       case 'advanced': return <AdvancedSettingsPage />
+      case 'booksources': return <BookSourcesPage />
     }
   }
 
