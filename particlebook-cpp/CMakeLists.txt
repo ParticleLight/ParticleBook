@@ -47,6 +47,7 @@ add_executable(ParticleBook WIN32
     src/services/BookSourceService.cpp
     src/services/ZLibraryService.cpp
     src/services/ContentCache.cpp
+    src/services/BackupService.cpp
     src/utils/ZipReader.cpp
     src/handlers/DbHandlers.cpp
     src/handlers/FileHandlers.cpp
@@ -56,6 +57,7 @@ add_executable(ParticleBook WIN32
     src/platform/SecretStore.cpp
     src/platform/SettingsService.cpp
     src/platform/LogService.cpp
+    src/platform/SapiTts.cpp
     third_party/tinyxml2.cpp
     third_party/miniz.c
     third_party/miniz_tdef.c
@@ -86,6 +88,7 @@ target_link_libraries(ParticleBook PRIVATE
     version
     comdlg32
     crypt32
+    sapi
 )
 
 # Copy WebView2 DLL to output (edge runtime dependency, present on Win11 anyway)
@@ -187,3 +190,29 @@ add_executable(log_service_test
 target_compile_options(log_service_test PRIVATE /EHa /utf-8)
 target_include_directories(log_service_test PRIVATE src/)
 add_test(NAME log_service_test COMMAND log_service_test)
+
+# ── PB-001 SAPI TTS (COM/SAPI; no GUI) ─────────────────────────────
+add_executable(sapi_tts_test
+    tests/unit/sapi_tts_test.cpp
+    src/platform/SapiTts.cpp
+)
+target_compile_options(sapi_tts_test PRIVATE /EHa /utf-8)
+target_include_directories(sapi_tts_test PRIVATE src/)
+target_link_libraries(sapi_tts_test PRIVATE sapi ole32)
+add_test(NAME sapi_tts_test COMMAND sapi_tts_test)
+
+# ── PB-011 BackupService (zip writer + BCrypt sha256) ───────────────
+add_executable(backup_service_test
+    tests/unit/backup_service_test.cpp
+    src/services/BackupService.cpp
+    src/utils/ZipReader.cpp
+    third_party/miniz.c
+    third_party/miniz_tdef.c
+    third_party/miniz_tinfl.c
+)
+target_compile_options(backup_service_test PRIVATE /EHa /utf-8)
+target_include_directories(backup_service_test PRIVATE
+    src/
+    "${CMAKE_SOURCE_DIR}/third_party"
+)
+add_test(NAME backup_service_test COMMAND backup_service_test)
