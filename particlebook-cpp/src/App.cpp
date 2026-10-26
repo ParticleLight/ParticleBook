@@ -10,6 +10,7 @@
 #include "handlers/DbHandlers.h"
 #include "handlers/FileHandlers.h"
 #include "platform/SingleInstance.h"
+#include "platform/JobService.h"
 #include <shlobj.h>
 #include <fstream>
 #include <sstream>
@@ -43,8 +44,9 @@ void App::Init(HINSTANCE hInstance, std::vector<std::string> startupPaths, Singl
     // 2. Bridge (message dispatch)
     m_bridge = std::make_shared<BridgeServer>();
 
-    // 3. WebView host (window + browser)
+    // 3. WebView host (window + browser) + background jobs
     m_webview = std::make_unique<WebViewHost>();
+    m_jobs = std::make_shared<pb::JobService>(m_webview->Dispatcher());
 
     // Wire bridge <-> WebView
     m_bridge->SetWebView(m_webview.get());
@@ -225,7 +227,7 @@ void App::Init(HINSTANCE hInstance, std::vector<std::string> startupPaths, Singl
     // 6. Register IPC handlers
     RegisterDbHandlers(m_bridge.get(), m_db.get());
     RegisterFileHandlers(m_bridge.get(), m_db.get(), m_cache.get());
-    RegisterPdfHandlers(m_bridge.get(), m_pdf.get());
+    RegisterPdfHandlers(m_bridge.get(), m_pdf.get(), m_jobs.get());
     RegisterBookSourceHandlers(m_bridge.get(), m_bookSource);
     RegisterZlibHandlers(m_bridge.get(), m_zlib.get());
 
@@ -258,7 +260,9 @@ void App::Run()
 
 void App::Shutdown()
 {
-    // Stop the pipe server before tearing down services it may call into.
+    // Stop jobs first, then the UI queue, then the pipe server.
+    if (m_jobs) m_jobs->Stop();
+    if (m_webview) m_webview->StopDispatcher();
     if (m_single) m_single->Stop();
     if (m_db) m_db->FlushSync();
     m_webview.reset();

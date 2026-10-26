@@ -14,6 +14,7 @@ class BookSourceService;
 class ZLibraryService;
 class ContentCache;
 class SingleInstance;
+namespace pb { class JobService; }
 
 class App {
 public:
@@ -53,6 +54,7 @@ private:
     std::shared_ptr<BookSourceService> m_bookSource;
     std::shared_ptr<ZLibraryService> m_zlib;
     std::unique_ptr<ContentCache> m_cache;
+    std::shared_ptr<pb::JobService> m_jobs;
 
     SingleInstance* m_single = nullptr;
     std::mutex m_openMutex;

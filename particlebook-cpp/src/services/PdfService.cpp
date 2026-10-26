@@ -4,6 +4,7 @@
 #include "utils/mobi_patch.h"
 #include "BridgeServer.h"
 #include "utils/win_cmd.h"
+#include "platform/JobService.h"
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <atomic>
@@ -396,23 +397,39 @@ void PdfService::Close(int id)
 
 // ── Handlers ─────────────────────────────────────────────────────────
 
-void RegisterPdfHandlers(BridgeServer* bridge, PdfService* pdf)
+void RegisterPdfHandlers(BridgeServer* bridge, PdfService* pdf, pb::JobService* jobs)
 {
-    bridge->RegisterMethod("pdf:open", [pdf](const json& p) -> json {
-        auto result = pdf->Open(p["filePath"].get<std::string>());
-        if (result.pageCount == 0) return json(nullptr);
+    bridge->RegisterAsyncMethod("pdf:open", [pdf, jobs](const json& p,
+            std::function<void(json)> respond,
+            std::function<void(std::string)> reject) {
+        const std::string filePath = p.value("filePath", "");
+        if (filePath.empty() || !jobs) { reject("invalid_params"); return; }
 
-        json j;
-        j["id"] = result.id;
-        j["pageCount"] = result.pageCount;
-        j["pageBounds"] = json::array();
-        for (auto& b : result.pageBounds) {
-            json jb;
-            jb["width"] = b.width;
-            jb["height"] = b.height;
-            j["pageBounds"].push_back(jb);
-        }
-        return j;
+        auto result = std::make_shared<json>(nullptr);
+        const pb::JobId id = jobs->Submit(
+            "pdf:open",
+            [pdf, filePath, result](pb::JobContext& job) {
+                auto opened = pdf->Open(filePath);
+                if (job.IsCancelled()) return;
+                if (opened.pageCount == 0) { *result = nullptr; return; }
+                json j;
+                j["id"] = opened.id;
+                j["pageCount"] = opened.pageCount;
+                j["pageBounds"] = json::array();
+                for (auto& b : opened.pageBounds) {
+                    json jb;
+                    jb["width"] = b.width;
+                    jb["height"] = b.height;
+                    j["pageBounds"].push_back(jb);
+                }
+                *result = std::move(j);
+            },
+            nullptr,
+            [result, respond, reject](const pb::JobResult& r) {
+                if (!r.ok) { reject(r.cancelled ? "cancelled" : r.error); return; }
+                respond(*result);
+            });
+        if (id == pb::kInvalidJobId) reject("job_service_unavailable");
     });
 
 

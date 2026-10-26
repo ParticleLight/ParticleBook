@@ -13,8 +13,13 @@ class WebViewHost;
 class BridgeServer {
 public:
     using MethodHandler = std::function<json(const json& params)>;
+    using AsyncMethodHandler = std::function<void(
+        const json& params,
+        std::function<void(json)> respond,
+        std::function<void(std::string)> reject)>;
 
     void RegisterMethod(const std::string& name, MethodHandler handler);
+    void RegisterAsyncMethod(const std::string& name, AsyncMethodHandler handler);
     void HandleMessage(const std::string& rawJson, const std::string& source);
 
     void EmitEvent(const std::string& event, const json& data);
@@ -30,10 +35,12 @@ public:
 
 private:
     void ProcessInvoke(int id, const std::string& method, const json& params);
+    void SendResponse(int id, const json& result, const std::string& error);
     void ProcessSubscribe(const std::string& event);
     void ProcessUnsubscribe(const std::string& event);
 
     std::unordered_map<std::string, MethodHandler> m_methods;
+    std::unordered_map<std::string, AsyncMethodHandler> m_asyncMethods;
     std::unordered_map<std::string, std::set<int>> m_subscribers;
     WebViewHost* m_webview = nullptr;
 };

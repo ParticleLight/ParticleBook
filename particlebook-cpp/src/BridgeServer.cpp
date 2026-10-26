@@ -14,6 +14,11 @@ void BridgeServer::RegisterMethod(const std::string& name, MethodHandler handler
     m_methods[name] = std::move(handler);
 }
 
+void BridgeServer::RegisterAsyncMethod(const std::string& name, AsyncMethodHandler handler)
+{
+    m_asyncMethods[name] = std::move(handler);
+}
+
 namespace {
     // Origin classification for incoming web messages.
     //
@@ -143,7 +148,10 @@ void BridgeServer::EmitEvent(const std::string& event, const json& data)
         {"event", event},
         {"data", data}
     };
-    m_webview->PostMessageToRenderer(msg.dump());
+    const std::string payload = msg.dump();
+    m_webview->PostToUiThread([this, payload]() {
+        if (m_webview) m_webview->PostMessageToRenderer(payload);
+    });
 }
 
 json BridgeServer::InvokeMethod(const std::string& method, const json& params)
@@ -161,6 +169,16 @@ json BridgeServer::InvokeMethod(const std::string& method, const json& params)
 
 void BridgeServer::ProcessInvoke(int id, const std::string& method, const json& params)
 {
+
+    auto asyncIt = m_asyncMethods.find(method);
+    if (asyncIt != m_asyncMethods.end()) {
+        auto respond = [this, id](json result) { SendResponse(id, result, ""); };
+        auto reject  = [this, id](std::string error) { SendResponse(id, json(nullptr), error); };
+        try { asyncIt->second(params, respond, reject); }
+        catch (const std::exception& e) { reject(e.what()); }
+        catch (...) { reject("unknown error"); }
+        return;
+    }
 
     json response = {
         {"type", "response"},
@@ -181,6 +199,18 @@ void BridgeServer::ProcessInvoke(int id, const std::string& method, const json& 
     if (m_webview) {
         m_webview->PostMessageToRenderer(response.dump());
     }
+}
+
+void BridgeServer::SendResponse(int id, const json& result, const std::string& error)
+{
+    if (!m_webview) return;
+    json response = {{ "type", "response" }, { "id", id }};
+    if (error.empty()) response["result"] = result;
+    else response["error"] = error;
+    const std::string payload = response.dump();
+    m_webview->PostToUiThread([this, payload]() {
+        if (m_webview) m_webview->PostMessageToRenderer(payload);
+    });
 }
 
 void BridgeServer::ProcessSubscribe(const std::string& event) {}

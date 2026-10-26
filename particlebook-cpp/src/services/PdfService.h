@@ -41,4 +41,5 @@ private:
 };
 
 class BridgeServer;
-void RegisterPdfHandlers(BridgeServer* bridge, PdfService* pdf);
+namespace pb { class JobService; }
+void RegisterPdfHandlers(BridgeServer* bridge, PdfService* pdf, pb::JobService* jobs);

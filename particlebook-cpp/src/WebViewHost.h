@@ -13,18 +13,22 @@
 #include <memory>
 #include <wrl/client.h>  // Microsoft::WRL::ComPtr
 #include <WebView2.h>
+#include "platform/UiDispatcher.h"
 
 namespace wrl = Microsoft::WRL;
 
 class WebViewHost {
 public:
-    WebViewHost() = default;
+    WebViewHost();
     ~WebViewHost();
 
     void CreateMainWindow(HINSTANCE hInstance);
     void RunMessageLoop();
 
     void PostMessageToRenderer(const std::string& json);
+    std::shared_ptr<pb::UiDispatcher> Dispatcher() const { return m_dispatcher; }
+    void PostToUiThread(std::function<void()> fn) { if (m_dispatcher) m_dispatcher->Post(std::move(fn)); }
+    void StopDispatcher() { if (m_dispatcher) m_dispatcher->Stop(); }
     void InjectBridgeScript(const std::string& script);
     void ReloadPage();
     void ExecuteScriptOnPage(const std::wstring& script);
@@ -96,6 +100,7 @@ private:
     wrl::ComPtr<ICoreWebView2Settings> m_settings;
     EventRegistrationToken m_msgToken = {};
 
+    std::shared_ptr<pb::UiDispatcher> m_dispatcher;
     MessageHandler m_msgHandler;
     OpenFilesCallback m_openFilesCb;
     MoveCallback m_moveCb;

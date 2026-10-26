@@ -43,8 +43,12 @@ static std::string ToUtf8(const std::wstring& w) {
     return s;
 }
 
+WebViewHost::WebViewHost()
+    : m_dispatcher(std::make_shared<pb::UiDispatcher>()) {}
+
 WebViewHost::~WebViewHost()
 {
+    if (m_dispatcher) { m_dispatcher->Attach(nullptr); m_dispatcher->Stop(); }
     if (m_webview) {
         m_webview->remove_WebMessageReceived(m_msgToken);
     }
@@ -75,6 +79,8 @@ void WebViewHost::CreateMainWindow(HINSTANCE hInstance)
         CW_USEDEFAULT, CW_USEDEFAULT, 1400, 900,
         nullptr, nullptr, hInstance, this
     );
+
+    if (m_dispatcher) m_dispatcher->Attach(m_hwnd);
 
     // Set window icon from embedded resource
     HICON hIcon = LoadIconW(hInstance, MAKEINTRESOURCEW(101));
@@ -116,6 +122,8 @@ LRESULT CALLBACK WebViewHost::WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
     // 必须显式用 W 版：本工程未定义 UNICODE 宏时 DefWindowProc 会展开成 ANSI 版，
     // 于是 WM_SETTEXT 等消息里的宽字符串被按 ANSI 解读 —— 窗口标题因此只剩首字符 "P"。
     if (!self) return DefWindowProcW(hwnd, msg, wp, lp);
+
+    if (self->m_dispatcher && self->m_dispatcher->OnWindowMessage(msg)) return 0;
 
     switch (msg) {
     case WM_CREATE:
@@ -230,6 +238,10 @@ LRESULT CALLBACK WebViewHost::WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
     case WM_DESTROY:
         PostQuitMessage(0);
         return 0;
+
+    case WM_NCDESTROY:
+        if (self->m_dispatcher) self->m_dispatcher->Attach(nullptr);
+        break;
 
     case WM_RELOAD_PAGE:
         if (self->m_webview) {
