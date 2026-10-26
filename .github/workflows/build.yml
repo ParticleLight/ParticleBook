@@ -32,6 +32,9 @@ jobs:
       - name: Verify C++ bridge ↔ TS contract
         run: node scripts/check-bridge-contract.js
 
+      - name: Verify every contract invoke method has a C++ handler
+        run: npm run check:bridge-handlers
+
       - name: Verify generated electron.d.ts is in sync
         run: node scripts/gen-bridge-dts.mjs --check
 

@@ -1,0 +1,43 @@
+{
+  "_comment": [
+    "桥接 handler 注册白名单 —— 由 scripts/check-bridge-handlers.js 读取与校验。",
+    "规则：bridge/contract.mjs 中 kind=invoke 的方法必须被 C++ RegisterMethod；本文件只放行",
+    "「C++ 注册了、但不属于渲染层 electronAPI 契约」的方法（Z-Library 内部 / 原生消息层）。",
+    "每条必须写 reason（为什么它不进契约）。条目一旦回到契约、或 cpp 里已无对应注册，",
+    "检查脚本会报错要求删掉，避免白名单变成垃圾桶。"
+  ],
+  "allow": [
+    {
+      "method": "zlib:fetchMirrors",
+      "reason": "C++ 内部镜像巡检（同步网络请求，跑在 WebView2 UI 线程）。BridgeServer.cpp 的 ExternalAllowedMethods 注释明确排除它（页面循环 invoke 会让窗口未响应）；无 electronAPI 成员，当前无调用方（保留注册）。"
+    },
+    {
+      "method": "zlib:getURL",
+      "reason": "返回当前 Z-Library 页面 URL；BridgeServer.cpp 明确把它排除在外部页面白名单外（会泄露当前 URL），渲染层无消费者；无 electronAPI 成员，当前无调用方（保留注册）。"
+    },
+    {
+      "method": "zlib:hide",
+      "reason": "工具栏关闭按钮走原生 raw 消息 type=zlibClose，由 BridgeServer::HandleMessage 直接查 m_methods 调用；electronAPI 契约只有 zlibShow、没有 hide。"
+    },
+    {
+      "method": "zlib:logout",
+      "reason": "工具栏退出登录按钮走原生 raw 消息 type=zlibLogout，由 BridgeServer::HandleMessage 转到该方法；无 electronAPI 成员。"
+    },
+    {
+      "method": "zlib:navigate",
+      "reason": "工具栏 back/forward/reload 实际走原生 raw 消息 type=zlibNavigate（HandleMessage 里直接驱动 WebView2），该方法当前无调用方；曾列入外部页面白名单（ExternalAllowedMethods）。"
+    },
+    {
+      "method": "zlib:setBounds",
+      "reason": "Z-Library 覆盖层 WebView 边界由 C++ 原生侧（窗口 sizing / 布局）维护，渲染层无此入口；无 electronAPI 成员，当前无调用方（保留注册）。"
+    },
+    {
+      "method": "zlib:setDownloadPath",
+      "reason": "下载目录由原生对话框 zlib:pickDownloadFolder 选择，渲染层无直接写路径的入口；无 electronAPI 成员，当前无调用方（保留注册）。"
+    },
+    {
+      "method": "zlib:switchMirror",
+      "reason": "工具栏线路选择走原生 raw 消息 type=zlibSwitchTo（携带 index），由 BridgeServer::HandleMessage 转到该方法；electronAPI 侧只读 zlibGetMirrorInfo。"
+    }
+  ]
+}
