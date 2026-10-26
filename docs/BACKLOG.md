@@ -25,7 +25,7 @@
 | PB-016 | 本地诊断日志 | P1 | 🚧 进行中 | 2.2.1 | LogService+App 启动日志已落；导出 UI 待接 |
 | PB-017 | 大书库性能 | P2 | 📋 待办 | 2.2.1 | 虚拟列表、封面缓存、索引性能 |
 | PB-018 | 关键路径 E2E | P1 | 📋 待办 | 2.2.1 | CI 跑 5–8 条关键链路 |
-| PB-021 | Locator + Annotation 统一模型 | P0 | 📋 待办 | 2.2.1 | 统一 cfi/offset/page/rect；标注/搜索/TTS 共用 |
+| PB-021 | Locator + Annotation 统一模型 | P0 | 🚧 进行中 | 2.2.1 | 模型+测试已落；DB/bridge/UI 待接 |
 | PB-022 | ReaderAdapter + 共享阅读交互 | P1 | 📋 待办 | 2.2.1 | 5 个渲染器收敛到统一 adapter |
 | PB-023 | Settings + SecretStore | P0 | 🚧 进行中 | 2.2.1 | 核心+DbHandlers 归一化已落；App/渲染层接线待续 |
 | PB-024 | god files 拆分 + 注入 JS 外置 | P2 | 📋 待办 | 2.2.1 | ZLibrary/FileHandlers/App/WebViewHost 等增量拆 |
@@ -95,6 +95,8 @@
 **非目标（本版）**：词级 karaoke、声音克隆、在线音色、Piper 音色包、有声书。
 
 **备注**：先做 1 天 spike，验证 SAPI 词边界事件、后台播放、Z-Library 导航后不断播。
+
+**进度（2026-10-26）**：`SapiTts` 核心 + 单测已落（commit `ea2308a`）：6 音色枚举去重、Speak 异步队列、Pause/Resume/Stop、句/词边界（UTF-16+UTF-8 偏移）、错误码。bridge/App/UI 待接。
 
 ## PB-002 · AI 翻译（用户自带 Key）
 
@@ -253,6 +255,8 @@
 
 **非目标**：实时多端同步（后续）、账号体系。
 
+**进度（2026-10-26）**：`BackupService` 核心 + 14 组单测已落（commit `ea2308a`）：zip+manifest+SHA-256、恢复前 pre-restore、schema 过新拒绝、原子替换。handler/UI 待接；恢复前需 FlushSync、恢复后需重新 Load。
+
 ## PB-012 · 文件关联 / 打开方式（不抢默认）
 
 **目标**：让用户可以用 ParticleBook 打开电子书，但绝不篡改默认程序。
@@ -405,6 +409,8 @@
 
 **非目标**：手写笔迹；先做文本/矩形标注。
 
+**进度（2026-10-26）**：Locator/Annotation 模型 + `annotation_test` 已落（commit `3839b27`）：5 种 Locator、Annotation 校验/Normalize、旧行迁移、稳定性排序。DB/bridge/UI 待接。
+
 ## PB-022 · ReaderAdapter + 共享阅读交互
 
 **目标**：5 个渲染器不再各写一套搜索/进度/高亮；TTS/翻译/词典只对接一层。
@@ -431,7 +437,7 @@
 
 **非目标**：系统凭据管理器集成（可后续）。
 
-**进度（2026-10-26）**：SecretStore + 13 段单测已落（commit `6d9dc58`）；Settings schema / App 接线待续。
+**进度（2026-10-26）**：SecretStore + 13 段单测（`6d9dc58`）；SettingsService 33 键 schema + 8 组测试（`e87c766`）；DbHandlers 读写已接归一化。App SecretStore / 渲染层 schema 表单待续。
 
 ## PB-024 · god files 拆分 + 注入 JS 外置
 
