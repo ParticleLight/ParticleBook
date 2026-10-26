@@ -170,4 +170,13 @@ export const enReader: Record<string, string> = {
   '在当前位置添加书签': 'Add bookmark at current position',
   '在当前位置添加笔记': 'Add note at current position',
   '高亮请在正文中选中文字后添加（沿用现有高亮按钮）': 'To highlight, select text in the book and use the existing highlight button',
+
+  // PB-009-A：EPUB 分栏 / 竖排（ReaderControls 工具栏）
+  '分栏': 'Columns',
+  '分栏：{{mode}}（点击切换）': 'Columns: {{mode}} (click to cycle)',
+  '自动': 'Auto',
+  '单栏': 'Single',
+  '双栏': 'Two columns',
+  '竖排': 'Vertical text',
+  '关闭竖排': 'Turn off vertical text',
 }

@@ -19,9 +19,43 @@ interface EpubRendererProps {
   book: BookType
   content: Uint8Array
   bookId: number
+  // PB-009-A：分栏与竖排（由 ReaderView 从 settingsStore 传下来）
+  //   spread: auto = 宽屏自动双栏 / single = 单栏 / double = 强制双栏
+  //   verticalText: writing-mode: vertical-rl（竖排）
+  spread?: 'auto' | 'single' | 'double'
+  verticalText?: boolean
 }
 
-export function EpubRenderer({ book, content, bookId }: EpubRendererProps) {
+// epub.js 的 spread 取值只有 none|auto|both
+function epubSpreadValue(spread: 'auto' | 'single' | 'double'): 'none' | 'auto' | 'both' {
+  if (spread === 'double') return 'both'
+  if (spread === 'auto') return 'auto'
+  return 'none'
+}
+
+// 竖排 CSS：writing-mode 只对当前 iframe 文档生效（不继承进 iframe）
+const VERTICAL_STYLE_ID = 'pb-vertical-text'
+const VERTICAL_CSS = 'html, body { writing-mode: vertical-rl !important; -webkit-writing-mode: vertical-rl !important; text-orientation: mixed; }'
+// 竖排时图片/表格保持正立（避免整块被旋转成奇怪方向）
+const VERTICAL_MEDIA_CSS = 'img, svg, video, table { writing-mode: horizontal-tb !important; }'
+
+function setVerticalStyle(doc: Document | null | undefined, on: boolean) {
+  if (!doc) return
+  try {
+    const existing = doc.getElementById(VERTICAL_STYLE_ID)
+    if (!on) {
+      existing?.remove()
+      return
+    }
+    if (existing) return
+    const style = doc.createElement('style')
+    style.id = VERTICAL_STYLE_ID
+    style.textContent = VERTICAL_CSS + VERTICAL_MEDIA_CSS
+    ;(doc.head || doc.documentElement).appendChild(style)
+  } catch { /* ignore */ }
+}
+
+export function EpubRenderer({ book, content, bookId, spread = 'single', verticalText = false }: EpubRendererProps) {
   const { t } = useTranslation()
   const HIGHLIGHT_COLORS = useMemo(() => [
     { name: t('黄色'), value: '#fbbf24' },
@@ -63,6 +97,9 @@ export function EpubRenderer({ book, content, bookId }: EpubRendererProps) {
   const textAlign = useSettingsStore((s) => s.textAlign)
   const theme = useSettingsStore((s) => s.theme)
   const spineLengthRef = useRef(0)
+  // content hook 里拿不到最新 props（闭包只捕获创建 rendition 那一刻），用 ref 同步
+  const verticalRef = useRef(verticalText)
+  useEffect(() => { verticalRef.current = verticalText }, [verticalText])
 
   // Handle navigation from sidebar bookmarks/TOC
   useEffect(() => {
@@ -106,7 +143,7 @@ export function EpubRenderer({ book, content, bookId }: EpubRendererProps) {
     const rendition = epubBook.renderTo(viewerRef.current, {
       width: '100%',
       height: '100%',
-      spread: 'none',
+      spread: epubSpreadValue(spread),
       flow: 'paginated',
       allowScriptedContent: false,
     })
@@ -207,6 +244,9 @@ export function EpubRenderer({ book, content, bookId }: EpubRendererProps) {
       doc.body.style.userSelect = 'text'
       doc.body.style.webkitUserSelect = 'text'
 
+      // PB-009-A：竖排在每章新文档里也要重新注入
+      setVerticalStyle(doc, verticalRef.current)
+
       // Inject CSS highlight styles into iframe
       if (!doc.getElementById('pb-search-styles')) {
         const st = doc.createElement('style')
@@ -272,6 +312,7 @@ export function EpubRenderer({ book, content, bookId }: EpubRendererProps) {
         try {
           const style = iframe.contentDocument?.getElementById('pb-search-styles')
           style?.remove()
+          iframe.contentDocument?.getElementById(VERTICAL_STYLE_ID)?.remove()
         } catch {}
       })
       epubBook.destroy()
@@ -343,6 +384,41 @@ export function EpubRenderer({ book, content, bookId }: EpubRendererProps) {
         break
     }
   }, [theme])
+
+  // ── PB-009-A：分栏模式（epub.js spread: none/auto/both）──────────────
+  // 运行时切换：改 rendition.settings.spread 后重新触发一次布局。
+  useEffect(() => {
+    const rendition = renditionRef.current
+    if (!rendition || !isReady) return
+    try {
+      ;(rendition as any).spread(epubSpreadValue(spread))
+      // epub.js 内部 manager 需要一次 resize 才会按新分栏重排
+      window.setTimeout(() => {
+        const el = viewerRef.current
+        if (el) { try { rendition.resize(el.clientWidth, el.clientHeight) } catch { /* ignore */ } }
+      }, 60)
+    } catch { /* ignore */ }
+  }, [spread, isReady])
+
+  // ── PB-009-A：竖排（writing-mode: vertical-rl）────────────────────────
+  // 1) 给当前所有 iframe 文档注入/移除样式；2) 触发重排。
+  useEffect(() => {
+    if (!isReady) return
+    const apply = () => {
+      const frames = Array.from(viewerRef.current?.querySelectorAll('iframe') ?? [])
+      for (const frame of frames) {
+        try { setVerticalStyle(frame.contentDocument, verticalText) } catch { /* ignore */ }
+      }
+    }
+    apply()
+    // 换章后 iframe 可能被替换：再补一次
+    const timer = window.setTimeout(() => {
+      apply()
+      const el = viewerRef.current
+      if (el) { try { renditionRef.current?.resize(el.clientWidth, el.clientHeight) } catch { /* ignore */ } }
+    }, 120)
+    return () => window.clearTimeout(timer)
+  }, [verticalText, isReady, content])
 
   // ── Full-book text extraction: count matches per section ──────────────
   const extractFullText = useCallback(async () => {

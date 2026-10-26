@@ -12,9 +12,17 @@ interface ReaderControlsProps {
   // PB-001-B：打开/收起朗读条（TTS）。状态由 ReaderView 持有。
   onOpenTts: () => void
   ttsActive: boolean
+  // PB-009-A：EPUB 分栏 / 竖排（状态在 settingsStore，ReaderView 透传）
+  epubSpread: 'auto' | 'single' | 'double'
+  verticalText: boolean
+  onCycleSpread: () => void
+  onToggleVertical: () => void
 }
 
-export function ReaderControls({ bookId, format, onOpenSettings, onOpenTts, ttsActive }: ReaderControlsProps) {
+export function ReaderControls({
+  bookId, format, onOpenSettings, onOpenTts, ttsActive,
+  epubSpread, verticalText, onCycleSpread, onToggleVertical,
+}: ReaderControlsProps) {
   const { t } = useTranslation()
   const progress = useReaderStore((s) => s.progress)
   const bookmarks = useReaderStore((s) => s.bookmarks)
@@ -302,6 +310,36 @@ export function ReaderControls({ bookId, format, onOpenSettings, onOpenTts, ttsA
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v12m0 0l-4-4m4 4l4-4M4 20h16" />
           </svg>
         </button>
+
+        {/* PB-009-A：EPUB 分栏（自动/单栏/双栏循环） */}
+        {format === 'epub' && (
+          <button
+            onClick={onCycleSpread}
+            className={`${ctrlClasses.btn} ${epubSpread !== 'single' ? 'text-[var(--reader-accent)] bg-[var(--color-indigo-bg)]' : ctrlClasses.btnDefault}`}
+            title={t('分栏：{{mode}}（点击切换）', { mode: t(epubSpread === 'auto' ? '自动' : epubSpread === 'double' ? '双栏' : '单栏') })}
+            aria-label={t('分栏')}
+            data-spread-button="1"
+          >
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 4v16M3 4h18v16H3z" />
+            </svg>
+          </button>
+        )}
+
+        {/* PB-009-A：竖排 */}
+        {(format === 'epub' || format === 'html' || format === 'fb2') && (
+          <button
+            onClick={onToggleVertical}
+            className={`${ctrlClasses.btn} ${verticalText ? 'text-[var(--reader-accent)] bg-[var(--color-indigo-bg)]' : ctrlClasses.btnDefault}`}
+            title={t(verticalText ? '关闭竖排' : '竖排')}
+            aria-label={t('竖排')}
+            data-vertical-button="1"
+          >
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 4v16M12 4v16M17 4v16" />
+            </svg>
+          </button>
+        )}
 
         <button
           onClick={onOpenTts}

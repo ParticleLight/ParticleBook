@@ -26,6 +26,14 @@ export interface SettingsState {
   ttsVoiceId: string
   ttsRate: number
 
+  // EPUB 版式（PB-009-A）：
+  //   epubSpread = 分栏模式：auto（宽屏自动双栏）/ single（单栏）/ double（强制双栏）
+  //   verticalText = 竖排（writing-mode: vertical-rl），仅 EPUB 生效
+  // 这两个键**不走 updateSettings**（C++ schema 还没登记，本轮按任务约定用
+  // localStorage 持久化），所以也不进 SETTINGS_KEYS / BOOK_SETTINGS_KEYS。
+  epubSpread: 'auto' | 'single' | 'double'
+  verticalText: boolean
+
   // 语言（全局，不进 SETTINGS_KEYS —— 语言不能被写进书级设置或被覆盖）
   language: Lang
 
@@ -44,6 +52,9 @@ export interface SettingsState {
   setDefaultSortBy: (sort: 'title' | 'author' | 'added_at' | 'last_opened') => void
   setTtsVoiceId: (id: string) => void
   setTtsRate: (rate: number) => void
+  setEpubSpread: (spread: 'auto' | 'single' | 'double') => void
+  cycleEpubSpread: () => void
+  setVerticalText: (on: boolean) => void
   setLanguage: (lang: Lang) => void
   saveSettings: () => void
   loadSettings: () => Promise<void>
@@ -67,6 +78,32 @@ const SETTINGS_KEYS = [
 // 看起来没生效，而书内面板根本没有这两个开关，用户无法就地纠正。
 const BOOK_SETTINGS_KEYS = ['fontSize', 'fontFamily', 'lineHeight', 'margin', 'textAlign'] as const
 
+// ── PB-009-A：EPUB 版式的本地持久化（不写 C++ settings）──────────────
+const LS_EPUB_SPREAD = 'pb.reader.epubSpread'
+const LS_VERTICAL_TEXT = 'pb.reader.verticalText'
+const SPREAD_ORDER = ['auto', 'single', 'double'] as const
+
+function readEpubSpread(): 'auto' | 'single' | 'double' {
+  try {
+    const raw = window.localStorage.getItem(LS_EPUB_SPREAD)
+    if (raw === 'auto' || raw === 'single' || raw === 'double') return raw
+  } catch { /* localStorage 不可用（隐私模式等） */ }
+  // 默认沿用历史行为：单栏（用户可在工具栏切到自动/双栏）
+  return 'single'
+}
+
+function readVerticalText(): boolean {
+  try {
+    return window.localStorage.getItem(LS_VERTICAL_TEXT) === '1'
+  } catch {
+    return false
+  }
+}
+
+function writeLocal(key: string, value: string) {
+  try { window.localStorage.setItem(key, value) } catch { /* ignore */ }
+}
+
 export const useSettingsStore = create<SettingsState>((set, get) => ({
   theme: 'dark',
   accentColor: 'blue',
@@ -85,6 +122,9 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   ttsVoiceId: '',
   ttsRate: 0,
 
+  epubSpread: readEpubSpread(),
+  verticalText: readVerticalText(),
+
   language: i18n.language === 'en' ? 'en' : 'zh',
 
   activeBookId: null,
@@ -102,6 +142,23 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   setDefaultSortBy: (defaultSortBy) => { set({ defaultSortBy }); get().saveSettings() },
   setTtsVoiceId: (ttsVoiceId) => { set({ ttsVoiceId }); get().saveSettings() },
   setTtsRate: (ttsRate) => { set({ ttsRate }); get().saveSettings() },
+
+  // EPUB 版式：只写 localStorage（见上方说明），不触发 saveSettings
+  setEpubSpread: (epubSpread) => {
+    set({ epubSpread })
+    writeLocal(LS_EPUB_SPREAD, epubSpread)
+  },
+  cycleEpubSpread: () => {
+    const current = get().epubSpread
+    const index = SPREAD_ORDER.indexOf(current)
+    const next = SPREAD_ORDER[(index + 1) % SPREAD_ORDER.length]
+    set({ epubSpread: next })
+    writeLocal(LS_EPUB_SPREAD, next)
+  },
+  setVerticalText: (verticalText) => {
+    set({ verticalText })
+    writeLocal(LS_VERTICAL_TEXT, verticalText ? '1' : '0')
+  },
 
   setLanguage: (language) => {
     i18n.changeLanguage(language)

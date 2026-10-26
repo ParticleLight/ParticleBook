@@ -111,6 +111,12 @@ export function ReaderView({ bookId, onClose }: ReaderViewProps) {
   const setShowSearch = useReaderStore((s) => s.setShowSearch)
   const clearSearch = useReaderStore((s) => s.clearSearch)
 
+  // PB-009-A：EPUB 分栏 / 竖排（持久化在 localStorage，见 settingsStore）
+  const epubSpread = useSettingsStore((s) => s.epubSpread)
+  const verticalText = useSettingsStore((s) => s.verticalText)
+  const cycleEpubSpread = useSettingsStore((s) => s.cycleEpubSpread)
+  const setVerticalText = useSettingsStore((s) => s.setVerticalText)
+
   const { loadBookSettings, clearBookSettings } = useSettingsStore()
   const { shouldRender: renderSidebar, isClosing: sidebarClosing } = useAnimatedMount(showSidebar, 200)
   const { shouldRender: renderSettings, isClosing: settingsClosing } = useAnimatedMount(showSettings, 200)
@@ -402,13 +408,24 @@ export function ReaderView({ bookId, onClose }: ReaderViewProps) {
       <Suspense fallback={loadingFallback}>
         {(() => {
           switch (book.format) {
-            case 'epub': return <EpubRenderer {...props} />
+            case 'epub':
+              // PB-009-A：分栏 / 竖排只在 EPUB 生效（epub.js iframe 内注入）
+              return <EpubRenderer {...props} spread={epubSpread} verticalText={verticalText} />
             case 'pdf': return <PdfRenderer {...props} />
             case 'cbz':
             case 'cbr': return <ComicRenderer {...props} />
             case 'fb2':
             case 'html':
-            case 'markdown': return <HtmlRenderer {...props} />
+            case 'markdown':
+              // HTML/FB2 走 HtmlRenderer：竖排靠继承 writing-mode 实现（仅竖排开关；
+              // 分栏对 HTML 不适用，工具栏也不显示分栏按钮）。
+              return verticalText && (book.format === 'html' || book.format === 'fb2')
+                ? (
+                  <div className="h-full" style={{ writingMode: 'vertical-rl' }}>
+                    <HtmlRenderer {...props} />
+                  </div>
+                )
+                : <HtmlRenderer {...props} />
             case 'txt':
             case 'mobi':
             default: return <TextRenderer {...props} />
@@ -529,6 +546,10 @@ export function ReaderView({ bookId, onClose }: ReaderViewProps) {
             onOpenSettings={() => setShowSettings(true)}
             onOpenTts={() => setShowTts((v) => !v)}
             ttsActive={showTts}
+            epubSpread={epubSpread}
+            verticalText={verticalText}
+            onCycleSpread={cycleEpubSpread}
+            onToggleVertical={() => setVerticalText(!verticalText)}
           />
         </div>
 
