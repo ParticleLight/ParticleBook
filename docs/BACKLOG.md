@@ -18,7 +18,6 @@
 | PB-008 | 格式补齐 | P2 | 📋 待办 | 2.2.1 | AZW3 / DOCX 优先，其余评估 |
 | PB-009 | 双栏 / 分屏 / 竖排 | P2 | 📋 待办 | 2.2.1 | 大屏与竖排阅读 |
 | PB-010 | 本地词典 | P1 | 🚧 进行中 | 2.2.1 | DictionaryService 核心已落；导入/查词 UI 待接 |
-| PB-011 | 备份 / 恢复 | P0 | 🚧 进行中 | 2.2.1 | 创建/恢复已接线；封面/进度/WebDAV 待补 |
 | PB-013 | 书源生态增强 | P1 | 📋 待办 | 2.2.1 | URL/剪贴板导入、规则编辑、单源测试 |
 | PB-017 | 大书库性能 | P2 | 📋 待办 | 2.2.1 | 虚拟列表、封面缓存、索引性能 |
 | PB-018 | 关键路径 E2E | P1 | 🚧 进行中 | 2.2.1 | 5 条 smoke 已过；Z-Library/翻译/TTS/备份待补 |
@@ -37,7 +36,7 @@
 1. ✅ PB-019 单实例 + 文件打开转发（已完成）
 2. ✅ PB-020 UiDispatcher + JobService + 长任务迁移（已完成）
 3. ✅ PB-015 桥接契约扩展（已完成）
-4. PB-011 备份 / 恢复
+4. ✅ PB-011 备份 / 恢复（MVP 已完成）
 5. ✅ PB-014 数据 schema 版本 + 迁移（已完成）
 6. PB-021 Locator + Annotation 统一模型
 7. PB-023 Settings + SecretStore
@@ -117,7 +116,7 @@
 
 **非目标（本版）**：离线模型、免费公共接口、全书一键翻译、词典释义、语音翻译、流式输出（可后续）。
 
-**进度（2026-10-26）**：TranslationService 核心（`bfc4fd2`）；SecretStore 取 Key + `translation:translate` handler + 设置页 provider/Key 表单（`23fd60b`），CDP 实测 Key set/has/clear 与 disabled 报错。剩余：阅读器选中翻译弹层、结果缓存、真实 provider 验证。
+**进度（2026-10-26）**：TranslationService（`bfc4fd2`）+ SecretStore/handler/设置页（`23fd60b`）+ 选中翻译弹层/缓存/测试连接（`5019267`），CDP mock 成功/离线缓存/错误分支。剩余：真实 provider 验证、与高亮共用同一弹层、PDF 划词（非目标）。
 
 **决策记录**：2026-10-26 用户明确——翻译只用 AI，必须用户填写第三方 Key 才可使用；不做离线模型 / 免费公共接口。
 
@@ -181,7 +180,7 @@
 
 **非目标**：语义搜索、OCR 扫描件、跨书正则 / 高级语法（可后续）。
 
-**进度（2026-10-26）**：`SearchIndexService` 核心 + 8 组单测（`444583b`）：EPUB/TXT/HTML/MD 抽取、CJK unigram+bigram、增量、JSON 持久化、取消。全局搜索 UI/JobService 接线待接。
+**进度（2026-10-26）**：SearchIndexService（`444583b`）+ JobService/bridge（`e921a1a`）+ 全局搜索 UI（`e5fea8b`），E2E search 通过。剩余：点击结果精确跳转（offset→CFI 待 Locator 映射）、PDF/FB2 索引、建索引百分比进度。
 
 **备注**：索引单独存储，不塞进主 JSON 库；大库可评估 SQLite FTS5。
 
@@ -251,16 +250,16 @@
 **目标**：本地快照 + 恢复，防止磁盘故障 / 重装丢数据；后续可接 WebDAV。
 
 **MVP 验收**
-- [ ] 导出 zip：数据库、设置、标注 / 笔记、封面（书籍文件可选）
-- [ ] 导入恢复：覆盖模式（MVP）；合并后续
-- [ ] 恢复前自动备份当前数据
-- [ ] schema 版本检查；不兼容时拒绝并提示
-- [ ] 大库导出 / 导入进度与失败重试
+- [x] 导出 zip：数据库、设置、标注 / 笔记、封面（书籍文件可选）
+- [x] 导入恢复：覆盖模式（MVP）；合并后续
+- [x] 恢复前自动备份当前数据
+- [x] schema 版本检查；不兼容时拒绝并提示
+- [x] 大库导出 / 导入进度与失败重试
 - [ ] Phase 2：WebDAV 自动备份（用户自己的存储，不做我们的服务器）
 
 **非目标**：实时多端同步（后续）、账号体系。
 
-**进度（2026-10-26）**：BackupService 核心（`ea2308a`）；handler/UI（`9475e3c`）；封面打包/恢复 + progress/cancel（`24de96c`，22 组测试）。剩余：handler 接 progress、大库 UI 进度/重试、WebDAV（Phase 2）。
+**进度（2026-10-26）：MVP 已完成。** BackupService（`ea2308a`）+ handler/UI（`9475e3c`）+ 封面/进度/取消（`24de96c`）+ backup:progress/设置页进度条（`d07e1b9`）+ 失败重试 UI（`5019267`）。22 组单测 + E2E backup 10/10。WebDAV 属 Phase 2，未做。
 
 ## PB-012 · 文件关联 / 打开方式（不抢默认）
 
@@ -369,7 +368,7 @@
 
 **非目标**：全量 UI 覆盖；先覆盖 5–8 条关键路径。
 
-**进度（2026-10-26）**：`scripts/e2e` 框架 + 5 条 smoke（`be52dbe`），本机 5/5 PASS（4.2s），失败采集/截图/CI 手动+每周 job 就绪。剩余：Z-Library 下载、翻译 mock、TTS、备份恢复、schema 迁移用例。
+**进度（2026-10-26）**：E2E 13 条 smoke（`be52dbe`/`d990a19`/`3db7d31`），本机 13/13 PASS（10.2s）：启动/桥接/导入/阅读/单实例/TTS/备份/翻译 Key/schema/搜索/PDF/Z-Library API。剩余：Z-Library 真实导航/下载、翻译真实 mock 请求（当前仅 Key 生命周期）。
 
 
 ## PB-019 · 单实例 + 文件打开转发
@@ -420,7 +419,7 @@
 
 **非目标**：手写笔迹；先做文本/矩形标注。
 
-**进度（2026-10-26）**：Locator/Annotation 模型（`3839b27`）；DB schema v3 新增 `annotations[]`、旧 bookmarks/highlights/notes 迁移（`8a017be`）。剩余：CRUD handler/双写、阅读器标注 UI。
+**进度（2026-10-26）**：Locator/Annotation（`3839b27`）+ schema v3（`8a017be`）+ CRUD/旧表双写（`b30877a`）+ renderer 数据层（`2ed55a6`）。剩余：阅读器标注 UI/旧侧栏切 annotations、旧 API 反向同步。
 
 ## PB-022 · ReaderAdapter + 共享阅读交互
 
@@ -492,6 +491,7 @@
 | PB-015 桥接契约扩展 | 2026-10-26 | 既有 `02c62a5` + contract/dts/handler/usage 审计全绿（未发版） |
 | PB-012 文件关联 / 打开方式 | 2026-10-26 | `444583b`（未发版） |
 | PB-016 本地诊断日志 | 2026-10-26 | `a7c49d9`（未发版） |
+| PB-011 备份 / 恢复（MVP） | 2026-10-26 | `ea2308a` / `9475e3c` / `24de96c` / `5019267`（未发版） |
 | PB-001 TTS 朗读 | 2026-10-26 | `ea2308a` / `444583b` / `8a1e4f2` / `8f149ce` / `fe1c5dc`（未发版） |
 
 ## 暂缓 / 否决
