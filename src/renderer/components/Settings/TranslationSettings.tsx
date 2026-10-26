@@ -1,5 +1,15 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { translationErrorMessageKey } from '../Reader/TranslationPopup'
+
+// 「测试连接」的状态：只保存展示用的结果，Key 永远不进 state 之外的任何地方
+// （输入框里的 Key 在测之前写进 SecretStore 并清空）。
+interface TranslationTestState {
+  status: 'idle' | 'testing' | 'ok' | 'error'
+  text?: string
+  code?: string
+  message?: string
+}
 
 // PB-002: provider config + DPAPI-backed API key. The key is sent to C++ once
 // and never stored in settings (which are backed up/exported).
@@ -14,6 +24,7 @@ export function TranslationSettings() {
   const [hasKey, setHasKey] = useState(false)
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
+  const [testState, setTestState] = useState<TranslationTestState>({ status: 'idle' })
 
   useEffect(() => {
     window.electronAPI.getSettings().then((s: any) => {
@@ -26,15 +37,19 @@ export function TranslationSettings() {
     window.electronAPI.translationHasKey().then(setHasKey).catch(() => {})
   }, [])
 
+  // 当前表单 → settings 补丁（保存配置和测试连接共用，保证测的就是表单里的值）。
+  const settingsPatch = () => ({
+    'translation.enabled': enabled,
+    'translation.provider': provider,
+    'translation.baseUrl': baseUrl,
+    'translation.model': model,
+    'translation.targetLanguage': targetLanguage,
+  })
+
   const saveConfig = () => {
     setBusy(true); setMessage('')
-    window.electronAPI.updateSettings({
-      'translation.enabled': enabled,
-      'translation.provider': provider,
-      'translation.baseUrl': baseUrl,
-      'translation.model': model,
-      'translation.targetLanguage': targetLanguage,
-    }).then(() => setMessage(t('已保存')))
+    window.electronAPI.updateSettings(settingsPatch())
+      .then(() => setMessage(t('已保存')))
       .catch(() => setMessage(t('保存失败')))
       .finally(() => setBusy(false))
   }
@@ -54,6 +69,45 @@ export function TranslationSettings() {
       .then(() => { setHasKey(false); setMessage(t('密钥已清除')) })
       .catch(() => setMessage(t('操作失败')))
       .finally(() => setBusy(false))
+  }
+
+  // PB-002-C：测试连接 —— 先把当前表单（含未保存的改动 / Key）落到 settings +
+  // SecretStore，再用 "Hello" 试翻一次。成功显示译文，失败显示错误码 + 本地化
+  // 文案；任何情况下都不回显 Key。
+  const testConnection = async () => {
+    if (busy) return
+    setBusy(true)
+    setMessage('')
+    setTestState({ status: 'testing' })
+    const draftKey = apiKey.trim()
+    try {
+      await window.electronAPI.updateSettings(settingsPatch())
+      if (draftKey) {
+        const saved = await window.electronAPI.translationSetKey(draftKey)
+        if (!saved) throw new Error('key_save_failed')
+        setHasKey(true)
+        setApiKey('')
+      }
+      const result = await window.electronAPI.translationTranslate(
+        [{ id: 't', text: 'Hello' }],
+        'en',
+        'zh',
+      )
+      const translated = result && Array.isArray(result.segments) && result.segments[0]
+        ? (result.segments[0].text || '').trim()
+        : ''
+      if (result && result.ok && translated) {
+        setTestState({ status: 'ok', text: translated, code: result.code })
+        return
+      }
+      const code = (result && result.code) || 'translation_failed'
+      setTestState({ status: 'error', code, message: t(translationErrorMessageKey(code)) })
+    } catch (error) {
+      const code = (error instanceof Error ? error.message : String(error)).trim() || 'translation_failed'
+      setTestState({ status: 'error', code, message: t(translationErrorMessageKey(code)) })
+    } finally {
+      setBusy(false)
+    }
   }
 
   const input = 'w-full px-3 py-2 rounded-lg text-sm border'
@@ -83,6 +137,25 @@ export function TranslationSettings() {
         <button onClick={saveKey} disabled={busy || !apiKey.trim()} className="btn-secondary whitespace-nowrap">{t('保存密钥')}</button>
         {hasKey && <button onClick={clearKey} disabled={busy} className="btn-secondary whitespace-nowrap">{t('清除')}</button>}
       </div>
+      <div className="flex items-center gap-2 mt-2">
+        <button onClick={testConnection} disabled={busy} className="btn-secondary whitespace-nowrap">
+          {testState.status === 'testing' ? t('测试中…') : t('测试连接')}
+        </button>
+        <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+          {t('测试会先保存当前配置与 Key，再用 "Hello" 试翻一次；不显示 Key。')}
+        </span>
+      </div>
+      {testState.status === 'ok' && (
+        <p className="mt-2 text-xs break-all" style={{ color: 'var(--notify-success-text)' }}>
+          {t('连接成功：{{text}}', { text: testState.text || '' })}
+        </p>
+      )}
+      {testState.status === 'error' && (
+        <p className="mt-2 text-xs break-all" style={{ color: 'var(--notify-error-text)' }}>
+          {t('连接失败：{{code}}', { code: testState.code || 'translation_failed' })}
+          {testState.message ? ' — ' + testState.message : ''}
+        </p>
+      )}
       {message && <p className="mt-2 text-xs" style={{ color: 'var(--text-secondary)' }}>{message}</p>}
     </div>
   )

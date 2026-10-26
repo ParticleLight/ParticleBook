@@ -27,6 +27,7 @@ function useAnimatedMount(isOpen: boolean, duration = 200) {
 import { Sidebar } from './Sidebar'
 import { ReaderControls } from './ReaderControls'
 import { TtsBar } from './TtsBar'
+import { TranslationPopup } from './TranslationPopup'
 import { formatReadingTime } from '../../utils/format'
 import { readBookFile } from '../../utils/fileReader'
 import { ConfirmDialog } from '../UI/ConfirmDialog'
@@ -484,6 +485,13 @@ export function ReaderView({ bookId, onClose }: ReaderViewProps) {
           <SettingsPanel onClose={() => setShowSettings(false)} format={book.format} isClosing={settingsClosing} />
         </Suspense>
       )}
+
+      {/* PB-002-B：选中文本 → 翻译浮层（主文档与 EPUB iframe 都支持）。
+          bottomInset 跟着朗读条走，保证浮层不压在 TTS 条上。 */}
+      <TranslationPopup
+        bottomInset={showTts ? 200 : 140}
+        onOpenSettings={() => setShowSettings(true)}
+      />
     </div>
   )
 }

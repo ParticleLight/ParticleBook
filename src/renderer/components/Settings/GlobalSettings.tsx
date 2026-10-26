@@ -435,6 +435,66 @@ function ZLibraryPage() {
   )
 }
 
+// ── PB-011-C：备份失败重试 ──────────────────────────────────────────
+// 约束：只做「手动重试同一操作」，绝不自动循环重试。桥接层失败时 C++ 只
+// reject(error 文本)，稳定错误码有时就是 token（cancelled / db_path_unavailable），
+// 有时只剩英文说明 —— 这里统一分类成 { code, detail } 给 UI 展示。
+export type BackupAction = 'create' | 'restore'
+
+export interface BackupAttempt {
+  action: BackupAction
+  // 只有 restore 有：恢复指定备份文件的路径。当前 UI 走文件选择框，通常
+  // 没有路径；保留该字段让「指定文件恢复」或脚本调用可以直接复用。
+  path?: string
+}
+
+export interface BackupFailure extends BackupAttempt {
+  code: string    // 稳定错误码（token）或动作级兜底码 backup_failed / restore_failed
+  detail: string  // 桥接层原始 message（可能是英文说明）；空串表示没有额外信息
+  attempts: number // 连续失败次数（首次失败 = 1，重试再失败 = 2）
+}
+
+const BACKUP_KNOWN_CODES = new Set([
+  'backup_failed', 'restore_failed', 'cancelled', 'db_path_unavailable',
+  'job_service_unavailable', 'reload_failed', 'schema_too_new', 'path_traversal',
+  'backup_missing', 'manifest_missing', 'manifest_invalid', 'format_too_new',
+  'payload_missing', 'payload_invalid', 'checksum_mismatch', 'pre_restore_failed',
+  'write_failed', 'io_error', 'invalid_options', 'db_missing', 'db_empty',
+  'db_unreadable', 'db_too_large', 'invalid_db', 'too_large',
+])
+
+export function classifyBackupError(
+  action: BackupAction,
+  error: unknown,
+): { code: string; detail: string } {
+  let message = ''
+  if (typeof error === 'string') {
+    message = error
+  } else if (error && typeof error === 'object' && 'message' in error) {
+    const raw = (error as { message?: unknown }).message
+    if (typeof raw === 'string') message = raw
+  }
+  const trimmed = message.trim()
+  if (BACKUP_KNOWN_CODES.has(trimmed)) return { code: trimmed, detail: '' }
+  if (/^[a-z][a-z0-9_]{2,47}$/.test(trimmed)) return { code: trimmed, detail: '' }
+  return {
+    code: action === 'create' ? 'backup_failed' : 'restore_failed',
+    detail: trimmed,
+  }
+}
+
+// 重试 = 重放「上一次动作 + 参数」。正在忙或没有失败记录时什么都不做
+// （这也是「不自动重试」的落点：只有用户点按钮才会走到这里）。
+export function planBackupRetry(
+  failure: BackupFailure | null,
+  busy: boolean,
+): BackupAttempt | null {
+  if (!failure || busy) return null
+  return failure.action === 'restore'
+    ? { action: 'restore', path: failure.path }
+    : { action: 'create' }
+}
+
 function AboutPage() {
   const [appVersion, setAppVersion] = useState<string | null>(null)
   const [updateStatus, setUpdateStatus] = useState<'idle' | 'checking' | 'available' | 'not-available' | 'downloading' | 'downloaded' | 'error'>('idle')
@@ -444,6 +504,7 @@ function AboutPage() {
   const [diagState, setDiagState] = useState<'idle' | 'exporting' | 'done' | 'error'>('idle')
   const [diagPath, setDiagPath] = useState('')
   const [backupMsg, setBackupMsg] = useState('')
+  const [backupFailure, setBackupFailure] = useState<BackupFailure | null>(null)
   const [backupProgress, setBackupProgress] = useState(0)
   const [exportAllBusy, setExportAllBusy] = useState(false)
   const [exportAllMsg, setExportAllMsg] = useState('')
@@ -507,24 +568,86 @@ function AboutPage() {
       .finally(() => setExportAllBusy(false))
   }
 
-  const handleCreateBackup = () => {
-    setBackupBusy('create'); setBackupMsg('')
-    window.electronAPI.createBackup()
-      .then((r) => setBackupMsg(t('备份已保存：{{path}}', { path: r.path })))
-      .catch(() => setBackupMsg(t('备份失败')))
-      .finally(() => setBackupBusy(''))
+  // ── PB-011-C：创建 / 恢复 / 重试 ─────────────────────────────────
+  const beginBackup = (action: BackupAction) => {
+    setBackupBusy(action)
+    setBackupMsg('')
+    setBackupProgress(0)
   }
 
-  const handleRestoreBackup = () => {
-    if (!window.confirm(t('恢复会覆盖当前书库、进度与笔记。继续？'))) return
-    setBackupBusy('restore'); setBackupMsg('')
-    window.electronAPI.restoreBackup()
+  const finishBackup = () => setBackupBusy('')
+
+  // 失败统一走这里：记录动作、参数与连续失败次数，供「重试」复用。
+  const failBackup = (action: BackupAction, path: string | undefined, error: unknown) => {
+    const { code, detail } = classifyBackupError(action, error)
+    setBackupFailure((prev) => ({
+      action,
+      path,
+      code,
+      detail,
+      attempts: prev && prev.action === action ? prev.attempts + 1 : 1,
+    }))
+    setBackupMsg('')
+  }
+
+  const runCreateBackup = () => {
+    if (backupBusy) return
+    beginBackup('create')
+    window.electronAPI.createBackup()
       .then((r) => {
+        if (!r.ok) {
+          failBackup('create', undefined, r.error || r.code)
+          return
+        }
+        setBackupFailure(null)
+        setBackupMsg(t('备份已保存：{{path}}', { path: r.path }))
+      })
+      .catch((e) => failBackup('create', undefined, e))
+      .finally(finishBackup)
+  }
+
+  const runRestoreBackup = (path?: string) => {
+    if (backupBusy) return
+    beginBackup('restore')
+    window.electronAPI.restoreBackup(path)
+      .then((r) => {
+        if (!r.ok) {
+          failBackup('restore', path, r.error || r.code)
+          return
+        }
+        setBackupFailure(null)
         setBackupMsg(t('已恢复 {{count}} 本书，正在重新加载...', { count: r.bookCount }))
         setTimeout(() => window.location.reload(), 800)
       })
-      .catch((e) => setBackupMsg(e?.message === 'cancelled' ? '' : t('恢复失败')))
-      .finally(() => setBackupBusy(''))
+      .catch((e) => {
+        // 用户在文件选择框点了取消：不是失败，不显示错误 / 不提供重试。
+        if (e && typeof e === 'object' && (e as { message?: string }).message === 'cancelled') {
+          setBackupFailure(null)
+          setBackupMsg('')
+          return
+        }
+        failBackup('restore', path, e)
+      })
+      .finally(finishBackup)
+  }
+
+  const handleCreateBackup = () => runCreateBackup()
+
+  const handleRestoreBackup = () => {
+    if (!window.confirm(t('恢复会覆盖当前书库、进度与笔记。继续？'))) return
+    runRestoreBackup()
+  }
+
+  // 只重放上一次失败的操作与参数；不会自动重试（必须用户点击）。
+  const handleRetryBackup = () => {
+    const attempt = planBackupRetry(backupFailure, !!backupBusy)
+    if (!attempt) return
+    if (attempt.action === 'restore' &&
+        !window.confirm(t('恢复会覆盖当前书库、进度与笔记。继续？'))) {
+      return
+    }
+    if (attempt.action === 'create') runCreateBackup()
+    else runRestoreBackup(attempt.path)
   }
 
   const handleExportDiagnostics = () => {
@@ -655,7 +778,59 @@ function AboutPage() {
             <div className="h-full rounded-full transition-all" style={{ width: `${Math.max(5, backupProgress)}%`, background: 'var(--accent)' }} />
           </div>
         )}
-        {backupMsg && <p className="mt-3 text-xs break-all" style={{ color: 'var(--text-secondary)' }}>{backupMsg}</p>}
+        {/* PB-011-C：失败状态 + 手动重试（只重放上一次操作，绝不自动循环） */}
+        {backupFailure && !backupBusy && (
+          <div
+            role="alert"
+            aria-live="polite"
+            className="mt-3 rounded-lg px-3 py-2.5 text-xs"
+            style={{ border: '1px solid var(--notify-error-text)', background: 'var(--surface-hover)' }}
+          >
+            <div className="flex items-start gap-3">
+              <div className="min-w-0 flex-1 space-y-1">
+                <p className="font-medium break-all" style={{ color: 'var(--notify-error-text)' }}>
+                  {backupFailure.action === 'create' ? t('备份失败') : t('恢复失败')}
+                  {' · '}
+                  {t('错误码：{{code}}', { code: backupFailure.code })}
+                </p>
+                {backupFailure.detail && (
+                  <p className="break-all" style={{ color: 'var(--text-secondary)' }}>
+                    {backupFailure.detail}
+                  </p>
+                )}
+                <p style={{ color: 'var(--text-secondary)' }}>
+                  {t('上次操作：{{op}}（第 {{attempt}} 次尝试）', {
+                    op: backupFailure.action === 'create' ? t('创建备份') : t('恢复备份'),
+                    attempt: backupFailure.attempts,
+                  })}
+                </p>
+                {backupFailure.path && (
+                  <p className="break-all" style={{ color: 'var(--text-secondary)' }}>
+                    {t('备份文件：{{path}}', { path: backupFailure.path })}
+                  </p>
+                )}
+                <p style={{ color: 'var(--text-secondary)' }}>
+                  {t('不会自动重试；修好后可点「重试」。')}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={handleRetryBackup}
+                disabled={!!backupBusy}
+                className="btn-secondary shrink-0"
+                aria-label={t('重试')}
+              >
+                {t('重试')}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {backupMsg && (
+          <p className="mt-3 text-xs break-all" style={{ color: 'var(--notify-success-text)' }}>
+            {backupMsg}
+          </p>
+        )}
       </div>
 
       {/* Diagnostics */}
