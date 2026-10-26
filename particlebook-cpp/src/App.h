@@ -3,6 +3,8 @@
 #include <windows.h>
 #include <memory>
 #include <string>
+#include <vector>
+#include <mutex>
 
 class DatabaseService;
 class WebViewHost;
@@ -11,12 +13,13 @@ class PdfService;
 class BookSourceService;
 class ZLibraryService;
 class ContentCache;
+class SingleInstance;
 
 class App {
 public:
     static App& Instance();
 
-    void Init(HINSTANCE hInstance);
+    void Init(HINSTANCE hInstance, std::vector<std::string> startupPaths, SingleInstance* single);
     void Run();
     void Shutdown();
 
@@ -31,6 +34,12 @@ public:
     std::string GetLanguage() const { return m_language; }
     void SetLanguage(const std::string& lang);
 
+    // PB-019: a second process forwards paths over a named pipe. These are
+    // always called on the UI thread except OnExternalOpen (pipe thread).
+    void OnExternalOpen(std::vector<std::string> paths);
+    std::vector<std::string> TakePendingOpenFiles();
+    void FlushOpenPaths();
+
 private:
     App() = default;
     HINSTANCE m_hInstance = nullptr;
@@ -44,4 +53,9 @@ private:
     std::shared_ptr<BookSourceService> m_bookSource;
     std::shared_ptr<ZLibraryService> m_zlib;
     std::unique_ptr<ContentCache> m_cache;
+
+    SingleInstance* m_single = nullptr;
+    std::mutex m_openMutex;
+    std::vector<std::string> m_pendingOpenFiles;
+    bool m_rendererReady = false;
 };

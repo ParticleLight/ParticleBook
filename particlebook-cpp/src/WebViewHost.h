@@ -6,6 +6,7 @@
 #define WM_UPDATE_DOWNLOAD_DONE     (WM_USER + 15)
 #define WM_UPDATE_CHECK_DONE        (WM_USER + 16)
 #define WM_UPDATE_DOWNLOAD_PROGRESS (WM_USER + 17)
+#define WM_APP_OPEN_FILES           (WM_APP + 10)
 #include <string>
 #include <vector>
 #include <functional>
@@ -71,6 +72,13 @@ public:
     using MessageHandler = std::function<void(const std::string& msg, const std::string& source)>;
     void SetMessageHandler(MessageHandler handler) { m_msgHandler = std::move(handler); }
 
+    // PB-019: pipe thread asks the UI thread to check App's pending open files.
+    using OpenFilesCallback = std::function<void()>;
+    void SetOpenFilesCallback(OpenFilesCallback cb) { m_openFilesCb = std::move(cb); }
+    void PostOpenFilesNotification() {
+        if (m_hwnd) PostMessage(m_hwnd, WM_APP_OPEN_FILES, 0, 0);
+    }
+
     void PostMessageToMainThread(UINT msg, WPARAM wp, LPARAM lp) {
         if (m_hwnd) PostMessage(m_hwnd, msg, wp, lp);
     }
@@ -89,6 +97,7 @@ private:
     EventRegistrationToken m_msgToken = {};
 
     MessageHandler m_msgHandler;
+    OpenFilesCallback m_openFilesCb;
     MoveCallback m_moveCb;
     bool m_allowUntrustedCerts = false;
     ImportResultCallback m_importResultCb;

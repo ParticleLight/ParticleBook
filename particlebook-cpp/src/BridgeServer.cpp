@@ -316,6 +316,8 @@ std::string BridgeServer::GenerateBridgeScript()
     onZlibDownloadError: function(cb)   { return onEvent('zlib:downloadError', cb); },
 
     onLibraryChanged: function(cb) { return onEvent('library:changed', cb); },
+    getPendingOpenFiles: function() { return invoke('app:getPendingOpenFiles'); },
+    onOpenFiles: function(cb) { return onEvent('app:openFiles', cb); },
 
     checkUpdate: function()    { return invoke('app:checkUpdate'); },
     getAppVersion: function()  { return invoke('app:getVersion'); },

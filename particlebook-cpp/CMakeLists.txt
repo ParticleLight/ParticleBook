@@ -50,6 +50,7 @@ add_executable(ParticleBook WIN32
     src/utils/ZipReader.cpp
     src/handlers/DbHandlers.cpp
     src/handlers/FileHandlers.cpp
+    src/platform/SingleInstance.cpp
     third_party/tinyxml2.cpp
     third_party/miniz.c
     third_party/miniz_tdef.c

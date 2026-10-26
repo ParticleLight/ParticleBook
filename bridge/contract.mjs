@@ -716,6 +716,21 @@ export const contract = [
     params: [],
     returns: "Promise<Record<number, { progress: number; page?: number; updated_at: string }>>"
   },
+  // PB-019: paths forwarded by a second process (or first-launch command line).
+  {
+    member: "getPendingOpenFiles", method: "app:getPendingOpenFiles",
+    kind: "invoke",
+    group: "Files",
+    params: [],
+    returns: "Promise<string[]>"
+  },
+  {
+    member: "onOpenFiles", method: "app:openFiles",
+    kind: "event",
+    group: "Files",
+    params: [{ n: "callback", t: "(paths: string[]) => void" }],
+    returns: "() => void"
+  },
   // ── Menu events ──
   {
     // 书库已变化（C++ 内部导入后发出：书源下载、Z-Library 下载自动入库）。

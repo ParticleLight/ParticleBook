@@ -215,6 +215,10 @@ LRESULT CALLBACK WebViewHost::WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
         }
         return 0;
 
+    case WM_APP_OPEN_FILES:
+        if (self->m_openFilesCb) self->m_openFilesCb();
+        return 0;
+
     case WM_MOVE:
         if (self->m_moveCb) self->m_moveCb();
         return 0;

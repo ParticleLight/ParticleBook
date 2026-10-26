@@ -310,6 +310,10 @@ interface ElectronAPI {
   getAllReadingTime: () => Promise<Record<number, number>>
   getAllReadingProgress: () => Promise<Record<number, { progress: number; page?: number; updated_at: string }>>
 
+  // Files
+  getPendingOpenFiles: () => Promise<string[]>
+  onOpenFiles: (callback: (paths: string[]) => void) => () => void
+
   // Library
   onLibraryChanged: (callback: () => void) => () => void
 

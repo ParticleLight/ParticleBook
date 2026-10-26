@@ -178,6 +178,34 @@ export default function App() {
     window.electronAPI.zlibShow()
   }, [])
 
+  // PB-019: import paths forwarded by a second process (or the first-launch
+  // command line), then jump into the book when exactly one was opened.
+  const handleOpenPaths = useCallback(async (paths: string[]) => {
+    if (!paths || paths.length === 0) return
+    try {
+      const imported = await window.electronAPI.importBooks(paths)
+      setPage('library')
+      await loadBooks()
+      if (imported && imported.length === 1) {
+        setCurrentBookId(imported[0].id)
+      }
+    } catch (e) {
+      console.error('Failed to open forwarded files:', e)
+    }
+  }, [loadBooks])
+
+  useEffect(() => {
+    let active = true
+    const unsub = window.electronAPI.onOpenFiles((paths) => {
+      if (active) void handleOpenPaths(paths)
+    })
+    // Subscribe first, then drain anything that arrived before React mounted.
+    window.electronAPI.getPendingOpenFiles()
+      .then((paths) => { if (active && paths && paths.length > 0) void handleOpenPaths(paths) })
+      .catch((e) => console.error('Failed to get pending open files:', e))
+    return () => { active = false; unsub() }
+  }, [handleOpenPaths])
+
   if (currentBookId !== null) {
     return (
       <PageShell show>

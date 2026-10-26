@@ -9,6 +9,7 @@
 #include "BridgeServer.h"
 #include "handlers/DbHandlers.h"
 #include "handlers/FileHandlers.h"
+#include "platform/SingleInstance.h"
 #include <shlobj.h>
 #include <fstream>
 #include <sstream>
@@ -24,9 +25,14 @@ void RegisterZlibHandlers(BridgeServer* bridge, ZLibraryService* zlib);
 
 App& App::Instance() { static App app; return app; }
 
-void App::Init(HINSTANCE hInstance)
+void App::Init(HINSTANCE hInstance, std::vector<std::string> startupPaths, SingleInstance* single)
 {
     m_hInstance = hInstance;
+    m_single = single;
+    if (!startupPaths.empty()) {
+        std::lock_guard<std::mutex> lock(m_openMutex);
+        m_pendingOpenFiles = std::move(startupPaths);
+    }
 
     // 1. Database
     m_db = std::make_shared<DatabaseService>();
@@ -42,6 +48,7 @@ void App::Init(HINSTANCE hInstance)
 
     // Wire bridge <-> WebView
     m_bridge->SetWebView(m_webview.get());
+    m_webview->SetOpenFilesCallback([this]() { FlushOpenPaths(); });
     m_webview->SetMessageHandler([this](const std::string& msg, const std::string& source) {
         m_bridge->HandleMessage(msg, source);
     });
@@ -229,6 +236,18 @@ void App::Init(HINSTANCE hInstance)
         App::Instance().SetLanguage(p.value("lang", "zh"));
         return json(true);
     });
+
+    // PB-019: renderer asks once on mount for paths that arrived before it was
+    // ready; later paths are pushed via the app:openFiles event.
+    m_bridge->RegisterMethod("app:getPendingOpenFiles", [](const json&) {
+        return json(App::Instance().TakePendingOpenFiles());
+    });
+
+    if (m_single) {
+        m_single->StartServer([this](std::vector<std::string> paths) {
+            OnExternalOpen(std::move(paths));
+        });
+    }
 }
 
 void App::Run()
@@ -239,6 +258,8 @@ void App::Run()
 
 void App::Shutdown()
 {
+    // Stop the pipe server before tearing down services it may call into.
+    if (m_single) m_single->Stop();
     if (m_db) m_db->FlushSync();
     m_webview.reset();
     m_bridge.reset();
@@ -254,6 +275,38 @@ std::string App::UserDataPath() const
         return std::string(buf) + "/particle-book";
     }
     return ".";
+}
+
+void App::OnExternalOpen(std::vector<std::string> paths)
+{
+    if (paths.empty()) return;
+    {
+        std::lock_guard<std::mutex> lock(m_openMutex);
+        for (auto& p : paths) m_pendingOpenFiles.push_back(std::move(p));
+    }
+    // Pipe thread -> UI thread. If the window isn't up yet the paths stay
+    // pending and the renderer picks them up via app:getPendingOpenFiles.
+    if (m_webview) m_webview->PostOpenFilesNotification();
+}
+
+std::vector<std::string> App::TakePendingOpenFiles()
+{
+    std::lock_guard<std::mutex> lock(m_openMutex);
+    m_rendererReady = true;
+    auto paths = std::move(m_pendingOpenFiles);
+    m_pendingOpenFiles.clear();
+    return paths;
+}
+
+void App::FlushOpenPaths()
+{
+    std::vector<std::string> paths;
+    {
+        std::lock_guard<std::mutex> lock(m_openMutex);
+        if (!m_rendererReady || m_pendingOpenFiles.empty()) return;
+        paths.swap(m_pendingOpenFiles);
+    }
+    if (m_bridge) m_bridge->EmitEvent("app:openFiles", json(paths));
 }
 
 void App::SetLanguage(const std::string& lang)
