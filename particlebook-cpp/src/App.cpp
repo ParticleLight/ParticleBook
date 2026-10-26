@@ -11,6 +11,8 @@
 #include "handlers/FileHandlers.h"
 #include "platform/SingleInstance.h"
 #include "platform/JobService.h"
+#include "platform/LogService.h"
+#include "pb_version.h"
 #include <shlobj.h>
 #include <fstream>
 #include <sstream>
@@ -30,6 +32,23 @@ void App::Init(HINSTANCE hInstance, std::vector<std::string> startupPaths, Singl
 {
     m_hInstance = hInstance;
     m_single = single;
+
+    // PB-016: start the local diagnostic log before touching the database, so
+    // startup / migration / WebView failures are captured. No telemetry.
+    {
+        pb::LogOptions opts;
+        opts.appVersion = PB_VERSION_STRING;
+        opts.appChannel = "2.2.1-dev";
+        m_log = std::make_shared<pb::LogService>(std::move(opts));
+        std::string err;
+        if (m_log->Start(&err)) {
+            pb::SetGlobalLogger(m_log);
+            pb::LogInfo("app", "ParticleBook " PB_VERSION_STRING " starting");
+        } else {
+            m_log.reset();
+            OutputDebugStringA(("LogService start failed: " + err + "\n").c_str());
+        }
+    }
     if (!startupPaths.empty()) {
         std::lock_guard<std::mutex> lock(m_openMutex);
         m_pendingOpenFiles = std::move(startupPaths);
@@ -260,6 +279,7 @@ void App::Run()
 
 void App::Shutdown()
 {
+    pb::LogInfo("app", "shutdown begin");
     // Stop jobs first, then the UI queue, then the pipe server.
     if (m_jobs) m_jobs->Stop();
     if (m_webview) m_webview->StopDispatcher();
@@ -268,6 +288,8 @@ void App::Shutdown()
     m_webview.reset();
     m_bridge.reset();
     m_db.reset();
+    pb::SetGlobalLogger(nullptr);
+    if (m_log) { m_log->Stop(); m_log.reset(); }
 }
 
 std::string App::UserDataPath() const
