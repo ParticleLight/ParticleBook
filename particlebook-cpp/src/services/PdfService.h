@@ -2,6 +2,7 @@
 #include <string>
 #include <vector>
 #include <cstdint>
+#include <mutex>
 
 struct PdfPageBounds {
     double width;
@@ -32,6 +33,9 @@ private:
         std::vector<PdfPageBounds> pageBounds;
         std::vector<std::string> tempFiles;
     };
+    // PB-020: Open/RenderPage/ExtractText now run on JobService workers, so
+    // serialize access to m_docs/tempFiles (mutool itself runs out of process).
+    mutable std::mutex m_mutex;
     std::vector<DocEntry> m_docs;
     std::vector<std::string> m_tempFiles;
     int m_nextId = 1;

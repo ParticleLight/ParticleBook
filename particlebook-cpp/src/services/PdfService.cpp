@@ -178,6 +178,7 @@ bool PdfService::RunMutool(const std::string& args, std::string& output, int tim
 
 PdfOpenResult PdfService::Open(const std::string& filePath)
 {
+    std::lock_guard<std::mutex> lock(m_mutex);
     PdfOpenResult result = {};
     result.id = m_nextId++;
 
@@ -267,6 +268,7 @@ PdfOpenResult PdfService::Open(const std::string& filePath)
 
 std::string PdfService::RenderPage(int id, uint32_t pageIndex, int pixelWidth, int pixelHeight)
 {
+    std::lock_guard<std::mutex> lock(m_mutex);
     DocEntry* entry = nullptr;
     for (auto& e : m_docs) {
         if (e.id == id) { entry = &e; break; }
@@ -325,6 +327,7 @@ std::string PdfService::RenderPage(int id, uint32_t pageIndex, int pixelWidth, i
 
 std::string PdfService::ExtractText(int id)
 {
+    std::lock_guard<std::mutex> lock(m_mutex);
     DocEntry* entry = nullptr;
     for (auto& e : m_docs) {
         if (e.id == id) { entry = &e; break; }
@@ -371,6 +374,7 @@ std::string PdfService::ExtractText(int id)
 
 void PdfService::Close(int id)
 {
+    std::lock_guard<std::mutex> lock(m_mutex);
     for (auto it = m_docs.begin(); it != m_docs.end(); ++it) {
         if (it->id == id) {
             // Clean up temp PNG files
@@ -434,21 +438,49 @@ void RegisterPdfHandlers(BridgeServer* bridge, PdfService* pdf, pb::JobService* 
 
 
 
-    bridge->RegisterMethod("pdf:renderPage", [pdf](const json& p) -> json {
-        int id = p["id"].get<int>();
-        uint32_t pageNum = p["pageNum"].get<uint32_t>();
-        int w = p.value("width", 0);
-        int h = p.value("height", 0);
-        std::string dataUrl = pdf->RenderPage(id, pageNum, w, h);
-        if (dataUrl.empty()) return json(nullptr);
-        return json(dataUrl);
-    });
+    bridge->RegisterAsyncMethod("pdf:renderPage",
+        [pdf, jobs](const json& p,
+                    std::function<void(json)> respond,
+                    std::function<void(std::string)> reject) {
+            const int id = p.value("id", 0);
+            const uint32_t pageNum = p.value("pageNum", 0u);
+            const int w = p.value("width", 0);
+            const int h = p.value("height", 0);
+            if (id <= 0 || !jobs) { reject("invalid_params"); return; }
+            auto out = std::make_shared<std::string>();
+            const pb::JobId jid = jobs->Submit(
+                "pdf:renderPage",
+                [pdf, id, pageNum, w, h, out](pb::JobContext&) {
+                    *out = pdf->RenderPage(id, pageNum, w, h);
+                },
+                nullptr,
+                [out, respond, reject](const pb::JobResult& r) {
+                    if (!r.ok) { reject(r.cancelled ? "cancelled" : r.error); return; }
+                    if (out->empty()) { respond(json(nullptr)); return; }
+                    respond(json(*out));
+                });
+            if (jid == pb::kInvalidJobId) reject("job_service_unavailable");
+        });
 
-    bridge->RegisterMethod("pdf:extractText", [pdf](const json& p) -> json {
-        std::string textJson = pdf->ExtractText(p["id"].get<int>());
-        if (textJson.empty()) return json(nullptr);
-        return json::parse(textJson);
-    });
+    bridge->RegisterAsyncMethod("pdf:extractText",
+        [pdf, jobs](const json& p,
+                    std::function<void(json)> respond,
+                    std::function<void(std::string)> reject) {
+            const int id = p.value("id", 0);
+            if (id <= 0 || !jobs) { reject("invalid_params"); return; }
+            auto out = std::make_shared<std::string>();
+            const pb::JobId jid = jobs->Submit(
+                "pdf:extractText",
+                [pdf, id, out](pb::JobContext&) { *out = pdf->ExtractText(id); },
+                nullptr,
+                [out, respond, reject](const pb::JobResult& r) {
+                    if (!r.ok) { reject(r.cancelled ? "cancelled" : r.error); return; }
+                    if (out->empty()) { respond(json(nullptr)); return; }
+                    try { respond(json::parse(*out)); }
+                    catch (...) { reject("parse_error"); }
+                });
+            if (jid == pb::kInvalidJobId) reject("job_service_unavailable");
+        });
 
     bridge->RegisterMethod("pdf:close", [pdf](const json& p) -> json {
         pdf->Close(p["id"].get<int>());
