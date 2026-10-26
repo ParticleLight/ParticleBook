@@ -195,3 +195,23 @@ smoke 现在是 **13 步**（前 10 步见上；11-13 为 PB-018-C 追加，sche
 
 未覆盖：CBZ/TXT/FB2/Markdown 阅读；PDF 多页/大文件/扫描版；跨书全文搜索的**渲染层 UI**
 （当前直接调 bridge handler）；Z-Library 真实进站、登录、下载、镜像切换（外网依赖）。
+## PB-018-D 补充（翻译 mock / Z-Library 受控 mock）
+
+smoke 现在是 **15 步**（14/15 为 PB-018-D 追加；前 13 步见上）：
+
+14. **translation-mock**：smoke 进程内起 127.0.0.1 随机端口的 OpenAI 兼容 HTTP mock
+    （`lib/mock-provider.mjs`，零依赖 http server）。通过真实 settings 通道写
+    `translation.enabled/baseUrl/model`、SecretStore 写临时 Key → `translationTranslate`
+    （真实 C++ → WinHTTP → 本机 mock 全链路）→ 断言返回 `MOCKED: ...`、requestsSent /
+    segmentsTranslated、mock 实收 Authorization/model/targetLang/正文；mock 返回 429 →
+    bridge reject `quota`；结束清 Key + 重置 settings。全程不联网。
+15. **zlib-mock**：通过 `chrome.webview.dispatchEvent` 注入合成 bridge event（不联网、不真实下载）：
+    `zlib:downloadError` → 断言红色 banner + HTTP 503 文案；`zlib:allMirrorsFailed` → 断言
+    镜像横幅；`zlib:downloadProgress` / `zlib:importComplete` / `library:changed` → 断言无
+    page exception 且 bridge 仍可用（前两个事件目前没有渲染层消费者，report.notes 已注明）。
+    若当前 WebView2 运行时不允许 `dispatchEvent`，该步 skip 并写 report note（不判失败）。
+
+`--fail-at` 新增可选值：`translation-mock` / `zlib-mock`。
+
+未覆盖：真实第三方 provider（翻译 mock 只验证 OpenAI 兼容协议与错误映射）；Z-Library
+真实进站/登录/下载/镜像切换（受控事件 mock 只验证渲染层事件消费与容错）；跨书全文搜索 UI。

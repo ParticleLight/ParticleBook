@@ -9,7 +9,7 @@
 // WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS 打开随机空闲端口的 CDP，用 Node 内置
 // WebSocket 驱动：真实窗口 + 真实 DOM + 真实桥接调用。
 //
-// 13 步 smoke（5 条 PB-018-A 基础 + 5 步 PB-018-B + 3 步 PB-018-C）：
+// 15 步 smoke（5 条 PB-018-A 基础 + 5 步 PB-018-B + 3 步 PB-018-C + 2 步 PB-018-D）：
 //   1) launch-and-cdp          启动、CDP 就绪、页面 title、桥接 shim、沙箱隔离
 //   2) bridge-read             getPendingOpenFiles / getBooks / getSettings
 //   3) import-epub             生成最小 EPUB → importBooks → 书架出现
@@ -23,6 +23,8 @@
 //  11) search                  书架搜索框过滤（2→1→0→2）+ 直接 invoke search:status/build/query（PB-006 全文索引）
 //  12) pdf                     生成 1 页文本 PDF → importBooks → pdfOpen/extractText/renderPage → UI 打开/翻页/关闭
 //  13) zlib                    离线下验证 Z-Library API 面 + 只读 mirror/downloadPath + 事件订阅；不触发真实导航/下载
+//  14) translation-mock        本进程起 127.0.0.1 OpenAI 兼容 mock → 配置 settings+Key → translationTranslate 断言译回 + 429→quota + 清理
+//  15) zlib-mock               合成 bridge event 注入（downloadError/allMirrorsFailed 断言真实 UI banner；progress/importComplete 容错）→ 关闭实例
 //
 // 失败时：CDP 截图 + 页面 console + app stdout/stderr + reader.json 快照写入
 // artifacts，退出码 1。--fail-at <step> 故意失败，用来验证失败路径。
@@ -32,6 +34,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { CdpClient, findFreePort, iframeTextExpression, sleep, waitForPageTarget } from './lib/cdp.mjs'
 import { writeSampleEpub, writeSamplePdf } from './lib/fixtures.mjs'
+import { startMockTranslationServer } from './lib/mock-provider.mjs'
 import * as appLib from './lib/app.mjs'
 
 const USAGE = `ParticleBook E2E smoke (PB-018)
@@ -51,7 +54,7 @@ Options:
   --fail-at <step>      Force a failure at a step (launch-and-cdp | bridge-read |
                         import-epub | open-read-turn-close | settings-forward-exit |
                         extended-app | tts | backup | translation | schema |
-                        search | pdf | zlib)
+                        search | pdf | zlib | translation-mock | zlib-mock)
   --verbose             Print extra detail
   -h, --help            Show this help
 `
@@ -127,6 +130,9 @@ const state = {
   pdfCacheDir: null,
   pdfCacheBefore: null,
   notes: [],
+  // PB-018-D：本地 OpenAI mock + 合成 zlib 事件注入
+  mockProvider: null,
+  mockTranslation: null,
 }
 
 const log = (...args) => console.log('[e2e]', ...args)
@@ -851,8 +857,188 @@ async function smokeZlib() {
   state.notes.push(note)
   log('zlib ok (offline): ' + note)
 
-  // 本阶段最后一步：关闭 PB-018-C 阶段实例（优雅退出 → 落盘）。
-  await closeAppGracefully(state.phase4.app, 'search/pdf/zlib phase app')
+  // 保持实例运行：后面的 translation-mock / zlib-mock 还要用同一个 app。
+}
+
+// ── PB-018-D：翻译 mock + Z-Library 受控 mock（14/15 步）─────────────
+async function smokeTranslationMock() {
+  const mock = await startMockTranslationServer()
+  state.mockProvider = mock
+  try {
+    // 1) 用真实 settings 通道配置 provider（本地 127.0.0.1），Key 走 SecretStore
+    const key = `sk-e2e-mock-${state.sandbox.id}`
+    await bridge('updateSettings', {
+      'translation.enabled': true,
+      'translation.provider': 'mock',
+      'translation.baseUrl': mock.baseUrl,
+      'translation.model': 'mock-model',
+      'translation.targetLanguage': 'zh',
+      'translation.timeoutSeconds': 10,
+    })
+    assertEqual(await bridge('translationHasKey'), false, 'translationHasKey should start false')
+    assertEqual(await bridge('translationSetKey', key), true, 'translationSetKey(mock)')
+    assertEqual(await bridge('translationHasKey'), true, 'translationHasKey after setKey')
+
+    // 2) 真实 translation:translate 链路：C++ -> WinHTTP -> 127.0.0.1 mock -> 解析回填
+    const segments = [
+      { id: 'p1', text: 'Hello mock provider' },
+      { id: 'p2', text: 'Second paragraph' },
+    ]
+    const translated = await bridge('translationTranslate', segments, 'en', 'zh', '')
+    assert(translated && typeof translated === 'object',
+      `translationTranslate returned ${JSON.stringify(translated)}`)
+    assertEqual(translated.ok, true, `translationTranslate.ok (code=${translated.code} error=${translated.error})`)
+    assertEqual(translated.code, 'none', 'translation code on success')
+    assertEqual(translated.requestsSent, 1, 'translation requestsSent')
+    assertEqual(translated.segmentsTranslated, 2, 'translation segmentsTranslated')
+    assert(Array.isArray(translated.segments) && translated.segments.length === 2,
+      `translation segments: ${JSON.stringify(translated.segments)}`)
+    assertEqual(translated.segments[0].id, 'p1', 'translated segment id')
+    assertEqual(translated.segments[0].text, 'MOCKED: Hello mock provider', 'translated segment 1 text')
+    assertEqual(translated.segments[1].text, 'MOCKED: Second paragraph', 'translated segment 2 text')
+
+    // 3) mock 收到的是真实的 OpenAI 兼容请求：Authorization / model / targetLang / 原文
+    assertEqual(mock.requests.length, 1, 'mock provider request count after success')
+    const mockRequest = mock.requests[0]
+    assert(mockRequest.url.endsWith('/chat/completions'), `unexpected mock path: ${mockRequest.url}`)
+    assertEqual(mockRequest.headers.authorization, 'Bearer ' + key, 'mock received Authorization header')
+    assert(!mockRequest.body.includes(key), 'mock request body must not contain the API key')
+    const requestEnvelope = JSON.parse(mockRequest.body)
+    assertEqual(requestEnvelope.model, 'mock-model', 'mock request model')
+    const userPayload = JSON.parse(requestEnvelope.messages[1].content)
+    assertEqual(userPayload.targetLang, 'zh', 'mock request targetLang')
+    assertEqual(userPayload.segments[0].text, 'Hello mock provider', 'mock request segment text')
+
+    // 4) 错误码映射：mock 429 -> bridge reject "quota"
+    mock.setMode('429')
+    const failure = await state.cdp.evaluate(`(async () => {
+      try {
+        const result = await window.electronAPI.translationTranslate(
+          [{ id: 'p1', text: 'Rate limited request' }], 'en', 'zh', '');
+        return { ok: true, result };
+      } catch (error) {
+        return { ok: false, error: String((error && error.message) || error) };
+      }
+    })()`)
+    assertEqual(failure.ok, false, '429 should reject translationTranslate')
+    assert(String(failure.error).includes('quota'),
+      `expected quota rejection, got ${JSON.stringify(failure.error)}`)
+    mock.setMode('ok')
+
+    // 5) 清理 Key + 设置，避免污染后续 smoke / 默认状态
+    assertEqual(await bridge('translationClearKey'), true, 'translationClearKey after mock')
+    await bridge('updateSettings', {
+      'translation.enabled': false,
+      'translation.provider': 'openai',
+      'translation.baseUrl': '',
+      'translation.model': '',
+      'translation.targetLanguage': 'zh',
+      'translation.timeoutSeconds': 60,
+    })
+    const settings = await bridge('getSettings')
+    assertEqual(settings['translation.enabled'], false, 'translation.enabled reset')
+    assertEqual(settings['translation.baseUrl'], '', 'translation.baseUrl reset')
+    assertEqual(await bridge('translationHasKey'), false, 'translationHasKey after cleanup')
+
+    state.mockTranslation = {
+      baseUrl: mock.baseUrl,
+      requests: mock.requests.length,
+    }
+    state.notes.push('translation mock: local 127.0.0.1 OpenAI-compatible server; success path + 429->quota verified; no real provider/network used')
+    log(`translation mock ok: baseUrl=${mock.baseUrl}, requests=${mock.requests.length}, ` +
+        `segments=2, 429->quota, key cleared + settings reset`)
+  } finally {
+    await mock.close()
+    state.mockProvider = null
+  }
+}
+
+async function injectBridgeEvent(event, data) {
+  return state.cdp.evaluate(`(() => {
+    try {
+      const message = { type: 'event', event: ${JSON.stringify(event)}, data: ${JSON.stringify(data)} };
+      window.chrome.webview.dispatchEvent(new MessageEvent('message', { data: JSON.stringify(message) }));
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, error: String((error && error.message) || error) };
+    }
+  })()`)
+}
+
+async function smokeZlibMock() {
+  // Z-Library 真实进站/下载依赖外网，E2E 不触发；这里用「合成 bridge event」验证
+  // 渲染层事件消费（downloadError / allMirrorsFailed 有真实 UI banner）以及对
+  // downloadProgress / importComplete / library:changed 的容错。
+  const capability = await state.cdp.evaluate(`(() => {
+    const webview = window.chrome && window.chrome.webview;
+    return {
+      hasWebview: !!webview,
+      dispatch: typeof (webview && webview.dispatchEvent),
+      addListener: typeof (webview && webview.addEventListener),
+    };
+  })()`)
+  assertEqual(capability.hasWebview, true, 'window.chrome.webview missing')
+  assertEqual(capability.addListener, 'function', 'window.chrome.webview.addEventListener missing')
+
+  if (capability.dispatch !== 'function') {
+    const note = 'zlib mock: chrome.webview.dispatchEvent unavailable in this WebView2 runtime; ' +
+      'synthetic event injection skipped (offline zlib API-surface step still covers the bridge)'
+    state.notes.push(note)
+    log('zlib mock skipped: ' + note)
+    await closeAppGracefully(state.phase4.app, 'search/pdf/zlib/translation phase app')
+    return
+  }
+
+  const downloadError = await injectBridgeEvent('zlib:downloadError',
+    { fileName: 'mock-download.epub', error: 'http_503' })
+  if (!downloadError.ok) {
+    const note = 'zlib mock: synthetic event injection was rejected by this WebView2 runtime (' +
+      downloadError.error + '); skipped UI assertions'
+    state.notes.push(note)
+    log('zlib mock skipped: ' + note)
+    await closeAppGracefully(state.phase4.app, 'search/pdf/zlib/translation phase app')
+    return
+  }
+
+  // downloadError -> App.tsx 的红色 banner（"Z-Library 下载失败：服务器返回错误 503"）
+  await state.cdp.waitFor("document.body.innerText.includes('Z-Library 下载失败')", {
+    timeoutMs: options.timeout, label: 'zlib download-error banner visible',
+  })
+  await state.cdp.waitFor("document.body.innerText.includes('503')", {
+    timeoutMs: options.timeout, label: 'zlib download-error banner shows HTTP 503 reason',
+  })
+
+  // allMirrorsFailed -> 顶部横幅（"所有 Z-Library 镜像暂时不可达..."）
+  const allFailed = await injectBridgeEvent('zlib:allMirrorsFailed', {})
+  assertEqual(allFailed.ok, true, `allMirrorsFailed injection failed: ${JSON.stringify(allFailed)}`)
+  await state.cdp.waitFor("document.body.innerText.includes('镜像暂时不可达')", {
+    timeoutMs: options.timeout, label: 'zlib all-mirrors-failed banner visible',
+  })
+
+  // progress / importComplete 目前没有渲染层消费者；注入它们必须不炸、应用仍可用。
+  const exceptionsBefore = state.cdp.consoleLines.filter((line) => line.startsWith('page exception')).length
+  const progress = await injectBridgeEvent('zlib:downloadProgress',
+    { fileName: 'mock-download.epub', received: 512, total: 1024 })
+  assertEqual(progress.ok, true, `downloadProgress injection failed: ${JSON.stringify(progress)}`)
+  const imported = await injectBridgeEvent('zlib:importComplete', { fileName: 'mock-download.epub' })
+  assertEqual(imported.ok, true, `importComplete injection failed: ${JSON.stringify(imported)}`)
+  const libraryChanged = await injectBridgeEvent('library:changed', {})
+  assertEqual(libraryChanged.ok, true, `library:changed injection failed: ${JSON.stringify(libraryChanged)}`)
+  await sleep(600)
+  const exceptionsAfter = state.cdp.consoleLines.filter((line) => line.startsWith('page exception')).length
+  assertEqual(exceptionsAfter, exceptionsBefore, 'injected zlib events must not raise page exceptions')
+  const books = await bridge('getBooks')
+  assert(Array.isArray(books) && books.length === 3,
+    `bridge should stay responsive after injected zlib events, books=${JSON.stringify(books)}`)
+
+  await state.cdp.screenshot(path.join(state.artifacts, '07-zlib-events.png'))
+  state.notes.push('zlib mock: synthetic zlib:downloadError / allMirrorsFailed / progress / importComplete ' +
+    'injected via chrome.webview message events (no network). downloadError + allMirrorsFailed assert real UI ' +
+    'banners; progress/importComplete have no renderer consumer yet, asserted as no-crash + bridge responsive.')
+  log('zlib mock ok: downloadError + allMirrorsFailed banners rendered; progress/importComplete injected without ' +
+      'page exceptions; bridge responsive (books=3)')
+
+  await closeAppGracefully(state.phase4.app, 'search/pdf/zlib/translation phase app')
 }
 
 // ── 失败采集 / 清理 / 报告 ───────────────────────────────────────
@@ -895,6 +1081,12 @@ async function finalize(fatal) {
     }
     console.error(`\n[e2e] FAILED at "${state.currentStep}": ${fatal.message}`)
     await captureFailureArtifacts(fatal)
+  }
+
+  // 关掉本地 mock HTTP 服务（避免 smoke 进程退出前遗留监听）
+  if (state.mockProvider) {
+    try { await state.mockProvider.close() } catch { /* ignore */ }
+    state.mockProvider = null
   }
 
   // 清理进程（包含 PB-018-B 额外启动的实例；已退出的 forceKill 会直接返回）
@@ -948,6 +1140,7 @@ async function finalize(fatal) {
       path: fixture.path, title: fixture.title,
     })),
     pdf: state.pdfFixture ? { path: state.pdfFixture.path, title: state.pdfFixture.title, bookId: state.pdfBookId } : null,
+    mockTranslation: state.mockTranslation,
     notes: state.notes,
     steps: state.steps,
     failure: state.failure,
@@ -1078,6 +1271,10 @@ async function run() {
     await step('search', smokeSearch)
     await step('pdf', smokePdf)
     await step('zlib', smokeZlib)
+
+    // ── PB-018-D：翻译 mock（本地 OpenAI 兼容服务）+ Z-Library 受控事件 mock ──
+    await step('translation-mock', smokeTranslationMock)
+    await step('zlib-mock', smokeZlibMock)
     state.ok = true
   } catch (error) {
     state.failure = {
