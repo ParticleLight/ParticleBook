@@ -22,14 +22,12 @@
 | PB-011 | 备份 / 恢复 | P0 | 📋 待办 | 2.2.1 | 本地 zip 快照 + 恢复；后续可选 WebDAV |
 | PB-012 | 文件关联 / 打开方式 | P1 | 📋 待办 | 2.2.1 | 只进「打开方式」，不抢默认 |
 | PB-013 | 书源生态增强 | P1 | 📋 待办 | 2.2.1 | URL/剪贴板导入、规则编辑、单源测试 |
-| PB-014 | 数据 schema 版本 + 迁移 | P0 | 📋 待办 | 2.2.1 | 工程前置：PB-005/006 之前必做 |
-| PB-015 | 桥接契约扩展 | P0 | 🚧 进行中 | 2.2.1 | handler 注册校验已完成；契约拆分/stub 生成/exposure/error 待续 |
-| PB-016 | 本地诊断日志 | P1 | 📋 待办 | 2.2.1 | 脱敏日志 + 导出诊断包，无遥测 |
+| PB-016 | 本地诊断日志 | P1 | 🚧 进行中 | 2.2.1 | LogService 核心已落；App 接线/导出按钮待续 |
 | PB-017 | 大书库性能 | P2 | 📋 待办 | 2.2.1 | 虚拟列表、封面缓存、索引性能 |
 | PB-018 | 关键路径 E2E | P1 | 📋 待办 | 2.2.1 | CI 跑 5–8 条关键链路 |
 | PB-021 | Locator + Annotation 统一模型 | P0 | 📋 待办 | 2.2.1 | 统一 cfi/offset/page/rect；标注/搜索/TTS 共用 |
 | PB-022 | ReaderAdapter + 共享阅读交互 | P1 | 📋 待办 | 2.2.1 | 5 个渲染器收敛到统一 adapter |
-| PB-023 | Settings + SecretStore | P0 | 🚧 进行中 | 2.2.1 | SecretStore 已落；Settings schema/接线待续 |
+| PB-023 | Settings + SecretStore | P0 | 🚧 进行中 | 2.2.1 | SecretStore + SettingsService 核心已落；App/渲染层接线待续 |
 | PB-024 | god files 拆分 + 注入 JS 外置 | P2 | 📋 待办 | 2.2.1 | ZLibrary/FileHandlers/App/WebViewHost 等增量拆 |
 | PB-025 | 设计基元 + 主题审计 | P2 | 📋 待办 | 2.2.1 | Popover/Dialog/Toolbar 等基元 + token 约束 |
 
@@ -41,9 +39,9 @@
 
 1. ✅ PB-019 单实例 + 文件打开转发（已完成）
 2. ✅ PB-020 UiDispatcher + JobService + 长任务迁移（已完成）
-3. PB-015 桥接契约扩展（扩为 Bridge 加固）
+3. ✅ PB-015 桥接契约扩展（已完成）
 4. PB-011 备份 / 恢复
-5. PB-014 数据 schema 版本 + 迁移
+5. ✅ PB-014 数据 schema 版本 + 迁移（已完成）
 6. PB-021 Locator + Annotation 统一模型
 7. PB-023 Settings + SecretStore
 8. PB-001 TTS 朗读
@@ -287,34 +285,36 @@
 
 **非目标**：RSS、TTS 书源、JS 规则完整兼容（按 Legado 规则复杂度逐步补）。
 
-**进度（2026-10-26）**：handler 注册校验已完成（`scripts/check-bridge-handlers.js` + CI，commit `02c62a5`）；契约拆分 / 生成 stub / exposure / error envelope 待续。
-
 ## PB-014 · 数据 schema 版本 + 迁移
 
 **目标**：给 JSON 库加显式版本与可测试迁移，保障升级不丢数据。
 
 **MVP 验收**
-- [ ] 数据库顶层 schema_version
-- [ ] 迁移注册表：按版本顺序执行；可重复执行
-- [ ] 迁移前自动备份（复用 PB-011 或内部备份）
-- [ ] 失败回滚 / 保留原文件；启动时提示
-- [ ] 降级保护：旧版本打开新库时拒绝并提示
-- [ ] 迁移单测：v1→v2→… 样例数据
+- [x] 数据库顶层 schema_version
+- [x] 迁移注册表：按版本顺序执行；可重复执行
+- [x] 迁移前自动备份（复用 PB-011 或内部备份）
+- [x] 失败回滚 / 保留原文件；启动时提示
+- [x] 降级保护：旧版本打开新库时拒绝并提示
+- [x] 迁移单测：v1→v2→… 样例数据
 
 **前置**：PB-005（元数据）/ PB-006（索引）开工前完成。
+
+**进度（2026-10-26）：已完成。** `Load()` 顶层 `schema_version` + 迁移注册表；v1→v2 自动备份 `.pre-migrate-v1-<ts>` 后原子写回；更新版本直接拒绝且不改文件；`database_test` 覆盖 v1 迁移/备份/数据保留与 newer 拒绝。commit `87331a0`。
 
 ## PB-015 · 桥接契约扩展
 
 **目标**：TTS / 翻译 / 词典 / 标注 / 备份 / 搜索新增接口时，契约、生成物、C++ 实现、CI 同步。
 
 **MVP 验收**
-- [ ] 新成员先在 bridge/contract.mjs 定义（名称 / 方法 / 参数 / 返回 / 事件）
-- [ ] gen-bridge-dts 生成物与 --check 通过
-- [ ] check-bridge-contract / audit-bridge-usage 通过
-- [ ] C++ BridgeServer 注册与渲染层调用一致
-- [ ] 每个新成员有消费者，或明确标注「预留」并纳入审计白名单
+- [x] 新成员先在 bridge/contract.mjs 定义（名称 / 方法 / 参数 / 返回 / 事件）
+- [x] gen-bridge-dts 生成物与 --check 通过
+- [x] check-bridge-contract / audit-bridge-usage 通过
+- [x] C++ BridgeServer 注册与渲染层调用一致
+- [x] 每个新成员有消费者，或明确标注「预留」并纳入审计白名单
 
 **前置**：PB-001 / PB-002 / PB-003 / PB-010 开工前。
+
+**进度（2026-10-26）：已完成。** 契约单一来源 + `gen-bridge-dts --check` + `check-bridge-contract` + `check-bridge-handlers` + `audit-bridge-usage` 均通过；CI 已跑；74 个非 local 成员 0 个无消费者，6 个明确 `reserved`。后续 TTS/翻译/词典/标注/备份新增接口按此流程走。
 
 ## PB-016 · 本地诊断日志
 
@@ -471,6 +471,8 @@
 | issue #6 亮色设置页文字不可读 | 2026-10-25 | `27d9dcd`（未发版） |
 | PB-019 单实例 + 文件打开转发 | 2026-10-26 | `9e5943d`（未发版） |
 | PB-020 UiDispatcher + JobService + 长任务迁移 | 2026-10-26 | `fecad16` / `e60e933` / `e022aa2` / `ff7ffc9`（未发版） |
+| PB-014 数据 schema 版本 + 迁移 | 2026-10-26 | `87331a0`（未发版） |
+| PB-015 桥接契约扩展 | 2026-10-26 | 既有 `02c62a5` + contract/dts/handler/usage 审计全绿（未发版） |
 
 ## 暂缓 / 否决
 
