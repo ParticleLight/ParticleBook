@@ -4,13 +4,20 @@
 // 目标（docs/BACKLOG.md PB-011）：防磁盘故障 / 重装丢数据。MVP 只做「本地
 // zip 快照 + 覆盖式恢复」；WebDAV 自动备份、合并恢复、多端同步都是 Phase 2。
 //
-// 边界（只碰数据文件，不碰阅读器缓存的二进制）：
+// 边界（只碰数据文件 + 封面图片）：
 //   * 打包内容：DatabaseService 的 reader.json（书库 / 进度 / 标注 / 笔记 /
-//     书架 / 书源 / settings 全在里面），外加一个 manifest.json。
+//     书架 / 书源 / settings 全在里面）、manifest.json，以及可选的书籍封面
+//     文件（books[].cover_path，PB-011-B）。
 //   * 不打包：正文缓存 _pb_files/、PDF 渲染缓存、SecretStore 的密钥文件
 //     （DPAPI 密文与本机用户绑定，换机必失效；且 settings 里本来就不存 Key，
 //     见 platform/SettingsService.h 的边界说明）。
 //   * 不读写 SecretStore / WebView2 / BridgeServer，不依赖 GUI 与消息循环。
+//
+// 格式版本（manifest.formatVersion）：
+//   v1 —— manifest.json + reader.json（没有封面）。
+//   v2 —— 增加可选的 covers[]：每条记录 entry（zip 内 covers/…）、sourcePath
+//         （备份时 books[].cover_path 原值）、sha256、bytes。**读取端兼容 v1**：
+//         没有 covers 字段就当作没有封面；写入端一律写 v2。
 //
 // zip 实现：写作端用 miniz 的 tdefl（raw deflate，third_party/miniz_tdef.c 已被
 // 主 target 编译），读取端复用 src/utils/ZipReader.cpp（EPUB 已在用的同一套
@@ -19,16 +26,32 @@
 // 拒绝（db_too_large），压缩后没变小的条目改 store。
 //
 // 完整性：manifest.sha256 = reader.json 明文的 SHA-256（BCrypt，与
-// FileHandlers.cpp 的更新包校验同款）。恢复时先校验 sha256 再动目标文件；
-// manifest 自身损坏 / 字段缺失一律拒绝。sha256 只能证明「包内数据和清单一致」，
-// 不是防篡改签名（没有密钥），目标是防止半截写入 / 损坏 / 误选文件。
+// FileHandlers.cpp 的更新包校验同款）；covers[].sha256 = 封面文件明文的 SHA-256。
+// 恢复时先校验 sha256 再动目标文件；manifest 自身损坏 / 字段缺失一律拒绝。
+// sha256 只能证明「包内数据和清单一致」，不是防篡改签名（没有密钥），目标是
+// 防止半截写入 / 损坏 / 误选文件。
 //
 // 恢复的安全顺序（任何一步失败都不动现有数据库）：
-//   1. 读 manifest → 2. 校验 format / 字段 → 3. 拒绝 formatVersion > 当前
-//   → 4. 拒绝 schemaVersion > 当前（降级保护，与 PB-014 同款语义）
+//   1. 读 manifest → 2. 校验 format / 字段 / 封面条目路径（拒绝穿越）
+//   → 3. 拒绝 formatVersion > 当前 → 4. 拒绝 schemaVersion > 当前（PB-014 同款）
 //   → 5. 取出 payload 并校验 sha256 / JSON 结构
-//   → 6. 把当前 reader.json 复制成 <stem>.pre-restore-<时间>.json
-//   → 7. 同目录临时文件 + MoveFileEx(REPLACE_EXISTING) 原子替换
+//   → 6. 逐张恢复封面：先试写回 sourcePath（仅当路径安全且可写），失败则写到
+//      <数据库目录>\covers\<安全文件名>；封面失败只记 issue，不阻塞整库恢复
+//   → 7. 有封面被搬走时回填 books[].cover_path（重新序列化 payload）
+//   → 8. 把当前 reader.json 复制成 <stem>.pre-restore-<时间>.json
+//   → 9. 同目录临时文件 + MoveFileEx(REPLACE_EXISTING) 原子替换
+//
+// 进度 / 取消（PB-011-B）：CreateBackup / RestoreBackup 末尾多了两个可选参数
+// （progress 回调 + std::atomic_bool* cancel），旧调用不用改。大库分阶段报告：
+//   CreateBackup: reading_db → reading_covers → writing_archive → done
+//   RestoreBackup: inspecting → extracting → restoring_covers → backup_current
+//                  → writing_db → done
+// 取消返回 code="cancelled"：备份不产出 zip，恢复不动数据库（已写出的封面文件
+// 可能留下孤儿文件，不影响数据）。
+//
+// 错误处理：封面缺失 / 不可读 / 校验不符只在结果 issues 里记一条，不阻塞备份或
+// 整库恢复；zip 内路径穿越（covers/../x、绝对路径、反斜杠、盘符、. / .. 段）
+// 在恢复前直接拒绝（code="path_traversal"），一个字节都不写。
 //
 // 线程安全：全部静态函数、无全局可变状态（只有函数内数据），任意线程可并发调用；
 // 但同一个目标文件的写是「最后到者赢」，调用方需自己串行化（恢复尤其要独占）。
@@ -43,7 +66,9 @@
 //   bo.appVersion = PB_VERSION_STRING;
 //   auto br = pb::BackupService::CreateBackup(dbPath,
 //                                             pb::BackupService::DefaultBackupFileName(),
-//                                             bo);
+//                                             bo,
+//                                             [](const pb::BackupProgress& p) { /* UI */ },
+//                                             &cancelFlag);
 //   if (!br.ok) { /* bi.code / br.error 回前端 */ }
 //   // 2) 恢复：FlushSync 后关掉 DB（恢复期间不能再有内存里的旧数据覆盖回去），
 //   //    恢复成功后重新 Load / 重启，并提示 preRestoreBackupPath 的位置
@@ -55,19 +80,23 @@
 
 #include "nlohmann/json.hpp"
 
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <vector>
 
 namespace pb {
 
 // 当前备份包格式版本。manifest 字段形状一变就要 +1（读取端兼容旧版本）。
-inline constexpr int kBackupFormatVersion = 1;
+// v2 = 增加可选 covers[]（PB-011-B）；v1 备份仍可读。
+inline constexpr int kBackupFormatVersion = 2;
 
-// 固定的 zip 条目名（不要随源文件名变，恢复端只认这两个）。
+// 固定的 zip 条目名（不要随源文件名变，恢复端只认这些前缀）。
 inline constexpr const char* kBackupManifestEntry = "manifest.json";
 inline constexpr const char* kBackupPayloadEntry  = "reader.json";
+inline constexpr const char* kBackupCoverPrefix   = "covers/";
 
 // 稳定错误码。ok=true 时 code == kOk。
 namespace backup_codes {
@@ -84,13 +113,26 @@ inline constexpr const char* kBackupMissing    = "backup_missing";     // 备份
 inline constexpr const char* kManifestMissing  = "manifest_missing";   // 不是本应用的备份 / zip 损坏
 inline constexpr const char* kManifestInvalid  = "manifest_invalid";   // manifest 字段缺失 / 类型错
 inline constexpr const char* kFormatTooNew     = "format_too_new";     // 备份格式比本版本新
+inline constexpr const char* kPathTraversal    = "path_traversal";     // zip 内封面条目路径穿越
 inline constexpr const char* kPayloadMissing   = "payload_missing";    // 清单在但 reader.json 取不出
 inline constexpr const char* kPayloadInvalid   = "payload_invalid";    // payload 不是合法 JSON 对象
 inline constexpr const char* kChecksumMismatch = "checksum_mismatch";  // sha256 与清单不符
 inline constexpr const char* kSchemaTooNew     = "schema_too_new";     // 库版本比本应用新（降级保护）
 inline constexpr const char* kPreRestoreFailed = "pre_restore_failed"; // 恢复前备份旧库失败
 inline constexpr const char* kWriteFailed      = "write_failed";       // 原子替换目标数据库失败
+inline constexpr const char* kCancelled        = "cancelled";          // 进度回调之外被取消
 } // namespace backup_codes
+
+// ── 一张封面的清单项（covers[] 的元素）──────────────────────────────
+struct BackupCoverEntry {
+    std::string entry;        // zip 内条目名：covers/<序号>-<安全文件名>
+    std::string sourcePath;   // 备份时 books[].cover_path 原值（可空：旧包 / 手写包）
+    std::string sha256;       // 封面明文 SHA-256（64 位小写 hex）
+    std::uint64_t bytes = 0;  // 封面明文大小
+
+    nlohmann::json ToJson() const;
+    static bool FromJson(const nlohmann::json& j, BackupCoverEntry& out, std::string* error);
+};
 
 // ── manifest.json 的内容 ────────────────────────────────────────────
 struct BackupManifest {
@@ -103,10 +145,11 @@ struct BackupManifest {
     std::string sourceFileName = "reader.json"; // 仅记录来源文件名，恢复端不用它做路径
     std::uint64_t dbBytes = 0;            // reader.json 明文字节数
     std::string sha256;                   // reader.json 明文的 SHA-256，64 位小写 hex
+    std::vector<BackupCoverEntry> covers; // v2：可选的封面列表（v1 包为空）
 
     nlohmann::json ToJson() const;
     // 严格解析：format / formatVersion / schemaVersion / createdAt / bookCount /
-    // sha256 缺一不可；失败时 error 写入原因（英文，可直接进日志）。
+    // sha256 缺一不可；covers 可有可无（缺失 = 无封面）。失败时 error 写原因。
     static bool FromJson(const nlohmann::json& j, BackupManifest& out, std::string* error);
 };
 
@@ -124,6 +167,13 @@ struct BackupOptions {
     bool validateDb = true;
     // 用 raw deflate 压缩 payload；压缩后没变小则自动退回 store（默认开）。
     bool compress = true;
+    // PB-011-B：把 books[].cover_path 指向的封面文件一起打包（默认开）。
+    // 缺失 / 不可读 / 超限只记 issues，不影响备份成功。
+    bool includeCovers = true;
+    // 封面数量上限（防病态库把备份撑爆）；超过的部分只记 issue。
+    std::size_t maxCovers = 2000;
+    // 单张封面明文字节上限；超过则跳过并记 issue。
+    std::size_t maxCoverBytes = 32ull * 1024ull * 1024ull;
 };
 
 // ── RestoreBackup 选项 ─────────────────────────────────────────────
@@ -137,7 +187,32 @@ struct RestoreOptions {
     bool verifyChecksum = true;
     // 恢复前把 payload 解析成 JSON 对象，避免把垃圾写成数据库（默认开）。
     bool validatePayload = true;
+    // PB-011-B：是否恢复封面（默认开）。关掉只恢复数据库。
+    bool restoreCovers = true;
+    // 先尝试写回封面原来的绝对路径（默认开）；路径不安全或不可写时落到
+    // coverDir。关掉则一律落到 coverDir。
+    // 安全边界：备份包能决定「往哪个绝对路径写一张图片」，所以**只应恢复
+    // 自己生成的备份**；恢复来路不明的包时设成 false（全部落 coverDir）。
+    bool restoreCoversToOriginalPath = true;
+    // 封面落盘目录（仅用于原路径不可写时）。空 = <数据库目录>\covers。
+    std::string coverDir;
+    // 封面被搬走时回填 books[].cover_path（默认开；关掉则数据库仍指向原路径）。
+    bool backfillCoverPaths = true;
+    // 单张封面明文字节上限（防止坏包撑内存）；超过则跳过并记 issue。
+    std::size_t maxCoverBytes = 32ull * 1024ull * 1024ull;
 };
+
+// ── 进度（回调在调用线程同步执行；别在回调里做重活）──────────────────
+struct BackupProgress {
+    std::string  stage;              // 见文件头说明
+    std::int64_t processed = 0;      // 已处理条目（封面张数等）
+    std::int64_t total = 0;          // 总数（0 = 未知）
+    std::int64_t bytesProcessed = 0;
+    std::int64_t bytesTotal = 0;
+    std::string  message;            // 可选的当前条目描述（路径等）
+};
+
+using BackupProgressFn = std::function<void(const BackupProgress&)>;
 
 struct BackupResult {
     bool           ok = false;
@@ -146,6 +221,8 @@ struct BackupResult {
     std::string    outputPath;                // 实际写出的 zip 路径
     BackupManifest manifest;
     std::uint64_t  archiveBytes = 0;          // zip 文件字节数
+    int            coversIncluded = 0;        // 实际打进包的封面数
+    std::vector<std::string> issues;          // 非致命问题（封面缺失 / 不可读…）
 };
 
 struct RestoreResult {
@@ -157,6 +234,9 @@ struct RestoreResult {
     std::string    preRestoreBackupPath;      // 空 = 没有旧库可备份 / 已关闭该选项
     std::uint64_t  restoredBytes = 0;
     int            bookCount = 0;             // 恢复后库里的 books 数量
+    int            coversRestored = 0;        // 成功恢复的封面数
+    int            coversRelocated = 0;       // 其中落到 coverDir（原路径不可写）的数量
+    std::vector<std::string> issues;          // 非致命问题（封面缺失 / 校验不符…）
 };
 
 // ListBackups 的条目（按修改时间倒序，最新的在前）。
@@ -173,20 +253,26 @@ public:
     // 把 dbPath 打成 outputZipPath。只写 outputZipPath；不动源数据库。
     // 成功：ok=true，manifest 已填，archiveBytes 为产物大小。
     // 失败：ok=false，code 见 backup_codes；不会留下半截 zip（临时文件 + 原子替换）。
+    // progress / cancel 可选（PB-011-B）；取消返回 code="cancelled"。
     static BackupResult CreateBackup(const std::string& dbPath,
                                      const std::string& outputZipPath,
-                                     const BackupOptions& options = BackupOptions());
+                                     const BackupOptions& options = BackupOptions(),
+                                     const BackupProgressFn& progress = nullptr,
+                                     const std::atomic_bool* cancel = nullptr);
 
-    // 覆盖式恢复：把 zipPath 里的 reader.json 写回 targetDbPath。
+    // 覆盖式恢复：把 zipPath 里的 reader.json（+ 可选封面）写回。
     // 失败时 targetDbPath 保持原样（检查全部在写入之前，写入是原子替换）。
     // 成功后调用方必须重新 Load / 重启，别继续用内存里的旧库。
+    // 封面失败不阻塞恢复（见 result.issues）；路径穿越整包拒绝。
     static RestoreResult RestoreBackup(const std::string& zipPath,
                                        const std::string& targetDbPath,
-                                       const RestoreOptions& options = RestoreOptions());
+                                       const RestoreOptions& options = RestoreOptions(),
+                                       const BackupProgressFn& progress = nullptr,
+                                       const std::atomic_bool* cancel = nullptr);
 
-    // 只读清单（不读 payload，不校验 sha256 —— 那是 RestoreBackup 的活）。
+    // 只读清单（不读 payload / 封面，不校验 sha256 —— 那是 RestoreBackup 的活）。
     // 失败返回 false，errorCode 填入 backup_missing / manifest_missing /
-    // manifest_invalid / format_too_new。
+    // manifest_invalid / format_too_new / path_traversal。
     static bool InspectBackup(const std::string& zipPath,
                               BackupManifest& out,
                               std::string* errorCode = nullptr);
@@ -197,6 +283,10 @@ public:
     // SHA-256 → 64 位小写 hex。空输入返回空串哈希（e3b0c442…）。
     static std::string Sha256Hex(const void* data, std::size_t len);
     static std::string Sha256Hex(const std::string& data);
+
+    // zip 内条目名是否安全（covers/ 下、无 .. / 绝对路径 / 反斜杠 / 盘符）。
+    // 公开出来是为了让 handler / 审计工具复用同一套判定。
+    static bool IsSafeCoverEntryName(const std::string& entryName);
 
     // 备份文件名："particlebook-backup-YYYYMMDD-HHMMSS.zip"（createdAtUtc 为空取当前 UTC）。
     static std::string DefaultBackupFileName(const std::string& createdAtUtc = std::string());

@@ -15,6 +15,10 @@
 //   * 入口参数：库文件不存在 / 空文件 / 非 JSON 对象 / 空路径
 //   * 文件名工具：DefaultBackupFileName / PreRestoreNameFor / NowUtcIso8601
 //   * SHA-256 已知向量（BCrypt 实现正确性）
+//   * PB-011-B：封面随包（covers[] + 每张 sha256）、恢复到原路径 / 回落到
+//     coverDir 并回填 books[].cover_path、旧 v1 包（无 covers）兼容、封面缺失 /
+//     校验不符只记 issue、zip 内路径穿越整包拒绝、进度回调、取消、
+//     includeCovers / restoreCovers 开关
 //
 // 每个用例用自己的临时目录，绝不碰真实的 %APPDATA% 数据库。
 
@@ -97,6 +101,135 @@ int CountFilesContaining(const fs::path& dir, const std::string& needle)
 bool CodeIs(const std::string& code, const char* expected)
 {
     return code == expected;
+}
+
+bool ContainsIssue(const std::vector<std::string>& issues, const std::string& needle)
+{
+    for (const std::string& issue : issues) {
+        if (issue.find(needle) != std::string::npos) return true;
+    }
+    return false;
+}
+
+bool SeenStage(const std::vector<std::string>& stages, const std::string& stage)
+{
+    for (const std::string& seen : stages) {
+        if (seen == stage) return true;
+    }
+    return false;
+}
+
+// ── 手写一个 store（不压缩）zip，用来构造「别的版本 / 恶意」备份包 ────
+// 只给本服务自己的读取端用：ZipReader 不校验 CRC，所以 crc 填 0 即可。
+std::string Le16(std::uint16_t value)
+{
+    std::string out;
+    out.push_back(static_cast<char>(value & 0xFF));
+    out.push_back(static_cast<char>((value >> 8) & 0xFF));
+    return out;
+}
+
+std::string Le32(std::uint32_t value)
+{
+    std::string out;
+    out.push_back(static_cast<char>(value & 0xFF));
+    out.push_back(static_cast<char>((value >> 8) & 0xFF));
+    out.push_back(static_cast<char>((value >> 16) & 0xFF));
+    out.push_back(static_cast<char>((value >> 24) & 0xFF));
+    return out;
+}
+
+std::string BuildStoredZip(
+    const std::vector<std::pair<std::string, std::string>>& entries)
+{
+    struct Central {
+        std::string name;
+        std::uint32_t offset = 0;
+        std::uint32_t size = 0;
+    };
+    std::string out;
+    std::vector<Central> centrals;
+    for (const auto& entry : entries) {
+        Central central;
+        central.name = entry.first;
+        central.offset = static_cast<std::uint32_t>(out.size());
+        central.size = static_cast<std::uint32_t>(entry.second.size());
+        out += Le32(0x04034b50);
+        out += Le16(20);  // version needed
+        out += Le16(0);   // flags
+        out += Le16(0);   // method: store
+        out += Le16(0);   // mod time
+        out += Le16(0);   // mod date
+        out += Le32(0);   // crc32（读取端不校验）
+        out += Le32(central.size);
+        out += Le32(central.size);
+        out += Le16(static_cast<std::uint16_t>(central.name.size()));
+        out += Le16(0);   // extra
+        out += central.name;
+        out += entry.second;
+        centrals.push_back(central);
+    }
+    const std::uint32_t centralOffset = static_cast<std::uint32_t>(out.size());
+    for (const Central& central : centrals) {
+        out += Le32(0x02014b50);
+        out += Le16(20);  // version made by
+        out += Le16(20);  // version needed
+        out += Le16(0);   // flags
+        out += Le16(0);   // method
+        out += Le16(0);   // time
+        out += Le16(0);   // date
+        out += Le32(0);   // crc32
+        out += Le32(central.size);
+        out += Le32(central.size);
+        out += Le16(static_cast<std::uint16_t>(central.name.size()));
+        out += Le16(0);   // extra
+        out += Le16(0);   // comment
+        out += Le16(0);   // disk
+        out += Le16(0);   // internal attrs
+        out += Le32(0);   // external attrs
+        out += Le32(central.offset);
+        out += central.name;
+    }
+    const std::uint32_t centralSize =
+        static_cast<std::uint32_t>(out.size()) - centralOffset;
+    out += Le32(0x06054b50);
+    out += Le16(0);
+    out += Le16(0);
+    out += Le16(static_cast<std::uint16_t>(centrals.size()));
+    out += Le16(static_cast<std::uint16_t>(centrals.size()));
+    out += Le32(centralSize);
+    out += Le32(centralOffset);
+    out += Le16(0);
+    return out;
+}
+
+pb::BackupManifest MakeCraftedManifest(const std::string& payloadText, int formatVersion)
+{
+    pb::BackupManifest manifest;
+    manifest.formatVersion = formatVersion;
+    manifest.appVersion = "2.2.0";
+    manifest.schemaVersion = 2;
+    manifest.createdAt = "2026-10-20T08:00:00Z";
+    manifest.bookCount = 1;
+    manifest.dbBytes = payloadText.size();
+    manifest.sha256 = pb::BackupService::Sha256Hex(payloadText);
+    return manifest;
+}
+
+// 带 cover_path 的小库（真实 reader.json 形状）。
+std::string MakeCoverDatabase(const std::string& coverPath, const std::string& title)
+{
+    nlohmann::json database;
+    database["schema_version"] = 2;
+    database["settings"] = {{"theme", "dark"}};
+    nlohmann::json books = nlohmann::json::array();
+    nlohmann::json book;
+    book["id"] = 1;
+    book["title"] = title;
+    book["cover_path"] = coverPath;
+    books.push_back(book);
+    database["books"] = books;
+    return database.dump(2);
 }
 
 // 合法 reader.json 形状的小库（DatabaseService 的顶层键）。
@@ -546,6 +679,327 @@ int main()
         }
         CHECK_TRUE(BackupService::DefaultBackupFileName().find(
                        "particlebook-backup-") == 0);
+    }
+
+    // ── 15. 带封面创建 / 恢复（原路径可写，数据库逐字节不变）──────────
+    {
+        const fs::path dir = MakeScratch("covers-basic");
+        const fs::path bookDir = dir / "book";
+        std::error_code makeError;
+        fs::create_directories(bookDir, makeError);
+        const fs::path coverPath = bookDir / "cover.png";
+        const std::string coverBytes = "fake-png-cover-bytes";
+        WriteText(coverPath, coverBytes);
+
+        const fs::path dbPath = dir / "reader.json";
+        const std::string dbText = MakeCoverDatabase(U8(coverPath), "Covered");
+        WriteText(dbPath, dbText);
+
+        const fs::path zipPath = dir / "backup.zip";
+        BackupOptions options;
+        options.createdAt = "2026-10-26T10:00:00Z";
+        std::vector<std::string> createStages;
+        const pb::BackupResult created = BackupService::CreateBackup(
+            U8(dbPath), U8(zipPath), options,
+            [&](const pb::BackupProgress& progress) {
+                createStages.push_back(progress.stage);
+            });
+        CHECK_TRUE(created.ok);
+        CHECK_EQ(created.manifest.formatVersion, pb::kBackupFormatVersion);
+        CHECK_EQ(created.manifest.formatVersion, 2);
+        CHECK_EQ(created.manifest.covers.size(), static_cast<std::size_t>(1));
+        CHECK_EQ(created.coversIncluded, 1);
+        CHECK_TRUE(created.issues.empty());
+        CHECK_TRUE(SeenStage(createStages, "reading_db"));
+        CHECK_TRUE(SeenStage(createStages, "reading_covers"));
+        CHECK_TRUE(SeenStage(createStages, "done"));
+
+        BackupManifest inspected;
+        CHECK_TRUE(BackupService::InspectBackup(U8(zipPath), inspected));
+        CHECK_EQ(inspected.covers.size(), static_cast<std::size_t>(1));
+        if (inspected.covers.size() == 1) {
+            CHECK_TRUE(inspected.covers[0].entry.rfind("covers/", 0) == 0);
+            CHECK_EQ(inspected.covers[0].sourcePath, U8(coverPath));
+            CHECK_EQ(inspected.covers[0].sha256, BackupService::Sha256Hex(coverBytes));
+            CHECK_EQ(inspected.covers[0].bytes,
+                     static_cast<std::uint64_t>(coverBytes.size()));
+            CHECK_TRUE(BackupService::IsSafeCoverEntryName(inspected.covers[0].entry));
+        }
+
+        // 恢复前：删掉封面文件 + 换掉数据库（模拟换机 / 换库）
+        fs::remove(coverPath, makeError);
+        WriteText(dbPath, MakeDatabase(2, 3));
+
+        std::vector<std::string> restoreStages;
+        const pb::RestoreResult restored = BackupService::RestoreBackup(
+            U8(zipPath), U8(dbPath), RestoreOptions(),
+            [&](const pb::BackupProgress& progress) {
+                restoreStages.push_back(progress.stage);
+            });
+        CHECK_TRUE(restored.ok);
+        CHECK_EQ(restored.coversRestored, 1);
+        CHECK_EQ(restored.coversRelocated, 0);
+        CHECK_TRUE(restored.issues.empty());
+        CHECK_TRUE(SeenStage(restoreStages, "restoring_covers"));
+        CHECK_TRUE(SeenStage(restoreStages, "done"));
+        CHECK_EQ(ReadText(dbPath), dbText);  // 原路径可写 → 回填 0 处，逐字节一致
+        CHECK_TRUE(fs::exists(coverPath));
+        CHECK_EQ(ReadText(coverPath), coverBytes);
+        CHECK_TRUE(!restored.preRestoreBackupPath.empty());
+    }
+
+    // ── 16. 原路径不可写 → 落到 coverDir 并回填 books[].cover_path ─────
+    {
+        const fs::path dir = MakeScratch("covers-relocate");
+        const fs::path bookDir = dir / "book";
+        std::error_code makeError;
+        fs::create_directories(bookDir, makeError);
+        const fs::path coverPath = bookDir / "cover.jpg";
+        const std::string coverBytes = "fake-jpeg-bytes";
+        WriteText(coverPath, coverBytes);
+
+        const fs::path dbPath = dir / "reader.json";
+        WriteText(dbPath, MakeCoverDatabase(U8(coverPath), "Relocate"));
+        const fs::path zipPath = dir / "backup.zip";
+        BackupOptions options;
+        options.createdAt = "2026-10-26T10:00:00Z";
+        CHECK_TRUE(BackupService::CreateBackup(U8(dbPath), U8(zipPath), options).ok);
+
+        // 让原路径写不进去：把整个封面目录删掉
+        fs::remove_all(bookDir, makeError);
+        CHECK_TRUE(!fs::exists(bookDir));
+
+        const fs::path coverDir = dir / "restored-covers";
+        RestoreOptions restoreOptions;
+        restoreOptions.coverDir = U8(coverDir);
+        const pb::RestoreResult restored =
+            BackupService::RestoreBackup(U8(zipPath), U8(dbPath), restoreOptions);
+        CHECK_TRUE(restored.ok);
+        CHECK_EQ(restored.coversRestored, 1);
+        CHECK_EQ(restored.coversRelocated, 1);
+        CHECK_TRUE(restored.issues.empty());
+
+        const nlohmann::json restoredDb =
+            nlohmann::json::parse(ReadText(dbPath), nullptr, false);
+        CHECK_TRUE(!restoredDb.is_discarded());
+        CHECK_TRUE(restoredDb["books"].is_array());
+        if (restoredDb["books"].is_array() && !restoredDb["books"].empty()) {
+            const std::string newPath =
+                restoredDb["books"][0].value("cover_path", std::string());
+            CHECK_TRUE(newPath != U8(coverPath));
+            CHECK_TRUE(newPath.rfind(U8(coverDir), 0) == 0);
+            CHECK_TRUE(fs::exists(fs::path(newPath)));
+            CHECK_EQ(ReadText(fs::path(newPath)), coverBytes);
+        }
+    }
+
+    // ── 17. 旧 v1 备份（没有 covers 字段）照样能恢复 ─────────────────
+    {
+        const fs::path dir = MakeScratch("compat-v1");
+        const std::string payload =
+            R"({"schema_version":2,"books":[{"id":1,"title":"Old"}],"settings":{"theme":"sepia"}})";
+        const fs::path dbPath = dir / "reader.json";
+        WriteText(dbPath, R"({"schema_version":2,"books":[]})");
+
+        nlohmann::json manifest = MakeCraftedManifest(payload, 1).ToJson();
+        manifest.erase("covers");  // 真 v1 形状：完全没有 covers
+        const fs::path zipPath = dir / "v1.zip";
+        WriteText(zipPath, BuildStoredZip({{"manifest.json", manifest.dump(2)},
+                                           {"reader.json", payload}}));
+
+        BackupManifest inspected;
+        std::string inspectCode;
+        CHECK_TRUE(BackupService::InspectBackup(U8(zipPath), inspected, &inspectCode));
+        CHECK_EQ(inspected.formatVersion, 1);
+        CHECK_TRUE(inspected.covers.empty());
+
+        const pb::RestoreResult restored =
+            BackupService::RestoreBackup(U8(zipPath), U8(dbPath));
+        CHECK_TRUE(restored.ok);
+        CHECK_EQ(restored.coversRestored, 0);
+        CHECK_TRUE(restored.issues.empty());
+        CHECK_EQ(restored.bookCount, 1);
+        CHECK_EQ(ReadText(dbPath), payload);
+    }
+
+    // ── 18. 封面缺失不阻塞备份，只记 issue ──────────────────────────
+    {
+        const fs::path dir = MakeScratch("cover-missing");
+        const fs::path dbPath = dir / "reader.json";
+        WriteText(dbPath,
+                  MakeCoverDatabase(U8(dir / "nope" / "missing.png"), "NoCover"));
+        const fs::path zipPath = dir / "backup.zip";
+        BackupOptions options;
+        options.createdAt = "2026-10-26T10:00:00Z";
+        const pb::BackupResult created =
+            BackupService::CreateBackup(U8(dbPath), U8(zipPath), options);
+        CHECK_TRUE(created.ok);
+        CHECK_EQ(created.coversIncluded, 0);
+        CHECK_TRUE(created.manifest.covers.empty());
+        CHECK_TRUE(ContainsIssue(created.issues, "cover_skipped"));
+
+        BackupManifest inspected;
+        CHECK_TRUE(BackupService::InspectBackup(U8(zipPath), inspected));
+        CHECK_TRUE(inspected.covers.empty());
+        const pb::RestoreResult restored =
+            BackupService::RestoreBackup(U8(zipPath), U8(dbPath));
+        CHECK_TRUE(restored.ok);
+        CHECK_EQ(restored.coversRestored, 0);
+        CHECK_EQ(restored.bookCount, 1);
+    }
+
+    // ── 19. zip 内路径穿越：整包拒绝，一个字节都不写 ─────────────────
+    {
+        const fs::path dir = MakeScratch("traversal");
+        const fs::path outside = dir / "outside-target.png";
+        const fs::path dbPath = dir / "reader.json";
+        const std::string liveText = R"({"schema_version":2,"books":[]})";
+        WriteText(dbPath, liveText);
+
+        const std::string payload = R"({"schema_version":2,"books":[]})";
+        const pb::BackupManifest crafted = MakeCraftedManifest(payload, 2);
+
+        const auto makeZip = [&](const std::string& entryName, const fs::path& zipPath) {
+            nlohmann::json manifest = crafted.ToJson();
+            nlohmann::json cover;
+            cover["entry"] = entryName;
+            cover["sourcePath"] = U8(outside);
+            cover["sha256"] = crafted.sha256;
+            cover["bytes"] = payload.size();
+            manifest["covers"] = nlohmann::json::array({cover});
+            WriteText(zipPath, BuildStoredZip({{"manifest.json", manifest.dump(2)},
+                                               {"reader.json", payload}}));
+        };
+
+        const fs::path dotDotZip = dir / "dotdot.zip";
+        makeZip("covers/../../outside-target.png", dotDotZip);
+        std::string code;
+        BackupManifest inspected;
+        CHECK_TRUE(!BackupService::InspectBackup(U8(dotDotZip), inspected, &code));
+        CHECK_TRUE(CodeIs(code, pb::backup_codes::kPathTraversal));
+        const pb::RestoreResult traversal =
+            BackupService::RestoreBackup(U8(dotDotZip), U8(dbPath));
+        CHECK_TRUE(!traversal.ok);
+        CHECK_TRUE(CodeIs(traversal.code, pb::backup_codes::kPathTraversal));
+        CHECK_EQ(ReadText(dbPath), liveText);
+        CHECK_TRUE(!fs::exists(outside));
+
+        const fs::path backslashZip = dir / "backslash.zip";
+        makeZip("covers\\..\\outside-target.png", backslashZip);
+        CHECK_TRUE(!BackupService::InspectBackup(U8(backslashZip), inspected, &code));
+        CHECK_TRUE(CodeIs(code, pb::backup_codes::kPathTraversal));
+
+        const fs::path absoluteZip = dir / "absolute.zip";
+        makeZip("/etc/passwd", absoluteZip);
+        CHECK_TRUE(!BackupService::InspectBackup(U8(absoluteZip), inspected, &code));
+        CHECK_TRUE(CodeIs(code, pb::backup_codes::kPathTraversal));
+    }
+
+    // ── 20. 封面校验不符：只记 issue，整库照常恢复 ────────────────────
+    {
+        const fs::path dir = MakeScratch("cover-badsum");
+        const std::string payload =
+            R"({"schema_version":2,"books":[{"id":1,"title":"A"}]})";
+        const fs::path dbPath = dir / "reader.json";
+        WriteText(dbPath, R"({"schema_version":2,"books":[]})");
+        const fs::path coverTarget = dir / "cover-target.png";
+
+        nlohmann::json manifest = MakeCraftedManifest(payload, 2).ToJson();
+        nlohmann::json cover;
+        cover["entry"] = "covers/0001-bad.png";
+        cover["sourcePath"] = U8(coverTarget);
+        cover["sha256"] = std::string(64, 'a');
+        cover["bytes"] = 3;
+        manifest["covers"] = nlohmann::json::array({cover});
+        const fs::path zipPath = dir / "badsum.zip";
+        WriteText(zipPath, BuildStoredZip({{"manifest.json", manifest.dump(2)},
+                                           {"reader.json", payload},
+                                           {"covers/0001-bad.png", "abc"}}));
+
+        const pb::RestoreResult restored =
+            BackupService::RestoreBackup(U8(zipPath), U8(dbPath));
+        CHECK_TRUE(restored.ok);
+        CHECK_EQ(restored.coversRestored, 0);
+        CHECK_TRUE(ContainsIssue(restored.issues, "cover_checksum_mismatch"));
+        CHECK_EQ(ReadText(dbPath), payload);
+        CHECK_TRUE(!fs::exists(coverTarget));
+    }
+
+    // ── 21. 进度回调 / 取消 ──────────────────────────────────────────
+    {
+        const fs::path dir = MakeScratch("cancel");
+        const fs::path dbPath = dir / "reader.json";
+        WriteText(dbPath, MakeDatabase(2, 2));
+        const fs::path zipPath = dir / "cancelled.zip";
+        BackupOptions options;
+        options.createdAt = "2026-10-26T10:00:00Z";
+
+        std::atomic<bool> alreadyCancelled(true);
+        const pb::BackupResult preCancelled = BackupService::CreateBackup(
+            U8(dbPath), U8(zipPath), options, nullptr, &alreadyCancelled);
+        CHECK_TRUE(!preCancelled.ok);
+        CHECK_TRUE(CodeIs(preCancelled.code, pb::backup_codes::kCancelled));
+        CHECK_TRUE(!fs::exists(zipPath));
+
+        std::atomic<bool> cancelLater(false);
+        const pb::BackupResult midCancelled = BackupService::CreateBackup(
+            U8(dbPath), U8(zipPath), options,
+            [&](const pb::BackupProgress& update) {
+                if (update.stage == "reading_db") cancelLater = true;
+            },
+            &cancelLater);
+        CHECK_TRUE(!midCancelled.ok);
+        CHECK_TRUE(CodeIs(midCancelled.code, pb::backup_codes::kCancelled));
+        CHECK_TRUE(!fs::exists(zipPath));
+
+        CHECK_TRUE(BackupService::CreateBackup(U8(dbPath), U8(zipPath), options).ok);
+        WriteText(dbPath, MakeDatabase(2, 5));
+        const std::string liveText = ReadText(dbPath);
+        std::atomic<bool> restoreCancelled(true);
+        const pb::RestoreResult cancelledRestore = BackupService::RestoreBackup(
+            U8(zipPath), U8(dbPath), RestoreOptions(), nullptr, &restoreCancelled);
+        CHECK_TRUE(!cancelledRestore.ok);
+        CHECK_TRUE(CodeIs(cancelledRestore.code, pb::backup_codes::kCancelled));
+        CHECK_EQ(ReadText(dbPath), liveText);
+        CHECK_EQ(CountFilesWithPrefix(dir, "reader.json.pre-restore-"), 0);
+    }
+
+    // ── 22. includeCovers / restoreCovers 开关 ───────────────────────
+    {
+        const fs::path dir = MakeScratch("cover-toggle");
+        const fs::path bookDir = dir / "book";
+        std::error_code makeError;
+        fs::create_directories(bookDir, makeError);
+        const fs::path coverPath = bookDir / "c.png";
+        WriteText(coverPath, "cover-bytes");
+
+        const fs::path dbPath = dir / "reader.json";
+        const std::string dbText = MakeCoverDatabase(U8(coverPath), "Toggle");
+        WriteText(dbPath, dbText);
+        const fs::path zipPath = dir / "backup.zip";
+
+        BackupOptions noCovers;
+        noCovers.createdAt = "2026-10-26T10:00:00Z";
+        noCovers.includeCovers = false;
+        const pb::BackupResult created =
+            BackupService::CreateBackup(U8(dbPath), U8(zipPath), noCovers);
+        CHECK_TRUE(created.ok);
+        CHECK_EQ(created.coversIncluded, 0);
+        CHECK_TRUE(created.manifest.covers.empty());
+
+        BackupOptions withCovers;
+        withCovers.createdAt = "2026-10-26T10:00:00Z";
+        const fs::path zipWithCovers = dir / "backup-covers.zip";
+        CHECK_TRUE(BackupService::CreateBackup(U8(dbPath), U8(zipWithCovers), withCovers).ok);
+        fs::remove(coverPath, makeError);
+        RestoreOptions noRestoreCovers;
+        noRestoreCovers.restoreCovers = false;
+        const pb::RestoreResult restored =
+            BackupService::RestoreBackup(U8(zipWithCovers), U8(dbPath), noRestoreCovers);
+        CHECK_TRUE(restored.ok);
+        CHECK_EQ(restored.coversRestored, 0);
+        CHECK_TRUE(!fs::exists(coverPath));
+        CHECK_EQ(ReadText(dbPath), dbText);
     }
 
     std::error_code ec;

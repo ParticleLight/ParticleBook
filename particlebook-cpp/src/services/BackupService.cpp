@@ -131,6 +131,30 @@ void DosFromTm(const std::tm& t, std::uint16_t& dosDate, std::uint16_t& dosTime)
                                          (t.tm_min << 5) | (t.tm_sec / 2));
 }
 
+void ReportProgress(const BackupProgressFn& progress, const char* stage,
+                    std::int64_t processed, std::int64_t total,
+                    std::int64_t bytesProcessed, std::int64_t bytesTotal,
+                    const std::string& message)
+{
+    if (!progress) return;
+    BackupProgress update;
+    update.stage = stage;
+    update.processed = processed;
+    update.total = total;
+    update.bytesProcessed = bytesProcessed;
+    update.bytesTotal = bytesTotal;
+    update.message = message;
+    progress(update);
+}
+
+// 封面条目名里的序号前缀："0001"。
+std::string CoverEntryPrefix(std::size_t index)
+{
+    char buffer[16];
+    std::snprintf(buffer, sizeof buffer, "%04u", static_cast<unsigned>(index));
+    return std::string(buffer);
+}
+
 std::int64_t FileTimeToUnixSeconds(const FILETIME& ft)
 {
     ULARGE_INTEGER value;
@@ -151,7 +175,8 @@ bool FileExistsUtf8(const std::string& utf8Path)
     return (attributes & FILE_ATTRIBUTE_DIRECTORY) == 0;
 }
 
-bool ReadFileBytesUtf8(const std::string& utf8Path, std::string& out, std::string& code)
+bool ReadFileBytesUtf8(const std::string& utf8Path, std::string& out, std::string& code,
+                       std::size_t limit = kMaxZip32Bytes)
 {
     const std::wstring wide = Widen(utf8Path);
     if (wide.empty()) {
@@ -174,7 +199,7 @@ bool ReadFileBytesUtf8(const std::string& utf8Path, std::string& out, std::strin
         code = backup_codes::kDbUnreadable;
         return false;
     }
-    if (static_cast<std::uint64_t>(size.QuadPart) > kMaxZip32Bytes) {
+    if (static_cast<std::uint64_t>(size.QuadPart) > static_cast<std::uint64_t>(limit)) {
         CloseHandle(handle);
         code = backup_codes::kDbTooLarge;
         return false;
@@ -286,6 +311,148 @@ bool CopyFileUniqueUtf8(const std::string& sourcePath, const std::string& prefer
     }
     code = backup_codes::kPreRestoreFailed;
     return false;
+}
+
+// ── 封面路径 / 条目名（PB-011-B）────────────────────────────────────
+char LowerAsciiChar(char value)
+{
+    return (value >= 'A' && value <= 'Z') ? static_cast<char>(value - 'A' + 'a') : value;
+}
+
+bool EqualsPathNoCase(const std::string& left, const std::string& right)
+{
+    if (left.size() != right.size()) return false;
+    for (std::size_t i = 0; i < left.size(); ++i) {
+        if (LowerAsciiChar(left[i]) != LowerAsciiChar(right[i])) return false;
+    }
+    return true;
+}
+
+std::string ParentDirectoryOf(const std::string& path)
+{
+    const std::size_t slash = path.find_last_of("\\/");
+    if (slash == std::string::npos) return std::string();
+    return path.substr(0, slash);
+}
+
+std::string JoinPath(const std::string& directory, const std::string& fileName)
+{
+    if (directory.empty()) return fileName;
+    const char last = directory.back();
+    if (last == '\\' || last == '/') return directory + fileName;
+    return directory + "\\" + fileName;
+}
+
+// 只处理「纯文件名」，在扩展名前插 -n：cover.png → cover-2.png
+std::string SuffixFileNameUtf8(const std::string& fileName, int suffix)
+{
+    const std::size_t dot = fileName.find_last_of('.');
+    const std::string tail = "-" + std::to_string(suffix);
+    if (dot == std::string::npos || dot == 0) return fileName + tail;
+    return fileName.substr(0, dot) + tail + fileName.substr(dot);
+}
+
+bool EnsureDirectoryUtf8(const std::string& utf8Directory)
+{
+    const std::wstring wide = Widen(utf8Directory);
+    if (wide.empty()) return false;
+    const DWORD attributes = GetFileAttributesW(wide.c_str());
+    if (attributes != INVALID_FILE_ATTRIBUTES) {
+        return (attributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+    }
+    return CreateDirectoryW(wide.c_str(), nullptr) != FALSE;
+}
+
+// 把路径最后一段变成可以安全落盘的 Windows 文件名。
+std::string SanitizeCoverFileName(const std::string& raw)
+{
+    std::string name;
+    name.reserve(raw.size());
+    for (const char ch : raw) {
+        const unsigned char value = static_cast<unsigned char>(ch);
+        if (ch == '<' || ch == '>' || ch == ':' || ch == '"' || ch == '|' ||
+            ch == '?' || ch == '*' || ch == '\\' || ch == '/' || value < 0x20) {
+            name.push_back('_');
+        } else {
+            name.push_back(ch);
+        }
+    }
+    while (!name.empty() && (name.back() == '.' || name.back() == ' ')) name.pop_back();
+    if (name.empty()) name = "cover";
+    if (name.size() > 120) name = name.substr(name.size() - 120);  // 保留扩展名
+    return name;
+}
+
+// 目标文件已存在就加 -2 / -3 …，避免把用户别的封面顶掉。
+std::string UniqueCoverTarget(const std::string& directory, const std::string& fileName)
+{
+    const std::string base = fileName.empty() ? std::string("cover") : fileName;
+    std::string candidate = JoinPath(directory, base);
+    for (int attempt = 2; attempt <= 200 && FileExistsUtf8(candidate); ++attempt) {
+        candidate = JoinPath(directory, SuffixFileNameUtf8(base, attempt));
+    }
+    return candidate;
+}
+
+// 只接受「盘符:绝对路径」，且任何一段都不是 ..（UNC / 相对路径一律走 coverDir）。
+bool IsSafeAbsoluteCoverPath(const std::string& path)
+{
+    if (path.size() < 3 || path.size() > 30000) return false;
+    if (path.find('\0') != std::string::npos) return false;
+    if (!std::isalpha(static_cast<unsigned char>(path[0])) || path[1] != ':' ||
+        (path[2] != '\\' && path[2] != '/')) {
+        return false;
+    }
+    std::string normalized = path;
+    for (char& ch : normalized) {
+        if (ch == '/') ch = '\\';
+    }
+    std::size_t position = 3;
+    while (position <= normalized.size()) {
+        const std::size_t slash = normalized.find('\\', position);
+        const std::size_t end = (slash == std::string::npos) ? normalized.size() : slash;
+        if (normalized.compare(position, end - position, "..") == 0) return false;
+        if (slash == std::string::npos) break;
+        position = slash + 1;
+    }
+    return true;
+}
+
+// books[].cover_path 去重后的绝对路径列表（book 里可能是 null / 非字符串）。
+std::vector<std::string> CollectCoverPaths(const nlohmann::json& database)
+{
+    std::vector<std::string> paths;
+    const auto books = database.find("books");
+    if (books == database.end() || !books->is_array()) return paths;
+    for (const auto& book : *books) {
+        if (!book.is_object()) continue;
+        const auto cover = book.find("cover_path");
+        if (cover == book.end() || !cover->is_string()) continue;
+        const std::string path = cover->get<std::string>();
+        if (path.empty()) continue;
+        bool duplicate = false;
+        for (const std::string& existing : paths) {
+            if (EqualsPathNoCase(existing, path)) {
+                duplicate = true;
+                break;
+            }
+        }
+        if (!duplicate) paths.push_back(path);
+    }
+    return paths;
+}
+
+// 恢复前统一校验：所有 covers[].entry 必须是 covers/ 下的安全相对路径。
+bool ValidateCoverEntries(const std::vector<BackupCoverEntry>& covers,
+                          std::string* badEntry)
+{
+    for (const BackupCoverEntry& cover : covers) {
+        if (!BackupService::IsSafeCoverEntryName(cover.entry)) {
+            if (badEntry) *badEntry = cover.entry;
+            return false;
+        }
+    }
+    return true;
 }
 
 // ── ZIP 写入（store / raw deflate；无 ZIP64、无数据描述符）─────────
@@ -460,7 +627,66 @@ bool ReadStringField(const nlohmann::json& object, const char* key, std::string&
 
 } // namespace
 
-// ── BackupManifest ─────────────────────────────────────────────────
+// ── BackupManifest / BackupCoverEntry ──────────────────────────────
+nlohmann::json BackupCoverEntry::ToJson() const
+{
+    nlohmann::json cover;
+    cover["entry"] = entry;
+    cover["sourcePath"] = sourcePath;
+    cover["sha256"] = sha256;
+    cover["bytes"] = bytes;
+    return cover;
+}
+
+bool BackupCoverEntry::FromJson(const nlohmann::json& manifest, BackupCoverEntry& out,
+                                std::string* error)
+{
+    const auto fail = [error](const char* why) {
+        if (error) *error = why;
+        return false;
+    };
+    if (!manifest.is_object()) return fail("cover entry is not a JSON object");
+
+    std::string entry;
+    if (!ReadStringField(manifest, "entry", entry) || entry.empty()) {
+        return fail("cover entry name missing");
+    }
+
+    std::string sha256;
+    if (!ReadStringField(manifest, "sha256", sha256) || sha256.size() != 64) {
+        return fail("cover sha256 missing or not 64 characters");
+    }
+    for (char& digit : sha256) {
+        if (!std::isxdigit(static_cast<unsigned char>(digit))) {
+            return fail("cover sha256 is not hexadecimal");
+        }
+        digit = static_cast<char>(std::tolower(static_cast<unsigned char>(digit)));
+    }
+
+    std::uint64_t bytes = 0;
+    const auto bytesField = manifest.find("bytes");
+    if (bytesField == manifest.end()) return fail("cover bytes missing");
+    if (bytesField->is_number_unsigned()) {
+        bytes = bytesField->get<std::uint64_t>();
+    } else if (bytesField->is_number_integer()) {
+        const long long value = bytesField->get<long long>();
+        if (value < 0) return fail("cover bytes < 0");
+        bytes = static_cast<std::uint64_t>(value);
+    } else {
+        return fail("cover bytes missing");
+    }
+
+    std::string sourcePath;
+    ReadStringField(manifest, "sourcePath", sourcePath);  // v2 以后可选
+
+    out.entry = entry;
+    out.sourcePath = sourcePath;
+    out.sha256 = sha256;
+    out.bytes = bytes;
+    if (error) error->clear();
+    return true;
+}
+
 nlohmann::json BackupManifest::ToJson() const
 {
     nlohmann::json manifest;
@@ -473,6 +699,9 @@ nlohmann::json BackupManifest::ToJson() const
     manifest["sourceFileName"] = sourceFileName;
     manifest["dbBytes"] = dbBytes;
     manifest["sha256"] = sha256;
+    nlohmann::json coverArray = nlohmann::json::array();
+    for (const BackupCoverEntry& cover : covers) coverArray.push_back(cover.ToJson());
+    manifest["covers"] = std::move(coverArray);
     return manifest;
 }
 
@@ -545,6 +774,20 @@ bool BackupManifest::FromJson(const nlohmann::json& manifest, BackupManifest& ou
         }
     }
 
+    // v2：covers 可选；缺失 = 没有封面（v1 包就是这种形状）。
+    std::vector<BackupCoverEntry> covers;
+    const auto coversField = manifest.find("covers");
+    if (coversField != manifest.end() && !coversField->is_null()) {
+        if (!coversField->is_array()) return fail("covers is not an array");
+        for (const auto& item : *coversField) {
+            BackupCoverEntry cover;
+            if (!BackupCoverEntry::FromJson(item, cover, nullptr)) {
+                return fail("invalid cover entry");
+            }
+            covers.push_back(std::move(cover));
+        }
+    }
+
     out.format = format;
     out.formatVersion = formatVersion->get<int>();
     out.appVersion = appVersion;
@@ -554,6 +797,7 @@ bool BackupManifest::FromJson(const nlohmann::json& manifest, BackupManifest& ou
     out.sourceFileName = sourceFileName;
     out.dbBytes = dbBytes;
     out.sha256 = sha256;
+    out.covers = std::move(covers);
     if (error) error->clear();
     return true;
 }
@@ -608,6 +852,34 @@ std::string BackupService::Sha256Hex(const std::string& data)
     return Sha256Hex(data.data(), data.size());
 }
 
+bool BackupService::IsSafeCoverEntryName(const std::string& entryName)
+{
+    const std::string prefix = kBackupCoverPrefix;
+    if (entryName.size() <= prefix.size() || entryName.size() > 200) return false;
+    if (entryName.compare(0, prefix.size(), prefix) != 0) return false;
+    if (entryName.find('\\') != std::string::npos) return false;   // ZIP 只用 '/'
+    if (entryName.find('\0') != std::string::npos) return false;
+
+    const std::string rest = entryName.substr(prefix.size());
+    std::size_t position = 0;
+    while (position <= rest.size()) {
+        const std::size_t slash = rest.find('/', position);
+        const std::size_t end = (slash == std::string::npos) ? rest.size() : slash;
+        const std::string segment = rest.substr(position, end - position);
+        if (segment.empty() || segment == "." || segment == "..") return false;
+        if (segment.find(':') != std::string::npos) return false;
+        for (const char ch : segment) {
+            if (ch == '<' || ch == '>' || ch == '"' || ch == '|' || ch == '?' ||
+                ch == '*') {
+                return false;
+            }
+        }
+        if (slash == std::string::npos) break;
+        position = slash + 1;
+    }
+    return true;
+}
+
 std::string BackupService::NowUtcIso8601()
 {
     const std::time_t now = std::time(nullptr);
@@ -651,10 +923,19 @@ std::string BackupService::PreRestoreNameFor(const std::string& dbPath,
 
 BackupResult BackupService::CreateBackup(const std::string& dbPath,
                                          const std::string& outputZipPath,
-                                         const BackupOptions& options)
+                                         const BackupOptions& options,
+                                         const BackupProgressFn& progress,
+                                         const std::atomic_bool* cancel)
 {
     BackupResult result;
     result.outputPath = outputZipPath;
+
+    const auto cancelled = [cancel]() { return cancel != nullptr && cancel->load(); };
+    if (cancelled()) {
+        result.code = backup_codes::kCancelled;
+        result.error = "backup cancelled";
+        return result;
+    }
 
     if (dbPath.empty() || outputZipPath.empty()) {
         result.code = backup_codes::kInvalidOptions;
@@ -662,6 +943,7 @@ BackupResult BackupService::CreateBackup(const std::string& dbPath,
         return result;
     }
 
+    ReportProgress(progress, "reading_db", 0, 0, 0, 0, dbPath);
     std::string readCode;
     std::string databaseText;
     if (!ReadFileBytesUtf8(dbPath, databaseText, readCode)) {
@@ -720,13 +1002,69 @@ BackupResult BackupService::CreateBackup(const std::string& dbPath,
 
     ZipWriter writer;
     writer.SetModifiedUtc(createdAtTm);
-    if (!writer.Add(kBackupManifestEntry, manifest.ToJson().dump(2), false) ||
-        !writer.Add(kBackupPayloadEntry, databaseText, options.compress)) {
+    if (!writer.Add(kBackupPayloadEntry, databaseText, options.compress)) {
         result.code = backup_codes::kTooLarge;
         result.error = "database too large for a ZIP32 archive";
         return result;
     }
 
+    // ── 封面（PB-011-B）：缺失 / 不可读 / 超限只记 issue，不阻塞备份 ──
+    if (options.includeCovers && databaseParsed) {
+        const std::vector<std::string> coverPaths = CollectCoverPaths(database);
+        std::int64_t processed = 0;
+        for (const std::string& coverPath : coverPaths) {
+            if (cancelled()) {
+                result.code = backup_codes::kCancelled;
+                result.error = "backup cancelled";
+                return result;
+            }
+            if (manifest.covers.size() >= options.maxCovers) {
+                result.issues.push_back("cover_limit_reached: " +
+                                        std::to_string(options.maxCovers));
+                break;
+            }
+            std::string coverCode;
+            std::string coverBytes;
+            if (!ReadFileBytesUtf8(coverPath, coverBytes, coverCode,
+                                   options.maxCoverBytes)) {
+                result.issues.push_back("cover_skipped: " + coverCode + ": " + coverPath);
+                continue;
+            }
+            BackupCoverEntry cover;
+            cover.sourcePath = coverPath;
+            cover.bytes = static_cast<std::uint64_t>(coverBytes.size());
+            cover.sha256 = Sha256Hex(coverBytes);
+            if (cover.sha256.empty()) {
+                result.issues.push_back("cover_sha256_failed: " + coverPath);
+                continue;
+            }
+            cover.entry = std::string(kBackupCoverPrefix) +
+                          CoverEntryPrefix(manifest.covers.size() + 1) + "-" +
+                          SanitizeCoverFileName(BaseName(coverPath));
+            if (!writer.Add(cover.entry, coverBytes, options.compress)) {
+                result.code = backup_codes::kTooLarge;
+                result.error = "archive too large for ZIP32";
+                return result;
+            }
+            manifest.covers.push_back(std::move(cover));
+            ++processed;
+            ReportProgress(progress, "reading_covers", processed,
+                           static_cast<std::int64_t>(coverPaths.size()), 0, 0, coverPath);
+        }
+    }
+
+    if (!writer.Add(kBackupManifestEntry, manifest.ToJson().dump(2), false)) {
+        result.code = backup_codes::kTooLarge;
+        result.error = "archive too large for ZIP32";
+        return result;
+    }
+    if (cancelled()) {
+        result.code = backup_codes::kCancelled;
+        result.error = "backup cancelled";
+        return result;
+    }
+
+    ReportProgress(progress, "writing_archive", 0, 0, 0, 0, outputZipPath);
     std::string archive;
     if (!writer.Finish(archive)) {
         result.code = backup_codes::kTooLarge;
@@ -746,6 +1084,10 @@ BackupResult BackupService::CreateBackup(const std::string& dbPath,
     result.code = backup_codes::kOk;
     result.manifest = manifest;
     result.archiveBytes = static_cast<std::uint64_t>(archive.size());
+    result.coversIncluded = static_cast<int>(manifest.covers.size());
+    ReportProgress(progress, "done", result.coversIncluded, result.coversIncluded,
+                   static_cast<std::int64_t>(archive.size()),
+                   static_cast<std::int64_t>(archive.size()), outputZipPath);
     return result;
 }
 
@@ -778,6 +1120,12 @@ bool BackupService::InspectBackup(const std::string& zipPath, BackupManifest& ou
         return fail(backup_codes::kFormatTooNew);
     }
 
+    // 封面条目名必须是 covers/ 下的安全相对路径；穿越 / 盘符 / 反斜杠一律拒绝。
+    std::string badCoverEntry;
+    if (!ValidateCoverEntries(manifest.covers, &badCoverEntry)) {
+        return fail(backup_codes::kPathTraversal);
+    }
+
     out = manifest;
     if (errorCode) errorCode->clear();
     return true;
@@ -785,15 +1133,26 @@ bool BackupService::InspectBackup(const std::string& zipPath, BackupManifest& ou
 
 RestoreResult BackupService::RestoreBackup(const std::string& zipPath,
                                            const std::string& targetDbPath,
-                                           const RestoreOptions& options)
+                                           const RestoreOptions& options,
+                                           const BackupProgressFn& progress,
+                                           const std::atomic_bool* cancel)
 {
     RestoreResult result;
+
+    const auto cancelled = [cancel]() { return cancel != nullptr && cancel->load(); };
+    if (cancelled()) {
+        result.code = backup_codes::kCancelled;
+        result.error = "restore cancelled";
+        return result;
+    }
 
     if (zipPath.empty() || targetDbPath.empty()) {
         result.code = backup_codes::kInvalidOptions;
         result.error = "backup path or target path is empty";
         return result;
     }
+
+    ReportProgress(progress, "inspecting", 0, 0, 0, 0, zipPath);
 
     // 1~3. 清单 + 包格式
     BackupManifest manifest;
@@ -840,17 +1199,132 @@ RestoreResult BackupService::RestoreBackup(const std::string& zipPath,
             return result;
         }
     }
-    if (options.validatePayload) {
-        const nlohmann::json payload = nlohmann::json::parse(databaseText, nullptr, false);
-        if (payload.is_discarded() || !payload.is_object()) {
-            result.code = backup_codes::kPayloadInvalid;
-            result.error = "payload is not a valid JSON object";
-            return result;
+    // 解析 payload：既做校验，也留作封面回填（books[].cover_path）。
+    nlohmann::json payloadJson;
+    bool payloadParsed = false;
+    {
+        nlohmann::json parsed = nlohmann::json::parse(databaseText, nullptr, false);
+        if (!parsed.is_discarded() && parsed.is_object()) {
+            payloadJson = std::move(parsed);
+            payloadParsed = true;
         }
-        result.bookCount = CountBooks(payload);
+    }
+    if (options.validatePayload && !payloadParsed) {
+        result.code = backup_codes::kPayloadInvalid;
+        result.error = "payload is not a valid JSON object";
+        return result;
+    }
+    if (payloadParsed) result.bookCount = CountBooks(payloadJson);
+
+    // 6. 封面（PB-011-B）：缺失 / 校验不符 / 写失败只记 issue，不阻塞整库恢复。
+    //    先写封面、再写数据库，保证回填后的 cover_path 指向已经落盘的文件。
+    std::vector<std::pair<std::string, std::string>> relocated;  // 原路径 → 新路径
+    if (options.restoreCovers && !manifest.covers.empty()) {
+        const std::string coverDirectory =
+            options.coverDir.empty()
+                ? JoinPath(ParentDirectoryOf(targetDbPath), "covers")
+                : options.coverDir;
+        bool coverDirectoryChecked = false;
+        bool coverDirectoryReady = false;
+        const std::int64_t coverTotal = static_cast<std::int64_t>(manifest.covers.size());
+        std::int64_t coverProcessed = 0;
+
+        for (const BackupCoverEntry& cover : manifest.covers) {
+            if (cancelled()) {
+                result.code = backup_codes::kCancelled;
+                result.error = "restore cancelled";
+                return result;
+            }
+            ++coverProcessed;
+            if (options.maxCoverBytes != 0 &&
+                cover.bytes > static_cast<std::uint64_t>(options.maxCoverBytes)) {
+                result.issues.push_back("cover_too_large: " + cover.entry);
+                continue;
+            }
+            std::string coverBytes;
+            if (!ReadZipEntry(zipPath, cover.entry, coverBytes)) {
+                result.issues.push_back("cover_missing_in_archive: " + cover.entry);
+                continue;
+            }
+            if (options.verifyChecksum) {
+                if (cover.bytes != static_cast<std::uint64_t>(coverBytes.size()) ||
+                    Sha256Hex(coverBytes) != cover.sha256) {
+                    result.issues.push_back("cover_checksum_mismatch: " + cover.entry);
+                    continue;
+                }
+            }
+
+            bool placed = false;
+            std::string finalPath;
+            if (options.restoreCoversToOriginalPath &&
+                IsSafeAbsoluteCoverPath(cover.sourcePath)) {
+                std::string coverWriteCode;
+                if (WriteFileAtomicallyUtf8(cover.sourcePath, coverBytes, coverWriteCode,
+                                            backup_codes::kIoError)) {
+                    placed = true;
+                    finalPath = cover.sourcePath;
+                }
+            }
+            if (!placed) {
+                if (!coverDirectoryChecked) {
+                    coverDirectoryChecked = true;
+                    coverDirectoryReady = EnsureDirectoryUtf8(coverDirectory);
+                    if (!coverDirectoryReady) {
+                        result.issues.push_back("cover_dir_unavailable: " + coverDirectory);
+                    }
+                }
+                if (coverDirectoryReady) {
+                    const std::string candidate =
+                        UniqueCoverTarget(coverDirectory,
+                                          SanitizeCoverFileName(BaseName(cover.sourcePath)));
+                    std::string coverWriteCode;
+                    if (WriteFileAtomicallyUtf8(candidate, coverBytes, coverWriteCode,
+                                                backup_codes::kIoError)) {
+                        placed = true;
+                        finalPath = candidate;
+                        relocated.emplace_back(cover.sourcePath, candidate);
+                        ++result.coversRelocated;
+                    }
+                }
+            }
+            if (placed) {
+                ++result.coversRestored;
+            } else {
+                result.issues.push_back("cover_write_failed: " + cover.sourcePath);
+            }
+            ReportProgress(progress, "restoring_covers", coverProcessed, coverTotal, 0, 0,
+                           finalPath);
+        }
     }
 
-    // 6. 恢复前备份当前数据库（失败则中止，绝不带着风险覆盖）
+    // 7. 有封面被搬到数据目录时回填 books[].cover_path；没有搬动就原样写回，
+    //    保证「无封面 / 原路径可写」的恢复仍然逐字节一致。
+    std::string databaseToWrite = databaseText;
+    if (!relocated.empty() && options.backfillCoverPaths && payloadParsed) {
+        bool changed = false;
+        auto books = payloadJson.find("books");
+        if (books != payloadJson.end() && books->is_array()) {
+            for (auto& book : *books) {
+                if (!book.is_object()) continue;
+                auto coverPath = book.find("cover_path");
+                if (coverPath == book.end() || !coverPath->is_string()) continue;
+                const std::string current = coverPath->get<std::string>();
+                for (const auto& pair : relocated) {
+                    if (EqualsPathNoCase(current, pair.first)) {
+                        *coverPath = pair.second;
+                        changed = true;
+                        break;
+                    }
+                }
+            }
+        }
+        if (changed) databaseToWrite = payloadJson.dump(2);
+    } else if (!relocated.empty() && !options.backfillCoverPaths) {
+        result.issues.push_back("cover_paths_not_backfilled");
+    }
+
+    // 8. 恢复前备份当前数据库（失败则中止，绝不带着风险覆盖）
+    ReportProgress(progress, "backup_current", 0, 0, 0, 0, targetDbPath);
     if (options.makePreRestoreBackup && FileExistsUtf8(targetDbPath)) {
         const std::string preferred =
             PreRestoreNameFor(targetDbPath, NowUtcIso8601());
@@ -864,9 +1338,12 @@ RestoreResult BackupService::RestoreBackup(const std::string& zipPath,
         result.preRestoreBackupPath = actual;
     }
 
-    // 7. 原子替换
+    // 9. 原子替换
+    ReportProgress(progress, "writing_db", 0, 0,
+                   static_cast<std::int64_t>(databaseToWrite.size()),
+                   static_cast<std::int64_t>(databaseToWrite.size()), targetDbPath);
     std::string writeCode;
-    if (!WriteFileAtomicallyUtf8(targetDbPath, databaseText, writeCode,
+    if (!WriteFileAtomicallyUtf8(targetDbPath, databaseToWrite, writeCode,
                                  backup_codes::kWriteFailed)) {
         result.code = writeCode;
         result.error = "cannot write the restored database: " + targetDbPath;
@@ -876,7 +1353,10 @@ RestoreResult BackupService::RestoreBackup(const std::string& zipPath,
     result.ok = true;
     result.code = backup_codes::kOk;
     result.restoredPath = targetDbPath;
-    result.restoredBytes = static_cast<std::uint64_t>(databaseText.size());
+    result.restoredBytes = static_cast<std::uint64_t>(databaseToWrite.size());
+    ReportProgress(progress, "done", result.coversRestored, result.coversRestored,
+                   static_cast<std::int64_t>(databaseToWrite.size()),
+                   static_cast<std::int64_t>(databaseToWrite.size()), targetDbPath);
     return result;
 }
 
