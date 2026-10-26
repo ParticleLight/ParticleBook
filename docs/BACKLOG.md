@@ -9,7 +9,7 @@
 
 | ID | 事项 | 优先级 | 状态 | 版本 | 一句话说明 |
 |---|---|---|---|---|---|
-| PB-001 | TTS 朗读 | P0 | 📋 待办 | 2.2.1 | 本地系统 TTS，离线、零下载、零安装包增量 |
+| PB-001 | TTS 朗读 | P0 | 🚧 进行中 | 2.2.1 | SAPI 核心已落；bridge/UI 待接 |
 | PB-002 | AI 翻译（用户自带 Key） | P0 | 📋 待办 | 2.2.1 | 仅 AI；用户配置第三方 Key 后才可用；无我们的服务器 |
 | PB-003 | PDF 标注 | P1 | 📋 待办 | 2.2.1 | 文本层 + 高亮/批注；导出复用 PB-004 |
 | PB-004 | 笔记 / 高亮导出 | P1 | 📋 待办 | 2.2.1 | Markdown / CSV / JSON，单本 + 全库 |
@@ -19,15 +19,15 @@
 | PB-008 | 格式补齐 | P2 | 📋 待办 | 2.2.1 | AZW3 / DOCX 优先，其余评估 |
 | PB-009 | 双栏 / 分屏 / 竖排 | P2 | 📋 待办 | 2.2.1 | 大屏与竖排阅读 |
 | PB-010 | 本地词典 | P1 | 📋 待办 | 2.2.1 | 离线查词：ECDICT + StarDict 导入 |
-| PB-011 | 备份 / 恢复 | P0 | 📋 待办 | 2.2.1 | 本地 zip 快照 + 恢复；后续可选 WebDAV |
+| PB-011 | 备份 / 恢复 | P0 | 🚧 进行中 | 2.2.1 | BackupService 核心已落；handler/UI 待接 |
 | PB-012 | 文件关联 / 打开方式 | P1 | 📋 待办 | 2.2.1 | 只进「打开方式」，不抢默认 |
 | PB-013 | 书源生态增强 | P1 | 📋 待办 | 2.2.1 | URL/剪贴板导入、规则编辑、单源测试 |
-| PB-016 | 本地诊断日志 | P1 | 🚧 进行中 | 2.2.1 | LogService 核心已落；App 接线/导出按钮待续 |
+| PB-016 | 本地诊断日志 | P1 | 🚧 进行中 | 2.2.1 | LogService+App 启动日志已落；导出 UI 待接 |
 | PB-017 | 大书库性能 | P2 | 📋 待办 | 2.2.1 | 虚拟列表、封面缓存、索引性能 |
 | PB-018 | 关键路径 E2E | P1 | 📋 待办 | 2.2.1 | CI 跑 5–8 条关键链路 |
 | PB-021 | Locator + Annotation 统一模型 | P0 | 📋 待办 | 2.2.1 | 统一 cfi/offset/page/rect；标注/搜索/TTS 共用 |
 | PB-022 | ReaderAdapter + 共享阅读交互 | P1 | 📋 待办 | 2.2.1 | 5 个渲染器收敛到统一 adapter |
-| PB-023 | Settings + SecretStore | P0 | 🚧 进行中 | 2.2.1 | SecretStore + SettingsService 核心已落；App/渲染层接线待续 |
+| PB-023 | Settings + SecretStore | P0 | 🚧 进行中 | 2.2.1 | 核心+DbHandlers 归一化已落；App/渲染层接线待续 |
 | PB-024 | god files 拆分 + 注入 JS 外置 | P2 | 📋 待办 | 2.2.1 | ZLibrary/FileHandlers/App/WebViewHost 等增量拆 |
 | PB-025 | 设计基元 + 主题审计 | P2 | 📋 待办 | 2.2.1 | Popover/Dialog/Toolbar 等基元 + token 约束 |
 
