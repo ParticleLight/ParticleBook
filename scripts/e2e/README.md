@@ -2,7 +2,8 @@
 
 Windows 上的**真实应用**关键路径 E2E：启动 C++ + WebView2 的可执行文件，用 WebView2
 自带的 CDP（Chrome DevTools Protocol）驱动真实窗口（真实 DOM / 真实桥接调用 / 真实
-输入事件），跑 5 条 smoke。不联网、不污染真实书库。
+输入事件），跑 10 步 smoke（5 条基础链路 + PB-018-B 追加的 TTS / 备份 / 翻译 /
+schema）。不联网、不污染真实书库。
 
 脚本零第三方依赖：只使用 Node 22+ 全局 `fetch` / `WebSocket`，fixture EPUB 由脚本
 自己生成（store-only ZIP 写在 `lib/fixtures.mjs`）。
@@ -36,14 +37,14 @@ node scripts/e2e/smoke.mjs --app particlebook-cpp/build2/ParticleBook.exe
 | `--port <n>` | 固定 CDP 端口；默认自动挑空闲端口 |
 | `--timeout <ms>` | 每个等待步骤的超时，默认 120000（冷启动 WebView2 可能较慢） |
 | `--keep` | 成功也保留沙箱，便于事后检查 |
-| `--fail-at <step>` | 故意在指定步骤失败（`launch-and-cdp` / `bridge-read` / `import-epub` / `open-read-turn-close` / `settings-forward-exit`），用来验证失败截图 / 退出码 |
+| `--fail-at <step>` | 故意在指定步骤失败（`launch-and-cdp` / `bridge-read` / `import-epub` / `open-read-turn-close` / `settings-forward-exit` / `extended-app` / `tts` / `backup` / `translation` / `schema`），用来验证失败截图 / 退出码 |
 | `--allow-running` | 跳过「已有实例」检查（危险，见上） |
 | `--verbose` | 打印更多中间信息 |
 | `-h, --help` | 用法 |
 
 退出码：`0` = 全部通过；`1` = 某条 smoke 失败；`2` = 参数 / 平台 / 前置条件错误。
 
-## 5 条 smoke
+## Smoke 步骤（5 条基础 + PB-018-B 追加 5 步）
 
 1. **launch-and-cdp**：进程启动 → CDP 端口就绪 → `document.title` 变成 ParticleBook
    → `window.electronAPI` 注入成功 → 沙箱隔离自检（WebView2 user data 必须在临时
@@ -60,6 +61,26 @@ node scripts/e2e/smoke.mjs --app particlebook-cpp/build2/ParticleBook.exe
    第二个 fixture 启动（单实例转发，PB-019）→ 主实例导入并自动打开该书 → Esc 回书架 →
    `taskkill`（WM_CLOSE）优雅退出（不能用强杀伪装成功）→ 核对磁盘
    `reader.json`：两本书都在、`settings.theme === 'light'`、阅读进度 cfi 非空。
+
+以下 5 步是 PB-018-B 追加（旧 5 条全部通过后才会执行；会额外重启应用）：
+
+6. **extended-app**：旧 5 条结束时主实例已优雅退出；在同一沙箱上重启应用，断言
+   `getBooks()` 仍是 2 本、`settings.theme` 仍是 `light`（持久化 + 重启加载），
+   并为后 4 类 smoke 提供运行中的实例。
+7. **tts**：`getTtsVoices()` 非空 → `ttsSetVoice(first)` → `ttsSetVolume(0)`（静音，
+   不会真的出声）→ `ttsSpeak(短句)` 返回 utterance id → 轮询 `ttsStatus().speaking`
+   变 true → `ttsStop()` → `speaking` 变 false 且 volume 仍为 0 → 恢复 volume=100。
+8. **backup**：`createBackup()` 返回 `{ok,path,bookCount,bytes}`，path 必须在沙箱
+   `.../particle-book/backups/` 下且文件真实存在；`restoreBackup(path)` 返回
+   `{ok,bookCount,preRestorePath}`，pre-restore 文件存在且文件名含 `pre-restore`；
+   恢复后 `getBooks()` 仍为 2 本（DB 已重新加载）。
+9. **translation**：`translationHasKey()` 初始 false → `translationSetKey(临时假 Key)`
+   → true → `translationClearKey()` → false；断言假 Key 不在 `reader.json`，
+   也不以明文出现在 `%LOCALAPPDATA%\ParticleBook\secrets.dat`（DPAPI 密文）。
+   **不调用 `translationTranslate`**，不联网。
+10. **schema**：当前沙箱 `reader.json` 的 `schema_version === 3`；随后关闭扩展实例，
+    在另一个临时沙箱里手写一个 v2 `reader.json`，启动应用后断言迁移到 v3、出现
+    `annotations` 数组、并留有 `reader.json.pre-migrate-v2-<ts>` 备份（备份内容仍是 v2）。
 
 失败时：CDP 截图（`failure-<step>.png`）、页面 console（`page-console.log`）、
 应用 stdout/stderr（`app.log`）、`reader.json` 快照（`failure-reader.json`）、
@@ -104,15 +125,25 @@ App 的数据目录由 `SHGetFolderPathW(CSIDL_APPDATA)` 决定。实测**只改
   会话（WebView2 是 GUI 程序）。如果初始化失败，smoke 会在 launch 步骤超时，report.json /
   app.log 里有原始原因；该 job 只在手动 / 定时运行，即使 runner 环境不允许 GUI 也不会影响
   push / PR 的日常构建。
+- **TTS 步骤需要 runner 装了 SAPI 语音且有可用音频端点**（GitHub 托管 runner 不一定有）。
+  没有语音会失败在 `getTtsVoices() 非空`，没有音频设备可能失败在 `speak/status.speaking`；
+  CI 日志会明确报错。若该环境长期缺语音/音频，可把 TTS 步骤改成环境探测后 skip（当前按
+  PB-018-B 要求保留硬断言）。
 
 ## 当前不覆盖（后续 PB-018 增量）
 
 - PDF / CBZ / TXT / FB2 / Markdown 阅读链路（本 fixture 用 EPUB；PDF 需要 mutool 渲染，
   判定文本更麻烦）
-- Z-Library 进站/下载、TTS、翻译、词典、备份/恢复、导出
+- Z-Library 进站/下载、词典、导出
 - 设置页 / 阅读设置的真实 UI 交互、i18n 文案、主题切换
 - 多窗口 / DPI / 窗口位置、崩溃重启、断网/代理
 - 真实第三方服务（AI provider / Z-Library 镜像）
+- **TTS**：只验证 bridge 方法与合成/播放状态机（音量 0 静音），不验证音频真的从扬声器
+  出来，也不测语速/音色切换/暂停恢复
+- **翻译**：只验证 Key 的 SecretStore 存取（不调真实 provider、不测错误码/翻译结果）
+- **备份**：只验证 create/restore 同一库 + pre-restore 文件；不验证跨机恢复、损坏包、
+  ZIP 完整性/大库
+- **schema**：只验证 v2→v3 与 pre-migrate 备份；不验证 v1→v3、未来版本拒绝降级、损坏库
 
 ## 已知 / 待修（E2E 发现，不阻塞 smoke）
 
@@ -121,13 +152,20 @@ App 的数据目录由 `SHGetFolderPathW(CSIDL_APPDATA)` 决定。实测**只改
   `TypeError: window.__refreshLibrary is not a function`。非致命（仅控制台 error）。
   建议 BridgeServer 在 setTimeout 回调里再判一次 `typeof === 'function'`。
 - 书架卡片无封面 fallback 会把文件头当图片渲染（fixture 无封面导致；观感问题）。
+- **同一时间只能跑一个 E2E / 验证实例**：应用是会话级单实例互斥体，另一个 smoke、调试
+  脚本或用户手动打开的 ParticleBook 都会让 preflight 报 "already running"（这是保护，
+  不是 bug）。本机开发时会遇到其他 agent 的调试脚本占用 app，等它退出再跑即可。
 
 ## 新增 smoke
 
 在 `smoke.mjs` 里加一个 `await step('name', async () => { ... })`：
 
-- 调桥接：`await bridge('getBooks')`（自动 await Promise）；
+- 调桥接：`await bridge('getBooks')`（自动 await Promise）；多实例时用
+  `await bridgeOn(cdp, 'getBooks')`；
 - 等页面：`await state.cdp.waitFor('expression', { timeoutMs, label })`；
+- 需要重启 / 换沙箱：`await startAppOnSandbox(sandbox, 'app-xxx.log')`（自带 CDP 连接、
+  登记到统一清理列表）；`await closeAppGracefully(app, label)`；
+- 等磁盘文件：`waitForFileJson(filePath, predicate, label)`；
 - 读写 DOM / iframe：见 `iframeHas()` / `iframeTextExpression()`；
-- 断言失败直接 `throw new Error(...)`，框架自动截图 / 写 report / 退出码 1；
+- 断言失败直接 `throw new Error(...)`，框架自动截图（用当前活跃 cdp）/ 写 report / 退出码 1；
 - 需要新 fixture 时在 `lib/fixtures.mjs` 里生成（保持 store-only ZIP、无外部依赖）。
