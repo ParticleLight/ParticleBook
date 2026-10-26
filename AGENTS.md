@@ -31,5 +31,5 @@
 - 待用户真机验证：① Z-Library 下载→导入书架全链；② 手动点 Z-Library 的进站体感；③ `9359681`「文件丢失」提示观感。
 - 下一版本 **2.2.1 开发中**：`6e7cb7d` + `3bbe555` + PB-001..PB-025（全部 2.2.1，按 P0→P1→P2）；**不重做 2.2.0**；详见 `docs/BACKLOG.md`。
 - 2.2.1 issue：#6 亮色设置页已修；#7 安卓适配待定方向（非本版范围）。
-- 2026-10-26 进度：PB-001/PB-004/PB-011/PB-012/PB-014/PB-015/PB-016/PB-019/PB-020/PB-023 ✅；PB-002 翻译全链（剩真实 provider）；PB-006 搜索全链（剩精确跳转）；PB-010 词典（剩启用禁用/StarDict UI）；PB-018 E2E 15/15（Z-Library 真实未做）；PB-021 标注 UI 已落（剩 ReaderAdapter/PDF rect）。
+- 2026-10-26 进度：PB-001/PB-004/PB-010/PB-011/PB-012/PB-014/PB-015/PB-016/PB-019/PB-020/PB-023 ✅；PB-002 翻译全链（剩真实 provider）；PB-006 搜索全链（剩精确跳转）；PB-018 E2E 15/15（Z-Library 真实未做）；PB-021 标注 UI（剩 ReaderAdapter/PDF rect）。
 - 存疑未改：书柜重命名 Esc 时序；readerStore 命令态跨书留存。
