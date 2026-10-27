@@ -188,4 +188,21 @@ export const enReader: Record<string, string> = {
 
   // PB-025-B：移除确认框（Dialog 接线）
   '移除后可以重新导入这本书继续阅读。': 'You can import the book again later to keep reading.',
+
+  // PB-009-C：分屏阅读（SplitReaderView）
+  '找不到要分屏的书籍': 'Could not find the books to show side by side',
+  '加载书籍失败': 'Failed to load the books',
+  '正在加载书籍…': 'Loading books…',
+  'PDF 暂不支持分屏阅读': 'PDF is not supported in split view yet',
+  '漫画（CBZ/CBR）暂不支持分屏阅读': 'Comics (CBZ/CBR) are not supported in split view yet',
+  '该格式暂不支持分屏阅读': 'This format is not supported in split view yet',
+  '目前分屏支持 EPUB 与 TXT；可以在单栏模式继续读这本。': 'Split view currently supports EPUB and TXT; you can keep reading this book in single view.',
+  '正在准备阅读…': 'Preparing the reading view…',
+  '拖动调整两栏宽度': 'Drag to resize the two panes',
+  '退出分屏': 'Exit split view',
+  '读取文件失败': 'Could not read the file',
+  '无法打开 EPUB 文件': 'Could not open the EPUB file',
+  '正在加载 EPUB…': 'Loading EPUB…',
+  '分屏阅读文本': 'Split-view text',
+  '正在加载文本…': 'Loading text…',
 }

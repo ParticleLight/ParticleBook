@@ -1,0 +1,150 @@
+/* PB-009-C：分屏阅读布局（全部走 globals.css 的主题 token） */
+
+.root {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  background: var(--reader-bg);
+  color: var(--reader-text);
+  position: relative;
+}
+
+.pane {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  height: 100%;
+  overflow: hidden;
+  position: relative;
+}
+
+.paneActive {
+  box-shadow: inset 0 0 0 1px var(--border-focus);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--reader-border);
+  background: var(--reader-sidebar);
+  font-size: 12px;
+  min-height: 34px;
+}
+
+.title {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  flex: 1;
+}
+
+.badge {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  background: var(--surface-hover);
+  color: var(--text-secondary);
+}
+
+.progress {
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.65;
+  font-size: 11px;
+}
+
+.body {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  overflow: hidden;
+}
+
+.divider {
+  width: 6px;
+  flex-shrink: 0;
+  cursor: col-resize;
+  background: var(--reader-border);
+  transition: background 120ms ease;
+}
+.divider:hover,
+.divider:focus-visible {
+  background: var(--accent);
+  outline: none;
+}
+
+.state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: 24px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
+.textScroll {
+  height: 100%;
+  overflow: auto;
+  padding: 0 28px;
+  outline: none;
+}
+
+.textContent {
+  padding: 16px 0 64px;
+  white-space: pre-line;
+  overflow-wrap: break-word;
+}
+
+.epubWrap {
+  height: 100%;
+  position: relative;
+  outline: none;
+}
+
+.epubViewer {
+  height: 100%;
+  width: 100%;
+}
+
+.epubControls {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  display: flex;
+  gap: 6px;
+  z-index: 2;
+}
+
+.controlButton {
+  padding: 3px 10px;
+  font-size: 11px;
+  border-radius: var(--radius-md, 8px);
+  border: 1px solid var(--reader-border);
+  background: var(--reader-sidebar);
+  color: var(--reader-text);
+  cursor: pointer;
+  opacity: 0.9;
+}
+.controlButton:hover {
+  border-color: var(--border-focus);
+}
+
+.hint {
+  position: absolute;
+  left: 10px;
+  bottom: 10px;
+  font-size: 10px;
+  color: var(--text-tertiary);
+  pointer-events: none;
+}
