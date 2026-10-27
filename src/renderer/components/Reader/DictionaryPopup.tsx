@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useReaderAdapter } from '../../reader'
+import { useReaderAdapter, type DictionaryRequest } from '../../reader'
 import { useReaderStore } from '../../stores/readerStore'
 
 // ── PB-010-B：本地词典弹层（离线查词）──────────────────────────────
@@ -43,6 +43,8 @@ interface DictionaryStatus {
 interface DictionaryPopupProps {
   open: boolean
   onClose: () => void
+  /** PB-022：SelectionToolbar 发来的选区请求（打开时自动查首词）。 */
+  request?: DictionaryRequest | null
 }
 
 const EXCHANGE_LABELS: Record<string, string> = {
@@ -62,7 +64,7 @@ function firstToken(text: string): string {
   return match ? match[0] : text
 }
 
-export function DictionaryPopup({ open, onClose }: DictionaryPopupProps) {
+export function DictionaryPopup({ open, onClose, request }: DictionaryPopupProps) {
   const { t } = useTranslation()
   // PB-021-F：取选区统一走 ReaderAdapter（EPUB iframe / TXT / HTML 同一入口）；
   // readerStore.selection 是 ReaderView 同步的等价快照，作为 adapter 缺失时的兜底。
@@ -156,6 +158,18 @@ export function DictionaryPopup({ open, onClose }: DictionaryPopupProps) {
     setWord(token)
     void lookup(token)
   }
+
+  // PB-022：工具条发来的选区请求 → 取首词并查询（id 去重）
+  const handledRequestRef = useRef(0)
+  useEffect(() => {
+    if (!open || !request) return
+    if (request.id === handledRequestRef.current) return
+    handledRequestRef.current = request.id
+    const token = firstToken(request.text)
+    if (!token) return
+    setWord(token)
+    void lookup(token)
+  }, [open, request, lookup])
 
   const importDictionary = async () => {
     setImporting(true)

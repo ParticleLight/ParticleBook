@@ -1,5 +1,6 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useReaderAdapter, createSearchController, type SearchController } from '../../reader'
 import { useReaderStore } from '../../stores/readerStore'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { copyText, downloadText } from '../../utils/download'
@@ -17,13 +18,24 @@ interface ReaderControlsProps {
   verticalText: boolean
   onCycleSpread: () => void
   onToggleVertical: () => void
+  // PB-022：SelectionToolbar 的词典请求（打开词典并查首词）
+  dictionaryRequest?: { id: number; text: string } | null
+  onDictionaryRequestHandled: () => void
+  /** PB-022：与 ReaderView 共享的 SearchController（缺省时自建一个）。 */
+  searchController?: SearchController | null
 }
 
 export function ReaderControls({
   bookId, format, onOpenSettings, onOpenTts, ttsActive,
   epubSpread, verticalText, onCycleSpread, onToggleVertical,
+  dictionaryRequest = null, onDictionaryRequestHandled, searchController: sharedSearchController = null,
 }: ReaderControlsProps) {
   const { t } = useTranslation()
+  const adapter = useReaderAdapter()
+  // PB-022：共享 SearchController —— 仅在渲染器搜索零命中时做兜底跳转
+  // （视觉高亮仍由各渲染器自己的搜索 UI 负责，不改变现有行为）。
+  const ownedSearchController = useMemo(() => createSearchController(adapter, { limit: 50 }), [adapter])
+  const searchController = sharedSearchController ?? ownedSearchController
   const progress = useReaderStore((s) => s.progress)
   const bookmarks = useReaderStore((s) => s.bookmarks)
   const toggleBookmarkAtProgress = useReaderStore((s) => s.toggleBookmarkAtProgress)
@@ -33,6 +45,12 @@ export function ReaderControls({
   const seekTo = useReaderStore((s) => s.seekTo)
   // PB-010-B：本地词典弹层（数据来自 C++ DictionaryService，离线）。
   const [dictionaryOpen, setDictionaryOpen] = useState(false)
+  // PB-022：工具条请求也会打开词典；关闭时两个来源一起清
+  const dictionaryVisible = dictionaryOpen || !!dictionaryRequest
+  const closeDictionary = () => {
+    setDictionaryOpen(false)
+    onDictionaryRequestHandled()
+  }
 
   const showSearch = useReaderStore((s) => s.showSearch)
   const setShowSearch = useReaderStore((s) => s.setShowSearch)
@@ -73,6 +91,11 @@ export function ReaderControls({
   const handleSearchKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
       e.preventDefault()
+      // PB-022：渲染器搜索零命中时，用 adapter 搜索兜底跳到首个命中（不画高亮）
+      if (searchQuery.trim() && searchMatches.length === 0) {
+        const matches = searchController.setQuery(searchQuery)
+        if (matches.length > 0 && searchController.goToCurrent()) return
+      }
       if (e.shiftKey) prevSearchMatch()
       else nextSearchMatch()
     } else if (e.key === 'Escape') {
@@ -386,7 +409,11 @@ export function ReaderControls({
         </div>
       )}
 
-      <DictionaryPopup open={dictionaryOpen} onClose={() => setDictionaryOpen(false)} />
+      <DictionaryPopup
+        open={dictionaryVisible}
+        request={dictionaryRequest}
+        onClose={closeDictionary}
+      />
     </div>
   )
 }

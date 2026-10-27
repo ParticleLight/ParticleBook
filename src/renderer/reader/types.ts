@@ -91,3 +91,17 @@ declare global {
     __pbReaderAdapter?: ReaderAdapter | null
   }
 }
+
+// ── PB-022：共享 UI 的请求形状（ReaderView → 弹层）────────────────────
+// SelectionToolbar 是选区的唯一入口：翻译/词典/朗读/高亮都由它触发，
+// 弹层不再各自监听选区。请求带自增 id，弹层用 id 判断"新请求"。
+export interface TranslationRequest {
+  id: number
+  text: string
+  rect?: { x: number; y: number; width: number; height: number }
+}
+
+export interface DictionaryRequest {
+  id: number
+  text: string
+}

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { copyText } from '../../utils/download'
-import { useReaderAdapter, type ReaderAdapter } from '../../reader'
+import { useReaderAdapter, type TranslationRequest } from '../../reader'
 
 // ── PB-002-B：阅读器「选中文本 → 翻译」浮层 ──────────────────────────
 //
@@ -142,15 +142,6 @@ export function clearTranslationCache(): number {
 }
 
 
-// PB-021-F：选区由 ReaderAdapter 统一提供（text + 视口 rect）。原来的
-// doc/win/frame/context 字段不再需要：触发按钮位置只用 rect，翻译上下文
-// 用空串（translationTranslate 的 context 是可选参数）。
-interface SelectionInfo {
-  text: string
-  context: string
-  rect: { left: number; top: number; right: number; bottom: number; width: number; height: number }
-}
-
 interface PanelState {
   open: boolean
   loading: boolean
@@ -165,28 +156,14 @@ interface PanelState {
 interface TranslationPopupProps {
   bottomInset?: number
   onOpenSettings?: () => void
+  /** PB-022：由 SelectionToolbar 发起的翻译请求（id 自增，弹层不再自己监听选区）。 */
+  request: TranslationRequest | null
+  /** 用户关闭面板时回调（ReaderView 用它清掉 request）。 */
+  onDismiss: () => void
 }
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), Math.max(min, max))
-}
-
-// 选区 → 浮层坐标：完全来自 adapter（主文档 / EPUB iframe 都由它归一化）。
-function selectionFromAdapter(adapter: ReaderAdapter | null): SelectionInfo | null {
-  const selected = adapter?.getSelection()
-  if (!selected || !selected.text.trim()) return null
-  const text = selected.text.replace(/\s+/g, ' ').trim().slice(0, MAX_SELECTION_CHARS)
-  if (!text) return null
-  const rect = selected.rect
-  const left = rect ? rect.x : Math.max(MARGIN, window.innerWidth / 2 - 40)
-  const top = rect ? rect.y : 80
-  const width = rect ? rect.width : 0
-  const height = rect ? rect.height : 0
-  return {
-    text,
-    context: '',
-    rect: { left, top, right: left + width, bottom: top + height, width, height },
-  }
 }
 
 // 错误码 → 中文文案 key。Settings 页的「测试连接」复用它，保持文案一致。
@@ -224,67 +201,48 @@ const EMPTY_PANEL: PanelState = {
   cached: false,
 }
 
-export function TranslationPopup({ bottomInset = 120, onOpenSettings }: TranslationPopupProps) {
+export function TranslationPopup({ bottomInset = 120, onOpenSettings, request, onDismiss }: TranslationPopupProps) {
   const { t } = useTranslation()
-  // PB-021-F：选区统一走 ReaderAdapter（EPUB iframe / TXT / HTML 同一入口）。
+  // PB-022：弹层不再监听选区 —— 翻译请求由共享 SelectionToolbar 发起
+  // （Ctrl+Shift+T 仍作为快捷键读取 adapter 当前选区）。
   const adapter = useReaderAdapter()
-  const [selection, setSelection] = useState<SelectionInfo | null>(null)
-  const [triggerPos, setTriggerPos] = useState<{ left: number; top: number } | null>(null)
   const [panel, setPanel] = useState<PanelState>(EMPTY_PANEL)
   const [panelPos, setPanelPos] = useState<{ left: number; top: number } | null>(null)
   const [copied, setCopied] = useState(false)
-  const selectionRef = useRef<SelectionInfo | null>(null)
   const requestRef = useRef(0)
-
-  const clearSelection = useCallback(() => {
-    selectionRef.current = null
-    setSelection(null)
-    setTriggerPos(null)
-  }, [])
+  const handledRequestRef = useRef(0)
 
   const closePanel = useCallback(() => {
     requestRef.current += 1
     setPanel(EMPTY_PANEL)
     setPanelPos(null)
     setCopied(false)
-  }, [])
+    onDismiss()
+  }, [onDismiss])
 
-  // 选中文本 → 在选区下方算「翻译」按钮位置（避开朗读条）
-  const refreshSelection = useCallback(() => {
-    if (panel.open) return
-    const found = selectionFromAdapter(adapter)
-    if (!found) { clearSelection(); return }
-    found.text = found.text.slice(0, MAX_SELECTION_CHARS)
-    selectionRef.current = found
-    setSelection(found)
+  const placePanel = useCallback((rect?: { x: number; y: number; width: number; height: number }) => {
     const maxBottom = window.innerHeight - bottomInset
-    let top = found.rect.bottom + 6
-    if (top + 32 > maxBottom) top = found.rect.top - 38
-    const left = clamp(found.rect.left + Math.min(40, Math.max(0, found.rect.width / 2)), MARGIN, window.innerWidth - 96 - MARGIN)
-    setTriggerPos({ left, top: clamp(top, MARGIN, Math.max(MARGIN, maxBottom - 32)) })
-  }, [adapter, bottomInset, clearSelection, panel.open])
-
-  const placePanel = useCallback((found: SelectionInfo) => {
-    const maxBottom = window.innerHeight - bottomInset
-    const left = clamp(found.rect.left, MARGIN, window.innerWidth - PANEL_WIDTH - MARGIN)
-    let top = found.rect.bottom + 10
+    const left = clamp(rect ? rect.x : window.innerWidth / 2 - PANEL_WIDTH / 2, MARGIN, window.innerWidth - PANEL_WIDTH - MARGIN)
+    const anchorBottom = rect ? rect.y + rect.height : Math.min(window.innerHeight * 0.4, Math.max(MARGIN, maxBottom - PANEL_MAX_HEIGHT - 10))
+    let top = anchorBottom + 10
     if (top + PANEL_MAX_HEIGHT > maxBottom) {
-      const above = found.rect.top - PANEL_MAX_HEIGHT - 10
+      const above = (rect ? rect.y : anchorBottom) - PANEL_MAX_HEIGHT - 10
       top = above > MARGIN ? above : Math.max(MARGIN, maxBottom - PANEL_MAX_HEIGHT)
     }
     setPanelPos({ left, top: clamp(top, MARGIN, Math.max(MARGIN, maxBottom - 120)) })
   }, [bottomInset])
 
-  const translate = useCallback(async () => {
-    const found = selectionRef.current
-    if (!found) return
-    const source = found.text
-    if (!source.trim()) { clearSelection(); return }
+  // 实际翻译：SelectionToolbar 请求 / Ctrl+Shift+T 都会走这里。
+  const translateText = useCallback(async (
+    rawText: string,
+    rect?: { x: number; y: number; width: number; height: number },
+  ) => {
+    const source = rawText.replace(/\s+/g, ' ').trim().slice(0, MAX_SELECTION_CHARS)
+    if (!source) return
 
     const requestId = requestRef.current + 1
     requestRef.current = requestId
-    placePanel(found)
-    setTriggerPos(null)
+    placePanel(rect)
     setCopied(false)
 
     // 先拿目标语言（本地 settings，一次 IPC）。缓存命中时下面直接返回，
@@ -312,7 +270,7 @@ export function TranslationPopup({ bottomInset = 120, onOpenSettings }: Translat
         [{ id: 's1', text: source }],
         'auto',
         target,
-        found.context,
+        '',
       )
       if (requestRef.current !== requestId) return
       const translated = result && Array.isArray(result.segments) && result.segments[0]
@@ -330,74 +288,35 @@ export function TranslationPopup({ bottomInset = 120, onOpenSettings }: Translat
       const code = (raw || 'unknown').trim()
       setPanel((prev) => prev.open ? { ...prev, loading: false, errorCode: code, errorText: t(translationErrorMessageKey(code)), cached: false } : prev)
     }
-  }, [clearSelection, placePanel, t])
+  }, [placePanel, t])
 
-  // 事件：选区（主文档 + iframe）、点空白、滚动、Esc、快捷键
+  // 请求 → 翻译（id 去重，避免同一次请求被重复触发）
   useEffect(() => {
-    const watched = new WeakSet<Document>()
+    if (!request || !request.text.trim()) return
+    if (request.id === handledRequestRef.current) return
+    handledRequestRef.current = request.id
+    void translateText(request.text, request.rect)
+  }, [request, translateText])
 
-    const onMouseUp = () => { window.setTimeout(refreshSelection, 20) }
-    const onKeyUp = (e: KeyboardEvent) => {
-      if (e.key === 'Shift' || e.key.startsWith('Arrow') || e.key === 'Home' || e.key === 'End') {
-        window.setTimeout(refreshSelection, 20)
-      }
-    }
-    const onMouseDown = (e: MouseEvent) => {
-      const target = e.target as Element | null
-      if (target && (target.closest('[data-pb-translate-panel]') || target.closest('[data-pb-translate-trigger]'))) return
-      clearSelection()
-    }
-    const onScroll = () => { clearSelection() }
+  // 快捷键：Esc 关面板；Ctrl+Shift+T 翻译 adapter 当前选区（共享工具条之外的入口）。
+  // 选区本身的监听已上移到 SelectionToolbar（PB-022），这里不再处理鼠标/滚动。
+  useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        if (panel.open) { e.stopPropagation(); closePanel(); return }
-        if (selectionRef.current) {
-          // 只是收「翻译」按钮：吞掉 Esc，别让 ReaderView 当成「退出阅读器」
-          e.stopPropagation()
-          clearSelection()
-        }
+      if (e.key === 'Escape' && panel.open) {
+        e.stopPropagation()
+        closePanel()
         return
       }
       if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'T' || e.key === 't')) {
         e.preventDefault()
         e.stopPropagation()
-        void translate()
+        const selected = adapter?.getSelection()
+        if (selected && selected.text.trim()) void translateText(selected.text, selected.rect)
       }
     }
-
-    const attach = (doc: Document) => {
-      if (watched.has(doc)) return
-      watched.add(doc)
-      doc.addEventListener('mouseup', onMouseUp)
-      doc.addEventListener('keyup', onKeyUp as EventListener)
-      doc.addEventListener('keydown', onKeyDown as EventListener)
-      doc.addEventListener('mousedown', onMouseDown as EventListener)
-    }
-
-    attach(document)
-    const scan = () => {
-      for (const frame of Array.from(document.querySelectorAll('iframe'))) {
-        try { if (frame.contentDocument) attach(frame.contentDocument) } catch { /* cross-origin */ }
-      }
-    }
-    scan()
-    const scanner = window.setInterval(scan, 700)
-
-    window.addEventListener('scroll', onScroll, true)
-    window.addEventListener('resize', onScroll)
-
-    return () => {
-      window.clearInterval(scanner)
-      window.removeEventListener('scroll', onScroll, true)
-      window.removeEventListener('resize', onScroll)
-      document.removeEventListener('mouseup', onMouseUp)
-      document.removeEventListener('keyup', onKeyUp as EventListener)
-      document.removeEventListener('keydown', onKeyDown as EventListener)
-      document.removeEventListener('mousedown', onMouseDown as EventListener)
-    }
-  }, [clearSelection, closePanel, panel.open, refreshSelection, translate])
-
-  useEffect(() => () => { selectionRef.current = null }, [])
+    document.addEventListener('keydown', onKeyDown, true)
+    return () => document.removeEventListener('keydown', onKeyDown, true)
+  }, [adapter, closePanel, panel.open, translateText])
 
   const speakSource = useCallback(() => {
     if (!panel.source) return
@@ -413,31 +332,6 @@ export function TranslationPopup({ bottomInset = 120, onOpenSettings }: Translat
 
   return (
     <>
-      {triggerPos && selection && !panel.open && (
-        <button
-          data-pb-translate-trigger="1"
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={() => { void translate() }}
-          className="fixed z-[60] px-2.5 py-1 rounded-full text-xs shadow-lg border transition-transform hover:scale-105"
-          style={{
-            left: triggerPos.left,
-            top: triggerPos.top,
-            background: 'var(--reader-sidebar, #1f2937)',
-            borderColor: 'var(--reader-border, #374151)',
-            color: 'var(--reader-text, #e5e7eb)',
-          }}
-          title={t('翻译')}
-          aria-label={t('翻译')}
-        >
-          <span className="inline-flex items-center gap-1">
-            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5h12M9 3v2m1.048 9.5A18.022 18.022 0 016.412 9m6.088 9h7M11 21l5-10 5 10M12.751 5C11.783 10.77 8.07 15.61 3 18.129" />
-            </svg>
-            {t('翻译')}
-          </span>
-        </button>
-      )}
-
       {panel.open && panelPos && (
         <div
           data-pb-translate-panel="1"

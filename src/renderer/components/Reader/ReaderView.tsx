@@ -26,10 +26,18 @@ function useAnimatedMount(isOpen: boolean, duration = 200) {
 }
 import { Sidebar } from './Sidebar'
 import { AnnotationPanel } from './AnnotationPanel'
+import { SelectionToolbar } from './SelectionToolbar'
 import { ReaderControls } from './ReaderControls'
 import { TtsBar } from './TtsBar'
 import { TranslationPopup } from './TranslationPopup'
-import { createReaderAdapter, ReaderAdapterProvider } from '../../reader'
+import {
+  createReaderAdapter,
+  createProgressController,
+  createSearchController,
+  ReaderAdapterProvider,
+  type ReaderSelection,
+  type TranslationRequest,
+} from '../../reader'
 import { formatReadingTime } from '../../utils/format'
 import { readBookFile } from '../../utils/fileReader'
 import { Dialog } from '../UI/Dialog'
@@ -97,6 +105,45 @@ export function ReaderView({ bookId, onClose }: ReaderViewProps) {
     [book, bookId],
   )
 
+  // PB-022：共享控制器（位置 / 搜索），工具条与 ReaderControls 复用同一实例。
+  const progressController = useMemo(() => createProgressController(readerAdapter), [readerAdapter])
+  const searchController = useMemo(() => createSearchController(readerAdapter, { limit: 50 }), [readerAdapter])
+  // PB-022：SelectionToolbar 发出的弹层请求（工具条是选区唯一入口）
+  const translationSeq = useRef(0)
+  const dictionarySeq = useRef(0)
+  const [translationRequest, setTranslationRequest] = useState<TranslationRequest | null>(null)
+  const [dictionaryRequest, setDictionaryRequest] = useState<{ id: number; text: string } | null>(null)
+
+  // 工具条动作：翻译/词典把选区作为请求发给对应弹层；朗读打开 TTS（TtsBar 读 adapter 选区）；
+  // 高亮直接用 adapter.applyAnnotation 写 annotations bridge（EPUB 选区无 CFI 时返回 null）。
+  const handleSelectionTranslate = (selection: ReaderSelection) => {
+    setTranslationRequest({ id: ++translationSeq.current, text: selection.text, rect: selection.rect })
+  }
+  const handleSelectionDictionary = (selection: ReaderSelection) => {
+    setShowControls(true)
+    setDictionaryRequest({ id: ++dictionarySeq.current, text: selection.text })
+  }
+  const handleSelectionRead = () => {
+    setShowControls(true)
+    setShowTts(true)
+  }
+  const handleSelectionHighlight = (selection: ReaderSelection) => {
+    if (!readerAdapter) return
+    void readerAdapter.applyAnnotation({ type: 'highlight', color: '#fbbf24', text: selection.text })
+      .then((created) => { if (created) useReaderStore.getState().clearSelection() })
+      .catch((error) => console.error('Failed to highlight selection:', error))
+  }
+
+  // PB-022：调试 / E2E 钩子（与 window.__pbReaderAdapter 同风格）
+  useEffect(() => {
+    ;(window as any).__pbReaderProgress = progressController
+    ;(window as any).__pbReaderSearch = searchController
+    return () => {
+      delete (window as any).__pbReaderProgress
+      delete (window as any).__pbReaderSearch
+    }
+  }, [progressController, searchController])
+
   const showSidebar = useReaderStore((s) => s.showSidebar)
   const showControls = useReaderStore((s) => s.showControls)
   const controlsLocked = useReaderStore((s) => s.controlsLocked)
@@ -114,14 +161,15 @@ export function ReaderView({ bookId, onClose }: ReaderViewProps) {
   const clearPendingLocator = useReaderStore((s) => s.clearPendingLocator)
 
   // PB-006: search result -> wait for the renderer to mount, then goTo.
+  // PB-022：走共享 ProgressController（adapter.getLocator/goTo 的同一封装）。
   useEffect(() => {
     if (!readerAdapter || !book || !pendingLocator) return
     const timer = window.setTimeout(() => {
-      Promise.resolve(readerAdapter.goTo(pendingLocator))
+      Promise.resolve(progressController.applyPending(pendingLocator))
         .finally(() => clearPendingLocator())
     }, 400)
     return () => window.clearTimeout(timer)
-  }, [readerAdapter, book, pendingLocator, clearPendingLocator])
+  }, [readerAdapter, book, pendingLocator, clearPendingLocator, progressController])
   const setBookId = useReaderStore((s) => s.setBookId)
   const startReadingSession = useReaderStore((s) => s.startReadingSession)
   const endReadingSession = useReaderStore((s) => s.endReadingSession)
@@ -210,7 +258,10 @@ export function ReaderView({ bookId, onClose }: ReaderViewProps) {
       try {
         const selection = readerAdapter.getSelection()
         const text = selection?.text ?? null
-        if (text === lastText) return
+        // 文本没变但 store 里的选区被别处清掉（工具条动作/弹层关闭）→ 重新写入，
+        // 否则同一次 DOM 选区再也不会让工具条出现。
+        const storeCleared = useReaderStore.getState().selection === null
+        if (text === lastText && (text === null) === storeCleared) return
         lastText = text
         const reader = useReaderStore.getState()
         if (selection) reader.setSelection(selection)
@@ -620,6 +671,9 @@ export function ReaderView({ bookId, onClose }: ReaderViewProps) {
             verticalText={verticalText}
             onCycleSpread={cycleEpubSpread}
             onToggleVertical={() => setVerticalText(!verticalText)}
+            dictionaryRequest={dictionaryRequest}
+            onDictionaryRequestHandled={() => setDictionaryRequest(null)}
+            searchController={searchController}
           />
         </div>
 
@@ -640,9 +694,20 @@ export function ReaderView({ bookId, onClose }: ReaderViewProps) {
 
       {/* PB-002-B：选中文本 → 翻译浮层（主文档与 EPUB iframe 都支持）。
           bottomInset 跟着朗读条走，保证浮层不压在 TTS 条上。 */}
+      {/* PB-022：选区唯一入口 —— 翻译 / 词典 / 朗读 / 高亮都从这里触发 */}
+      <SelectionToolbar
+        hidden={showSettings || showAnnotations || showSearch || showSidebar || !!translationRequest || !!dictionaryRequest}
+        onTranslate={handleSelectionTranslate}
+        onDictionary={handleSelectionDictionary}
+        onRead={handleSelectionRead}
+        onHighlight={handleSelectionHighlight}
+      />
+
       <TranslationPopup
         bottomInset={showTts ? 200 : 140}
         onOpenSettings={() => setShowSettings(true)}
+        request={translationRequest}
+        onDismiss={() => setTranslationRequest(null)}
       />
     </div>
     </ReaderAdapterProvider>

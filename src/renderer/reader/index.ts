@@ -12,6 +12,10 @@
 
 export * from './types'
 export { ReaderAdapterProvider, useReaderAdapter } from './ReaderAdapterContext'
+export { createProgressController } from './progressController'
+export type { ProgressController, ProgressSnapshot } from './progressController'
+export { createSearchController } from './searchController'
+export type { SearchController, SearchState } from './searchController'
 export { createDomAdapter } from './domAdapter'
 export { createEpubAdapter } from './epubAdapter'
 
