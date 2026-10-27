@@ -80,7 +80,10 @@ namespace pb {
 using json = nlohmann::json;
 
 // 索引文件格式版本。读到更新的版本直接拒绝（不猜未来语义）。
-inline constexpr int kSearchIndexVersion = 1;
+// v2（PB-006-C）：每本书保存 EPUB spine 章节的正文码点区间（SearchChapterSpan），
+// 搜索命中可映射到「章节 + 章节内相对偏移」；v1 索引仍可加载（只是 EPUB 命中
+// 没有章节提示，重建索引后生效）。
+inline constexpr int kSearchIndexVersion = 2;
 
 // ── 错误码（稳定字符串，便于回前端 / 写日志）──────────────────────────
 namespace search_index_codes {
@@ -147,14 +150,31 @@ struct SearchOptions {
     std::function<bool()> isCancelled;
 };
 
+// 章节定位（EPUB）：按 spine 顺序记录每章正文在整本书正文里的码点区间。
+// PB-006-C 用它把搜索命中的全局 offset 映射到「第几章 + 章节内偏移」。
+struct SearchChapterSpan {
+    int start = 0;    // 章节正文起始码点（含）
+    int end = 0;      // 结束码点（不含）
+    std::string href; // OPF 里的章节 href（调试 / 未来 CFI 映射用）
+};
+
 struct SearchHit {
     long long bookId = 0;
     std::string bookTitle;
     std::string bookFormat;
     std::string snippet;       // 命中附近上下文（含 … 省略号）；未存正文时为空
-    long long offset = -1;     // 命中起点（正文码点下标）
+    // 命中起点（码点）。格式相关：
+    //   * TXT/MOBI 等：正文全局偏移（可直接转 text locator）；
+    //   * EPUB：章节内相对偏移（配合 page=章节百分比×10）；
+    //   * HTML/Markdown：正文全局偏移（page 里给百分比提示）；
+    long long offset = -1;
     long long matchLength = 0; // 命中长度（码点）
-    int page = 0;              // PDF 页；本轮 PDF 不索引，恒为 0（预留字段）
+    // 定位提示（0 = 无提示；其余 = 1 + 百分比×10，避免与「无提示」混淆）：
+    //   * EPUB：章节起点在 spine 中的百分比 × 10 + 1 → seekTo 近似跳章节，
+    //     配合 offset=章节内相对偏移，渲染层再按比例滚到章节内位置；
+    //   * HTML/Markdown：命中位置在整本书正文中的百分比 × 10 + 1；
+    //   * PDF：页码（本轮 PDF 不索引，恒 0）；TXT/MOBI：0（用 offset 精确跳）。
+    int page = 0;
     double score = 0.0;        // 越高越相关（同分按 bookId 升序）
     int termHits = 0;          // 命中的查询项数（多词 AND 时等于查询项数）
 };
@@ -228,6 +248,8 @@ private:
         std::uint64_t fileSize = 0;
         std::size_t textChars = 0;
         std::string text;   // 规范化后的正文（includeText=false 时为空）
+        // EPUB spine 章节区间（start/end 是全书正文的码点下标）；其它格式为空。
+        std::vector<SearchChapterSpan> chapters;
         // 本书倒排：token → 升序位置数组（码点下标）。正文只在这里存一份。
         std::unordered_map<std::string, std::vector<int>> terms;
     };

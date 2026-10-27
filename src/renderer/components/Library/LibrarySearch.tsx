@@ -14,8 +14,13 @@ import { useReaderStore } from '../../stores/readerStore'
 //                                 truncated, cancelled }
 // 本组件不新增 bridge、不改 C++。
 //
-// 定位能力：TXT/MOBI/FB2/Markdown 的 indexed offset 可映射为 text locator，
-// 点击后通过 ReaderAdapter.goTo 跳转；EPUB/HTML/PDF 仍只打开书（CFI/页映射待后续）。
+// 定位能力（PB-006-C）：
+//   * TXT/MOBI/FB2：offset = 正文全局码点 → text locator（精确跳转，原有行为不变）；
+//   * EPUB：C++ 索引保存 spine 章节区间 → hit.page = 1 + 章节起点百分比×10、
+//     hit.offset = 章节内相对偏移 → scroll locator（seekTo 近似跳章节，
+//     adapter 再按 offset/章节长度滚到章节内位置）；
+//   * HTML/Markdown：hit.page = 1 + 正文百分比×10 → scroll locator；
+//   * PDF：索引暂不支持（SearchIndexService 跳过 PDF），无搜索命中。
 //
 // 状态：索引为空提示先建索引；建索引只显示已用时间（后端没有进度事件，给不了
 // 百分比）；查询防抖 300ms；无结果 / 错误 / 截断都有提示；Esc 关闭。
@@ -250,14 +255,34 @@ export function LibrarySearch({ onClose, onOpenBook }: LibrarySearchProps) {
 
   const openHit = useCallback((hit: SearchHit | undefined) => {
     if (!hit) return
-    // PB-006: text formats can map the indexed codepoint offset to the
-    // renderer's text offset; EPUB/HTML/PDF need CFI/page mapping later.
     const fmt = String(hit.bookFormat || '').toLowerCase()
-    if (['txt', 'mobi', 'fb2', 'markdown'].includes(fmt) && hit.offset >= 0) {
+    const hint = typeof hit.page === 'number' ? hit.page : 0  // 0 = 无提示；1 + percent*10
+    const offset = typeof hit.offset === 'number' ? hit.offset : -1
+    const length = typeof hit.matchLength === 'number' ? hit.matchLength : 0
+    if (['txt', 'mobi', 'fb2'].includes(fmt) && offset >= 0) {
+      // 精确：正文全局码点 → TextRenderer 的 toc-<offset>
       useReaderStore.getState().setPendingLocator({
         version: 1,
         kind: 'text',
-        offset: hit.offset,
+        offset,
+        length: length > 0 ? length : undefined,
+        quote: hit.snippet || '',
+      })
+    } else if (fmt === 'epub' && hint > 0) {
+      // 近似：章节起点百分比（seekTo 跳章）+ 章节内相对偏移（adapter 滚章节内）
+      useReaderStore.getState().setPendingLocator({
+        version: 1,
+        kind: 'scroll',
+        percent: Math.min(100, Math.max(0, (hint - 1) / 10)),
+        offset: offset >= 0 ? offset : 0,
+        length: length > 0 ? length : undefined,
+        quote: hit.snippet || '',
+      })
+    } else if ((fmt === 'html' || fmt === 'markdown') && hint > 0) {
+      useReaderStore.getState().setPendingLocator({
+        version: 1,
+        kind: 'scroll',
+        percent: Math.min(100, Math.max(0, (hint - 1) / 10)),
         quote: hit.snippet || '',
       })
     }

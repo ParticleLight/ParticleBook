@@ -873,7 +873,8 @@ std::vector<XmlTag> ScanTags(const std::string& xml, const std::string& wantedLo
     return tags;
 }
 
-bool ExtractEpubText(const std::string& epubPath, std::string& out, std::string* error)
+bool ExtractEpubText(const std::string& epubPath, std::string& out,
+                     std::vector<SearchChapterSpan>* chapters, std::string* error)
 {
     std::string container;
     if (!ReadZipEntry(epubPath, "META-INF/container.xml", container)) {
@@ -940,6 +941,8 @@ bool ExtractEpubText(const std::string& epubPath, std::string& out, std::string*
     }
 
     std::string combined;
+    std::vector<SearchChapterSpan> pending;
+    int totalCps = 0;
     int readCount = 0;
     for (const std::string& href : spineHrefs) {
         const std::string entry = ZipPathJoin(opfDir, href);
@@ -947,16 +950,59 @@ bool ExtractEpubText(const std::string& epubPath, std::string& out, std::string*
         std::string xhtml;
         if (!ReadZipEntry(epubPath, entry, xhtml)) continue;
         ++readCount;
-        combined.append(HtmlToTextImpl(xhtml));
+        const std::string chapterText = HtmlToTextImpl(xhtml);
+        SearchChapterSpan span;
+        span.start = totalCps;
+        span.href = href;
+        combined.append(chapterText);
+        totalCps += static_cast<int>(CountCodepoints(chapterText));
+        span.end = totalCps;
         combined.push_back('\n');
+        totalCps += 1;  // 章节分隔换行（不属于任何章节）
+        pending.push_back(std::move(span));
     }
 
     out = NormalizeText(combined);
+    // NormalizeText 会 TrimAscii 掉开头空白：把起始偏移做同样的校正。
+    int leadingTrim = 0;
+    {
+        std::size_t i = 0;
+        while (i < combined.size() && IsAsciiSpace(combined[i])) ++i;
+        leadingTrim = static_cast<int>(CountCodepoints(combined.substr(0, i)));
+    }
+    if (chapters) {
+        chapters->clear();
+        for (const SearchChapterSpan& span : pending) {
+            int start = span.start - leadingTrim;
+            int end = span.end - leadingTrim;
+            if (end <= 0) continue;
+            if (start < 0) start = 0;
+            if (end > start) chapters->push_back(SearchChapterSpan{ start, end, span.href });
+        }
+    }
     if (readCount == 0 || out.empty()) {
         if (error) *error = search_index_codes::kEpubNoText;
         return false;
     }
     return true;
+}
+
+// 正文被 maxChars / 总预算截断后，把章节区间跟着裁剪（超出部分丢弃）。
+void ClampChapters(std::vector<SearchChapterSpan>& chapters, std::size_t textChars) {
+    if (chapters.empty()) return;
+    const std::size_t limit = textChars > static_cast<std::size_t>(0x7FFFFFFF)
+        ? static_cast<std::size_t>(0x7FFFFFFF)
+        : textChars;
+    std::vector<SearchChapterSpan> kept;
+    kept.reserve(chapters.size());
+    for (const SearchChapterSpan& chapter : chapters) {
+        if (static_cast<std::size_t>(chapter.start) >= limit) break;
+        SearchChapterSpan span = chapter;
+        const std::size_t end = static_cast<std::size_t>(span.end);
+        if (end > limit) span.end = static_cast<int>(limit);
+        if (span.end > span.start) kept.push_back(span);
+    }
+    chapters = std::move(kept);
 }
 
 // ── 格式判定 ─────────────────────────────────────────────────────────
@@ -1053,15 +1099,19 @@ std::string SearchIndexService::MarkdownToText(const std::string& markdown)
     return MarkdownToTextImpl(markdown);
 }
 
-bool SearchIndexService::ExtractText(const std::string& filePathUtf8, const std::string& format,
-                                     std::size_t maxChars, std::string& out,
-                                     std::string* error)
+namespace {
+
+// 内部详细版：除正文外带回 EPUB 的 spine 章节区间（Build / AddBook 用）。
+bool ExtractTextDetailed(const std::string& filePathUtf8, const std::string& format,
+                         std::size_t maxChars, std::string& out,
+                         std::vector<SearchChapterSpan>& chapters, std::string* error)
 {
     out.clear();
+    chapters.clear();
     if (error) *error = search_index_codes::kOk;
 
-    std::string normalized = NormalizeFormat(format);
-    if (normalized.empty()) normalized = NormalizeFormat(ExtensionOf(filePathUtf8));
+    std::string normalized = SearchIndexService::NormalizeFormat(format);
+    if (normalized.empty()) normalized = SearchIndexService::NormalizeFormat(ExtensionOf(filePathUtf8));
     if (normalized.empty() || !IsSupportedFormat(normalized)) {
         if (error) *error = search_index_codes::kUnsupportedFormat;
         return false;
@@ -1074,7 +1124,7 @@ bool SearchIndexService::ExtractText(const std::string& filePathUtf8, const std:
     }
 
     if (normalized == "epub") {
-        if (!ExtractEpubText(filePathUtf8, out, error)) return false;
+        if (!ExtractEpubText(filePathUtf8, out, &chapters, error)) return false;
     } else {
         std::string bytes;
         if (!ReadFileBytes(filePathUtf8, bytes, error)) return false;
@@ -1090,11 +1140,22 @@ bool SearchIndexService::ExtractText(const std::string& filePathUtf8, const std:
     }
 
     if (maxChars > 0) out = TruncateCodepoints(out, maxChars);
+    ClampChapters(chapters, CountCodepoints(out));
     if (out.empty()) {
         if (error) *error = search_index_codes::kEmptyText;
         return false;
     }
     return true;
+}
+
+} // namespace
+
+bool SearchIndexService::ExtractText(const std::string& filePathUtf8, const std::string& format,
+                                     std::size_t maxChars, std::string& out,
+                                     std::string* error)
+{
+    std::vector<SearchChapterSpan> ignoredChapters;
+    return ExtractTextDetailed(filePathUtf8, format, maxChars, out, ignoredChapters, error);
 }
 
 // ── 构造 / 位置 ──────────────────────────────────────────────────────
@@ -1254,8 +1315,9 @@ SearchIndexBuildResult SearchIndexService::BuildLocked(const std::vector<BookTex
         }
 
         std::string text;
+        std::vector<SearchChapterSpan> chapters;
         std::string errorCode;
-        if (!ExtractText(source.filePath, format, options.maxCharsPerBook, text, &errorCode)) {
+        if (!ExtractTextDetailed(source.filePath, format, options.maxCharsPerBook, text, chapters, &errorCode)) {
             ++result.failed;
             PushBuildError(result, source.bookId, errorCode, source.filePath);
             continue;
@@ -1270,6 +1332,7 @@ SearchIndexBuildResult SearchIndexService::BuildLocked(const std::vector<BookTex
                 continue;
             }
             text = TruncateCodepoints(text, remaining);
+            ClampChapters(chapters, CountCodepoints(text));
         }
 
         auto record = std::make_shared<BookRecord>();
@@ -1280,6 +1343,7 @@ SearchIndexBuildResult SearchIndexService::BuildLocked(const std::vector<BookTex
         record->mtime = mtime;
         record->fileSize = fileSize;
         record->textChars = CountCodepoints(text);
+        record->chapters = std::move(chapters);
         record->terms = TokenizeBook(text);
         if (options.includeText) record->text = std::move(text);
 
@@ -1341,8 +1405,9 @@ bool SearchIndexService::AddBookLocked(const BookTextSource& book,
     }
 
     std::string text;
+    std::vector<SearchChapterSpan> chapters;
     std::string errorCode;
-    if (!ExtractText(book.filePath, format, options.maxCharsPerBook, text, &errorCode)) {
+    if (!ExtractTextDetailed(book.filePath, format, options.maxCharsPerBook, text, chapters, &errorCode)) {
         if (error) *error = errorCode;
         return false;
     }
@@ -1359,6 +1424,7 @@ bool SearchIndexService::AddBookLocked(const BookTextSource& book,
             return false;
         }
         text = TruncateCodepoints(text, remaining);
+        ClampChapters(chapters, CountCodepoints(text));
     }
 
     auto record = std::make_shared<BookRecord>();
@@ -1369,6 +1435,7 @@ bool SearchIndexService::AddBookLocked(const BookTextSource& book,
     record->mtime = mtime;
     record->fileSize = fileSize;
     record->textChars = CountCodepoints(text);
+    record->chapters = std::move(chapters);
     record->terms = TokenizeBook(text);
     if (options.includeText) record->text = std::move(text);
 
@@ -1632,6 +1699,44 @@ SearchResult SearchIndexService::SearchLocked(const std::string& query,
         hit.offset = static_cast<long long>(earliest);
         hit.matchLength = static_cast<long long>(earliestLength);
         hit.page = 0;
+        // PB-006-C：格式相关定位提示（详见 SearchHit 字段注释）
+        if (book.format == "epub" && !book.chapters.empty()) {
+            int chapterIndex = -1;
+            for (std::size_t i = 0; i < book.chapters.size(); ++i) {
+                const SearchChapterSpan& span = book.chapters[i];
+                if (earliest >= static_cast<std::size_t>(span.start)
+                    && earliest < static_cast<std::size_t>(span.end)) {
+                    chapterIndex = static_cast<int>(i);
+                    break;
+                }
+            }
+            if (chapterIndex < 0) {
+                // 命中落在章节分隔换行 / 截断边界上：取最后一个 start <= offset 的章节。
+                for (std::size_t i = 0; i < book.chapters.size(); ++i) {
+                    if (static_cast<std::size_t>(book.chapters[i].start) <= earliest) {
+                        chapterIndex = static_cast<int>(i);
+                    }
+                }
+            }
+            if (chapterIndex >= 0) {
+                const SearchChapterSpan& span = book.chapters[chapterIndex];
+                const int chapterCount = static_cast<int>(book.chapters.size());
+                const double percent = chapterCount > 1
+                    ? (static_cast<double>(chapterIndex) / static_cast<double>(chapterCount - 1)) * 100.0
+                    : 0.0;
+                // +1：让「第 1 章（0%）」与「无提示（0）」可区分
+                hit.page = 1 + static_cast<int>(std::lround(percent * 10.0));
+                const long long relative = static_cast<long long>(earliest)
+                    - static_cast<long long>(span.start);
+                hit.offset = relative > 0 ? relative : 0;
+            }
+        } else if (book.format == "html" || book.format == "markdown") {
+            if (book.textChars > 0) {
+                const double percent =
+                    (static_cast<double>(earliest) / static_cast<double>(book.textChars)) * 100.0;
+                hit.page = 1 + static_cast<int>(std::lround(percent * 10.0));
+            }
+        }
         hit.score = score;
         hit.termHits = static_cast<int>(constraints.size());
         hit.snippet = MakeSnippet(book.text, earliest, earliestLength, options.snippetContextChars);
@@ -1668,6 +1773,13 @@ json SearchIndexService::ToJsonLocked() const
         entry["fileSize"] = book.fileSize;
         entry["textChars"] = book.textChars;
         if (!book.text.empty()) entry["text"] = book.text;
+        if (!book.chapters.empty()) {
+            json chapters = json::array();
+            for (const SearchChapterSpan& chapter : book.chapters) {
+                chapters.push_back({ { "start", chapter.start }, { "end", chapter.end }, { "href", chapter.href } });
+            }
+            entry["chapters"] = std::move(chapters);
+        }
         json terms = json::object();
         for (const auto& termPair : book.terms) {
             terms[termPair.first] = termPair.second;
@@ -1797,6 +1909,24 @@ bool SearchIndexService::LoadFrom(const std::string& filePathUtf8, std::string* 
         record->textChars = textChars <= 0
                 ? (record->text.empty() ? 0 : CountCodepoints(record->text))
                 : static_cast<std::size_t>(textChars);
+
+        auto chaptersIt = entry.find("chapters");
+        if (chaptersIt != entry.end() && chaptersIt->is_array()) {
+            for (const json& chapter : *chaptersIt) {
+                if (!chapter.is_object()) continue;
+                SearchChapterSpan span;
+                span.start = static_cast<int>(JsonInt(chapter, "start", 0));
+                span.end = static_cast<int>(JsonInt(chapter, "end", 0));
+                span.href = JsonString(chapter, "href", std::string());
+                if (span.start < 0) span.start = 0;
+                if (span.end <= span.start) continue;
+                if (record->textChars > 0 && static_cast<std::size_t>(span.start) >= record->textChars) break;
+                if (record->textChars > 0 && static_cast<std::size_t>(span.end) > record->textChars) {
+                    span.end = static_cast<int>(record->textChars);
+                }
+                record->chapters.push_back(std::move(span));
+            }
+        }
 
         auto termsIt = entry.find("terms");
         if (termsIt != entry.end() && termsIt->is_object()) {

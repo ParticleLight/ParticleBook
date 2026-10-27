@@ -58,7 +58,51 @@ export function createEpubAdapter(bookId: number): ReaderAdapter {
     },
 
     goTo(locator: ReaderLocator): boolean {
-      return goToLocator(locator)
+      const handled = goToLocator(locator)
+      // PB-006-C：EPUB 搜索命中用 scroll locator —— percent 是章节起点百分比
+      // （seekTo → EpubRenderer 按 spine 比例 display 章节），offset 是章节内相对
+      // 码点；换章后按 offset/章节长度比例把 iframe 滚到章节内大致位置。
+      // epub.js 换章是异步的（可能新建 iframe / 慢设备更久）：多次重试，成功一次
+      // 后停掉后续定时器；每次遍历所有可见 iframe（旧 iframe 在过渡期可能还在）。
+      if (handled && locator.kind === 'scroll'
+          && typeof locator.offset === 'number' && locator.offset >= 0) {
+        const relativeOffset = locator.offset
+        const timers: number[] = []
+        const clearTimers = () => {
+          while (timers.length > 0) {
+            const id = timers.pop()
+            if (id !== undefined) window.clearTimeout(id)
+          }
+        }
+        const scrollWithinChapter = (): boolean => {
+          let scrolled = false
+          for (const frame of Array.from(document.querySelectorAll('iframe'))) {
+            try {
+              const doc = frame.contentDocument
+              const win = doc?.defaultView
+              if (!doc || !win || !doc.body) continue
+              const frameBox = frame.getBoundingClientRect()
+              if (frameBox.width < 40 || frameBox.height < 40) continue
+              const length = countCodepoints(doc.body.innerText ?? '')
+              if (length <= 0) continue
+              const ratio = Math.min(1, Math.max(0, relativeOffset / length))
+              const scroller = (doc.scrollingElement ?? doc.documentElement) as HTMLElement | null
+              const maxScroll = Math.max(0, (scroller?.scrollHeight ?? 0) - win.innerHeight)
+              if (maxScroll <= 0) continue
+              win.scrollTo(0, ratio * maxScroll)
+              scrolled = true
+            } catch (error) {
+              console.debug('epubAdapter: within-chapter scroll failed', error)
+            }
+          }
+          if (scrolled) clearTimers()
+          return scrolled
+        }
+        for (const delay of [400, 900, 1600, 2600, 4000, 6000]) {
+          timers.push(window.setTimeout(scrollWithinChapter, delay))
+        }
+      }
+      return handled
     },
 
     // EPUB 选区：只有文本可靠；CFI 见文件头说明。
