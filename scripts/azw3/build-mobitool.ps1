@@ -69,7 +69,7 @@ if ($cmake -notmatch 'win32/getopt\.c') {
         $needle = "add_executable(mobitool mobitool.c)`ntarget_link_libraries(mobitool PUBLIC mobi)"
     }
     if ($cmake -notmatch [regex]::Escape($needle)) { throw 'tools/CMakeLists.txt: mobitool block not found' }
-    $patch = $needle + "`nif(WIN32)`n    target_sources(mobitool PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/win32/getopt.c)`n    target_include_directories(mobitool PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/win32)`nendif()"
+    $patch = $needle + "`nif(WIN32)`n    target_sources(mobitool PRIVATE " + '${CMAKE_CURRENT_SOURCE_DIR}/win32/getopt.c' + ")`n    target_include_directories(mobitool PRIVATE " + '${CMAKE_CURRENT_SOURCE_DIR}/win32' + ")`nendif()"
     $cmake = $cmake.Replace($needle, $patch)
     Set-Content -LiteralPath $CMakeTools -Value $cmake -Encoding UTF8
     Write-Host '[azw3] patched tools/CMakeLists.txt (win32/getopt.c)'

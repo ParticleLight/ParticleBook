@@ -12,6 +12,7 @@
 #include <filesystem>
 #include <mutex>
 #include <string>
+#include <vector>
 
 namespace filefmt {
 
@@ -105,6 +106,107 @@ std::string ConvertMobiToText(const std::string& filePath)
             result += normalized[i];
         }
     }
+    return result;
+}
+
+namespace {
+
+std::wstring MakeAzw3TempDir()
+{
+    wchar_t tempPath[MAX_PATH] = {};
+    if (GetTempPathW(MAX_PATH, tempPath) == 0) return L"";
+    for (int i = 0; i < 16; ++i) {
+        std::wstring dir = tempPath;
+        dir += L"pb_azw3_" + std::to_wstring(GetCurrentProcessId()) + L"_" +
+               std::to_wstring(GetTickCount64()) + L"_" + std::to_wstring(i);
+        if (CreateDirectoryW(dir.c_str(), nullptr)) return dir;
+    }
+    return L"";
+}
+
+bool RunHiddenProcess(const std::wstring& exe, const std::wstring& args, DWORD timeoutMs, DWORD* exitCode)
+{
+    std::wstring cmd = L"\"" + exe + L"\" " + args;
+    std::vector<wchar_t> buffer(cmd.begin(), cmd.end());
+    buffer.push_back(L'\0');
+
+    STARTUPINFOW si = { sizeof(STARTUPINFOW) };
+    si.dwFlags = STARTF_USESHOWWINDOW;
+    si.wShowWindow = SW_HIDE;
+    PROCESS_INFORMATION pi = {};
+    if (!CreateProcessW(nullptr, buffer.data(), nullptr, nullptr, FALSE,
+                        CREATE_NO_WINDOW | NORMAL_PRIORITY_CLASS,
+                        nullptr, nullptr, &si, &pi)) {
+        return false;
+    }
+    const DWORD waitResult = WaitForSingleObject(pi.hProcess, timeoutMs);
+    if (waitResult == WAIT_TIMEOUT) TerminateProcess(pi.hProcess, 1);
+    WaitForSingleObject(pi.hProcess, INFINITE);
+    DWORD code = 1;
+    GetExitCodeProcess(pi.hProcess, &code);
+    CloseHandle(pi.hProcess);
+    CloseHandle(pi.hThread);
+    if (exitCode) *exitCode = code;
+    return true;
+}
+
+} // namespace
+
+Azw3Conversion ConvertAzw3ToEpub(const std::string& filePath, const std::string& outputEpubPath)
+{
+    Azw3Conversion result;
+    wchar_t exePathBuf[MAX_PATH] = {};
+    if (GetModuleFileNameW(nullptr, exePathBuf, MAX_PATH) == 0) {
+        result.error = "cannot locate app directory";
+        return result;
+    }
+    const std::filesystem::path toolPath =
+        std::filesystem::path(exePathBuf).parent_path() / L"mobitool.exe";
+    std::error_code ec;
+    if (!std::filesystem::exists(toolPath, ec)) {
+        result.error = "mobitool.exe not found next to app";
+        return result;
+    }
+
+    const std::wstring tempDir = MakeAzw3TempDir();
+    if (tempDir.empty()) {
+        result.error = "cannot create temp directory";
+        return result;
+    }
+    const std::filesystem::path inputPath(pb::Utf8ToWide(filePath));
+    const std::wstring stem = inputPath.stem().wstring();
+    const std::wstring args = L"-e -o \"" + tempDir + L"\" \"" + inputPath.wstring() + L"\"";
+
+    DWORD exitCode = 1;
+    const bool started = RunHiddenProcess(toolPath.wstring(), args, 30000, &exitCode);
+    if (!started) {
+        result.error = "mobitool.exe failed to start";
+    } else if (exitCode != 0) {
+        result.error = "mobitool exit code " + std::to_string(exitCode);
+    } else {
+        const std::filesystem::path converted = std::filesystem::path(tempDir) / (stem + L".epub");
+        if (!std::filesystem::exists(converted, ec)) {
+            result.error = "mobitool produced no epub";
+        } else {
+            const auto size = std::filesystem::file_size(converted, ec);
+            if (ec || size == 0) {
+                result.error = "mobitool produced an empty epub";
+            } else {
+                const std::filesystem::path output(pb::Utf8ToWide(outputEpubPath));
+                std::filesystem::create_directories(output.parent_path(), ec);
+                ec.clear();
+                std::filesystem::copy_file(converted, output, std::filesystem::copy_options::overwrite_existing, ec);
+                if (ec) {
+                    result.error = "cannot write converted epub";
+                } else {
+                    result.ok = true;
+                }
+            }
+        }
+    }
+
+    std::error_code cleanupEc;
+    std::filesystem::remove_all(tempDir, cleanupEc);
     return result;
 }
 

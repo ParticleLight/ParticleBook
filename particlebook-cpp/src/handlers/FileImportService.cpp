@@ -204,14 +204,45 @@ json ImportBookPaths(DatabaseService* db, const json& paths, pb::JobContext& job
                                           std::to_string(converted.paragraphCount) + " paragraphs, " +
                                           std::to_string(converted.imageCount) + " images)");
             } else if (format == "azw3") {
-                // PB-008-A：AZW3/AZW 复用 MOBI 文本管线（mutool convert -F text）。
-                // 先探一次，转不出文字（KF8 不支持 / 有 DRM）就不入库，避免空书。
-                const std::string probe = filefmt::ConvertMobiToText(path);
-                if (probe.empty()) {
-                    pb::LogWarn("import", "book:import: AZW3 text conversion unavailable "
-                                              "(MuPDF unsupported or DRM): " + filefmt::GetFileName(path));
-                    recordError(path, "azw3 text unavailable (DRM or unsupported)");
-                    continue;
+                // PB-008-D：优先用 mobitool.exe 把 AZW3/KF8 转成 EPUB，按 epub 入库；
+                // original_path 保留原 azw3。mobitool 失败时回退现有 mutool 文本探针
+                // （KF7/MOBI 仍可能走文本），两者都失败才按“DRM/不支持”拒收，避免空书。
+                const std::string convertedDir = ParentDirOf(db->Path()) + "/converted";
+                CreateDirectoryW(pb::Utf8ToWide(convertedDir).c_str(), nullptr);
+                const std::string hash = pb::Fnv1a64Hex(path);
+                const std::string epubPath = convertedDir + "/" + hash + ".epub";
+                const filefmt::Azw3Conversion converted = filefmt::ConvertAzw3ToEpub(path, epubPath);
+                if (converted.ok) {
+                    storedPath = epubPath;
+                    storedFormat = "epub";
+                    originalPath = path;
+                    // 转出的 EPUB 是标准 EPUB2：复用现有 EPUB 抽取器补标题/作者/封面。
+                    ExtractedMetadata epubMeta;
+                    if (lib.ExtractEpubMetadata(epubPath, epubMeta)) {
+                        if (!epubMeta.title.empty()) em.title = epubMeta.title;
+                        if (!epubMeta.author.empty()) em.author = epubMeta.author;
+                        if (!epubMeta.description.empty()) em.description = epubMeta.description;
+                        if (!epubMeta.publisher.empty()) em.publisher = epubMeta.publisher;
+                        if (!epubMeta.language.empty()) em.language = epubMeta.language;
+                        if (!epubMeta.isbn.empty()) em.isbn = epubMeta.isbn;
+                        if (!epubMeta.coverFile.empty()) {
+                            const std::string coverPath = lib.ExtractEpubCover(epubPath, epubMeta.coverFile);
+                            if (!coverPath.empty()) em.coverPath = coverPath;
+                        }
+                    }
+                    pb::LogInfo("import", "book:import: AZW3 converted to EPUB: " +
+                                              filefmt::GetFileName(path));
+                } else {
+                    pb::LogWarn("import", "book:import: AZW3→EPUB conversion failed (" + converted.error +
+                                              "), falling back to text: " + filefmt::GetFileName(path));
+                    const std::string probe = filefmt::ConvertMobiToText(path);
+                    if (probe.empty()) {
+                        pb::LogWarn("import", "book:import: AZW3 conversion unavailable "
+                                                  "(mobitool/mutool unsupported or DRM): " +
+                                                  filefmt::GetFileName(path));
+                        recordError(path, "azw3 conversion failed (DRM or unsupported)");
+                        continue;
+                    }
                 }
             }
             filefmt::DebugLog("book:import: metadata extraction complete");

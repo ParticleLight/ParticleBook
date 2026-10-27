@@ -9,7 +9,7 @@
 // WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS 打开随机空闲端口的 CDP，用 Node 内置
 // WebSocket 驱动：真实窗口 + 真实 DOM + 真实桥接调用。
 //
-// 17 步 smoke（5 条基础 + 5 步 PB-018-B + 3 步 PB-018-C + 2 步 PB-018-D + 真实 Z-Library 下载 + 翻译 context UI）：
+// 18 步 smoke（5 条基础 + 5 步 PB-018-B + 3 步 PB-018-C + 2 步 PB-018-D + 真实 Z-Library 下载 + 翻译 context UI + AZW3 导入）：
 //   1) launch-and-cdp          启动、CDP 就绪、页面 title、桥接 shim、沙箱隔离
 //   2) bridge-read             getPendingOpenFiles / getBooks / getSettings
 //   3) import-epub             生成最小 EPUB → importBooks → 书架出现
@@ -29,6 +29,8 @@
 //                              下载（>256KB 断言 downloadProgress）→ 导入书架 + library:changed（不依赖公网）
 //  17) translation-context-ui  EPUB 真实选区 → 共享 SelectionToolbar → adapter 前后文 → 本地 OpenAI mock
 //                              断言 provider 收到非空 user.context；再翻同句命中本地缓存（0 网络请求）
+//  18) azw3-import             KF8 样本 → importBooks → mobitool.exe 转 EPUB（data/converted/*.epub）
+//                              按 epub 入库 + original_path 保留 + 封面抽取 + EPUB 阅读器正文渲染
 //
 // 失败时：CDP 截图 + 页面 console + app stdout/stderr + reader.json 快照写入
 // artifacts，退出码 1。--fail-at <step> 故意失败，用来验证失败路径。
@@ -60,7 +62,7 @@ Options:
                         import-epub | open-read-turn-close | settings-forward-exit |
                         extended-app | tts | backup | translation | schema |
                         search | pdf | zlib | translation-mock | zlib-mock |
-                        zlib-real-download | translation-context-ui)
+                        zlib-real-download | translation-context-ui | azw3-import)
   --verbose             Print extra detail
   -h, --help            Show this help
 `
@@ -1437,6 +1439,66 @@ async function smokeZlibRealDownload() {
   }
 }
 
+// ── PB-008-D：AZW3/KF8 → EPUB 导入 + 阅读 ───────────────────────────
+async function smokeAzw3Import() {
+  const source = new URL('./fixtures/example.azw3', import.meta.url)
+  const azw3Path = path.join(state.sandbox.files, 'pb-e2e-azw3.azw3')
+  await fs.copyFile(source, azw3Path)
+  let phase = null
+  try {
+    phase = await startAppOnSandbox(state.sandbox, 'app-azw3.log')
+    const cdp = phase.cdp
+    const imported = await bridge('importBooks', [azw3Path])
+    assert(Array.isArray(imported) && imported.length === 1,
+      'importBooks(AZW3) returned ' + JSON.stringify(imported))
+    const book = imported[0]
+    assertEqual(book.format, 'epub', 'AZW3 should be stored as converted epub')
+    assertEqual(book.title, 'example', 'AZW3 converted title (from EPUB metadata)')
+    assert(book.original_path && /\.azw3$/i.test(book.original_path),
+      'AZW3 original_path should keep the source file: ' + JSON.stringify(book.original_path))
+    assert(book.file_path && /\.epub$/i.test(book.file_path) && book.file_path.includes('converted'),
+      'AZW3 file_path should point at data/converted/*.epub: ' + JSON.stringify(book.file_path))
+    const convertedStat = await fs.stat(book.file_path)
+    assert(convertedStat.size > 100000,
+      'converted EPUB too small: ' + convertedStat.size + ' bytes')
+    assert(book.cover_path && book.cover_path.length > 0, 'AZW3 converted cover_path is empty')
+    const coverStat = await fs.stat(book.cover_path)
+    assert(coverStat.size > 0, 'AZW3 converted cover file is empty')
+
+    await cdp.evaluate('window.__refreshLibrary && window.__refreshLibrary(); true')
+    // 标题 "example" 可能在页面别处出现（搜索框/标题），按 data-book-id 精确点卡片。
+    await cdp.waitFor(`!!document.querySelector('[data-book-id="${book.id}"]')`, {
+      timeoutMs: options.timeout, label: 'AZW3 converted book card visible',
+    })
+    await cdp.evaluate(`document.querySelector('[data-book-id="${book.id}"]').click(); true`)
+    await cdp.waitFor(`(() => {
+      const frame = document.querySelector('iframe');
+      const doc = frame && frame.contentDocument;
+      return !!(doc && (doc.body.innerText || '').includes('AZW3 test file'));
+    })()`, { timeoutMs: options.timeout, label: 'converted AZW3 EPUB text visible' })
+    await cdp.screenshot(path.join(state.artifacts, '10-azw3.png'))
+    await pressKey('Escape')
+    await cdp.waitFor("!document.querySelector('iframe')", {
+      timeoutMs: options.timeout, label: 'AZW3 reader closed back to library',
+    })
+
+    state.azw3 = {
+      bookId: book.id,
+      convertedPath: book.file_path,
+      convertedSize: convertedStat.size,
+      coverPath: book.cover_path,
+      sourcePath: book.original_path,
+    }
+    state.notes.push('azw3 import: mobitool.exe converts KF8 to EPUB (' + convertedStat.size +
+      ' bytes); stored as epub with original_path, cover extracted, reader rendered converted text.')
+    log('azw3 ok: #' + book.id + ' -> epub ' + convertedStat.size + ' B, original_path kept, reader text verified')
+    await closeAppGracefully(phase.app, 'azw3 import app')
+    phase = null
+  } finally {
+    if (phase) await appLib.forceKill(phase.app).catch(() => {})
+  }
+}
+
 // ── 失败采集 / 清理 / 报告 ───────────────────────────────────────
 async function captureFailureArtifacts(error) {
   const prefix = sanitize(state.currentStep)
@@ -1543,6 +1605,7 @@ async function finalize(fatal) {
     mockTranslation: state.mockTranslation,
     zlibReal: state.zlibReal,
     translationContext: state.translationContext,
+    azw3: state.azw3,
     notes: state.notes,
     steps: state.steps,
     failure: state.failure,
@@ -1683,6 +1746,9 @@ async function run() {
 
     // ── PB-018-A：本地 HTTP mock 的真实 Z-Library 下载 → 导入 ──
     await step('zlib-real-download', smokeZlibRealDownload)
+
+    // ── PB-008-D：AZW3/KF8 → EPUB 导入 + 阅读 ──
+    await step('azw3-import', smokeAzw3Import)
     state.ok = true
   } catch (error) {
     state.failure = {
