@@ -40,11 +40,16 @@ add_executable(ParticleBook WIN32
     src/main.cpp
     src/App.cpp
     src/WebViewHost.cpp
+    src/WebViewHostWebView.cpp
+    src/WebViewHostPage.cpp
     src/BridgeServer.cpp
     src/services/DatabaseService.cpp
     src/services/LibraryService.cpp
     src/services/PdfService.cpp
     src/services/BookSourceService.cpp
+    src/services/BookSourceHttp.cpp
+    src/services/BookSourceSearch.cpp
+    src/services/BookSourceContent.cpp
     src/services/ZLibraryService.cpp
     src/services/ZLibraryMirror.cpp
     src/services/ZLibraryDownload.cpp
