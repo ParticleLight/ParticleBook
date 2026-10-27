@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useReaderStore } from '../../stores/readerStore'
 
 // ── PB-006-B：书库「全局全文搜索」面板 ───────────────────────────────
 //
@@ -13,9 +14,8 @@ import { useTranslation } from 'react-i18next'
 //                                 truncated, cancelled }
 // 本组件不新增 bridge、不改 C++。
 //
-// 定位能力：SearchIndex 的 offset 是「规范化正文里的码点偏移」，和渲染层的
-// CFI / 页码 / 滚动位置没有可逆映射，所以点击结果目前只能**打开那本书**，
-// 不能精确跳到命中段落（UI 底部有说明）。等 PB-021 Locator 统一模型落地后再接。
+// 定位能力：TXT/MOBI/FB2/Markdown 的 indexed offset 可映射为 text locator，
+// 点击后通过 ReaderAdapter.goTo 跳转；EPUB/HTML/PDF 仍只打开书（CFI/页映射待后续）。
 //
 // 状态：索引为空提示先建索引；建索引只显示已用时间（后端没有进度事件，给不了
 // 百分比）；查询防抖 300ms；无结果 / 错误 / 截断都有提示；Esc 关闭。
@@ -250,6 +250,17 @@ export function LibrarySearch({ onClose, onOpenBook }: LibrarySearchProps) {
 
   const openHit = useCallback((hit: SearchHit | undefined) => {
     if (!hit) return
+    // PB-006: text formats can map the indexed codepoint offset to the
+    // renderer's text offset; EPUB/HTML/PDF need CFI/page mapping later.
+    const fmt = String(hit.bookFormat || '').toLowerCase()
+    if (['txt', 'mobi', 'fb2', 'markdown'].includes(fmt) && hit.offset >= 0) {
+      useReaderStore.getState().setPendingLocator({
+        version: 1,
+        kind: 'text',
+        offset: hit.offset,
+        quote: hit.snippet || '',
+      })
+    }
     onOpenBook(hit.bookId)
     onClose()
   }, [onClose, onOpenBook])

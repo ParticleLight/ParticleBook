@@ -104,8 +104,12 @@ export interface ReaderState {
   setControlsLocked: (locked: boolean) => void
 
   navigateTarget: { page?: number; cfi?: string } | null
+  // PB-006: search hit -> ReaderView adapter.goTo after the renderer mounts.
+  pendingLocator: PbLocator | null
   navigateTo: (target: { page?: number; cfi?: string }) => void
   clearNavigateTarget: () => void
+  setPendingLocator: (locator: PbLocator | null) => void
+  clearPendingLocator: () => void
 
   turnPageDelta: number | null
   turnPage: (delta: number) => void
@@ -152,6 +156,7 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
   showControls: true,
   controlsLocked: false,
   navigateTarget: null,
+  pendingLocator: null,
   turnPageDelta: null,
   seekTarget: null,
   showSearch: false,
@@ -397,6 +402,8 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
   setControlsLocked: (controlsLocked) => set({ controlsLocked }),
   navigateTo: (target) => set({ navigateTarget: target }),
   clearNavigateTarget: () => set({ navigateTarget: null }),
+  setPendingLocator: (pendingLocator) => set({ pendingLocator }),
+  clearPendingLocator: () => set({ pendingLocator: null }),
   turnPage: (delta) => set({ turnPageDelta: delta }),
   clearTurnPage: () => set({ turnPageDelta: null }),
   seekTo: (percent) => set({ seekTarget: percent }),
