@@ -46,6 +46,8 @@ add_executable(ParticleBook WIN32
     src/services/PdfService.cpp
     src/services/BookSourceService.cpp
     src/services/ZLibraryService.cpp
+    src/services/ZLibraryMirror.cpp
+    src/services/ZLibraryDownload.cpp
     src/services/ContentCache.cpp
     src/services/BackupService.cpp
     src/services/DictionaryService.cpp
@@ -58,6 +60,7 @@ add_executable(ParticleBook WIN32
     src/handlers/DbHandlers.cpp
     src/handlers/BookMetadataHandlers.cpp
     src/handlers/FileHandlers.cpp
+    src/handlers/FileHandlersUpdate.cpp
     src/handlers/BackupHandlers.cpp
     src/handlers/ExportHandlers.cpp
     src/handlers/TtsHandlers.cpp
@@ -119,6 +122,16 @@ add_custom_command(TARGET ParticleBook POST_BUILD
         "$<TARGET_FILE_DIR:ParticleBook>"
 )
 
+# ── PB-024-A: injected UI scripts (editable without recompiling) ──
+# resources/zlib_toolbar.js + download_card.js are read from
+# <exe dir>/resources at startup; missing files fall back to built-in minimal
+# scripts (App.cpp logs a WARN).
+add_custom_command(TARGET ParticleBook POST_BUILD
+    COMMAND "${CMAKE_COMMAND}" -E copy_directory
+        "${CMAKE_SOURCE_DIR}/resources"
+        "$<TARGET_FILE_DIR:ParticleBook>/resources"
+)
+
 # ── Copy frontend to build output ────────────────────────────────
 add_custom_command(TARGET ParticleBook POST_BUILD
     COMMAND "${CMAKE_COMMAND}" -E copy_directory
@@ -130,6 +143,7 @@ add_custom_command(TARGET ParticleBook POST_BUILD
 install(TARGETS ParticleBook RUNTIME DESTINATION .)
 install(FILES "${CMAKE_SOURCE_DIR}/third_party/mupdf-1.25.0-windows/mutool.exe" DESTINATION .)
 install(DIRECTORY "$<TARGET_FILE_DIR:ParticleBook>/renderer" DESTINATION renderer)
+install(DIRECTORY "${CMAKE_SOURCE_DIR}/resources" DESTINATION .)
 
 # ── Unit tests (pure header utils — no Win32/GUI deps) ───────────────
 # Each test .cpp has its own main(), so build one small executable per test.
