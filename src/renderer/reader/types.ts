@@ -26,6 +26,8 @@ export interface ReaderSelection {
   locator?: ReaderLocator | null
   /** 选区在窗口坐标里的包围盒（浮层定位用）。 */
   rect?: { x: number; y: number; width: number; height: number }
+  /** PB-002-B：选区前后文窗口（同章节/同段落 ±300 字，折叠空白）。 */
+  context?: string
 }
 
 /** 纯文本模型：TXT/HTML 是全书；EPUB 仅是当前章节（iframe 内容）。 */
@@ -99,6 +101,8 @@ export interface TranslationRequest {
   id: number
   text: string
   rect?: { x: number; y: number; width: number; height: number }
+  /** PB-002-B：选区前后文（长句 / 代词消歧；TranslationService 的 user.context）。 */
+  context?: string
 }
 
 export interface DictionaryRequest {

@@ -48,7 +48,13 @@ export function SelectionToolbar({
     if (live && live.text.trim()) return live
     const snapshot = useReaderStore.getState().selection
     if (snapshot && snapshot.text.trim()) {
-      return { text: snapshot.text, locator: snapshot.locator ?? null, rect: snapshot.rect }
+      return {
+        text: snapshot.text,
+        locator: snapshot.locator ?? null,
+        rect: snapshot.rect,
+        // readerStore 的类型还没带 context，但 runtime 快照是 adapter 原对象。
+        context: (snapshot as ReaderSelection).context,
+      }
     }
     return null
   }

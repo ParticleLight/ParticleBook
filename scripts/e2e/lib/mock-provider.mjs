@@ -16,12 +16,15 @@ export async function startMockTranslationServer() {
     request.setEncoding('utf8')
     request.on('data', (chunk) => { body += chunk })
     request.on('end', () => {
-      requests.push({
+      const record = {
         method: request.method,
         url: request.url,
         headers: request.headers,
         body,
-      })
+        context: '',
+        segments: [],
+      }
+      requests.push(record)
 
       if (mode.current === '429' || mode.current === '500') {
         const status = Number(mode.current)
@@ -36,6 +39,10 @@ export async function startMockTranslationServer() {
       try {
         const envelope = JSON.parse(body)
         const user = JSON.parse(envelope.messages[1].content)
+        // PB-002-B：把真实请求里的 user.context 留档，E2E 断言选区前后文确实
+        // 送进了 provider（TranslationService 的 includeContext）。
+        record.context = typeof user.context === 'string' ? user.context : ''
+        record.segments = Array.isArray(user.segments) ? user.segments : []
         const segments = (user.segments || []).map((segment) => ({
           id: segment.id,
           text: 'MOCKED: ' + segment.text,

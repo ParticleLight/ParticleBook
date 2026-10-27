@@ -9,7 +9,7 @@
 // WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS 打开随机空闲端口的 CDP，用 Node 内置
 // WebSocket 驱动：真实窗口 + 真实 DOM + 真实桥接调用。
 //
-// 16 步 smoke（5 条基础 + 5 步 PB-018-B + 3 步 PB-018-C + 2 步 PB-018-D + 1 步真实 Z-Library 下载）：
+// 17 步 smoke（5 条基础 + 5 步 PB-018-B + 3 步 PB-018-C + 2 步 PB-018-D + 真实 Z-Library 下载 + 翻译 context UI）：
 //   1) launch-and-cdp          启动、CDP 就绪、页面 title、桥接 shim、沙箱隔离
 //   2) bridge-read             getPendingOpenFiles / getBooks / getSettings
 //   3) import-epub             生成最小 EPUB → importBooks → 书架出现
@@ -27,6 +27,8 @@
 //  15) zlib-mock               合成 bridge event 注入（downloadError/allMirrorsFailed 断言真实 UI banner；progress/importComplete 容错）→ 关闭实例
 //  16) zlib-real-download      本地 HTTP mock 提供 EPUB 附件 → 真实 WebView2 DownloadStarting → ZLibraryService WinHTTP
 //                              下载（>256KB 断言 downloadProgress）→ 导入书架 + library:changed（不依赖公网）
+//  17) translation-context-ui  EPUB 真实选区 → 共享 SelectionToolbar → adapter 前后文 → 本地 OpenAI mock
+//                              断言 provider 收到非空 user.context；再翻同句命中本地缓存（0 网络请求）
 //
 // 失败时：CDP 截图 + 页面 console + app stdout/stderr + reader.json 快照写入
 // artifacts，退出码 1。--fail-at <step> 故意失败，用来验证失败路径。
@@ -58,7 +60,7 @@ Options:
                         import-epub | open-read-turn-close | settings-forward-exit |
                         extended-app | tts | backup | translation | schema |
                         search | pdf | zlib | translation-mock | zlib-mock |
-                        zlib-real-download)
+                        zlib-real-download | translation-context-ui)
   --verbose             Print extra detail
   -h, --help            Show this help
 `
@@ -1000,6 +1002,185 @@ async function smokeTranslationMock() {
   }
 }
 
+// ── PB-002-B：真实选区 → 翻译 context → 本地 provider 缓存 ─────────
+async function smokeTranslationContextUi() {
+  const mock = await startMockTranslationServer()
+  state.mockProvider = mock
+  let opened = false
+  try {
+    const key = `sk-e2e-context-${state.sandbox.id}`
+    await bridge('updateSettings', {
+      'translation.enabled': true,
+      'translation.provider': 'mock',
+      'translation.baseUrl': mock.baseUrl,
+      'translation.model': 'mock-model',
+      'translation.targetLanguage': 'zh',
+      'translation.timeoutSeconds': 10,
+    })
+    assertEqual(await bridge('translationSetKey', key), true, 'translationSetKey(context-ui)')
+    // 清缓存，保证第一次真的发请求、第二次才命中缓存。
+    await state.cdp.evaluate("localStorage.removeItem('pb.translation.cache.v1'); true")
+
+    // 打开 EPUB（phase4 实例仍在书库页），等 iframe + 第一章渲染。
+    await state.cdp.clickText(state.fixture1.title, { timeoutMs: options.timeout })
+    opened = true
+    await state.cdp.waitFor("!!document.querySelector('iframe')", {
+      timeoutMs: options.timeout, label: 'reader iframe mounted (translation context)',
+    })
+    // 阅读进度可能停在第 1 或第 2 章（e2e 前面步骤读过这本书）。
+    await state.cdp.waitFor(`${iframeHas(state.fixture1.ch1)} || ${iframeHas(state.fixture1.ch2)}`, {
+      timeoutMs: options.timeout, label: 'chapter text visible (translation context)',
+    })
+
+    const selectSentence = () => state.cdp.evaluate(`(() => {
+      const frame = document.querySelector('iframe');
+      const doc = frame && frame.contentDocument;
+      if (!doc || !doc.body) {
+        return { error: 'no-iframe-document', hasFrame: !!frame };
+      }
+      // EPUB 渲染器不一定用 <p>（可能是 div/span 包裹）；手写递归找第一个够长的文本节点，
+      // 避免跨 document 使用 TreeWalker/NodeFilter 的兼容问题。
+      const findTextNode = (node) => {
+        for (const child of Array.from(node.childNodes || [])) {
+          if (child.nodeType === 3 && (child.textContent || '').trim().length > 20) return child;
+          const found = findTextNode(child);
+          if (found) return found;
+        }
+        return null;
+      };
+      const textNode = findTextNode(doc.body);
+      if (!textNode) {
+        return {
+          error: 'no-text-node',
+          bodyTextLength: (doc.body.innerText || doc.body.textContent || '').length,
+          bodyHtml: (doc.body.innerHTML || '').slice(0, 160),
+        };
+      }
+      const raw = textNode.textContent || '';
+      // 注意：这段代码在模板字符串里，s / S 会被 JS 模板转义吃掉；用 trimStart 算偏移。
+      const start = raw.length - raw.trimStart().length;
+      if (!raw.trim()) return { error: 'no-non-space', raw: raw.slice(0, 120) };
+      const rest = raw.slice(start);
+      const stop = rest.search(/[.!?。！？]/);
+      // 最多选 60 字符：保证选区是段落的一部分，前后文窗口非空（整段选中时
+      // context 只能退化成相邻标题，像 "Chapter 2" 这种太短）。
+      const length = Math.min(stop > 8 ? stop + 1 : 80, 60, rest.length);
+      const text = rest.slice(0, length).trim();
+      if (!text) return { error: 'empty-sentence', raw: raw.slice(0, 120) };
+      const range = doc.createRange();
+      range.setStart(textNode, start);
+      range.setEnd(textNode, start + text.length);
+      const selection = doc.getSelection();
+      if (!selection) return { error: 'no-selection-object', raw: raw.slice(0, 120) };
+      selection.removeAllRanges();
+      selection.addRange(range);
+      let dispatchError = '';
+      try {
+        const frameWindow = doc.defaultView || window;
+        doc.dispatchEvent(new frameWindow.Event('selectionchange', { bubbles: true }));
+      } catch (error) {
+        dispatchError = String(error && error.message ? error.message : error);
+      }
+      return { text, paragraph: raw.slice(0, 120), dispatchError };
+    })()`)
+
+    const firstSelection = await selectSentence()
+    assert(firstSelection && firstSelection.text,
+      'could not select a sentence in the EPUB iframe: ' + JSON.stringify(firstSelection))
+    await state.cdp.waitFor("!!document.querySelector('[data-pb-selection-toolbar]')", {
+      timeoutMs: 10000, label: 'shared SelectionToolbar appeared for EPUB selection',
+    })
+
+    // 1) adapter 的选区必须带非空 context（前后文窗口来自同一段落）。
+    const adapterSelection = await state.cdp.evaluate(`(() => {
+      const adapter = window.__pbReaderAdapter;
+      const selection = adapter && adapter.getSelection();
+      return selection ? { text: selection.text, context: selection.context || '', rect: selection.rect || null } : null;
+    })()`)
+    assert(adapterSelection && adapterSelection.text, 'adapter.getSelection() returned nothing')
+    assert(adapterSelection.context && adapterSelection.context.trim().length > 0,
+      'adapter selection context must not be empty: ' + JSON.stringify(adapterSelection))
+    assert(adapterSelection.context.replace(/\s+/g, ' ').trim().length >= 10,
+      'adapter context looks too short to disambiguate: ' + JSON.stringify(adapterSelection.context))
+
+    // 2) 点共享工具条的「翻译」→ 真实 WinHTTP → 本地 OpenAI 兼容 mock。
+    await state.cdp.evaluate("document.querySelector('[data-testid=\"selection-action-translate\"]').click(); true")
+    await state.cdp.waitFor(`(() => {
+      const panel = document.querySelector('[data-pb-translate-panel="1"]');
+      return !!panel && panel.innerText.includes('MOCKED:');
+    })()`, { timeoutMs: 15000, label: 'translation panel shows mocked translation' })
+
+    const requestDeadline = Date.now() + 10000
+    while (mock.requests.length < 1 && Date.now() < requestDeadline) await sleep(100)
+    assertEqual(mock.requests.length, 1, 'translation provider request count (first translation)')
+    const firstRequest = mock.requests[0]
+    assert(firstRequest.context && firstRequest.context.trim().length > 0,
+      'provider request is missing user.context: ' + JSON.stringify(firstRequest))
+    const expectedContextHead = adapterSelection.context.replace(/\s+/g, ' ').trim().slice(0, 20)
+    assert(expectedContextHead && firstRequest.context.includes(expectedContextHead),
+      'provider request context does not match adapter context: ' + JSON.stringify({
+        adapter: adapterSelection.context.slice(0, 120), provider: firstRequest.context.slice(0, 120),
+      }))
+    assertEqual(firstRequest.segments[0].text, firstSelection.text.replace(/\s+/g, ' ').trim(),
+      'provider request segment text')
+
+    // 3) 再选同一句点翻译：命中本地缓存，不再发网络请求，面板显示「缓存」。
+    await pressKey('Escape')
+    await state.cdp.waitFor("!document.querySelector('[data-pb-translate-panel=\"1\"]')", {
+      timeoutMs: 8000, label: 'translation panel closed before cache retry',
+    })
+    const secondSelection = await selectSentence()
+    assert(secondSelection && secondSelection.text === firstSelection.text,
+      'could not re-select the same sentence: ' + JSON.stringify(secondSelection))
+    await state.cdp.waitFor("!!document.querySelector('[data-pb-selection-toolbar]')", {
+      timeoutMs: 10000, label: 'SelectionToolbar reappeared for cache retry',
+    })
+    await state.cdp.evaluate("document.querySelector('[data-testid=\"selection-action-translate\"]').click(); true")
+    await state.cdp.waitFor(`(() => {
+      const panel = document.querySelector('[data-pb-translate-panel="1"]');
+      return !!panel && panel.innerText.includes('MOCKED:') && panel.innerText.includes('缓存');
+    })()`, { timeoutMs: 8000, label: 'cached translation panel (缓存 badge)' })
+    await sleep(400)
+    assertEqual(mock.requests.length, 1, 'cache hit must not call the provider again')
+
+    await state.cdp.screenshot(path.join(state.artifacts, '09-translation-context.png'))
+    state.translationContext = {
+      selection: firstSelection.text,
+      contextLength: adapterSelection.context.length,
+      requests: mock.requests.length,
+      cached: true,
+    }
+    state.notes.push('translation context UI: real EPUB selection -> SelectionToolbar -> adapter context ('
+      + adapterSelection.context.length + ' chars) -> provider user.context; second call served from local cache (no extra request).')
+    log('translation context ui ok: selection="' + firstSelection.text.slice(0, 40) + '...", context='
+      + adapterSelection.context.length + ' chars, provider requests=1, cache hit verified')
+
+    // 4) 清理：关阅读器、清 Key/设置，恢复默认状态。
+    await pressKey('Escape')   // 关翻译面板
+    await pressKey('Escape')   // 关阅读器，回书库
+    await state.cdp.waitFor(`!document.querySelector('iframe')`, {
+      timeoutMs: options.timeout, label: 'reader closed after translation context test',
+    })
+    opened = false
+    assertEqual(await bridge('translationClearKey'), true, 'translationClearKey after context-ui')
+    await bridge('updateSettings', {
+      'translation.enabled': false,
+      'translation.provider': 'openai',
+      'translation.baseUrl': '',
+      'translation.model': '',
+      'translation.targetLanguage': 'zh',
+      'translation.timeoutSeconds': 60,
+    })
+    assertEqual(await bridge('translationHasKey'), false, 'translationHasKey after context-ui cleanup')
+  } finally {
+    if (opened) {
+      try { await pressKey('Escape') } catch { /* ignore */ }
+    }
+    await mock.close()
+    state.mockProvider = null
+  }
+}
+
 async function injectBridgeEvent(event, data) {
   return state.cdp.evaluate(`(() => {
     try {
@@ -1361,6 +1542,7 @@ async function finalize(fatal) {
     pdf: state.pdfFixture ? { path: state.pdfFixture.path, title: state.pdfFixture.title, bookId: state.pdfBookId } : null,
     mockTranslation: state.mockTranslation,
     zlibReal: state.zlibReal,
+    translationContext: state.translationContext,
     notes: state.notes,
     steps: state.steps,
     failure: state.failure,
@@ -1494,6 +1676,9 @@ async function run() {
 
     // ── PB-018-D：翻译 mock（本地 OpenAI 兼容服务）+ Z-Library 受控事件 mock ──
     await step('translation-mock', smokeTranslationMock)
+
+    // ── PB-002-B：真实选区 → 翻译 context → 本地 provider + 缓存 ──
+    await step('translation-context-ui', smokeTranslationContextUi)
     await step('zlib-mock', smokeZlibMock)
 
     // ── PB-018-A：本地 HTTP mock 的真实 Z-Library 下载 → 导入 ──

@@ -206,7 +206,59 @@ export function locatorForSelection(format: string, raw: RawSelection): ReaderLo
   }
 }
 
-/** 当前选区（主文档优先，其次 EPUB iframe），带 text / locator / rect。 */
+// ── PB-002-B：选区前后文 ─────────────────────────────────────────────
+// 长句 / 代词（"他"、"this"）单看选区往往翻不准，翻译请求要带上前后文。
+// 取选区所在块级元素（p/li/blockquote/div…）的文本，按选区切开后各留
+// CONTEXT_RADIUS 字符；找不到块就用契约容器/body 兜底。只要纯文本，不带
+// HTML；正常章节文本量可控，EPUB 也能从同源 iframe 的 document 取到。
+const CONTEXT_RADIUS = 300
+const CONTEXT_BLOCK_TAGS = new Set(['P', 'LI', 'BLOCKQUOTE', 'PRE', 'TD', 'TH', 'DD', 'DT', 'FIGCAPTION'])
+
+function selectionContextRoot(raw: RawSelection): Node | null {
+  let element: Element | null = raw.range.startContainer.nodeType === Node.ELEMENT_NODE
+    ? raw.range.startContainer as Element
+    : raw.range.startContainer.parentElement
+  while (element && element !== raw.doc.body) {
+    if (CONTEXT_BLOCK_TAGS.has(element.tagName.toUpperCase())) return element
+    element = element.parentElement
+  }
+  return raw.doc.body
+}
+
+function contextAround(doc: Document, range: Range, root: Node): { before: string; after: string } {
+  const collapse = (value: string) => value.replace(/\s+/g, ' ').trim()
+  const beforeRange = doc.createRange()
+  beforeRange.selectNodeContents(root)
+  beforeRange.setEnd(range.startContainer, range.startOffset)
+  const afterRange = doc.createRange()
+  afterRange.selectNodeContents(root)
+  afterRange.setStart(range.endContainer, range.endOffset)
+  return {
+    before: collapse(beforeRange.toString()).slice(-CONTEXT_RADIUS),
+    after: collapse(afterRange.toString()).slice(0, CONTEXT_RADIUS),
+  }
+}
+
+export function selectionContext(raw: RawSelection): string {
+  try {
+    const doc = raw.doc
+    const root = selectionContextRoot(raw) ?? doc.body
+    if (!root) return ''
+    let { before, after } = contextAround(doc, raw.range, root)
+    // 选区正好覆盖整个块（例如整段选中）时块内前后文为空：退到 body，
+    // 用相邻段落/标题作为上下文，避免"整段翻译没有上下文"。
+    if (!before && !after) {
+      const wider = contextAround(doc, raw.range, doc.body)
+      before = wider.before
+      after = wider.after
+    }
+    return [before, after].filter(Boolean).join('\n')
+  } catch {
+    return ''
+  }
+}
+
+/** 当前选区（主文档优先，其次 EPUB iframe），带 text / locator / rect / context。 */
 export function currentSelection(format: string): ReaderSelection | null {
   const raw = mainDocumentSelection() ?? iframeDocumentSelection()
   if (!raw) return null
@@ -214,5 +266,6 @@ export function currentSelection(format: string): ReaderSelection | null {
     text: raw.text,
     locator: locatorForSelection(format, raw),
     rect: rectOfSelection(raw),
+    context: selectionContext(raw),
   }
 }

@@ -49,8 +49,11 @@ function normalizeCacheSource(text: string): string {
 }
 
 // FNV-1a 双 32 位（16 hex）：同步、零依赖，不依赖 SubtleCrypto 的安全上下文。
-export function translationCacheHash(source: string, target: string): string {
+export function translationCacheHash(source: string, target: string, context = ''): string {
+  // PB-002-B：同一句原文在不同上下文里译文可能不同（代词指代），context 进 key，
+  // 避免把上一段的译文错误复用到这一段。旧缓存（无 context）自然 miss 一次。
   const text = normalizeCacheSource(source) + '\u0000' + target.trim().toLowerCase()
+    + '\u0000' + normalizeCacheSource(context).slice(0, 2000)
   let first = 0x811c9dc5
   let second = 0x9e3779b9
   for (let i = 0; i < text.length; i++) {
@@ -107,8 +110,8 @@ function persistCacheEntries(entries: TranslationCacheEntry[]): void {
 }
 
 // 命中即返回并把它提到最前（LRU）；离线时只有这里能拿到译文。
-export function readTranslationCache(source: string, target: string): TranslationCacheEntry | null {
-  const key = translationCacheHash(source, target)
+export function readTranslationCache(source: string, target: string, context = ''): TranslationCacheEntry | null {
+  const key = translationCacheHash(source, target, context)
   const entries = readCacheEntries()
   const index = entries.findIndex((entry) => entry.key === key)
   if (index < 0) return null
@@ -119,9 +122,9 @@ export function readTranslationCache(source: string, target: string): Translatio
   return hit
 }
 
-export function writeTranslationCache(source: string, target: string, translation: string): void {
+export function writeTranslationCache(source: string, target: string, translation: string, context = ''): void {
   if (!translation.trim()) return
-  const key = translationCacheHash(source, target)
+  const key = translationCacheHash(source, target, context)
   const entries = readCacheEntries().filter((entry) => entry.key !== key)
   entries.unshift({
     key,
@@ -236,9 +239,12 @@ export function TranslationPopup({ bottomInset = 120, onOpenSettings, request, o
   const translateText = useCallback(async (
     rawText: string,
     rect?: { x: number; y: number; width: number; height: number },
+    rawContext?: string,
   ) => {
     const source = rawText.replace(/\s+/g, ' ').trim().slice(0, MAX_SELECTION_CHARS)
     if (!source) return
+    // PB-002-B：前后文窗口也归一化并限长，随请求发给 TranslationService。
+    const contextText = (rawContext || '').replace(/\s+/g, ' ').trim().slice(0, 2000)
 
     const requestId = requestRef.current + 1
     requestRef.current = requestId
@@ -254,7 +260,7 @@ export function TranslationPopup({ bottomInset = 120, onOpenSettings, request, o
     } catch { /* 用默认值 */ }
     if (requestRef.current !== requestId) return
 
-    const cached = readTranslationCache(source, target)
+    const cached = readTranslationCache(source, target, contextText)
     if (cached) {
       setPanel({
         open: true, loading: false, errorCode: '', errorText: '',
@@ -270,7 +276,7 @@ export function TranslationPopup({ bottomInset = 120, onOpenSettings, request, o
         [{ id: 's1', text: source }],
         'auto',
         target,
-        '',
+        contextText,
       )
       if (requestRef.current !== requestId) return
       const translated = result && Array.isArray(result.segments) && result.segments[0]
@@ -280,7 +286,7 @@ export function TranslationPopup({ bottomInset = 120, onOpenSettings, request, o
         setPanel((prev) => prev.open ? { ...prev, loading: false, errorCode: 'parse', errorText: t(translationErrorMessageKey('parse')), target, cached: false } : prev)
         return
       }
-      writeTranslationCache(source, target, translated)
+      writeTranslationCache(source, target, translated, contextText)
       setPanel((prev) => prev.open ? { ...prev, loading: false, translation: translated, target, cached: false } : prev)
     } catch (e) {
       if (requestRef.current !== requestId) return
@@ -295,7 +301,7 @@ export function TranslationPopup({ bottomInset = 120, onOpenSettings, request, o
     if (!request || !request.text.trim()) return
     if (request.id === handledRequestRef.current) return
     handledRequestRef.current = request.id
-    void translateText(request.text, request.rect)
+    void translateText(request.text, request.rect, request.context)
   }, [request, translateText])
 
   // 快捷键：Esc 关面板；Ctrl+Shift+T 翻译 adapter 当前选区（共享工具条之外的入口）。
@@ -311,7 +317,7 @@ export function TranslationPopup({ bottomInset = 120, onOpenSettings, request, o
         e.preventDefault()
         e.stopPropagation()
         const selected = adapter?.getSelection()
-        if (selected && selected.text.trim()) void translateText(selected.text, selected.rect)
+        if (selected && selected.text.trim()) void translateText(selected.text, selected.rect, selected.context)
       }
     }
     document.addEventListener('keydown', onKeyDown, true)
