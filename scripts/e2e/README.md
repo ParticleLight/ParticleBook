@@ -197,7 +197,7 @@ smoke 现在是 **13 步**（前 10 步见上；11-13 为 PB-018-C 追加，sche
 （当前直接调 bridge handler）；Z-Library 真实进站、登录、下载、镜像切换（外网依赖）。
 ## PB-018-D 补充（翻译 mock / Z-Library 受控 mock）
 
-smoke 现在是 **17 步**（14–17 为 PB-018/PB-002 追加；前 13 步见上）：
+smoke 现在是 **18 步**（14–18 为 PB-018/PB-002/PB-008 追加；前 13 步见上）：
 
 14. **translation-mock**：smoke 进程内起 127.0.0.1 随机端口的 OpenAI 兼容 HTTP mock
     （`lib/mock-provider.mjs`，零依赖 http server）。通过真实 settings 通道写
@@ -215,7 +215,9 @@ smoke 现在是 **17 步**（14–17 为 PB-018/PB-002 追加；前 13 步见上
 
 17. **translation-context-ui**：真实 EPUB 选区 → SelectionToolbar → 翻译；断言 adapter 返回 context、本地 OpenAI mock 收到非空 `user.context` 且与选区文本一致；同句二次翻译命中缓存，provider 请求数不增加。
 
-`--fail-at` 新增可选值：`translation-mock` / `translation-context-ui` / `zlib-mock` / `zlib-real-download`。
+18. **azw3-import**：KF8 fixture → `importBooks` → `mobitool.exe` 转 EPUB → 按 epub 入库（original_path/封面）→ 打开阅读器断言正文。
+
+`--fail-at` 新增可选值：`translation-mock` / `translation-context-ui` / `zlib-mock` / `zlib-real-download` / `azw3-import`。
 
 未覆盖：真实第三方翻译 provider（mock 只验证 OpenAI 兼容协议与错误映射）；Z-Library
 真实公网进站/登录/镜像切换（下载→导入用本地 HTTP mock 覆盖真实 WinHTTP/DownloadStarting 路径）；跨书全文搜索 UI。
