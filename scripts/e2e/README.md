@@ -197,7 +197,7 @@ smoke 现在是 **13 步**（前 10 步见上；11-13 为 PB-018-C 追加，sche
 （当前直接调 bridge handler）；Z-Library 真实进站、登录、下载、镜像切换（外网依赖）。
 ## PB-018-D 补充（翻译 mock / Z-Library 受控 mock）
 
-smoke 现在是 **15 步**（14/15 为 PB-018-D 追加；前 13 步见上）：
+smoke 现在是 **16 步**（14–16 为 PB-018 追加；前 13 步见上）：
 
 14. **translation-mock**：smoke 进程内起 127.0.0.1 随机端口的 OpenAI 兼容 HTTP mock
     （`lib/mock-provider.mjs`，零依赖 http server）。通过真实 settings 通道写
@@ -211,7 +211,9 @@ smoke 现在是 **15 步**（14/15 为 PB-018-D 追加；前 13 步见上）：
     page exception 且 bridge 仍可用（前两个事件目前没有渲染层消费者，report.notes 已注明）。
     若当前 WebView2 运行时不允许 `dispatchEvent`，该步 skip 并写 report note（不判失败）。
 
-`--fail-at` 新增可选值：`translation-mock` / `zlib-mock`。
+16. **zlib-real-download**：本地 127.0.0.1:80 mock 提供 EPUB 附件（`lib/mock-zlib-server.mjs`，Content-Disposition/Content-Length）→ `zlibShow` 置 active → CDP 导航到附件 → 真实 WebView2 `DownloadStarting` → `ZLibraryService` WinHTTP 下载 → 导入书架。断言 `downloadStart/downloadProgress/downloadComplete/importStart/importComplete`、文件 PK 头与大小、沙箱 `reader.json` books 3→4 且标题正确。不依赖公网；要求本机 80 端口可监听。
 
-未覆盖：真实第三方 provider（翻译 mock 只验证 OpenAI 兼容协议与错误映射）；Z-Library
-真实进站/登录/下载/镜像切换（受控事件 mock 只验证渲染层事件消费与容错）；跨书全文搜索 UI。
+`--fail-at` 新增可选值：`translation-mock` / `zlib-mock` / `zlib-real-download`。
+
+未覆盖：真实第三方翻译 provider（mock 只验证 OpenAI 兼容协议与错误映射）；Z-Library
+真实公网进站/登录/镜像切换（下载→导入用本地 HTTP mock 覆盖真实 WinHTTP/DownloadStarting 路径）；跨书全文搜索 UI。
