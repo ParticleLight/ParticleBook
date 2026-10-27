@@ -59,14 +59,17 @@ export function createEpubAdapter(bookId: number): ReaderAdapter {
 
     goTo(locator: ReaderLocator): boolean {
       const handled = goToLocator(locator)
-      // PB-006-C：EPUB 搜索命中用 scroll locator —— percent 是章节起点百分比
-      // （seekTo → EpubRenderer 按 spine 比例 display 章节），offset 是章节内相对
-      // 码点；换章后按 offset/章节长度比例把 iframe 滚到章节内大致位置。
-      // epub.js 换章是异步的（可能新建 iframe / 慢设备更久）：多次重试，成功一次
-      // 后停掉后续定时器；每次遍历所有可见 iframe（旧 iframe 在过渡期可能还在）。
-      if (handled && locator.kind === 'scroll'
-          && typeof locator.offset === 'number' && locator.offset >= 0) {
-        const relativeOffset = locator.offset
+      // PB-006-C/D：EPUB 搜索命中的章节内定位。
+      //  - paginated flow（EpubRenderer 默认）下 iframe 不可滚动：调用
+      //    EpubRenderer 暴露的 __pbEpubSeekQuote(quote)，在 rendition.getContents()
+      //    DOM 里找到文本 Range → CFI → rendition.display（真正换页到命中位置）；
+      //  - quote 缺失 / 未命中（多词查询不连续、旧索引无 quote）→ 退回按
+      //    offset/章节长度比例滚动（scrolled flow 或渲染器未注册 hook 时）。
+      if (handled && locator.kind === 'scroll') {
+        const quote = typeof locator.quote === 'string' ? locator.quote.trim() : ''
+        const relativeOffset = typeof locator.offset === 'number' && locator.offset >= 0
+          ? locator.offset
+          : -1
         const timers: number[] = []
         const clearTimers = () => {
           while (timers.length > 0) {
@@ -74,7 +77,19 @@ export function createEpubAdapter(bookId: number): ReaderAdapter {
             if (id !== undefined) window.clearTimeout(id)
           }
         }
-        const scrollWithinChapter = (): boolean => {
+        const trySeek = (): boolean => {
+          const seek = (window as any).__pbEpubSeekQuote
+          if (quote.length >= 2 && typeof seek === 'function') {
+            try {
+              if (seek(quote)) {
+                clearTimers()
+                return true
+              }
+            } catch (error) {
+              console.debug('epubAdapter: seek quote failed', error)
+            }
+          }
+          if (relativeOffset < 0) return false
           let scrolled = false
           for (const frame of Array.from(document.querySelectorAll('iframe'))) {
             try {
@@ -98,8 +113,8 @@ export function createEpubAdapter(bookId: number): ReaderAdapter {
           if (scrolled) clearTimers()
           return scrolled
         }
-        for (const delay of [400, 900, 1600, 2600, 4000, 6000]) {
-          timers.push(window.setTimeout(scrollWithinChapter, delay))
+        for (const delay of [250, 700, 1400, 2400, 3800, 5500]) {
+          timers.push(window.setTimeout(trySeek, delay))
         }
       }
       return handled

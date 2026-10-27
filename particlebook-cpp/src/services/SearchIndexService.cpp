@@ -19,14 +19,20 @@
 
 #include "utils/ZipReader.h"
 #include "utils/encoding.h"  // ANSI 回退：MultiByteToWideChar + WideToUtf8
+#include "utils/win_cmd.h"   // MOBI：拼 mutool 命令行
+
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -1018,7 +1024,8 @@ std::string ExtensionOf(const std::string& path)
 
 bool IsSupportedFormat(const std::string& format)
 {
-    return format == "epub" || format == "txt" || format == "html" || format == "markdown";
+    return format == "epub" || format == "txt" || format == "html" || format == "markdown"
+        || format == "fb2" || format == "mobi" || format == "azw" || format == "azw3";
 }
 
 // 安全读取 JSON 标量（缺字段 / 类型不对都回落默认值，绝不抛）。
@@ -1101,10 +1108,164 @@ std::string SearchIndexService::MarkdownToText(const std::string& markdown)
 
 namespace {
 
+// ── MOBI → 纯文本（与 FileFormatService::ConvertMobiToText 同一路径）────
+// TextRenderer 显示的是 mutool 转出来的文本，索引侧必须用同一份正文才能用
+// 全局码点 offset 精确跳转，因此这里复用 exe 旁的 mutool.exe + 同样的换行归一化。
+bool ExtractMobiTextViaMutool(const std::string& filePathUtf8, std::string& out)
+{
+    out.clear();
+    wchar_t exePathBuf[MAX_PATH];
+    if (GetModuleFileNameW(nullptr, exePathBuf, MAX_PATH) == 0) return false;
+    const auto mutoolPath = (fs::path(exePathBuf).parent_path() / "mutool.exe").wstring();
+
+    wchar_t tmpPath[MAX_PATH];
+    wchar_t tmpFile[MAX_PATH];
+    if (GetTempPathW(MAX_PATH, tmpPath) == 0) return false;
+    if (GetTempFileNameW(tmpPath, L"mbt", 0, tmpFile) == 0) return false;
+    DeleteFileW(tmpFile);
+    const std::wstring tmpFileExt = std::wstring(tmpFile) + L".txt";
+
+    std::wstring cmdLine = pb::JoinCmdLine({ mutoolPath, L"convert", L"-F", L"text", L"-o", tmpFileExt, pb::Utf8ToWide(filePathUtf8) });
+    PROCESS_INFORMATION pi = {};
+    STARTUPINFOW si = {};
+    si.cb = sizeof(si);
+    si.dwFlags = STARTF_USESHOWWINDOW;
+    si.wShowWindow = SW_HIDE;
+    if (!CreateProcessW(nullptr, cmdLine.data(), nullptr, nullptr, FALSE,
+                        CREATE_NO_WINDOW | NORMAL_PRIORITY_CLASS, nullptr, nullptr, &si, &pi)) {
+        return false;
+    }
+    if (WaitForSingleObject(pi.hProcess, 30000) == WAIT_TIMEOUT) {
+        TerminateProcess(pi.hProcess, 1);
+        WaitForSingleObject(pi.hProcess, INFINITE);
+    }
+    CloseHandle(pi.hProcess);
+    CloseHandle(pi.hThread);
+
+    HANDLE hFile = CreateFileW(tmpFileExt.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr,
+                               OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (hFile == INVALID_HANDLE_VALUE) return false;
+    LARGE_INTEGER fileSize = {};
+    std::string raw;
+    if (GetFileSizeEx(hFile, &fileSize)) {
+        const std::size_t bytes = static_cast<std::size_t>(fileSize.QuadPart);
+        if (bytes > 0 && bytes <= 100ULL * 1024 * 1024) {
+            raw.resize(bytes);
+            DWORD read = 0;
+            if (ReadFile(hFile, &raw[0], static_cast<DWORD>(bytes), &read, nullptr)) raw.resize(read);
+        }
+    }
+    CloseHandle(hFile);
+    DeleteFileW(tmpFileExt.c_str());
+    if (raw.empty()) return false;
+    while (!raw.empty() && raw.back() == '\0') raw.pop_back();
+
+    // \r\n / \r → \n；单换行 → 空格；连续两个换行保留为段落分隔（同 ConvertMobiToText）
+    std::string normalized;
+    normalized.reserve(raw.size());
+    for (std::size_t i = 0; i < raw.size(); ++i) {
+        if (raw[i] == '\r') {
+            normalized.push_back('\n');
+            if (i + 1 < raw.size() && raw[i + 1] == '\n') ++i;
+        } else {
+            normalized.push_back(raw[i]);
+        }
+    }
+    std::string result;
+    result.reserve(normalized.size());
+    for (std::size_t i = 0; i < normalized.size(); ++i) {
+        if (normalized[i] == '\n') {
+            if (i + 1 < normalized.size() && normalized[i + 1] == '\n') {
+                result += "\n\n";
+                ++i;
+            } else {
+                result.push_back(' ');
+            }
+        } else {
+            result.push_back(normalized[i]);
+        }
+    }
+    out = std::move(result);
+    return !out.empty();
+}
+
+// ── PDF → 逐页纯文本（indexPdf=true 时启用）────────────────────────────
+// mutool draw -F txt -o <dir>/page-%04d.txt：每页一个 txt，按文件名顺序拼接，
+// 并为每页记录码点区间（href="page:N"）→ SearchHit.page 直接是 1-based 页码。
+bool ExtractPdfTextViaMutool(const std::string& filePathUtf8, std::string& out,
+                             std::vector<SearchChapterSpan>& pageSpans)
+{
+    out.clear();
+    pageSpans.clear();
+
+    wchar_t exePathBuf[MAX_PATH];
+    if (GetModuleFileNameW(nullptr, exePathBuf, MAX_PATH) == 0) return false;
+    const auto mutoolPath = (fs::path(exePathBuf).parent_path() / "mutool.exe").wstring();
+
+    wchar_t tmpPath[MAX_PATH];
+    if (GetTempPathW(MAX_PATH, tmpPath) == 0) return false;
+    static std::atomic<unsigned> s_pdfSeq{ 0 };
+    const std::wstring dir = std::wstring(tmpPath) + L"pbpdf_" + std::to_wstring(GetCurrentProcessId())
+        + L"_" + std::to_wstring(s_pdfSeq.fetch_add(1));
+    std::error_code ec;
+    fs::create_directories(fs::path(dir), ec);
+    if (ec) return false;
+
+    const std::wstring pattern = dir + L"\\page-%04d.txt";
+    std::wstring cmdLine = pb::JoinCmdLine({ mutoolPath, L"draw", L"-F", L"txt", L"-o", pattern, pb::Utf8ToWide(filePathUtf8) });
+    PROCESS_INFORMATION pi = {};
+    STARTUPINFOW si = {};
+    si.cb = sizeof(si);
+    si.dwFlags = STARTF_USESHOWWINDOW;
+    si.wShowWindow = SW_HIDE;
+    if (!CreateProcessW(nullptr, cmdLine.data(), nullptr, nullptr, FALSE,
+                        CREATE_NO_WINDOW | NORMAL_PRIORITY_CLASS, nullptr, nullptr, &si, &pi)) {
+        fs::remove_all(fs::path(dir), ec);
+        return false;
+    }
+    if (WaitForSingleObject(pi.hProcess, 60000) == WAIT_TIMEOUT) {
+        TerminateProcess(pi.hProcess, 1);
+        WaitForSingleObject(pi.hProcess, INFINITE);
+    }
+    CloseHandle(pi.hProcess);
+    CloseHandle(pi.hThread);
+
+    std::vector<fs::path> files;
+    for (fs::directory_iterator it(fs::path(dir), ec), end; !ec && it != end; it.increment(ec)) {
+        if (it->is_regular_file(ec)) files.push_back(it->path());
+    }
+    std::sort(files.begin(), files.end(), [](const fs::path& a, const fs::path& b) {
+        return a.filename().wstring() < b.filename().wstring();
+    });
+    for (const fs::path& file : files) {
+        std::ifstream in(file, std::ios::binary);
+        if (!in) continue;
+        std::string bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        const std::string text = NormalizeText(bytes);
+        if (text.empty()) continue;
+        // 页码从文件名 page-0001.txt 解析（空页不占 href）
+        int pageNo = 0;
+        const std::wstring stem = file.stem().wstring();
+        const std::size_t dash = stem.find_last_of(L'-');
+        if (dash != std::wstring::npos) {
+            try { pageNo = std::stoi(stem.substr(dash + 1)); } catch (...) { pageNo = 0; }
+        }
+        if (pageNo <= 0) pageNo = static_cast<int>(pageSpans.size()) + 1;
+        const int start = static_cast<int>(CountCodepoints(out));
+        out += text;
+        const int end = static_cast<int>(CountCodepoints(out));
+        pageSpans.push_back(SearchChapterSpan{ start, end, "page:" + std::to_string(pageNo) });
+        out.push_back('\n');
+    }
+    fs::remove_all(fs::path(dir), ec);
+    return !out.empty();
+}
+
 // 内部详细版：除正文外带回 EPUB 的 spine 章节区间（Build / AddBook 用）。
 bool ExtractTextDetailed(const std::string& filePathUtf8, const std::string& format,
                          std::size_t maxChars, std::string& out,
-                         std::vector<SearchChapterSpan>& chapters, std::string* error)
+                         std::vector<SearchChapterSpan>& chapters, std::string* error,
+                         bool allowPdf = false)
 {
     out.clear();
     chapters.clear();
@@ -1112,7 +1273,8 @@ bool ExtractTextDetailed(const std::string& filePathUtf8, const std::string& for
 
     std::string normalized = SearchIndexService::NormalizeFormat(format);
     if (normalized.empty()) normalized = SearchIndexService::NormalizeFormat(ExtensionOf(filePathUtf8));
-    if (normalized.empty() || !IsSupportedFormat(normalized)) {
+    const bool isPdf = normalized == "pdf";
+    if (normalized.empty() || (!IsSupportedFormat(normalized) && !(allowPdf && isPdf))) {
         if (error) *error = search_index_codes::kUnsupportedFormat;
         return false;
     }
@@ -1125,6 +1287,16 @@ bool ExtractTextDetailed(const std::string& filePathUtf8, const std::string& for
 
     if (normalized == "epub") {
         if (!ExtractEpubText(filePathUtf8, out, &chapters, error)) return false;
+    } else if (normalized == "mobi" || normalized == "azw" || normalized == "azw3") {
+        if (!ExtractMobiTextViaMutool(filePathUtf8, out)) {
+            if (error) *error = search_index_codes::kReadError;
+            return false;
+        }
+    } else if (normalized == "pdf") {
+        if (!ExtractPdfTextViaMutool(filePathUtf8, out, chapters)) {
+            if (error) *error = search_index_codes::kReadError;
+            return false;
+        }
     } else {
         std::string bytes;
         if (!ReadFileBytes(filePathUtf8, bytes, error)) return false;
@@ -1134,6 +1306,9 @@ bool ExtractTextDetailed(const std::string& filePathUtf8, const std::string& for
             out = HtmlToTextImpl(decoded);
         } else if (normalized == "markdown") {
             out = MarkdownToTextImpl(decoded);
+        } else if (normalized == "fb2") {
+            // FB2 是 XML：按 HTML 的方式剥标签 + 解实体；HtmlRenderer 显示的就是这份文本
+            out = HtmlToTextImpl(decoded);
         } else {
             out = NormalizeText(decoded);
         }
@@ -1286,11 +1461,11 @@ SearchIndexBuildResult SearchIndexService::BuildLocked(const std::vector<BookTex
 
         const std::string format = NormalizeFormat(
             source.format.empty() ? ExtensionOf(source.filePath) : source.format);
-        if (format == "pdf") {
+        if (format == "pdf" && !options.indexPdf) {
             ++result.skippedPdf;
             continue;
         }
-        if (!IsSupportedFormat(format)) {
+        if (!IsSupportedFormat(format) && format != "pdf") {
             ++result.skipped;
             continue;
         }
@@ -1317,7 +1492,7 @@ SearchIndexBuildResult SearchIndexService::BuildLocked(const std::vector<BookTex
         std::string text;
         std::vector<SearchChapterSpan> chapters;
         std::string errorCode;
-        if (!ExtractTextDetailed(source.filePath, format, options.maxCharsPerBook, text, chapters, &errorCode)) {
+        if (!ExtractTextDetailed(source.filePath, format, options.maxCharsPerBook, text, chapters, &errorCode, options.indexPdf)) {
             ++result.failed;
             PushBuildError(result, source.bookId, errorCode, source.filePath);
             continue;
@@ -1385,7 +1560,7 @@ bool SearchIndexService::AddBookLocked(const BookTextSource& book,
     }
     const std::string format =
         NormalizeFormat(book.format.empty() ? ExtensionOf(book.filePath) : book.format);
-    if (!IsSupportedFormat(format)) {
+    if (!IsSupportedFormat(format) && !(format == "pdf" && options.indexPdf)) {
         if (error) *error = search_index_codes::kUnsupportedFormat;
         return false;
     }
@@ -1407,7 +1582,7 @@ bool SearchIndexService::AddBookLocked(const BookTextSource& book,
     std::string text;
     std::vector<SearchChapterSpan> chapters;
     std::string errorCode;
-    if (!ExtractTextDetailed(book.filePath, format, options.maxCharsPerBook, text, chapters, &errorCode)) {
+    if (!ExtractTextDetailed(book.filePath, format, options.maxCharsPerBook, text, chapters, &errorCode, options.indexPdf)) {
         if (error) *error = errorCode;
         return false;
     }
@@ -1730,7 +1905,30 @@ SearchResult SearchIndexService::SearchLocked(const std::string& query,
                     - static_cast<long long>(span.start);
                 hit.offset = relative > 0 ? relative : 0;
             }
-        } else if (book.format == "html" || book.format == "markdown") {
+        } else if (book.format == "pdf" && !book.chapters.empty()) {
+            int pageIndex = -1;
+            for (std::size_t i = 0; i < book.chapters.size(); ++i) {
+                const SearchChapterSpan& span = book.chapters[i];
+                if (earliest >= static_cast<std::size_t>(span.start)
+                    && earliest < static_cast<std::size_t>(span.end)) {
+                    pageIndex = static_cast<int>(i);
+                    break;
+                }
+            }
+            if (pageIndex < 0) {
+                for (std::size_t i = 0; i < book.chapters.size(); ++i) {
+                    if (static_cast<std::size_t>(book.chapters[i].start) <= earliest) {
+                        pageIndex = static_cast<int>(i);
+                    }
+                }
+            }
+            if (pageIndex >= 0) {
+                hit.page = pageIndex + 1;  // 1-based 页码
+                const long long relative = static_cast<long long>(earliest)
+                    - static_cast<long long>(book.chapters[pageIndex].start);
+                hit.offset = relative > 0 ? relative : 0;
+            }
+        } else if (book.format == "html" || book.format == "markdown" || book.format == "fb2") {
             if (book.textChars > 0) {
                 const double percent =
                     (static_cast<double>(earliest) / static_cast<double>(book.textChars)) * 100.0;

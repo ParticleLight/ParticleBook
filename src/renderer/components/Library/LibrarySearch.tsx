@@ -259,7 +259,7 @@ export function LibrarySearch({ onClose, onOpenBook }: LibrarySearchProps) {
     const hint = typeof hit.page === 'number' ? hit.page : 0  // 0 = 无提示；1 + percent*10
     const offset = typeof hit.offset === 'number' ? hit.offset : -1
     const length = typeof hit.matchLength === 'number' ? hit.matchLength : 0
-    if (['txt', 'mobi', 'fb2'].includes(fmt) && offset >= 0) {
+    if (['txt', 'mobi', 'azw', 'azw3'].includes(fmt) && offset >= 0) {
       // 精确：正文全局码点 → TextRenderer 的 toc-<offset>
       useReaderStore.getState().setPendingLocator({
         version: 1,
@@ -269,16 +269,24 @@ export function LibrarySearch({ onClose, onOpenBook }: LibrarySearchProps) {
         quote: hit.snippet || '',
       })
     } else if (fmt === 'epub' && hint > 0) {
-      // 近似：章节起点百分比（seekTo 跳章）+ 章节内相对偏移（adapter 滚章节内）
+      // 章节起点百分比（seekTo 跳章）+ 命中词 quote（EpubRenderer 转 CFI 精确定位）+ 章节内偏移兜底
       useReaderStore.getState().setPendingLocator({
         version: 1,
         kind: 'scroll',
         percent: Math.min(100, Math.max(0, (hint - 1) / 10)),
         offset: offset >= 0 ? offset : 0,
         length: length > 0 ? length : undefined,
-        quote: hit.snippet || '',
+        quote: debounced || hit.snippet || '',
       })
-    } else if ((fmt === 'html' || fmt === 'markdown') && hint > 0) {
+    } else if (fmt === 'pdf' && hint > 0) {
+      // PDF（indexPdf=true 才有命中）：page = 1-based 页码 → PdfRenderer 翻页
+      useReaderStore.getState().setPendingLocator({
+        version: 1,
+        kind: 'pdf',
+        page: hint,
+        quote: debounced || hit.snippet || '',
+      })
+    } else if ((fmt === 'html' || fmt === 'markdown' || fmt === 'fb2') && hint > 0) {
       useReaderStore.getState().setPendingLocator({
         version: 1,
         kind: 'scroll',
@@ -288,7 +296,7 @@ export function LibrarySearch({ onClose, onOpenBook }: LibrarySearchProps) {
     }
     onOpenBook(hit.bookId)
     onClose()
-  }, [onClose, onOpenBook])
+  }, [debounced, onClose, onOpenBook])
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     // Esc 由上面的窗口级监听处理（保证焦点不在面板里也能关）

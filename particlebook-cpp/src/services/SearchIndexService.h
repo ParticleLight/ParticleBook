@@ -126,6 +126,9 @@ struct SearchBuildOptions {
     std::size_t maxCharsPerBook = 4'000'000;  // 单本正文码点上限（超出截断）
     std::size_t maxTotalTextChars = 16'000'000; // 全索引正文总码点上限（0 = 不限）
     bool includeText = true;                  // false = 不保存正文（可命中，无 snippet）
+    // PDF 是否入索引（mutool 逐页转 text，page 映射；默认 false —— 保持旧行为，
+    // 避免改变 SearchIndexBuildResult::skippedPdf 语义；UI 侧需要 handler 传参后启用）。
+    bool indexPdf = false;
     std::function<bool()> isCancelled;        // 返回 true 时停止；取消不提交改动
 };
 
@@ -134,7 +137,7 @@ struct SearchIndexBuildResult {
     int reused = 0;         // 命中 bookId+mtime+size 复用旧条目
     int removed = 0;        // 旧索引里有、本次输入里已不存在（含抽取失败的旧条目）
     int skipped = 0;        // 不支持的格式（PDF 单独计数）
-    int skippedPdf = 0;     // PDF：本轮不索引
+    int skippedPdf = 0;     // PDF：未启用 indexPdf 时跳过（单独计数）
     int failed = 0;         // 文件缺失 / 读取失败 / 抽取为空
     bool cancelled = false;
     std::size_t totalChars = 0;   // 建完后的正文总码点
@@ -150,8 +153,9 @@ struct SearchOptions {
     std::function<bool()> isCancelled;
 };
 
-// 章节定位（EPUB）：按 spine 顺序记录每章正文在整本书正文里的码点区间。
-// PB-006-C 用它把搜索命中的全局 offset 映射到「第几章 + 章节内偏移」。
+// 定位区间：EPUB 按 spine 顺序记录每章正文在整本书正文里的码点区间；
+// PDF（indexPdf=true）按页顺序记录每页文本区间（href="page:N"）。
+// PB-006-C/D 用它把搜索命中的全局 offset 映射到「第几章/第几页 + 区间内偏移」。
 struct SearchChapterSpan {
     int start = 0;    // 章节正文起始码点（含）
     int end = 0;      // 结束码点（不含）
@@ -172,8 +176,9 @@ struct SearchHit {
     // 定位提示（0 = 无提示；其余 = 1 + 百分比×10，避免与「无提示」混淆）：
     //   * EPUB：章节起点在 spine 中的百分比 × 10 + 1 → seekTo 近似跳章节，
     //     配合 offset=章节内相对偏移，渲染层再按比例滚到章节内位置；
-    //   * HTML/Markdown：命中位置在整本书正文中的百分比 × 10 + 1；
-    //   * PDF：页码（本轮 PDF 不索引，恒 0）；TXT/MOBI：0（用 offset 精确跳）。
+    //   * HTML/Markdown/FB2：命中位置在整本书正文中的百分比 × 10 + 1；
+    //   * PDF（indexPdf=true 时）：命中页码（1-based），offset=页内相对码点；
+    //   * TXT/MOBI/AZW3：0（用全局 offset 精确跳）。
     int page = 0;
     double score = 0.0;        // 越高越相关（同分按 bookId 升序）
     int termHits = 0;          // 命中的查询项数（多词 AND 时等于查询项数）

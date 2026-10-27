@@ -35,6 +35,8 @@ void RegisterSearchHandlers(BridgeServer* bridge, DatabaseService* db,
                         index->Load(&loadError);  // missing index is fine
                     }
                     pb::SearchBuildOptions options;
+                    // PB-006：产品建索引覆盖 PDF（service 默认 false 保持单测语义）。
+                    options.indexPdf = true;
                     options.isCancelled = [&job] { return job.IsCancelled(); };
                     const auto result = index->Build(pb::BookTextSourcesFromDb(db->GetBooks()), options);
                     std::string saveError;

@@ -322,6 +322,47 @@ export function EpubRenderer({ book, content, bookId, spread = 'single', vertica
     }
   }, [highlights, isReady])
 
+  // PB-006-D：搜索命中「章节内定位」——paginated flow 下 iframe 不可滚动，
+  // 唯一可靠的做法是在 rendition.getContents() 的 DOM 里按 quote 找 Range，
+  // 转成 CFI 后 display。供 EpubAdapter 的 goTo(scroll+quote) 调用。
+  useEffect(() => {
+    if (!isReady) return
+    const seekQuote = (quote: string): boolean => {
+      const rendition = renditionRef.current
+      const text = (quote || '').trim()
+      if (!rendition || text.length < 2) return false
+      try {
+        const rawContents = rendition.getContents() as any
+        const contentsList = Array.isArray(rawContents) ? rawContents : [rawContents]
+        for (const contents of contentsList) {
+          const doc: Document | undefined = contents?.document
+          if (!doc || !doc.body) continue
+          const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT)
+          while (walker.nextNode()) {
+            const node = walker.currentNode as Text
+            const value = node.textContent || ''
+            const at = value.indexOf(text)
+            if (at < 0) continue
+            const range = doc.createRange()
+            range.setStart(node, at)
+            range.setEnd(node, at + text.length)
+            const cfi = typeof contents.cfiFromRange === 'function' ? contents.cfiFromRange(range) : null
+            if (!cfi) continue
+            Promise.resolve(rendition.display(cfi)).catch(() => {})
+            return true
+          }
+        }
+      } catch (error) {
+        console.debug('EpubRenderer: seek quote failed', error)
+      }
+      return false
+    }
+    ;(window as any).__pbEpubSeekQuote = seekQuote
+    return () => {
+      if ((window as any).__pbEpubSeekQuote === seekQuote) delete (window as any).__pbEpubSeekQuote
+    }
+  }, [isReady])
+
   useEffect(() => {
     if (!renditionRef.current) return
     renditionRef.current.themes.fontSize(`${fontSize}px`)
