@@ -1,0 +1,170 @@
+/* ═══════════════════════════════════════════════════════════════
+   NavRail / ModalNavDrawer · M3 window size class 导航（2026-10-28）
+
+   只给 components/UI/NavRail.tsx 用；globals.css 归 task-3，本文件不碰它。
+   颜色 / 圆角 / 阴影 / 动效一律读 globals.css 的 --md-sys-* / --ui-* token，
+   因此暗色 / 亮色 / 护眼三套主题自动适配，这里不出现任何硬编码色值。
+
+   尺寸：rail 80px 宽（M3 navigation rail 标准宽度），destination 图标 24px，
+   选中指示条 48×32 胶囊，label 走 label-small（11px）。
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ── Navigation rail（medium 档：640–839px）───────────────────── */
+.pb-nav-rail {
+  width: 80px;
+  flex: 0 0 80px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 12px 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  background: var(--md-sys-color-surface-container-low);
+  border-right: 1px solid var(--md-sys-color-outline-variant);
+}
+
+.pb-nav-rail-item {
+  width: 72px;
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--md-sys-color-on-surface-variant);
+  cursor: pointer;
+  border-radius: var(--md-sys-shape-lg);
+}
+
+/* 选中指示条：M3 rail 的 48×32 胶囊，背景只在 hover / active 时出现 */
+.pb-nav-rail-indicator {
+  width: 48px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--md-sys-shape-full);
+  background: transparent;
+  transition: background var(--md-sys-motion-short), color var(--md-sys-motion-short);
+}
+
+.pb-nav-rail-item:hover .pb-nav-rail-indicator { background: var(--md-sys-state-hover); }
+.pb-nav-rail-item:active .pb-nav-rail-indicator { background: var(--md-sys-state-pressed); }
+
+.pb-nav-rail-icon {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.pb-nav-rail-icon svg { width: 24px; height: 24px; }
+
+.pb-nav-rail-label {
+  max-width: 72px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: var(--md-sys-typescale-label-small);
+  letter-spacing: 0.2px;
+}
+
+/* 选中：primary-container 指示条 + primary 图标 + 更实的 label */
+.pb-nav-rail-item[aria-current='page'] { color: var(--md-sys-color-primary); }
+.pb-nav-rail-item[aria-current='page'] .pb-nav-rail-indicator {
+  background: var(--md-sys-color-primary-container);
+  color: var(--md-sys-color-primary);
+}
+.pb-nav-rail-item[aria-current='page'] .pb-nav-rail-label {
+  color: var(--md-sys-color-on-surface);
+  font-weight: 600;
+}
+
+.pb-nav-rail-item:focus-visible {
+  outline: 2px solid var(--md-sys-state-focus-ring);
+  outline-offset: 2px;
+}
+
+/* ── Modal navigation drawer（compact 档 / medium 档的临时书柜抽屉）───
+   z-index 45：高于页面内容与顶栏，低于应用内既有弹层（z-50 的
+   BookSourcePanel / 书柜新建对话框 / m3-menu，以及 z-80 的共享 Dialog），
+   这样抽屉里打开的二级弹层天然盖在抽屉之上，不需要再抬 z。 */
+.pb-nav-drawer-root {
+  position: fixed;
+  inset: 0;
+  z-index: 45;
+}
+
+.pb-nav-drawer-scrim {
+  position: absolute;
+  inset: 0;
+  background: var(--ui-backdrop);
+  animation: pb-nav-drawer-fade var(--md-sys-motion-medium) both;
+}
+
+.pb-nav-drawer-panel {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: min(300px, 88vw);
+  display: flex;
+  flex-direction: column;
+  background: var(--md-sys-color-surface-container-low);
+  border-right: 1px solid var(--md-sys-color-outline-variant);
+  box-shadow: var(--md-sys-elevation-3);
+  animation: pb-nav-drawer-slide var(--md-sys-motion-medium) both;
+  outline: none;
+}
+
+/* 面板本身只在「没有可聚焦子元素」时接收焦点，用负 offset 的环表示 */
+.pb-nav-drawer-panel:focus-visible {
+  outline: 2px solid var(--md-sys-state-focus-ring);
+  outline-offset: -2px;
+}
+
+.pb-nav-drawer-header {
+  flex: 0 0 auto;
+  min-height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 8px 8px 20px;
+  border-bottom: 1px solid var(--md-sys-color-outline-variant);
+}
+
+.pb-nav-drawer-title {
+  margin: 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pb-nav-drawer-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+
+@keyframes pb-nav-drawer-slide {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(0); }
+}
+
+@keyframes pb-nav-drawer-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pb-nav-drawer-scrim,
+  .pb-nav-drawer-panel { animation: none; }
+  .pb-nav-rail-indicator { transition: none; }
+}

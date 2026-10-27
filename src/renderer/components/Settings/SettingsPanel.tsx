@@ -30,8 +30,11 @@ export function SettingsPanel({ onClose, format, isClosing }: SettingsPanelProps
     <div className={`absolute inset-0 z-40 flex justify-end ${isClosing ? 'animate-fade-out' : ''}`}>
       {/* Backdrop */}
       <div className={`absolute inset-0 bg-black/40 ${isClosing ? 'opacity-0' : ''}`} style={{ transition: 'opacity 0.2s' }} onClick={onClose} />
-      {/* Panel */}
-      <div className={`relative w-80 h-full border-l border-[var(--reader-border)] shadow-2xl overflow-y-auto ${isClosing ? 'animate-slide-out-right' : 'animate-slide-in-right'}`} style={{ backgroundColor: 'var(--reader-sidebar)', opacity: 0.9 }}>
+      {/* Panel —— 这是阅读器内的「阅读设置」右侧滑出面板，本身没有导航，
+          因此 M3 三档导航改造（expanded 抽屉 / medium rail / compact 模态抽屉）
+          只落在 GlobalSettings。这里仅把固定 320px 宽度加上视口上限：窗口比
+          面板还窄时收窄而不是溢出（极窄窗口不该出现横向滚动条）。 */}
+      <div className={`relative w-80 max-w-[calc(100vw-16px)] h-full border-l border-[var(--reader-border)] shadow-2xl overflow-y-auto ${isClosing ? 'animate-slide-out-right' : 'animate-slide-in-right'}`} style={{ backgroundColor: 'var(--reader-sidebar)', opacity: 0.9 }}>
       <div className="p-6 space-y-6">
         {/* Header */}
         <div className="flex items-center justify-between">

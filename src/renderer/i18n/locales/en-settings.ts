@@ -19,6 +19,9 @@ export const enSettings: Record<string, string> = {
   '紫色': 'Purple',
   '绿色': 'Green',
   '橙色': 'Orange',
+  // 设置导航（窄窗口 rail / modal 抽屉）：nav 地标名、compact 汉堡按钮
+  '设置导航': 'Settings navigation',
+  '打开设置导航': 'Open settings navigation',
   '最近阅读': 'Recently read',
   '添加时间': 'Date added',
   '书名': 'Title',

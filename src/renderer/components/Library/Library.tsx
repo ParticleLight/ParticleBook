@@ -5,6 +5,8 @@ import type { Book } from '../../stores/libraryStore'
 import { BookGrid } from './BookGrid'
 import { BookList } from './BookList'
 import { BookShelfPanel } from './BookShelfPanel'
+import { NavRail, ModalNavDrawer, type NavRailItem } from '../UI/NavRail'
+import { useWindowSizeClass } from '../../hooks/useWindowSizeClass'
 import { safeText } from '../../utils/safeText'
 import { useTranslation } from 'react-i18next'
 
@@ -22,6 +24,21 @@ function arrayBufferToBase64(buffer: ArrayBuffer): string {
   }
   return btoa(binary)
 }
+
+// ── M3 navigation rail 的图标（24px 描边，与书柜抽屉里的图标同一套）──────
+function RailGlyph({ d }: { d: string }) {
+  return (
+    <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d={d} />
+    </svg>
+  )
+}
+
+const ICON_ALL_BOOKS = 'M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253'
+const ICON_SHELVES = 'M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z'
+const ICON_BOOK_SOURCES = 'M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9'
+const ICON_ZLIBRARY = 'M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z'
+const ICON_MENU = 'M4 6h16M4 12h16M4 18h16'
 
 interface LibraryProps { onOpenBook: (bookId: number) => void; onOpenSettings: () => void; onOpenZLibrary: () => void; onOpenStatistics: () => void; onOpenSplit?: (bookId: number) => void }
 
@@ -124,6 +141,7 @@ export function Library({ onOpenBook, onOpenSettings, onOpenZLibrary, onOpenStat
   const bookshelves = useLibraryStore((s) => s.bookshelves)
   const shelfBookIds = useLibraryStore((s) => s.shelfBookIds)
   const allBooks = useLibraryStore((s) => s.allBooks)
+  const setActiveShelf = useLibraryStore((s) => s.setActiveShelf)
   const setViewMode = useLibraryStore((s) => s.setViewMode)
   const setSearchQuery = useLibraryStore((s) => s.setSearchQuery)
   const setSortBy = useLibraryStore((s) => s.setSortBy)
@@ -148,6 +166,19 @@ export function Library({ onOpenBook, onOpenSettings, onOpenZLibrary, onOpenStat
   const dragCounterRef = useRef(0)
   const moreBtnRef = useRef<HTMLButtonElement>(null)
   const { t } = useTranslation()
+
+  // ── M3 window size class ────────────────────────────────────────
+  // expanded (>= 840px)：248px 常驻书柜抽屉（改造前行为，未改）
+  // medium   (640–839) ：80px navigation rail；书柜列表走模态抽屉
+  // compact  (< 640)   ：顶栏汉堡 + 模态抽屉（书柜列表 + 全部能力）
+  const sizeClass = useWindowSizeClass()
+  const isCompact = sizeClass === 'compact'
+  const isMedium = sizeClass === 'medium'
+  const [navDrawerOpen, setNavDrawerOpen] = useState(false)
+  const openNavDrawer = useCallback(() => setNavDrawerOpen(true), [])
+  const closeNavDrawer = useCallback(() => setNavDrawerOpen(false), [])
+  // 窗口被拉宽回 expanded 时模态抽屉不再需要（否则它会盖在常驻抽屉上）
+  useEffect(() => { if (sizeClass === 'expanded') setNavDrawerOpen(false) }, [sizeClass])
 
   useEffect(() => {
     loadBookshelves(); loadReadingTime(); loadReadingProgress(); loadMetadataFacets()
@@ -291,18 +322,108 @@ export function Library({ onOpenBook, onOpenSettings, onOpenZLibrary, onOpenStat
     ? Math.min(100, Math.round((importProgress.current / importProgress.total) * 100))
     : 0
 
+  // 抽屉里的入口：先收起模态抽屉再打开对应弹层，避免抽屉的焦点陷阱与弹层
+  // 互相抢焦点（expanded 档抽屉没有开，这几个 setter 相当于 no-op）
+  const handleOpenBookSource = useCallback(() => { setNavDrawerOpen(false); setShowBookSource(true) }, [])
+  const handleOpenZLibrary = useCallback(() => { setNavDrawerOpen(false); onOpenZLibrary() }, [onOpenZLibrary])
+  const handleAddFromAll = useCallback(() => { setNavDrawerOpen(false); setShowBookPicker(true) }, [])
+
+  // medium 档 rail：书柜是数据驱动的长列表，塞不进 80px 宽的 rail，所以 rail 只
+  // 放固定 destination ——「全部书籍」/「书柜」（打开模态抽屉）/「书源管理」/
+  // 「Z-Library」。改造前抽屉里的四项能力一处不少。
+  const railItems = useMemo<NavRailItem[]>(() => [
+    {
+      id: 'all-books',
+      label: t('全部书籍'),
+      icon: <RailGlyph d={ICON_ALL_BOOKS} />,
+      active: activeShelfId === null,
+      onSelect: () => { void setActiveShelf(null) },
+    },
+    {
+      id: 'shelves',
+      label: t('书柜'),
+      icon: <RailGlyph d={ICON_SHELVES} />,
+      active: activeShelfId !== null,
+      onSelect: openNavDrawer,
+    },
+    {
+      id: 'book-sources',
+      label: t('书源管理'),
+      icon: <RailGlyph d={ICON_BOOK_SOURCES} />,
+      onSelect: handleOpenBookSource,
+    },
+    {
+      id: 'zlibrary',
+      label: 'Z-Library',
+      icon: <RailGlyph d={ICON_ZLIBRARY} />,
+      onSelect: handleOpenZLibrary,
+    },
+  ], [t, activeShelfId, setActiveShelf, openNavDrawer, handleOpenBookSource, handleOpenZLibrary])
+
+  // 书柜导航内容：expanded 的常驻抽屉与模态抽屉共用同一份构建逻辑（两者不会
+  // 同时挂载），因此书柜列表 / 新建 / 书源 / Z-Library / 从全部添加只有一份。
+  // 「书库 / N 本书」小标题只给常驻抽屉：模态抽屉的标题已经写在 ModalNavDrawer
+  // 的 header 里了，再放一次就是重复文案。
+  const renderShelfNav = (withSectionHeader: boolean) => (
+    <>
+      {withSectionHeader && (
+        <div className="px-5 pt-5 pb-2">
+          <p className="m3-section-title">{t('书库')}</p>
+          <p className="m3-body-small mt-1">{t('{{count}} 本书', { count: books.length })}</p>
+        </div>
+      )}
+      <div className="flex-1 min-h-0">
+        <BookShelfPanel
+          onOpenBookSource={handleOpenBookSource}
+          onOpenZLibrary={handleOpenZLibrary}
+          onAddFromAll={handleAddFromAll}
+          onAfterSelect={closeNavDrawer}
+        />
+      </div>
+    </>
+  )
+
   return (
     <div className="h-screen flex flex-col" style={{ background: 'var(--bg)' }}
       onDrop={handleDrop} onDragEnter={handleDragEnter} onDragOver={handleDragOver} onDragLeave={handleDragLeave}>
 
       {/* M3 top app bar: destination + search + primary action */}
       <header className="m3-top-app-bar library-top-bar drag-region" data-testid="library-app-bar">
-        <div className="no-drag flex items-center gap-3 min-w-0">
-          <span className="m3-title-large truncate">ParticleBook</span>
+        {/* 品牌位：只在 expanded 显示。
+            - medium（640–839）：原来会被压成 "Partic…"，而内容区已有「全部书籍」
+              标题，所以整格不渲染（顺带省掉 16px gap）；
+            - compact（< 640）：只留汉堡。品牌文字的自然宽度约 130px，440px 窗口下
+              会把搜索框挤到「图标 + 全文搜索按钮 + 内边距」的硬下限以下而向内溢出；
+              compact 下页面身份由汉堡抽屉与内容区标题承担，不需要品牌。
+            汉堡所在格 shrink-0：绝不允许被压成 0 宽。 */}
+        {(isCompact || sizeClass === 'expanded') && (
+          <div className={`no-drag flex items-center gap-3 min-w-0 ${isCompact ? 'shrink-0' : ''}`}>
+            {isCompact && (
+              <button
+                type="button"
+                onClick={openNavDrawer}
+                className="m3-icon-button shrink-0"
+                aria-label={t('打开书库导航')}
+                aria-haspopup="dialog"
+                aria-expanded={navDrawerOpen}
+                title={t('打开书库导航')}
+                data-testid="library-nav-toggle"
+              >
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={ICON_MENU} />
+                </svg>
+              </button>
+            )}
+            {sizeClass === 'expanded' && <span className="m3-title-large truncate">ParticleBook</span>}
+          </div>
+        )}
 
-        </div>
-
-        <div className="no-drag flex-1 max-w-[560px] mx-auto">
+        {/* min-w-0 是关键：没有它这个 flex-1 会自动最小尺寸 = 搜索框内容的
+            min-content（≈262px：图标 20 + 输入框固有宽度 + 全文搜索按钮 36 + 内边距），
+            窗口再窄也不会缩，于是把顶栏撑出横向滚动。
+            max-w 与 globals.css 里 .library-top-bar .m3-search{max-width:440px} 对齐
+            （≤1280 用 440，>1280 用 560），否则搜索框会比自己的槽位窄、右侧留一截空白。 */}
+        <div className="no-drag flex-1 min-w-0 max-w-[440px] xl:max-w-[560px] mx-auto">
           <div className="m3-search" role="search">
             <svg className="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
@@ -329,7 +450,9 @@ export function Library({ onOpenBook, onOpenSettings, onOpenZLibrary, onOpenStat
           </div>
         </div>
 
-        <div className="no-drag flex items-center gap-1.5">
+        {/* shrink-0：动作按钮（导入 / 更多 / 设置）永远保持 40px，不参与压缩 ——
+            否则窄窗口下它们会被挤扁、甚至被裁到不可点。 */}
+        <div className="no-drag flex items-center gap-1.5 shrink-0">
           <select
             value={sortBy}
             onChange={(e) => setSortBy(e.target.value as any)}
@@ -346,14 +469,19 @@ export function Library({ onOpenBook, onOpenSettings, onOpenZLibrary, onOpenStat
             <option value="series">{t('按系列')}</option>
           </select>
 
-          <div className="m3-segmented hidden sm:inline-flex" role="group" aria-label={t('视图')}>
-            <button onClick={() => setViewMode('grid')} aria-label={t('网格视图')} aria-pressed={viewMode === 'grid'} data-testid="view-grid" className={'m3-segmented-btn ' + (viewMode === 'grid' ? 'is-active' : '')}>
-              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 16 16"><path d="M1 2.5A1.5 1.5 0 012.5 1h3A1.5 1.5 0 017 2.5v3A1.5 1.5 0 015.5 7h-3A1.5 1.5 0 011 5.5v-3zm8 0A1.5 1.5 0 0110.5 1h3A1.5 1.5 0 0115 2.5v3A1.5 1.5 0 0113.5 7h-3A1.5 1.5 0 019 5.5v-3zm-8 8A1.5 1.5 0 012.5 9h3A1.5 1.5 0 017 10.5v3A1.5 1.5 0 015.5 15h-3A1.5 1.5 0 011 13.5v-3zm8 0A1.5 1.5 0 0110.5 9h3a1.5 1.5 0 011.5 1.5v3a1.5 1.5 0 01-1.5 1.5h-3A1.5 1.5 0 019 13.5v-3z" /></svg>
-            </button>
-            <button onClick={() => setViewMode('list')} aria-label={t('列表视图')} aria-pressed={viewMode === 'list'} data-testid="view-list" className={'m3-segmented-btn ' + (viewMode === 'list' ? 'is-active' : '')}>
-              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 16 16"><path fillRule="evenodd" d="M2.5 12a.5.5 0 01.5-.5h10a.5.5 0 010 1H3a.5.5 0 01-.5-.5zm0-4a.5.5 0 01.5-.5h10a.5.5 0 010 1H3a.5.5 0 01-.5-.5zm0-4a.5.5 0 01.5-.5h10a.5.5 0 010 1H3a.5.5 0 01-.5-.5z" /></svg>
-            </button>
-          </div>
+          {/* 视图切换：compact 收起（分段按钮宽约 90px，是窄顶栏溢出的主因之一，
+              而且 .m3-segmented{display:inline-flex} 在 globals.css 里比 Tailwind 的
+              hidden 工具类更靠后，光靠 class 隐藏不掉），改由「更多操作」菜单提供。 */}
+          {!isCompact && (
+            <div className="m3-segmented hidden sm:inline-flex" role="group" aria-label={t('视图')}>
+              <button onClick={() => setViewMode('grid')} aria-label={t('网格视图')} aria-pressed={viewMode === 'grid'} data-testid="view-grid" className={'m3-segmented-btn ' + (viewMode === 'grid' ? 'is-active' : '')}>
+                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 16 16"><path d="M1 2.5A1.5 1.5 0 012.5 1h3A1.5 1.5 0 017 2.5v3A1.5 1.5 0 015.5 7h-3A1.5 1.5 0 011 5.5v-3zm8 0A1.5 1.5 0 0110.5 1h3A1.5 1.5 0 0115 2.5v3A1.5 1.5 0 0113.5 7h-3A1.5 1.5 0 019 5.5v-3zm-8 8A1.5 1.5 0 012.5 9h3A1.5 1.5 0 017 10.5v3A1.5 1.5 0 015.5 15h-3A1.5 1.5 0 011 13.5v-3zm8 0A1.5 1.5 0 0110.5 9h3a1.5 1.5 0 011.5 1.5v3a1.5 1.5 0 01-1.5 1.5h-3A1.5 1.5 0 019 13.5v-3z" /></svg>
+              </button>
+              <button onClick={() => setViewMode('list')} aria-label={t('列表视图')} aria-pressed={viewMode === 'list'} data-testid="view-list" className={'m3-segmented-btn ' + (viewMode === 'list' ? 'is-active' : '')}>
+                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 16 16"><path fillRule="evenodd" d="M2.5 12a.5.5 0 01.5-.5h10a.5.5 0 010 1H3a.5.5 0 01-.5-.5zm0-4a.5.5 0 01.5-.5h10a.5.5 0 010 1H3a.5.5 0 01-.5-.5zm0-4a.5.5 0 01.5-.5h10a.5.5 0 010 1H3a.5.5 0 01-.5-.5z" /></svg>
+              </button>
+            </div>
+          )}
 
           <button onClick={handleImport} className="m3-filled-button" aria-label={t('导入书籍')} title={t('导入书籍')}>
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
@@ -366,6 +494,32 @@ export function Library({ onOpenBook, onOpenSettings, onOpenZLibrary, onOpenStat
             </button>
             {showMore && (
               <div className="m3-menu absolute right-0 top-full mt-2 z-50 animate-scale-in">
+                {/* compact：顶栏的「视图」分段按钮收起后，两个视图入口移到这里，
+                    能力不丢；选中项同时给 aria-pressed 与勾选图标。 */}
+                {isCompact && (
+                  <>
+                    <button
+                      onClick={() => { setViewMode('grid'); setShowMore(false) }}
+                      className="m3-menu-item"
+                      aria-pressed={viewMode === 'grid'}
+                      data-testid="menu-view-grid"
+                    >
+                      <svg className="w-4 h-4 shrink-0" fill="currentColor" viewBox="0 0 16 16" aria-hidden="true"><path d="M1 2.5A1.5 1.5 0 012.5 1h3A1.5 1.5 0 017 2.5v3A1.5 1.5 0 015.5 7h-3A1.5 1.5 0 011 5.5v-3zm8 0A1.5 1.5 0 0110.5 1h3A1.5 1.5 0 0115 2.5v3A1.5 1.5 0 0113.5 7h-3A1.5 1.5 0 019 5.5v-3zm-8 8A1.5 1.5 0 012.5 9h3A1.5 1.5 0 017 10.5v3A1.5 1.5 0 015.5 15h-3A1.5 1.5 0 011 13.5v-3zm8 0A1.5 1.5 0 0110.5 9h3a1.5 1.5 0 011.5 1.5v3a1.5 1.5 0 01-1.5 1.5h-3A1.5 1.5 0 019 13.5v-3z" /></svg>
+                      <span className="flex-1 truncate">{t('网格视图')}</span>
+                      {viewMode === 'grid' && <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>}
+                    </button>
+                    <button
+                      onClick={() => { setViewMode('list'); setShowMore(false) }}
+                      className="m3-menu-item"
+                      aria-pressed={viewMode === 'list'}
+                      data-testid="menu-view-list"
+                    >
+                      <svg className="w-4 h-4 shrink-0" fill="currentColor" viewBox="0 0 16 16" aria-hidden="true"><path fillRule="evenodd" d="M2.5 12a.5.5 0 01.5-.5h10a.5.5 0 010 1H3a.5.5 0 01-.5-.5zm0-4a.5.5 0 01.5-.5h10a.5.5 0 010 1H3a.5.5 0 01-.5-.5zm0-4a.5.5 0 01.5-.5h10a.5.5 0 010 1H3a.5.5 0 01-.5-.5z" /></svg>
+                      <span className="flex-1 truncate">{t('列表视图')}</span>
+                      {viewMode === 'list' && <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>}
+                    </button>
+                  </>
+                )}
                 <button onClick={() => { loadBooks(); setShowMore(false) }} className="m3-menu-item">
                   <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg> {t('刷新书架')}
                 </button>
@@ -387,16 +541,19 @@ export function Library({ onOpenBook, onOpenSettings, onOpenZLibrary, onOpenStat
 
       {/* Body */}
       <main className="flex-1 flex overflow-hidden">
-        {/* M3 navigation drawer */}
-        <nav className="m3-nav-drawer w-[248px] flex-shrink-0 overflow-y-auto flex flex-col" aria-label={t('书库导航')}>
-          <div className="px-5 pt-5 pb-2">
-            <p className="m3-section-title">{t('书库')}</p>
-            <p className="m3-body-small mt-1">{t('{{count}} 本书', { count: books.length })}</p>
-          </div>
-          <div className="flex-1">
-            <BookShelfPanel onOpenBookSource={() => setShowBookSource(true)} onOpenZLibrary={onOpenZLibrary} onAddFromAll={() => setShowBookPicker(true)} />
-          </div>
-        </nav>
+        {/* M3 navigation：expanded 沿用 248px 常驻抽屉；medium 换成 80px rail
+            （书柜这种长列表由 rail 的「书柜」按钮开模态抽屉；compact 则由顶栏
+            汉堡打开同一个模态抽屉，见文末的 ModalNavDrawer）。 */}
+        {sizeClass === 'expanded' && (
+          <nav
+            className="m3-nav-drawer w-[248px] flex-shrink-0 overflow-y-auto flex flex-col"
+            aria-label={t('书库导航')}
+            data-testid="library-shelf-drawer"
+          >
+            {renderShelfNav(true)}
+          </nav>
+        )}
+        {isMedium && <NavRail items={railItems} aria-label={t('书库导航')} />}
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto relative" data-library-scroll="1"
@@ -550,6 +707,17 @@ export function Library({ onOpenBook, onOpenSettings, onOpenZLibrary, onOpenStat
           onAdd={async (bookIds) => { for (const id of bookIds) { await addBookToShelf(activeShelfId!, id) }; setShowBookPicker(false) }}
           onClose={() => setShowBookPicker(false)} />
       )}
+
+      {/* compact 汉堡 / medium「书柜」按钮打开的模态导航抽屉：scrim、Esc、
+          Tab 焦点陷阱、aria-modal、关闭后焦点回汉堡，都在 ModalNavDrawer 里。 */}
+      <ModalNavDrawer
+        open={navDrawerOpen && sizeClass !== 'expanded'}
+        onClose={closeNavDrawer}
+        title={t('书库')}
+        closeLabel={t('关闭')}
+      >
+        {renderShelfNav(false)}
+      </ModalNavDrawer>
     </div>
   )
 }

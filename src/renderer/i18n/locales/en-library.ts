@@ -23,6 +23,10 @@ export const enLibrary: Record<string, string> = {
 
   // Library toolbar / sidebar / empty state
   '全部书籍': 'All books',
+  // 导航（窄窗口 rail / modal 抽屉）：抽屉标题、nav 地标名、compact 汉堡按钮
+  '书库': 'Library',
+  '书库导航': 'Library navigation',
+  '打开书库导航': 'Open library navigation',
   '搜索书名或作者...': 'Search by title or author...',
   '最近': 'Recent',
   '书名': 'Title',
@@ -162,6 +166,9 @@ export const enLibrary: Record<string, string> = {
   '按评分': 'By rating',
   '按系列': 'By series',
   '搜索书名 / 作者 / 标签 / 系列...': 'Search title / author / tag / series...',
+  // 书库顶栏既有但此前缺英文的两个可访问名（本轮顺手补上）
+  '搜索书库': 'Search library',
+  '视图': 'View',
 
   // PB-009-D：分屏阅读入口 / 选书
   '分屏阅读': 'Split view',
