@@ -176,7 +176,7 @@ export function ComicRenderer({ book, content, bookId }: ComicRendererProps) {
     return (
       <div className="h-full flex items-center justify-center bg-[var(--reader-bg)]">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-500 mx-auto mb-4"></div>
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[var(--md-sys-color-primary)] mx-auto mb-4"></div>
           <p className="text-[var(--reader-text)] opacity-50">{t('正在解压漫画...')}</p>
         </div>
       </div>
@@ -211,7 +211,7 @@ export function ComicRenderer({ book, content, bookId }: ComicRendererProps) {
             />
           ) : (
             <div key={index} className="w-full h-96 flex items-center justify-center">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-500"></div>
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[var(--md-sys-color-primary)]"></div>
             </div>
           )
         })}

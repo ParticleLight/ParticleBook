@@ -481,7 +481,7 @@ export function EpubRenderer({ book, content, bookId, spread = 'single', vertica
       <div ref={viewerRef} className="h-full" />
       {!isReady && (
         <div className="absolute inset-0 flex items-center justify-center bg-[var(--reader-bg)]">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-500"></div>
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[var(--md-sys-color-primary)]"></div>
         </div>
       )}
 

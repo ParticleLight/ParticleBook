@@ -79,21 +79,21 @@ export function BookSourcePanel({ onClose, isClosing }: BookSourcePanelProps) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center animate-fade-in">
-      <div className="absolute inset-0 bg-black/60" onClick={onClose} />
-      <div className={`relative bg-[var(--reader-bg)] rounded-2xl shadow-2xl w-[900px] max-h-[85vh] flex flex-col overflow-hidden border border-[var(--reader-border)] ${isClosing ? 'animate-scale-out' : 'animate-scale-in'}`}>
+      <div className="m3-dialog-backdrop absolute inset-0" onClick={onClose} />
+      <div className={`m3-dialog relative w-[900px] max-h-[85vh] flex flex-col overflow-hidden ${isClosing ? 'animate-scale-out' : 'animate-scale-in'}`}>
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--reader-border)]">
-          <h2 className="text-lg font-bold text-[var(--reader-text)]">{t('书源管理')}</h2>
+        <div className="flex items-center justify-between px-6 py-4">
+          <h2 className="m3-title-large">{t('书源管理')}</h2>
           <div className="flex items-center gap-3">
             <button
               onClick={handleImport}
-              className="px-3 py-1.5 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-500 transition-colors"
+              className="m3-filled-button"
             >
               {t('导入 JSON')}
             </button>
             <button
               onClick={onClose}
-              className="p-1.5 rounded-lg text-[var(--reader-text)] opacity-60 hover:opacity-100 hover:bg-[var(--reader-sidebar)] transition-colors"
+              className="m3-icon-button" aria-label={t('关闭')}
             >
               <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -103,7 +103,7 @@ export function BookSourcePanel({ onClose, isClosing }: BookSourcePanelProps) {
         </div>
 
         {/* Tabs */}
-        <div className="flex border-b border-[var(--reader-border)]">
+        <div className="flex" style={{ borderBottom: '1px solid var(--md-sys-color-outline-variant)' }}>
           <button
             onClick={() => setTab('search')}
             className={`px-6 py-3 text-sm font-medium transition-colors ${
@@ -140,12 +140,12 @@ export function BookSourcePanel({ onClose, isClosing }: BookSourcePanelProps) {
                   onChange={(e) => setKeyword(e.target.value)}
                   onKeyDown={(e) => { if (e.key === 'Enter') handleSearch() }}
                   placeholder={t('搜索书名...')}
-                  className="flex-1 px-4 py-2.5 bg-[var(--reader-sidebar)] border border-[var(--reader-border)] rounded-lg text-sm text-[var(--reader-text)] placeholder-gray-500 focus:outline-none focus:border-indigo-500"
+                  className="input flex-1"
                 />
                 <button
                   onClick={handleSearch}
                   disabled={isSearching || !keyword.trim()}
-                  className="px-6 py-2.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
+                  className="m3-filled-button"
                 >
                   {isSearching ? t('搜索中...') : t('搜索')}
                 </button>
@@ -163,8 +163,7 @@ export function BookSourcePanel({ onClose, isClosing }: BookSourcePanelProps) {
                   {downloadProgress.status === 'downloading' && (
                     <div className="h-2 bg-[var(--reader-border)] rounded-full overflow-hidden">
                       <div
-                        className="h-full bg-indigo-500 rounded-full transition-all duration-300"
-                        style={{ width: `${getProgressPercent(downloadProgress)}%` }}
+                        className="h-full rounded-full transition-all duration-300" style={{ background: 'var(--md-sys-color-primary)', width: `${getProgressPercent(downloadProgress)}%` }}
                       />
                     </div>
                   )}
@@ -211,7 +210,7 @@ export function BookSourcePanel({ onClose, isClosing }: BookSourcePanelProps) {
                         <button
                           onClick={() => handleDownload(result)}
                           disabled={isDownloading}
-                          className="px-4 py-2 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"
+                          className="m3-filled-button flex-shrink-0"
                         >
                           {isItemDownloading ? t('下载中...') : t('下载')}
                         </button>
@@ -283,7 +282,7 @@ export function BookSourcePanel({ onClose, isClosing }: BookSourcePanelProps) {
                     <button
                       onClick={() => toggleSource(source.id)}
                       className={`relative w-10 h-5 rounded-full transition-colors flex-shrink-0 ${
-                        source.enabled ? 'bg-indigo-600' : 'bg-[var(--reader-border)]'
+                        source.enabled ? 'bg-[var(--md-sys-color-primary)]' : 'bg-[var(--md-sys-color-surface-container-highest)]'
                       }`}
                     >
                       <div
