@@ -501,37 +501,8 @@ body {
    Win11 Settings Controls
    ═══════════════════════════════════════════════════════════════ */
 
-/* Toggle Switch */
-.settings-toggle {
-  position: relative;
-  width: 40px;
-  height: 20px;
-  border-radius: 10px;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  cursor: pointer;
-  transition: background 0.2s, border-color 0.2s;
-  flex-shrink: 0;
-}
-.settings-toggle::after {
-  content: '';
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  background: var(--text-secondary);
-  transition: transform 0.2s, background 0.2s;
-}
-.settings-toggle.active {
-  background: var(--accent);
-  border-color: var(--accent);
-}
-.settings-toggle.active::after {
-  transform: translateX(20px);
-  background: var(--accent-text);
-}
+/* 开关统一走 shared/ui Switch（.pb-switch，M3 规格 52×32 / primary）；
+   旧的 .settings-toggle（40×20 / --bg-tertiary）已于 2026-10-28 移除。 */
 
 /* Segmented Control */
 .settings-segment {
@@ -739,109 +710,148 @@ input[type="range"]::-webkit-slider-thumb:active {
   align-items: stretch;
 }
 
-/* Switch */
+/* Switch — M3 规格：轨道 52×32（圆角 full）、thumb 24/16、on 态 primary。
+   尺寸与状态同时服务 shared/ui/Switch（role="switch" + data-state="on|off"）。
+   用 inset box-shadow 画未选中描边，避免 border 改变 52×32 的几何。 */
 .pb-switch {
   position: relative;
-  width: 40px;
-  height: 20px;
+  width: 52px;
+  height: 32px;
+  flex: 0 0 auto;
   padding: 0;
-  border-radius: 10px;
-  border: 1px solid var(--border);
-  background: var(--ui-switch-off);
+  border: 0;
+  border-radius: var(--md-sys-shape-full);
+  background: var(--md-sys-color-surface-container-highest);
+  box-shadow: inset 0 0 0 2px var(--md-sys-color-outline);
   cursor: pointer;
-  flex-shrink: 0;
-  transition: background 160ms ease, border-color 160ms ease;
+  transition: background var(--md-sys-motion-short), box-shadow var(--md-sys-motion-short);
 }
 .pb-switch[data-state="on"] {
-  background: var(--ui-switch-on);
-  border-color: var(--ui-switch-on);
+  background: var(--md-sys-color-primary);
+  box-shadow: inset 0 0 0 2px var(--md-sys-color-primary);
 }
-.pb-switch:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
+.pb-switch:disabled,
+.pb-switch[aria-disabled="true"] {
+  opacity: 0.38;
+  cursor: default;
 }
 .pb-switch::after {
   content: '';
   position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 14px;
-  height: 14px;
+  top: 50%;
+  left: 8px;
+  width: 16px;
+  height: 16px;
   border-radius: 50%;
-  background: var(--ui-switch-thumb);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
-  transition: transform 160ms ease;
+  background: var(--md-sys-color-on-surface-variant);
+  box-shadow: var(--md-sys-elevation-1);
+  transform: translateY(-50%);
+  transition: width var(--md-sys-motion-medium), height var(--md-sys-motion-medium),
+    left var(--md-sys-motion-medium), transform var(--md-sys-motion-medium),
+    background var(--md-sys-motion-short);
 }
 .pb-switch[data-state="on"]::after {
-  transform: translateX(20px);
+  left: 4px;
+  width: 24px;
+  height: 24px;
+  background: var(--md-sys-color-on-primary);
+  transform: translateY(-50%) translateX(20px);
 }
+/* 紧凑变体（列表行内） */
 .pb-switch-sm {
-  width: 32px;
-  height: 16px;
+  width: 40px;
+  height: 24px;
 }
 .pb-switch-sm::after {
-  width: 10px;
-  height: 10px;
+  left: 6px;
+  width: 12px;
+  height: 12px;
 }
 .pb-switch-sm[data-state="on"]::after {
-  transform: translateX(16px);
+  left: 4px;
+  width: 18px;
+  height: 18px;
+  transform: translateY(-50%) translateX(15px);
 }
 
-/* Field */
+/* Field — M3 表单字段（label / 控件 / 提示 / 错误） */
 .pb-field {
   display: flex;
   flex-direction: column;
   gap: 6px;
 }
 .pb-field-label {
-  font-size: 13px;
-  color: var(--text-secondary);
+  font: var(--md-sys-typescale-label-large);
+  color: var(--md-sys-color-on-surface);
 }
 .pb-field-required {
-  color: var(--ui-danger);
+  color: var(--md-sys-color-error);
 }
 .pb-field-hint {
-  font-size: 11px;
-  color: var(--text-tertiary);
+  font: var(--md-sys-typescale-body-small);
+  color: var(--md-sys-color-on-surface-variant);
 }
 .pb-field-error {
-  font-size: 11px;
-  color: var(--ui-danger);
+  font: var(--md-sys-typescale-body-small);
+  color: var(--md-sys-color-error);
 }
-.pb-field :is(input, select, textarea) {
-  background: var(--ui-input-bg);
-  color: var(--text-primary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  padding: 6px 10px;
-  font-size: 13px;
+/* :where() 让基础规则的权重固定为 (0,1,0)，下面的 checkbox/range 复位与
+   textarea 变体才能靠顺序覆盖，不需要叠加 :not() 提升权重。 */
+.pb-field :where(input, select, textarea) {
+  min-height: 44px;
+  padding: 0 14px;
+  background: var(--md-sys-color-surface-container-high);
+  color: var(--md-sys-color-on-surface);
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: var(--md-sys-shape-md);
+  font: var(--md-sys-typescale-body-medium);
+  transition: border-color var(--md-sys-motion-short), box-shadow var(--md-sys-motion-short);
 }
-.pb-field :is(input, select, textarea):focus {
+.pb-field textarea {
+  min-height: 96px;
+  padding: 10px 14px;
+  resize: vertical;
+}
+.pb-field :where(input, select, textarea):focus {
   outline: none;
-  border-color: var(--border-focus);
+  border-color: var(--md-sys-color-primary);
+  box-shadow: 0 0 0 1px var(--md-sys-color-primary);
+}
+.pb-field :where(input[type="checkbox"], input[type="radio"], input[type="range"]) {
+  min-height: 0;
+  padding: 0;
+  background: none;
+  border: 0;
+  box-shadow: none;
+}
+.pb-field :where(input[type="checkbox"], input[type="radio"], input[type="range"]):focus {
+  box-shadow: none;
 }
 .pb-field [aria-invalid="true"] {
-  border-color: var(--ui-danger);
+  border-color: var(--md-sys-color-error);
 }
 
-/* List */
+/* List — M3 列表项（hover / selected 走 state 与 primary-container） */
 .pb-list {
   display: flex;
   flex-direction: column;
   gap: 2px;
 }
 .pb-list-item {
-  padding: 6px 10px;
-  border-radius: var(--radius-md);
-  color: var(--text-primary);
-  font-size: 13px;
+  min-height: 40px;
+  padding: 8px 12px;
+  border-radius: var(--md-sys-shape-sm);
+  color: var(--md-sys-color-on-surface);
+  font: var(--md-sys-typescale-body-medium);
   cursor: pointer;
+  transition: background var(--md-sys-motion-short), color var(--md-sys-motion-short);
 }
 .pb-list-item:hover {
-  background: var(--ui-list-hover);
+  background: var(--md-sys-state-hover);
 }
 .pb-list-item[data-selected="true"] {
-  background: var(--ui-list-selected);
+  background: var(--md-sys-color-primary-container);
+  color: var(--md-sys-color-on-primary-container);
 }
 
 @keyframes pb-pop-in {
@@ -1110,6 +1120,205 @@ input[type="range"]::-webkit-slider-thumb:active {
 }
 .m3-select:hover { background-color: var(--md-sys-state-hover); }
 .m3-select.is-selected { background-color: var(--md-sys-color-primary-container); border-color: transparent; color: var(--md-sys-color-on-primary-container); }
+
+/* ── Form primitives: text field / select field / checkbox / table ──
+   2026-10-28（task-3）：设置页与业务表单的收口基元，命名与 task-4 的
+   markup 约定一致；变体统一用 .is-* 后缀（is-error / is-dense / is-code /
+   is-compact / is-selected / is-sticky-head），不引入新语义 token。 */
+
+/* 原生 <input>/<textarea> 直接挂这个类；默认占满宽度，需要固定宽度时由
+   外层容器或 .m3-search 之类的适配层控制。 */
+.m3-text-field {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 44px;
+  padding: 0 14px;
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: var(--md-sys-shape-md);
+  background: var(--md-sys-color-surface-container-high);
+  color: var(--md-sys-color-on-surface);
+  font: var(--md-sys-typescale-body-medium);
+  transition: border-color var(--md-sys-motion-short), box-shadow var(--md-sys-motion-short), background var(--md-sys-motion-short);
+}
+.m3-text-field::placeholder { color: var(--md-sys-color-on-surface-variant); opacity: 0.85; }
+.m3-text-field:hover { border-color: var(--md-sys-color-outline); }
+.m3-text-field:focus {
+  outline: none;
+  border-color: var(--md-sys-color-primary);
+  box-shadow: 0 0 0 1px var(--md-sys-color-primary);
+}
+.m3-text-field:disabled { opacity: 0.38; cursor: default; }
+.m3-text-field.is-error { border-color: var(--md-sys-color-error); }
+.m3-text-field.is-error:focus {
+  border-color: var(--md-sys-color-error);
+  box-shadow: 0 0 0 1px var(--md-sys-color-error);
+}
+/* 行内紧凑变体（settings-row 右侧控件位、筛选条） */
+.m3-text-field.is-dense {
+  min-height: 36px;
+  padding: 0 10px;
+  font: var(--md-sys-typescale-label-medium);
+}
+/* 等宽变体（JSON 规则、URL、正则） */
+.m3-text-field.is-code {
+  font-family: ui-monospace, 'Cascadia Mono', 'Consolas', 'Segoe UI Mono', monospace;
+  font-size: 12px;
+  line-height: 18px;
+  letter-spacing: 0;
+}
+textarea.m3-text-field {
+  min-height: 96px;
+  padding: 10px 14px;
+  resize: vertical;
+}
+textarea.m3-text-field.is-dense {
+  min-height: 72px;
+  padding: 8px 10px;
+}
+
+/* 表单里的常规高度下拉（44px），与 32px 紧凑 .m3-select 并存。
+   继承 .m3-select 的 appearance:none 与双渐变箭头，只改几何 / 底色 / 字阶。 */
+.m3-select.is-field {
+  box-sizing: border-box;
+  min-height: 44px;
+  padding: 0 40px 0 14px;
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: var(--md-sys-shape-md);
+  background-color: var(--md-sys-color-surface-container-high);
+  background-position: calc(100% - 18px) 19px, calc(100% - 13px) 19px;
+  color: var(--md-sys-color-on-surface);
+  font: var(--md-sys-typescale-body-medium);
+}
+.m3-select.is-field:hover {
+  background-color: var(--md-sys-color-surface-container-high);
+  border-color: var(--md-sys-color-outline);
+}
+.m3-select.is-field:focus {
+  outline: none;
+  border-color: var(--md-sys-color-primary);
+  box-shadow: 0 0 0 1px var(--md-sys-color-primary);
+}
+/* 聚焦用的是 border + box-shadow 环：压掉全局 focus-visible outline，避免双环 */
+.m3-select.is-field:focus-visible { outline: none; }
+.m3-select.is-field:disabled { opacity: 0.38; cursor: default; }
+.m3-select.is-field.is-dense {
+  min-height: 36px;
+  padding: 0 34px 0 10px;
+  background-position: calc(100% - 16px) 15px, calc(100% - 11px) 15px;
+  font: var(--md-sys-typescale-label-medium);
+}
+
+/* 原生 checkbox 收口：18px / 4px 圆角 / primary 强调色 + 键盘焦点环 */
+.m3-checkbox {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  flex: 0 0 auto;
+  border-radius: 4px;
+  accent-color: var(--md-sys-color-primary);
+  cursor: pointer;
+  vertical-align: middle;
+}
+.m3-checkbox:focus-visible {
+  outline: 2px solid var(--md-sys-state-focus-ring);
+  outline-offset: 2px;
+}
+.m3-checkbox:disabled { opacity: 0.38; cursor: default; }
+
+/* 原生 <table> 收口。border-collapse: separate 是 sticky 表头生效的前提。 */
+.m3-table-wrap {
+  overflow: auto;
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: var(--md-sys-shape-lg);
+  background: var(--md-sys-color-surface-container-low);
+}
+.m3-table {
+  width: 100%;
+  /* 窄窗时宁可让 .m3-table-wrap 横向滚动，也不把列压成竖排文字 */
+  min-width: 860px;
+  border-collapse: separate;
+  border-spacing: 0;
+  color: var(--md-sys-color-on-surface);
+  font: var(--md-sys-typescale-body-medium);
+}
+.m3-table thead th {
+  padding: 10px 12px;
+  text-align: left;
+  font: var(--md-sys-typescale-label-medium);
+  color: var(--md-sys-color-on-surface-variant);
+  background: var(--md-sys-color-surface-container-low);
+  border-bottom: 1px solid var(--md-sys-color-outline-variant);
+  white-space: nowrap;
+}
+/* sticky 表头：类挂在 <table> 或 .m3-table-wrap 上都生效 */
+.m3-table.is-sticky-head thead th,
+.m3-table-wrap.is-sticky-head thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+.m3-table tbody td {
+  padding: 10px 12px;
+  font: var(--md-sys-typescale-body-medium);
+  color: var(--md-sys-color-on-surface);
+  border-bottom: 1px solid var(--md-sys-color-outline-variant);
+  vertical-align: middle;
+}
+.m3-table tbody tr:last-child td { border-bottom: 0; }
+.m3-table tbody tr:hover { background: var(--md-sys-state-hover); }
+.m3-table tbody tr.is-selected,
+.m3-table tbody tr.is-selected:hover {
+  background: var(--md-sys-color-primary-container);
+  color: var(--md-sys-color-on-primary-container);
+}
+.m3-table tbody tr.is-selected td {
+  color: var(--md-sys-color-on-primary-container);
+  border-bottom-color: var(--md-sys-color-outline-variant);
+}
+.m3-table th.is-actions,
+.m3-table td.is-actions { text-align: right; white-space: nowrap; }
+.m3-table th.is-numeric,
+.m3-table td.is-numeric { text-align: right; }
+
+/* 列宽修饰：
+   .is-name   —— 主名称列，给下限防止被长内容压成逐字换行；上限让超长名不撑爆表格
+   .is-url    —— 地址 / 次要文本列，保底宽度（配合单元格内的 truncate）
+   .is-nowrap —— 状态 / 分组这类短文本列，禁止换行（避免「已启用」竖排） */
+.m3-table th.is-name,
+.m3-table td.is-name {
+  min-width: 240px;
+  max-width: 460px;
+}
+.m3-table th.is-url,
+.m3-table td.is-url { min-width: 120px; }
+.m3-table th.is-nowrap,
+.m3-table td.is-nowrap { white-space: nowrap; }
+
+/* 单元格两行截断（长书源名等）：放在 td 直接子元素上使用 */
+.m3-table .m3-cell-clamp {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-word;
+}
+
+/* 按钮小尺寸变体：列表行内 / 工具条（40px 标准高度以外） */
+.m3-text-button.is-compact,
+.m3-outlined-button.is-compact,
+.m3-filled-button.is-compact {
+  min-height: 32px;
+  padding: 0 10px;
+  font: var(--md-sys-typescale-label-medium);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .m3-text-field, .m3-select.is-field, .pb-switch, .pb-switch::after,
+  .pb-list-item {
+    transition: none;
+  }
+}
 
 /* ── Search ── */
 .m3-search {

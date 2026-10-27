@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { translationErrorMessageKey } from '../Reader/TranslationPopup'
+import { Switch } from '../UI/Switch'
 
 // 「测试连接」的状态：只保存展示用的结果，Key 永远不进 state 之外的任何地方
 // （输入框里的 Key 在测之前写进 SecretStore 并清空）。
@@ -110,38 +111,36 @@ export function TranslationSettings() {
     }
   }
 
-  const input = 'w-full px-3 py-2 rounded-lg text-sm border'
-  const inputStyle = { background: 'var(--bg-primary)', borderColor: 'var(--border)', color: 'var(--text-primary)' }
-
+  // 样式统一走 globals.css 的 M3 基元（.m3-text-field / .m3-outlined-button）
   return (
     <div className="settings-card">
-      <h3 className="text-[13px] font-semibold uppercase tracking-wider mb-3" style={{ color: 'var(--text-tertiary)' }}>{t('AI 翻译')}</h3>
-      <p className="text-sm mb-3" style={{ color: 'var(--text-secondary)' }}>
+      <h3 className="m3-section-title mb-3">{t('AI 翻译')}</h3>
+      <p className="m3-body-medium mb-3" style={{ color: 'var(--md-sys-color-on-surface-variant)' }}>
         {t('使用你自己的 OpenAI 兼容 API。Key 只保存在本机 DPAPI 加密存储，不进入设置/备份/日志。')}
       </p>
-      <label className="flex items-center gap-2 text-sm mb-3">
-        <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
+      <label className="flex items-center gap-2 m3-body-medium mb-3 cursor-pointer" htmlFor="translation-enabled">
+        <Switch id="translation-enabled" checked={enabled} onChange={setEnabled} />
         {t('启用翻译')}
       </label>
       <div className="grid grid-cols-2 gap-2 mb-2">
-        <input className={input} style={inputStyle} value={provider} onChange={(e) => setProvider(e.target.value)} placeholder={t('提供方（如 deepseek）')} />
-        <input className={input} style={inputStyle} value={model} onChange={(e) => setModel(e.target.value)} placeholder={t('模型（如 deepseek-chat）')} />
+        <input className="m3-text-field" value={provider} onChange={(e) => setProvider(e.target.value)} placeholder={t('提供方（如 deepseek）')} />
+        <input className="m3-text-field" value={model} onChange={(e) => setModel(e.target.value)} placeholder={t('模型（如 deepseek-chat）')} />
       </div>
-      <input className={input + ' mb-2'} style={inputStyle} value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="https://api.deepseek.com/v1" />
+      <input className="m3-text-field mb-2" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="https://api.deepseek.com/v1" />
       <div className="flex gap-2 mb-2">
-        <input className={input} style={inputStyle} value={targetLanguage} onChange={(e) => setTargetLanguage(e.target.value)} placeholder={t('目标语言')} />
-        <button onClick={saveConfig} disabled={busy} className="btn-secondary whitespace-nowrap">{t('保存配置')}</button>
+        <input className="m3-text-field" value={targetLanguage} onChange={(e) => setTargetLanguage(e.target.value)} placeholder={t('目标语言')} />
+        <button onClick={saveConfig} disabled={busy} className="m3-outlined-button whitespace-nowrap">{t('保存配置')}</button>
       </div>
       <div className="flex gap-2">
-        <input type="password" className={input} style={inputStyle} value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder={hasKey ? t('Key 已保存，输入可替换') : t('API Key')} />
-        <button onClick={saveKey} disabled={busy || !apiKey.trim()} className="btn-secondary whitespace-nowrap">{t('保存密钥')}</button>
-        {hasKey && <button onClick={clearKey} disabled={busy} className="btn-secondary whitespace-nowrap">{t('清除')}</button>}
+        <input type="password" className="m3-text-field" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder={hasKey ? t('Key 已保存，输入可替换') : t('API Key')} />
+        <button onClick={saveKey} disabled={busy || !apiKey.trim()} className="m3-outlined-button whitespace-nowrap">{t('保存密钥')}</button>
+        {hasKey && <button onClick={clearKey} disabled={busy} className="m3-text-button whitespace-nowrap">{t('清除')}</button>}
       </div>
       <div className="flex items-center gap-2 mt-2">
-        <button onClick={testConnection} disabled={busy} className="btn-secondary whitespace-nowrap">
+        <button onClick={testConnection} disabled={busy} className="m3-outlined-button whitespace-nowrap">
           {testState.status === 'testing' ? t('测试中…') : t('测试连接')}
         </button>
-        <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+        <span className="m3-body-small">
           {t('测试会先保存当前配置与 Key，再用 "Hello" 试翻一次；不显示 Key。')}
         </span>
       </div>

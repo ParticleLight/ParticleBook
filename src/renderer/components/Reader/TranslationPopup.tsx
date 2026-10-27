@@ -396,7 +396,7 @@ export function TranslationPopup({ bottomInset = 120, onOpenSettings, request, o
 
           <div className="px-3 py-2 overflow-y-auto" style={{ maxHeight: PANEL_MAX_HEIGHT - 44 }}>
             <p className="text-xs opacity-55 mb-2 line-clamp-3 break-words" title={panel.source}>{panel.source}</p>
-            <div className="border-t pt-2" style={{ borderColor: 'var(--reader-border, #374151)' }}>
+            <div className="border-t pt-2" style={{ borderColor: 'var(--md-sys-color-outline-variant)' }}>
               {panel.loading && (
                 <p className="text-xs opacity-70 flex items-center gap-2 py-1">
                   <span className="animate-spin inline-block w-3 h-3 rounded-full border-2 border-current border-t-transparent" />
@@ -405,12 +405,11 @@ export function TranslationPopup({ bottomInset = 120, onOpenSettings, request, o
               )}
               {!panel.loading && panel.errorText && (
                 <div className="py-1">
-                  <p className="text-xs text-red-400 break-words">{panel.errorText}</p>
+                  <p className="m3-body-small break-words" style={{ color: 'var(--md-sys-color-error)' }}>{panel.errorText}</p>
                   {isConfigError(panel.errorCode) && onOpenSettings && (
                     <button
                       onClick={() => { closePanel(); onOpenSettings() }}
-                      className="mt-2 px-2 py-1 rounded text-xs border"
-                      style={{ borderColor: 'var(--reader-border, #374151)' }}
+                      className="m3-outlined-button is-compact mt-2"
                     >
                       {t('去设置')}
                     </button>

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useBookSourceStore, type BookSourceImportSummary } from '../../stores/bookSourceStore'
 import type { BookSourceInfo } from '../../types/bookSource'
+import { Switch } from '../UI/Switch'
 
 // ── PB-013-A：设置页「书源管理」────────────────────────────────────
 //
@@ -453,18 +454,13 @@ export function BookSourceManager() {
     }
   }, [t, testKeyword, testSource])
 
-  const overlayStyle: React.CSSProperties = { background: 'rgba(0,0,0,0.45)' }
+  // 弹层材质沿用 acrylic；内部控件 / 按钮 / 列表统一走 globals.css 的 M3 基元
+  const overlayStyle: React.CSSProperties = { background: 'var(--ui-backdrop)' }
   const panelStyle: React.CSSProperties = {
     background: 'var(--acrylic-bg)',
     backdropFilter: 'blur(24px)',
     border: '1px solid var(--acrylic-border)',
   }
-  const inputStyle: React.CSSProperties = {
-    background: 'var(--bg-tertiary)',
-    color: 'var(--text-primary)',
-    border: '1px solid var(--border)',
-  }
-  const tabBase = 'px-3 py-1 text-xs rounded-md transition-colors'
 
   return (
     <div className="space-y-3" data-book-source-manager="1">
@@ -472,45 +468,44 @@ export function BookSourceManager() {
       <div className="settings-card">
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <div>
-            <h3 className="text-[13px] font-semibold uppercase tracking-wider" style={{ color: 'var(--text-tertiary)' }}>{t('书源管理')}</h3>
-            <p className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }} data-source-stats="1">
+            <h3 className="m3-section-title">{t('书源管理')}</h3>
+            <p className="m3-body-small mt-1" data-source-stats="1">
               {t('共 {{total}} 个 · 已启用 {{enabled}} 个', { total: sources.length, enabled: enabledCount })}
             </p>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
-            <button onClick={() => { void loadSources() }} disabled={isLoading} className="btn-secondary text-xs" data-source-refresh="1">
+            <button onClick={() => { void loadSources() }} disabled={isLoading} className="m3-outlined-button is-compact" data-source-refresh="1">
               {isLoading ? t('加载中…') : t('刷新')}
             </button>
-            <button onClick={() => setImportOpen((v) => !v)} className="btn-primary text-xs" data-source-import-open="1">{t('导入书源')}</button>
-            <button onClick={() => setConfirmClear(true)} className="btn-secondary text-xs" data-source-clear="1" disabled={sources.length === 0}>{t('清空全部')}</button>
+            <button onClick={() => setImportOpen((v) => !v)} className="m3-filled-button is-compact" data-source-import-open="1">{t('导入书源')}</button>
+            <button onClick={() => setConfirmClear(true)} className="m3-text-button is-compact" data-source-clear="1" disabled={sources.length === 0}>{t('清空全部')}</button>
           </div>
         </div>
 
         {confirmClear && (
-          <div className="mt-3 p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
-            <p className="text-sm mb-2" style={{ color: 'var(--text-primary)' }}>{t('确定清空全部书源吗？此操作不可撤销。')}</p>
+          <div className="mt-3 rounded-xl p-3" style={{ background: 'var(--md-sys-color-surface-container-high)' }}>
+            <p className="m3-body-medium mb-2">{t('确定清空全部书源吗？此操作不可撤销。')}</p>
             <div className="flex items-center gap-2">
-              <button onClick={() => { void clearAll() }} className="btn-primary text-xs" data-source-clear-confirm="1">{t('确认清空')}</button>
-              <button onClick={() => setConfirmClear(false)} className="btn-secondary text-xs">{t('取消')}</button>
+              <button onClick={() => { void clearAll() }} className="m3-filled-button is-compact" data-source-clear-confirm="1">{t('确认清空')}</button>
+              <button onClick={() => setConfirmClear(false)} className="m3-text-button is-compact">{t('取消')}</button>
             </div>
           </div>
         )}
 
         {importOpen && (
-          <div className="mt-3 rounded-lg p-3" style={{ background: 'var(--bg-tertiary)' }}>
+          <div className="mt-3 rounded-xl p-3" style={{ background: 'var(--md-sys-color-surface-container-low)' }}>
             <div className="flex items-center gap-1 mb-2 flex-wrap">
               {(['paste', 'file', 'url', 'clipboard'] as ImportTab[]).map((tab) => (
                 <button
                   key={tab}
                   onClick={() => { setImportTab(tab); setImportError(''); setImportSummary(null) }}
-                  className={tabBase + (importTab === tab ? ' font-semibold' : ' opacity-60')}
-                  style={{ background: importTab === tab ? 'var(--bg-secondary)' : 'transparent', color: 'var(--text-primary)' }}
+                  className={'m3-filter-chip' + (importTab === tab ? ' is-selected' : '')}
                   data-import-tab={tab}
                 >
                   {tab === 'paste' ? t('粘贴 JSON') : tab === 'file' ? t('从文件导入') : tab === 'url' ? t('从 URL 导入') : t('从剪贴板导入')}
                 </button>
               ))}
-              <span className="text-[11px] ml-auto" style={{ color: 'var(--text-tertiary)' }}>{t('支持 Legado 书源 JSON（数组或单个对象）')}</span>
+              <span className="m3-label-small ml-auto">{t('支持 Legado 书源 JSON（数组或单个对象）')}</span>
             </div>
 
             {importTab === 'paste' && (
@@ -520,14 +515,13 @@ export function BookSourceManager() {
                   onChange={(e) => setImportText(e.target.value)}
                   rows={5}
                   placeholder={'[ { "bookSourceName": "...", "bookSourceUrl": "..." } ]'}
-                  className="w-full text-xs rounded-md p-2 font-mono"
-                  style={inputStyle}
+                  className="m3-text-field is-code"
                   data-import-textarea="1"
                 />
                 <button
                   onClick={() => { void runImport(importText) }}
                   disabled={importing || !importText.trim()}
-                  className="btn-primary text-xs"
+                  className="m3-filled-button is-compact"
                   data-import-submit="1"
                 >
                   {importing ? t('导入中…') : t('导入')}
@@ -546,7 +540,7 @@ export function BookSourceManager() {
                   className="text-xs"
                   data-import-file="1"
                 />
-                <p className="text-[11px]" style={{ color: 'var(--text-tertiary)' }}>{t('可多选；文件里的全部字段（含未知规则字段）都会保留')}</p>
+                <p className="m3-body-small">{t('可多选；文件里的全部字段（含未知规则字段）都会保留')}</p>
               </div>
             )}
 
@@ -556,11 +550,10 @@ export function BookSourceManager() {
                   value={importUrl}
                   onChange={(e) => setImportUrl(e.target.value)}
                   placeholder="https://example.com/sources.json"
-                  className="flex-1 text-xs rounded-md px-2 py-1.5"
-                  style={inputStyle}
+                  className="m3-text-field is-dense flex-1"
                   data-import-url="1"
                 />
-                <button onClick={() => { void importFromUrl() }} disabled={importing || !importUrl.trim()} className="btn-primary text-xs" data-import-url-submit="1">
+                <button onClick={() => { void importFromUrl() }} disabled={importing || !importUrl.trim()} className="m3-filled-button is-compact" data-import-url-submit="1">
                   {importing ? t('拉取中…') : t('拉取并导入')}
                 </button>
               </div>
@@ -568,15 +561,15 @@ export function BookSourceManager() {
 
             {importTab === 'clipboard' && (
               <div className="space-y-2">
-                <button onClick={() => { void importFromClipboard() }} disabled={importing} className="btn-primary text-xs" data-import-clipboard="1">
+                <button onClick={() => { void importFromClipboard() }} disabled={importing} className="m3-outlined-button is-compact" data-import-clipboard="1">
                   {importing ? t('读取中…') : t('读取剪贴板')}
                 </button>
-                <p className="text-[11px]" style={{ color: 'var(--text-tertiary)' }}>{t('需要剪贴板读取权限；失败时请改用「粘贴 JSON」')}</p>
+                <p className="m3-body-small">{t('需要剪贴板读取权限；失败时请改用「粘贴 JSON」')}</p>
               </div>
             )}
 
             {importSummary && (
-              <p className="mt-2 text-xs" style={{ color: 'var(--text-secondary)' }} data-import-summary="1">
+              <p className="m3-body-small mt-2" data-import-summary="1">
                 {t('导入结果：成功 {{imported}} · 重复 {{duplicates}} · 无效 {{invalid}} · 失败 {{failed}}', {
                   imported: importSummary.imported,
                   duplicates: importSummary.duplicates,
@@ -586,7 +579,7 @@ export function BookSourceManager() {
               </p>
             )}
             {importError && (
-              <p className="mt-2 text-xs" style={{ color: 'var(--color-red)' }} data-import-error="1">{importError}</p>
+              <p className="m3-body-small mt-2" style={{ color: 'var(--md-sys-color-error)' }} data-import-error="1">{importError}</p>
             )}
           </div>
         )}
@@ -595,18 +588,17 @@ export function BookSourceManager() {
       {/* 列表 */}
       <div className="settings-card">
         {isLoading && sources.length === 0 ? (
-          <p className="text-sm" style={{ color: 'var(--text-tertiary)' }}>{t('正在加载书源…')}</p>
+          <p className="m3-body-medium" style={{ color: 'var(--md-sys-color-on-surface-variant)' }}>{t('正在加载书源…')}</p>
         ) : sources.length === 0 ? (
-          <p className="text-sm" style={{ color: 'var(--text-tertiary)' }} data-source-empty="1">{t('还没有书源，点「导入书源」开始')}</p>
+          <p className="m3-body-medium" style={{ color: 'var(--md-sys-color-on-surface-variant)' }} data-source-empty="1">{t('还没有书源，点「导入书源」开始')}</p>
         ) : (
           <div>
             {/* PB-013-B：分组筛选 / 排序 / 批量操作 */}
-            <div className="flex items-center gap-2 flex-wrap pb-2 mb-1" style={{ borderBottom: '1px solid var(--border)' }}>
+            <div className="flex items-center gap-2 flex-wrap pb-3 mb-3" style={{ borderBottom: '1px solid var(--md-sys-color-outline-variant)' }}>
               <select
                 value={groupFilter}
                 onChange={(e) => { setGroupFilter(e.target.value); setSelectedIds([]) }}
-                className="text-xs rounded-md px-2 py-1"
-                style={inputStyle}
+                className="m3-select"
                 aria-label={t('筛选分组')}
                 data-source-group-filter="1"
               >
@@ -618,8 +610,7 @@ export function BookSourceManager() {
               <select
                 value={sortBy}
                 onChange={(e) => setSortBy(e.target.value as 'name' | 'group' | 'added')}
-                className="text-xs rounded-md px-2 py-1"
-                style={inputStyle}
+                className="m3-select"
                 aria-label={t('排序方式')}
                 data-source-sort="1"
               >
@@ -627,70 +618,116 @@ export function BookSourceManager() {
                 <option value="group">{t('按分组')}</option>
                 <option value="added">{t('按添加时间')}</option>
               </select>
-              <label className="flex items-center gap-1 text-xs cursor-pointer" style={{ color: 'var(--text-secondary)' }}>
-                <input type="checkbox" checked={allVisibleSelected} onChange={toggleSelectAll} data-source-select-all="1" />
-                {t('全选')}
-              </label>
-              <span className="text-xs" style={{ color: 'var(--text-tertiary)' }} data-source-selected-count={visibleSelectedIds.length}>
+              <span className="m3-label-small" data-source-selected-count={visibleSelectedIds.length}>
                 {t('已选择 {{count}} 个', { count: visibleSelectedIds.length })}
               </span>
               <div className="flex items-center gap-1 ml-auto">
-                <button onClick={() => { void bulkSetEnabled(true) }} disabled={bulkBusy || visibleSelectedIds.length === 0} className="btn-secondary text-xs" data-source-bulk-enable="1">{t('批量启用')}</button>
-                <button onClick={() => { void bulkSetEnabled(false) }} disabled={bulkBusy || visibleSelectedIds.length === 0} className="btn-secondary text-xs" data-source-bulk-disable="1">{t('批量禁用')}</button>
-                <button onClick={() => setConfirmBulkDelete(true)} disabled={bulkBusy || visibleSelectedIds.length === 0} className="btn-secondary text-xs" data-source-bulk-delete="1">{t('批量删除')}</button>
+                <button onClick={() => { void bulkSetEnabled(true) }} disabled={bulkBusy || visibleSelectedIds.length === 0} className="m3-outlined-button is-compact" data-source-bulk-enable="1">{t('批量启用')}</button>
+                <button onClick={() => { void bulkSetEnabled(false) }} disabled={bulkBusy || visibleSelectedIds.length === 0} className="m3-outlined-button is-compact" data-source-bulk-disable="1">{t('批量禁用')}</button>
+                <button onClick={() => setConfirmBulkDelete(true)} disabled={bulkBusy || visibleSelectedIds.length === 0} className="m3-text-button is-compact" data-source-bulk-delete="1">{t('批量删除')}</button>
               </div>
             </div>
             {bulkNotice && (
-              <p className="text-xs pb-1" style={{ color: 'var(--text-secondary)' }} data-source-bulk-notice="1">{bulkNotice}</p>
+              <p className="m3-body-small pb-2" data-source-bulk-notice="1">{bulkNotice}</p>
             )}
             {visibleSources.length === 0 ? (
-              <p className="text-sm py-3" style={{ color: 'var(--text-tertiary)' }} data-source-filter-empty="1">{t('当前分组没有书源')}</p>
-            ) : visibleSources.map((source) => {
-              const group = asText(sourceRecord(source).bookSourceGroup)
-              const url = asText(sourceRecord(source).bookSourceUrl)
-              const disabled = busyIds.includes(source.id)
-              const unknown = unknownFieldCount(source)
-              return (
-                <div key={source.id} className="py-2.5 flex items-start gap-3 settings-row" style={{ alignItems: 'flex-start' }} data-source-row={source.id}>
-                  <input
-                    type="checkbox"
-                    checked={selectedIds.includes(source.id)}
-                    onChange={() => toggleSelect(source.id)}
-                    aria-label={t('选择书源')}
-                    data-source-select={source.id}
-                    style={{ marginTop: 4 }}
-                  />
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-sm font-medium truncate" style={{ color: 'var(--text-primary)' }} data-source-name={source.id}>
-                        {asText(sourceRecord(source).bookSourceName) || t('未命名')}
-                      </span>
-                      <span className="text-[10px] px-1.5 py-0.5 rounded" style={{ background: source.enabled === false ? 'var(--bg-tertiary)' : 'var(--color-indigo-bg)', color: source.enabled === false ? 'var(--text-tertiary)' : 'var(--text-primary)' }} data-source-state={source.id}>
-                        {source.enabled === false ? t('已禁用') : t('已启用')}
-                      </span>
-                      {group && <span className="text-[10px] px-1.5 py-0.5 rounded" style={{ background: 'var(--bg-tertiary)', color: 'var(--text-tertiary)' }}>{group}</span>}
-                    </div>
-                    <p className="text-xs truncate mt-0.5" style={{ color: 'var(--text-tertiary)' }} title={url} data-source-url={source.id}>
-                      {url || t('没有地址')}
-                    </p>
-                    {unknown > 0 && (
-                      <p className="text-[11px] mt-0.5" style={{ color: 'var(--text-tertiary)' }}>{t('另外 {{count}} 个规则字段将原样保留', { count: unknown })}</p>
-                    )}
-                    {rowError[source.id] && (
-                      <p className="text-[11px] mt-1" style={{ color: 'var(--color-red)' }}>{rowError[source.id]}</p>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-1 shrink-0 flex-wrap justify-end">
-                    <button onClick={() => { void toggle(source) }} disabled={disabled} className="btn-secondary text-xs" data-source-toggle={source.id}>
-                      {source.enabled === false ? t('启用') : t('禁用')}
-                    </button>
-                    <button onClick={() => openTest(source)} className="btn-secondary text-xs" data-source-test={source.id}>{t('测试')}</button>
-                    <button onClick={() => openEdit(source)} className="btn-secondary text-xs" data-source-edit={source.id}>{t('编辑')}</button>
-                    <button onClick={() => setConfirmDelete(source)} className="btn-secondary text-xs" data-source-delete={source.id}>{t('删除')}</button>
-                  </div>
-                </div>
-              )
-            })}
+              <p className="m3-body-medium py-3" style={{ color: 'var(--md-sys-color-on-surface-variant)' }} data-source-filter-empty="1">{t('当前分组没有书源')}</p>
+            ) : (
+              <div className="m3-table-wrap">
+                <table className="m3-table">
+                  <thead>
+                    <tr>
+                      <th scope="col" style={{ width: 44 }}>
+                        <input
+                          type="checkbox"
+                          className="m3-checkbox"
+                          checked={allVisibleSelected}
+                          onChange={toggleSelectAll}
+                          aria-label={t('全选')}
+                          data-source-select-all="1"
+                        />
+                      </th>
+                      <th scope="col" className="is-name">{t('名称')}</th>
+                      <th scope="col" className="is-url">{t('地址')}</th>
+                      <th scope="col" className="is-nowrap">{t('分组')}</th>
+                      <th scope="col" className="is-nowrap">{t('启用')}</th>
+                      <th scope="col" className="is-actions" aria-hidden="true" />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {visibleSources.map((source) => {
+                      const group = asText(sourceRecord(source).bookSourceGroup)
+                      const url = asText(sourceRecord(source).bookSourceUrl)
+                      const name = asText(sourceRecord(source).bookSourceName) || t('未命名')
+                      const disabled = busyIds.includes(source.id)
+                      const unknown = unknownFieldCount(source)
+                      const enabled = source.enabled !== false
+                      const selected = selectedIds.includes(source.id)
+                      return (
+                        <tr
+                          key={source.id}
+                          className={selected ? 'is-selected' : undefined}
+                          data-source-row={source.id}
+                        >
+                          <td>
+                            <input
+                              type="checkbox"
+                              className="m3-checkbox"
+                              checked={selected}
+                              onChange={() => toggleSelect(source.id)}
+                              aria-label={t('选择书源')}
+                              data-source-select={source.id}
+                            />
+                          </td>
+                          <td className="is-name">
+                            <div className="m3-cell-clamp m3-label-large" title={name} data-source-name={source.id}>
+                              {name}
+                            </div>
+                            {unknown > 0 && (
+                              <div className="m3-label-small mt-0.5">{t('另外 {{count}} 个规则字段将原样保留', { count: unknown })}</div>
+                            )}
+                            {rowError[source.id] && (
+                              <p className="m3-body-small mt-1" style={{ color: 'var(--md-sys-color-error)' }}>{rowError[source.id]}</p>
+                            )}
+                          </td>
+                          <td className="is-url">
+                            {/* 地址列上限 200px：6 列（含 240px 名称下限与操作列）要在 ~900px 内容区里放得下，
+                                超长 URL 走 truncate + title；窄窗由 .m3-table-wrap 横向滚动兜底 */}
+                            <span className="block truncate m3-body-small" style={{ maxWidth: 200 }} title={url} data-source-url={source.id}>
+                              {url || t('没有地址')}
+                            </span>
+                          </td>
+                          <td className="is-nowrap">
+                            <span className="m3-label-small">{group || '—'}</span>
+                          </td>
+                          <td className="is-nowrap">
+                            <span className="inline-flex items-center gap-2" data-source-toggle={source.id}>
+                              <Switch
+                                size="sm"
+                                checked={enabled}
+                                onChange={() => { void toggle(source) }}
+                                disabled={disabled}
+                                label={enabled ? t('已启用') : t('已禁用')}
+                              />
+                              <span className="m3-label-small" data-source-state={source.id}>
+                                {enabled ? t('已启用') : t('已禁用')}
+                              </span>
+                            </span>
+                          </td>
+                          <td className="is-actions">
+                            <div className="flex items-center justify-end gap-1">
+                              <button onClick={() => openTest(source)} className="m3-text-button is-compact" data-source-test={source.id}>{t('测试')}</button>
+                              <button onClick={() => openEdit(source)} className="m3-text-button is-compact" data-source-edit={source.id}>{t('编辑')}</button>
+                              <button onClick={() => setConfirmDelete(source)} className="m3-text-button is-compact" data-source-delete={source.id}>{t('删除')}</button>
+                            </div>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -699,13 +736,13 @@ export function BookSourceManager() {
       {confirmDelete && (
         <div className="fixed inset-0 z-[70] flex items-center justify-center" style={overlayStyle} onClick={() => setConfirmDelete(null)}>
           <div className="relative w-[420px] max-w-[90vw] rounded-xl p-5" style={panelStyle} onClick={(e) => e.stopPropagation()}>
-            <p className="text-sm mb-3" style={{ color: 'var(--text-primary)' }}>
+            <p className="m3-title-small mb-3">
               {t('删除书源「{{name}}」？', { name: asText(sourceRecord(confirmDelete).bookSourceName) || t('未命名') })}
             </p>
-            <p className="text-xs mb-4" style={{ color: 'var(--text-tertiary)' }}>{t('删除后不能再用它搜索或下载。')}</p>
+            <p className="m3-body-small mb-4">{t('删除后不能再用它搜索或下载。')}</p>
             <div className="flex justify-end gap-2">
-              <button onClick={() => setConfirmDelete(null)} className="btn-secondary text-xs">{t('取消')}</button>
-              <button onClick={() => { void remove(confirmDelete) }} className="btn-primary text-xs" data-source-delete-confirm="1">{t('删除')}</button>
+              <button onClick={() => setConfirmDelete(null)} className="m3-text-button is-compact">{t('取消')}</button>
+              <button onClick={() => { void remove(confirmDelete) }} className="m3-filled-button is-compact" data-source-delete-confirm="1">{t('删除')}</button>
             </div>
           </div>
         </div>
@@ -715,13 +752,13 @@ export function BookSourceManager() {
       {confirmBulkDelete && (
         <div className="fixed inset-0 z-[70] flex items-center justify-center" style={overlayStyle} onClick={() => setConfirmBulkDelete(false)}>
           <div className="relative w-[440px] max-w-[90vw] rounded-xl p-5" style={panelStyle} onClick={(e) => e.stopPropagation()}>
-            <p className="text-sm mb-3" style={{ color: 'var(--text-primary)' }}>
+            <p className="m3-title-small mb-3">
               {t('删除选中的 {{count}} 个书源？', { count: visibleSelectedIds.length })}
             </p>
-            <p className="text-xs mb-4" style={{ color: 'var(--text-tertiary)' }}>{t('删除后不能再用它们搜索或下载。')}</p>
+            <p className="m3-body-small mb-4">{t('删除后不能再用它们搜索或下载。')}</p>
             <div className="flex justify-end gap-2">
-              <button onClick={() => setConfirmBulkDelete(false)} className="btn-secondary text-xs">{t('取消')}</button>
-              <button onClick={() => { void bulkDelete() }} className="btn-primary text-xs" data-source-bulk-delete-confirm="1">{t('删除')}</button>
+              <button onClick={() => setConfirmBulkDelete(false)} className="m3-text-button is-compact">{t('取消')}</button>
+              <button onClick={() => { void bulkDelete() }} className="m3-filled-button is-compact" data-source-bulk-delete-confirm="1">{t('删除')}</button>
             </div>
           </div>
         </div>
@@ -731,58 +768,57 @@ export function BookSourceManager() {
       {editSource && form && (
         <div className="fixed inset-0 z-[70] flex items-center justify-center p-4" style={overlayStyle}>
           <div className="relative w-[720px] max-w-[94vw] max-h-[88vh] rounded-xl flex flex-col overflow-hidden" style={panelStyle}>
-            <div className="flex items-center justify-between px-5 py-3" style={{ borderBottom: '1px solid var(--border)' }}>
-              <h3 className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }} data-edit-title="1">{t('编辑书源')}</h3>
-              <button onClick={closeEdit} className="p-1 rounded" aria-label={t('关闭')} style={{ color: 'var(--text-tertiary)' }}>
+            <div className="flex items-center justify-between px-5 py-3" style={{ borderBottom: '1px solid var(--md-sys-color-outline-variant)' }}>
+              <h3 className="m3-title-small" data-edit-title="1">{t('编辑书源')}</h3>
+              <button onClick={closeEdit} className="m3-icon-button" aria-label={t('关闭')}>
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
               </button>
             </div>
             <div className="flex-1 overflow-y-auto px-5 py-3 space-y-3">
               <div className="grid grid-cols-2 gap-2">
                 <label className="block">
-                  <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>{t('名称')}</span>
-                  <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="w-full text-sm rounded-md px-2 py-1.5 mt-1" style={inputStyle} data-edit-name="1" />
+                  <span className="m3-label-medium block mb-1">{t('名称')}</span>
+                  <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="m3-text-field" data-edit-name="1" />
                 </label>
                 <label className="block">
-                  <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>{t('地址')}</span>
-                  <input value={form.url} onChange={(e) => setForm({ ...form, url: e.target.value })} className="w-full text-sm rounded-md px-2 py-1.5 mt-1" style={inputStyle} data-edit-url="1" />
+                  <span className="m3-label-medium block mb-1">{t('地址')}</span>
+                  <input value={form.url} onChange={(e) => setForm({ ...form, url: e.target.value })} className="m3-text-field" data-edit-url="1" />
                 </label>
                 <label className="block">
-                  <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>{t('分组')}</span>
-                  <input value={form.group} onChange={(e) => setForm({ ...form, group: e.target.value })} className="w-full text-sm rounded-md px-2 py-1.5 mt-1" style={inputStyle} data-edit-group="1" />
+                  <span className="m3-label-medium block mb-1">{t('分组')}</span>
+                  <input value={form.group} onChange={(e) => setForm({ ...form, group: e.target.value })} className="m3-text-field" data-edit-group="1" />
                 </label>
                 <label className="block">
-                  <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>{t('User-Agent')}</span>
-                  <input value={form.userAgent} onChange={(e) => setForm({ ...form, userAgent: e.target.value })} className="w-full text-sm rounded-md px-2 py-1.5 mt-1" style={inputStyle} data-edit-ua="1" />
+                  <span className="m3-label-medium block mb-1">{t('User-Agent')}</span>
+                  <input value={form.userAgent} onChange={(e) => setForm({ ...form, userAgent: e.target.value })} className="m3-text-field" data-edit-ua="1" />
                 </label>
               </div>
               <label className="block">
-                <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>{t('搜索 URL')}</span>
-                <input value={form.searchUrl} onChange={(e) => setForm({ ...form, searchUrl: e.target.value })} className="w-full text-sm rounded-md px-2 py-1.5 mt-1 font-mono" style={inputStyle} data-edit-search-url="1" />
+                <span className="m3-label-medium block mb-1">{t('搜索 URL')}</span>
+                <input value={form.searchUrl} onChange={(e) => setForm({ ...form, searchUrl: e.target.value })} className="m3-text-field is-code" data-edit-search-url="1" />
               </label>
               {RULE_FIELDS.map((field) => (
                 <label className="block" key={field.key}>
-                  <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>{t(field.label)}</span>
+                  <span className="m3-label-medium block mb-1">{t(field.label)}</span>
                   <textarea
                     value={form[field.key]}
                     onChange={(e) => setForm({ ...form, [field.key]: e.target.value })}
                     rows={3}
                     placeholder="{ }"
-                    className="w-full text-xs rounded-md px-2 py-1.5 mt-1 font-mono"
-                    style={inputStyle}
+                    className="m3-text-field is-code"
                     data-edit-rule={field.sourceKey}
                   />
                 </label>
               ))}
-              <p className="text-[11px]" style={{ color: 'var(--text-tertiary)' }}>
+              <p className="m3-body-small">
                 {t('另外 {{count}} 个未列出的字段会原样保留（保存时只提交改动项）', { count: unknownFieldCount(editSource) })}
               </p>
-              {formError && <p className="text-xs" style={{ color: 'var(--color-red)' }} data-edit-error="1">{formError}</p>}
-              {savedHint && <p className="text-xs" style={{ color: 'var(--text-tertiary)' }}>{savedHint}</p>}
+              {formError && <p className="m3-body-small" style={{ color: 'var(--md-sys-color-error)' }} data-edit-error="1">{formError}</p>}
+              {savedHint && <p className="m3-body-small">{savedHint}</p>}
             </div>
-            <div className="flex justify-end gap-2 px-5 py-3" style={{ borderTop: '1px solid var(--border)' }}>
-              <button onClick={closeEdit} className="btn-secondary text-xs">{t('取消')}</button>
-              <button onClick={() => { void saveEdit() }} disabled={saving} className="btn-primary text-xs" data-edit-save="1">{saving ? t('保存中…') : t('保存')}</button>
+            <div className="flex justify-end gap-2 px-5 py-3" style={{ borderTop: '1px solid var(--md-sys-color-outline-variant)' }}>
+              <button onClick={closeEdit} className="m3-text-button is-compact">{t('取消')}</button>
+              <button onClick={() => { void saveEdit() }} disabled={saving} className="m3-filled-button is-compact" data-edit-save="1">{saving ? t('保存中…') : t('保存')}</button>
             </div>
           </div>
         </div>
@@ -792,58 +828,57 @@ export function BookSourceManager() {
       {testSource && (
         <div className="fixed inset-0 z-[70] flex items-center justify-center p-4" style={overlayStyle}>
           <div className="relative w-[640px] max-w-[94vw] max-h-[80vh] rounded-xl flex flex-col overflow-hidden" style={panelStyle}>
-            <div className="flex items-center justify-between px-5 py-3" style={{ borderBottom: '1px solid var(--border)' }}>
+            <div className="flex items-center justify-between px-5 py-3" style={{ borderBottom: '1px solid var(--md-sys-color-outline-variant)' }}>
               <div>
-                <h3 className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>{t('测试书源')}</h3>
-                <p className="text-xs mt-0.5" style={{ color: 'var(--text-tertiary)' }}>
+                <h3 className="m3-title-small">{t('测试书源')}</h3>
+                <p className="m3-body-small mt-0.5">
                   {asText(sourceRecord(testSource).bookSourceName) || t('未命名')} · {t('该测试只读，不会修改任何书源')}
                 </p>
               </div>
-              <button onClick={() => setTestSource(null)} className="p-1 rounded" aria-label={t('关闭')} style={{ color: 'var(--text-tertiary)' }}>
+              <button onClick={() => setTestSource(null)} className="m3-icon-button" aria-label={t('关闭')}>
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
               </button>
             </div>
-            <div className="px-5 py-3 flex items-center gap-2" style={{ borderBottom: '1px solid var(--border)' }}>
+            <div className="px-5 py-3 flex items-center gap-2" style={{ borderBottom: '1px solid var(--md-sys-color-outline-variant)' }}>
               <input
                 value={testKeyword}
                 onChange={(e) => setTestKeyword(e.target.value)}
                 onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void runTest() } }}
                 placeholder={t('输入测试关键词')}
-                className="flex-1 text-sm rounded-md px-2 py-1.5"
-                style={inputStyle}
+                className="m3-text-field is-dense flex-1"
                 data-test-keyword="1"
               />
-              <button onClick={() => { void runTest() }} disabled={testing} className="btn-primary text-xs" data-test-run="1">{testing ? t('测试中…') : t('开始测试')}</button>
+              <button onClick={() => { void runTest() }} disabled={testing} className="m3-filled-button is-compact" data-test-run="1">{testing ? t('测试中…') : t('开始测试')}</button>
             </div>
             <div className="flex-1 overflow-y-auto px-5 py-3">
               {testing && (
-                <p className="text-sm" style={{ color: 'var(--text-tertiary)' }} data-test-running="1">
+                <p className="m3-body-medium" style={{ color: 'var(--md-sys-color-on-surface-variant)' }} data-test-running="1">
                   {t('正在请求书源…（已等待 {{seconds}} 秒）', { seconds: Math.round(testElapsedMs / 1000) })}
                 </p>
               )}
-              {testError && <p className="text-sm" style={{ color: 'var(--color-red)' }} data-test-error="1">{testError}</p>}
+              {testError && <p className="m3-body-medium" style={{ color: 'var(--md-sys-color-error)' }} data-test-error="1">{testError}</p>}
               {!testing && !testError && testRan && testResults.length === 0 && (
-                <p className="text-sm" style={{ color: 'var(--text-secondary)' }} data-test-empty="1">
+                <p className="m3-body-medium" style={{ color: 'var(--md-sys-color-on-surface-variant)' }} data-test-empty="1">
                   {t('没有搜索结果（用时 {{seconds}} 秒）；请换个关键词，或检查书源规则/网络', { seconds: Math.round(testElapsedMs / 1000) })}
                 </p>
               )}
               {!testing && !testError && !testRan && testResults.length === 0 && (
-                <p className="text-sm" style={{ color: 'var(--text-tertiary)' }}>{t('还没有结果；输入关键词后点「开始测试」')}</p>
+                <p className="m3-body-medium" style={{ color: 'var(--md-sys-color-on-surface-variant)' }}>{t('还没有结果；输入关键词后点「开始测试」')}</p>
               )}
               {testResults.length > 0 && (
                 <div>
-                  <p className="text-xs mb-2" style={{ color: 'var(--text-tertiary)' }} data-test-count={testResults.length}>{t('测试结果：{{count}} 条', { count: testResults.length })}</p>
+                  <p className="m3-label-small mb-2" data-test-count={testResults.length}>{t('测试结果：{{count}} 条', { count: testResults.length })}</p>
                   {testResults.map((item, index) => (
-                    <div key={index} className="py-1.5" style={{ borderTop: index === 0 ? 'none' : '1px solid var(--border)' }}>
-                      <p className="text-sm" style={{ color: 'var(--text-primary)' }}>{item.bookName}</p>
-                      <p className="text-xs" style={{ color: 'var(--text-tertiary)' }}>{item.author || t('未知作者')}{item.bookUrl ? ' · ' + item.bookUrl : ''}</p>
+                    <div key={index} className="py-1.5" style={{ borderTop: index === 0 ? 'none' : '1px solid var(--md-sys-color-outline-variant)' }}>
+                      <p className="m3-body-medium">{item.bookName}</p>
+                      <p className="m3-body-small">{item.author || t('未知作者')}{item.bookUrl ? ' · ' + item.bookUrl : ''}</p>
                     </div>
                   ))}
                 </div>
               )}
             </div>
-            <div className="flex justify-end px-5 py-3" style={{ borderTop: '1px solid var(--border)' }}>
-              <button onClick={() => setTestSource(null)} className="btn-secondary text-xs">{t('关闭')}</button>
+            <div className="flex justify-end px-5 py-3" style={{ borderTop: '1px solid var(--md-sys-color-outline-variant)' }}>
+              <button onClick={() => setTestSource(null)} className="m3-text-button is-compact">{t('关闭')}</button>
             </div>
           </div>
         </div>

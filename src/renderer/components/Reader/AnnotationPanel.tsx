@@ -321,12 +321,7 @@ export function AnnotationPanel({ bookId, format, onClose }: AnnotationPanelProp
             <button
               key={item.id}
               onClick={() => setTypeFilter(item.id)}
-              className={
-                'px-2 py-1 rounded-lg text-xs transition-colors ' +
-                (typeFilter === item.id
-                  ? 'bg-[var(--reader-accent)] text-white'
-                  : 'opacity-60 hover:opacity-90 hover:bg-[var(--reader-border)]')
-              }
+              className={'m3-filter-chip' + (typeFilter === item.id ? ' is-selected' : '')}
             >
               {item.label}
             </button>
@@ -334,12 +329,7 @@ export function AnnotationPanel({ bookId, format, onClose }: AnnotationPanelProp
           {hasPdfAnnotations && (
             <button
               onClick={() => setPdfOnly((value) => !value)}
-              className={
-                'px-2 py-1 rounded-lg text-xs transition-colors ' +
-                (pdfOnly
-                  ? 'bg-[var(--reader-accent)] text-white'
-                  : 'opacity-60 hover:opacity-90 hover:bg-[var(--reader-border)]')
-              }
+              className={'m3-filter-chip' + (pdfOnly ? ' is-selected' : '')}
               data-testid="annotation-pdf-filter"
               title={t('PDF 标注')}
             >
@@ -350,7 +340,7 @@ export function AnnotationPanel({ bookId, format, onClose }: AnnotationPanelProp
         <select
           value={sort}
           onChange={(e) => setSort(e.target.value as AnnotationSort)}
-          className="px-2 py-1 rounded-lg text-xs bg-[var(--reader-bg)] border border-[var(--reader-border)] focus:outline-none"
+          className="m3-select"
           title={t('排序')}
           aria-label={t('排序')}
         >
@@ -361,7 +351,7 @@ export function AnnotationPanel({ bookId, format, onClose }: AnnotationPanelProp
 
       {error && (
         <div className="mx-3 mt-3 px-3 py-2 rounded-lg text-xs break-words"
-             style={{ background: 'var(--color-red-bg)', color: 'var(--color-red)' }}>
+             style={{ background: 'var(--md-sys-color-error-container)', color: 'var(--md-sys-color-error)' }}>
           {error}
         </div>
       )}
@@ -446,8 +436,7 @@ export function AnnotationPanel({ bookId, format, onClose }: AnnotationPanelProp
         <button
           onClick={() => void handleAddBookmark()}
           disabled={busy}
-          className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm text-white disabled:opacity-50"
-          style={{ backgroundColor: 'var(--reader-accent)' }}
+          className="m3-filled-button w-full"
           title={t('在当前位置添加书签')}
           data-testid="annotation-add-bookmark"
         >
@@ -470,14 +459,13 @@ export function AnnotationPanel({ bookId, format, onClose }: AnnotationPanelProp
             }}
             rows={2}
             placeholder={t('在当前位置添加笔记')}
-            className="flex-1 px-3 py-2 bg-[var(--reader-bg)] border border-[var(--reader-border)] rounded-lg text-sm placeholder-gray-500 focus:outline-none focus:border-[var(--reader-accent)] resize-none text-[var(--reader-text)]"
+            className="m3-text-field is-dense flex-1"
             data-testid="annotation-note-input"
           />
           <button
             onClick={() => void handleAddNote()}
             disabled={busy || !newNote.trim()}
-            className="px-3 py-2 rounded-lg text-sm text-white disabled:opacity-40 self-stretch"
-            style={{ backgroundColor: 'var(--reader-accent)' }}
+            className="m3-filled-button is-compact self-start"
             data-testid="annotation-add-note"
           >
             {t('添加')}

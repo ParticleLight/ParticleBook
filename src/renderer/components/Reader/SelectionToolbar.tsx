@@ -91,14 +91,8 @@ export function SelectionToolbar({
   return (
     <div
       data-pb-selection-toolbar
-      className="fixed z-[58] flex items-center gap-1 px-1.5 py-1 rounded-lg shadow-xl border"
-      style={{
-        left,
-        top,
-        background: 'var(--reader-sidebar)',
-        borderColor: 'var(--reader-border)',
-        color: 'var(--reader-text)',
-      }}
+      className="m3-toolbar fixed z-[58]"
+      style={{ left, top }}
       onMouseDown={(e) => {
         // 保住 DOM 选区：否则点击按钮会先清空选区，弹层/TTS 再取就空了
         e.preventDefault()
@@ -111,7 +105,7 @@ export function SelectionToolbar({
           key={button.key}
           type="button"
           data-testid={button.testId}
-          className="flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors hover:bg-[var(--reader-border)]"
+          className="m3-text-button is-compact"
           title={button.label}
           aria-label={button.label}
           onClick={button.action}

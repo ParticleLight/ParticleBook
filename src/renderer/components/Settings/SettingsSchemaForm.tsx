@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
 import { useSettingsStore } from '../../stores/settingsStore'
+import { Switch } from '../UI/Switch'
 
 // ── PB-023-B：schema 驱动的设置表单 ──────────────────────────────────
 //
@@ -18,7 +19,11 @@ import { useSettingsStore } from '../../stores/settingsStore'
 // 敏感值（translation.apiKey 等）从来不在 settings 里（SecretStore/DPAPI 管），
 // 所以 schema 里也不会有 —— 本表单不可能把 Key 渲染出来。
 //
-// 布局沿用设置页现有 class（settings-card / settings-row / settings-toggle），
+// 行布局沿用设置页现有 class（settings-card / settings-row / settings-row-label
+// / settings-row-desc），控件统一走 M3 基元：
+//   bool             → shared/ui Switch（.pb-switch，52×32）
+//   enum             → .m3-select.is-field（常规表单高度 44px）
+//   字符串 / 数字    → .m3-text-field.is-dense（行内紧凑 36px）
 // 保存时逐项调用 updateSettings，并在保存后刷新 settingsStore，避免与
 // 外观页等手动控件不同步。
 
@@ -295,22 +300,19 @@ export function SettingsSchemaForm({ className = '' }: SettingsSchemaFormProps) 
 
   const renderControl = (spec: SettingSpec) => {
     const value = values[spec.key]
-    const inputStyle = {
-      background: 'var(--bg-tertiary)',
-      color: 'var(--text-primary)',
-      border: '1px solid var(--border)',
-    } as const
+    // 行内控件与行状态共用一份 error 判定（保存失败 / URL 校验失败）
+    const hasError = status[spec.key]?.state === 'error'
 
     if (spec.type === 'bool') {
+      // data-setting-key 挂在包裹层：Switch 不接受任意 data-* 属性透传
       return (
-        <button
-          className={'settings-toggle' + (value ? ' active' : '')}
-          role="switch"
-          aria-checked={!!value}
-          aria-label={labelOf(t, spec.key)}
-          data-setting-key={spec.key}
-          onClick={() => commitValue(spec, !value)}
-        />
+        <span className="inline-flex" data-setting-key={spec.key}>
+          <Switch
+            checked={!!value}
+            onChange={(next) => commitValue(spec, next)}
+            label={labelOf(t, spec.key)}
+          />
+        </span>
       )
     }
 
@@ -320,8 +322,7 @@ export function SettingsSchemaForm({ className = '' }: SettingsSchemaFormProps) 
         <select
           value={String(value ?? '')}
           onChange={(e) => commitValue(spec, e.target.value)}
-          className="px-2 py-1.5 text-sm rounded-md w-full max-w-[260px]"
-          style={inputStyle}
+          className="m3-select is-field w-full"
           aria-label={labelOf(t, spec.key)}
           data-setting-key={spec.key}
         >
@@ -364,8 +365,7 @@ export function SettingsSchemaForm({ className = '' }: SettingsSchemaFormProps) 
           }
           commitValue(spec, parsed.value)
         }}
-        className="px-2 py-1.5 text-sm rounded-md w-full max-w-[300px]"
-        style={inputStyle}
+        className={'m3-text-field is-dense' + (hasError ? ' is-error' : '')}
         aria-label={labelOf(t, spec.key)}
         data-setting-key={spec.key}
       />
@@ -376,8 +376,8 @@ export function SettingsSchemaForm({ className = '' }: SettingsSchemaFormProps) 
     return (
       <div className={className}>
         <div className="settings-card flex items-center gap-3">
-          <span className="inline-block w-4 h-4 rounded-full border-2 border-current border-t-transparent animate-spin" style={{ color: 'var(--text-tertiary)' }} />
-          <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>{t('正在加载设置 schema…')}</span>
+          <span className="inline-block w-4 h-4 rounded-full border-2 border-current border-t-transparent animate-spin" style={{ color: 'var(--md-sys-color-on-surface-variant)' }} />
+          <span className="m3-body-medium" style={{ color: 'var(--md-sys-color-on-surface-variant)' }}>{t('正在加载设置 schema…')}</span>
         </div>
       </div>
     )
@@ -387,9 +387,9 @@ export function SettingsSchemaForm({ className = '' }: SettingsSchemaFormProps) 
     return (
       <div className={className}>
         <div className="settings-card">
-          <p className="text-sm mb-1" style={{ color: 'var(--color-red)' }}>{t('加载设置 schema 失败：{{error}}', { error: loadError })}</p>
-          <p className="text-xs mb-3" style={{ color: 'var(--text-tertiary)' }}>{t('高级设置依赖 C++ 的 settings:schema 接口；这里失败不影响其它设置页。')}</p>
-          <button onClick={() => { void load() }} className="btn-secondary text-xs" data-setting-retry="1">{t('重试')}</button>
+          <p className="m3-body-medium mb-1" style={{ color: 'var(--md-sys-color-error)' }}>{t('加载设置 schema 失败：{{error}}', { error: loadError })}</p>
+          <p className="m3-body-small mb-3">{t('高级设置依赖 C++ 的 settings:schema 接口；这里失败不影响其它设置页。')}</p>
+          <button onClick={() => { void load() }} className="m3-outlined-button is-compact" data-setting-retry="1">{t('重试')}</button>
         </div>
       </div>
     )
@@ -397,27 +397,27 @@ export function SettingsSchemaForm({ className = '' }: SettingsSchemaFormProps) 
 
   return (
     <div className={className} data-settings-schema-form="1">
-      <p className="text-xs mb-3 break-words" style={{ color: 'var(--text-tertiary)' }}>
+      <p className="m3-body-small mb-3 break-words">
         {t('由 C++ Settings schema 自动生成，共 {{count}} 项；只显示全局设置（字号/行距/边距/对齐这些书级排版请到阅读设置里调整）。', { count: specs.length })}
       </p>
 
       {specs.length === 0 && (
         <div className="settings-card">
-          <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>{t('schema 里没有可编辑的全局设置项。')}</p>
+          <p className="m3-body-medium" style={{ color: 'var(--md-sys-color-on-surface-variant)' }}>{t('schema 里没有可编辑的全局设置项。')}</p>
         </div>
       )}
 
       {groups.map((group) => (
         <div className="settings-card" key={group.id} data-setting-group={group.id}>
           <div className="flex items-center justify-between mb-1 gap-3">
-            <h3 className="text-[13px] font-semibold uppercase tracking-wider" style={{ color: 'var(--text-tertiary)' }}>{group.title}</h3>
+            <h3 className="m3-section-title">{group.title}</h3>
             <div className="flex items-center gap-2 flex-shrink-0">
               {groupNotice[group.id] && (
-                <span className="text-[11px]" style={{ color: 'var(--text-tertiary)' }}>{groupNotice[group.id]}</span>
+                <span className="m3-label-small">{groupNotice[group.id]}</span>
               )}
               <button
                 onClick={() => { void resetGroup(group.id, group.specs) }}
-                className="btn-secondary text-xs"
+                className="m3-text-button is-compact"
                 data-setting-reset={group.id}
               >
                 {t('恢复本组默认值')}
@@ -436,14 +436,14 @@ export function SettingsSchemaForm({ className = '' }: SettingsSchemaFormProps) 
                 <div className="flex-1 min-w-0 pr-4">
                   <div className="settings-row-label flex items-center gap-2 flex-wrap">
                     {labelOf(t, spec.key)}
-                    <span className="text-[10px] px-1.5 py-0.5 rounded" style={{ background: 'var(--bg-tertiary)', color: 'var(--text-tertiary)' }}>{typeLabel(t, spec)}</span>
+                    <span className="m3-label-small px-1.5 py-0.5 rounded" style={{ background: 'var(--md-sys-color-surface-container-high)' }}>{typeLabel(t, spec)}</span>
                   </div>
                   <div className="settings-row-desc break-words">
                     {desc || spec.key}
                     {rangeHint ? ' · ' + rangeHint : ''}
                   </div>
                   {rowStatus && (
-                    <div className="text-[11px] mt-1" style={{ color: rowStatus.state === 'error' ? 'var(--color-red)' : 'var(--text-tertiary)' }} data-setting-status={spec.key}>
+                    <div className="m3-body-small mt-1" style={{ color: rowStatus.state === 'error' ? 'var(--md-sys-color-error)' : 'var(--md-sys-color-on-surface-variant)' }} data-setting-status={spec.key}>
                       {rowStatus.message}
                     </div>
                   )}

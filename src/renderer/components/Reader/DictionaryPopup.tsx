@@ -245,25 +245,25 @@ export function DictionaryPopup({ open, onClose, request }: DictionaryPopupProps
               onChange={(e) => setWord(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter') void lookup(word) }}
               placeholder={t('输入单词后按 Enter 或点「查词」')}
-              className="input flex-1"
+              className="m3-text-field is-dense flex-1"
             />
-            <button onClick={() => void lookup(word)} disabled={busy || !word.trim()} className="px-3 py-2 rounded-lg text-xs border shrink-0" style={{ borderColor: 'var(--reader-border)' }}>
+            <button onClick={() => void lookup(word)} disabled={busy || !word.trim()} className="m3-filled-button is-compact shrink-0">
               {t('查词')}
             </button>
-            <button onClick={useSelection} className="px-3 py-2 rounded-lg text-xs border shrink-0" style={{ borderColor: 'var(--reader-border)' }} title={t('取选区')}>
+            <button onClick={useSelection} className="m3-outlined-button is-compact shrink-0" title={t('取选区')}>
               {t('取选区')}
             </button>
           </div>
 
           <div className="flex items-center gap-2">
-            <button onClick={() => void importDictionary()} disabled={importing} className="px-3 py-1.5 rounded-lg text-xs border" style={{ borderColor: 'var(--reader-border)' }}>
+            <button onClick={() => void importDictionary()} disabled={importing} className="m3-outlined-button is-compact">
               {t('导入词库')}
             </button>
-            <button onClick={() => void clearDictionary()} disabled={importing || !loaded} className="px-3 py-1.5 rounded-lg text-xs border opacity-80" style={{ borderColor: 'var(--reader-border)' }}>
+            <button onClick={() => void clearDictionary()} disabled={importing || !loaded} className="m3-outlined-button is-compact">
               {t('清空词库')}
             </button>
             {loaded && (
-              <button onClick={() => void toggleEnabled()} disabled={importing} className="px-3 py-1.5 rounded-lg text-xs border opacity-80" style={{ borderColor: 'var(--reader-border)' }}>
+              <button onClick={() => void toggleEnabled()} disabled={importing} className="m3-outlined-button is-compact">
                 {enabled ? t('禁用词典') : t('启用词典')}
               </button>
             )}

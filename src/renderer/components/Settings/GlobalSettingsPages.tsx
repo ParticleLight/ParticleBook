@@ -231,7 +231,7 @@ export function AppearancePage() {
             <button onClick={() => setFontSize(Math.max(12, fontSize - 1))} className="btn-ghost px-2 py-1 text-sm font-bold rounded-md">A−</button>
             <span className="text-sm w-10 text-center font-mono" style={{ color: 'var(--text-secondary)' }}>{fontSize}px</span>
             <button onClick={() => setFontSize(Math.min(32, fontSize + 1))} className="btn-ghost px-2 py-1 text-sm font-bold rounded-md">A+</button>
-            <input type="range" min={12} max={32} value={fontSize} onChange={(e) => setFontSize(Number(e.target.value))} className="w-28" />
+            <input type="range" min={12} max={32} value={fontSize} onChange={(e) => setFontSize(Number(e.target.value))} className="m3-slider w-28" aria-label={t('字号')} />
           </div>
         </div>
 
@@ -243,7 +243,7 @@ export function AppearancePage() {
           </div>
           <div className="flex items-center gap-3">
             <span className="text-xs" style={{ color: 'var(--text-tertiary)' }}>{t('紧凑')}</span>
-            <input type="range" min={1.2} max={3} step={0.1} value={lineHeight} onChange={(e) => setLineHeight(Number(e.target.value))} className="w-28" />
+            <input type="range" min={1.2} max={3} step={0.1} value={lineHeight} onChange={(e) => setLineHeight(Number(e.target.value))} className="m3-slider w-28" aria-label={t('行距')} />
             <span className="text-xs" style={{ color: 'var(--text-tertiary)' }}>{t('宽松')}</span>
             <span className="text-sm w-8 text-center font-mono" style={{ color: 'var(--text-secondary)' }}>{lineHeight.toFixed(1)}</span>
           </div>
@@ -257,7 +257,7 @@ export function AppearancePage() {
           </div>
           <div className="flex items-center gap-3">
             <span className="text-xs" style={{ color: 'var(--text-tertiary)' }}>{t('窄')}</span>
-            <input type="range" min={0} max={100} value={margin} onChange={(e) => setMargin(Number(e.target.value))} className="w-28" />
+            <input type="range" min={0} max={100} value={margin} onChange={(e) => setMargin(Number(e.target.value))} className="m3-slider w-28" aria-label={t('边距')} />
             <span className="text-xs" style={{ color: 'var(--text-tertiary)' }}>{t('宽')}</span>
             <span className="text-sm w-10 text-center font-mono" style={{ color: 'var(--text-secondary)' }}>{margin}px</span>
           </div>

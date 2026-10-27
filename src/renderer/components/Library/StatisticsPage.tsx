@@ -93,10 +93,10 @@ export function StatisticsPage({ onBack }: StatisticsPageProps) {
   return (
     <div className="h-full flex flex-col" style={{ background: 'var(--bg)' }}>
       <div className="flex items-center gap-3 px-6 py-4" style={{ borderBottom: '1px solid var(--border)' }}>
-        <button onClick={onBack} className="p-1 rounded-md transition-colors" style={{ color: 'var(--text-tertiary)' }} aria-label={t('返回')}>
+        <button onClick={onBack} className="m3-icon-button" aria-label={t('返回')}>
           <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
         </button>
-        <span className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>{t('阅读统计')}</span>
+        <span className="m3-title-large">{t('阅读统计')}</span>
       </div>
       <div className="flex-1 overflow-y-auto px-6 py-4">
         {loading ? <p className="text-sm opacity-60">{t('加载中...')}</p> : (
@@ -112,11 +112,11 @@ export function StatisticsPage({ onBack }: StatisticsPageProps) {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-5">
               <div className="rounded-lg p-3" style={{ background: 'var(--bg-secondary)' }}>
                 <div className="flex justify-between text-xs mb-1"><span>{t('今日目标')}</span><span>{Math.round(stats.todaySecs / 60)} / {dailyGoal} {t('分钟')}</span></div>
-                <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--border)' }}><div className="h-full" style={{ width: `${pct(stats.todaySecs / 60, dailyGoal)}%`, background: 'var(--accent)' }} /></div>
+                <div className="m3-linear-progress" role="progressbar" aria-valuenow={pct(stats.todaySecs / 60, dailyGoal)} aria-valuemin={0} aria-valuemax={100}><span style={{ width: `${pct(stats.todaySecs / 60, dailyGoal)}%` }} /></div>
               </div>
               <div className="rounded-lg p-3" style={{ background: 'var(--bg-secondary)' }}>
                 <div className="flex justify-between text-xs mb-1"><span>{t('本周目标')}</span><span>{Math.round(stats.weekSecs / 60)} / {weeklyGoal} {t('分钟')}</span></div>
-                <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--border)' }}><div className="h-full" style={{ width: `${pct(stats.weekSecs / 60, weeklyGoal)}%`, background: 'var(--accent)' }} /></div>
+                <div className="m3-linear-progress" role="progressbar" aria-valuenow={pct(stats.weekSecs / 60, weeklyGoal)} aria-valuemin={0} aria-valuemax={100}><span style={{ width: `${pct(stats.weekSecs / 60, weeklyGoal)}%` }} /></div>
               </div>
             </div>
             <div className="flex items-center justify-between mb-2">

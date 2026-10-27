@@ -616,14 +616,13 @@ export function PdfRenderer({ book, content: _content, bookId }: PdfRendererProp
       {noteEditor && (
         <div className="fixed inset-0 z-[70] flex items-center justify-center" data-pdf-note-editor
           onClick={() => setNoteEditor(null)}>
-          <div className="absolute inset-0" style={{ background: 'rgba(0,0,0,0.45)' }} />
+          <div className="m3-dialog-backdrop absolute inset-0" />
           <div
-            className="relative rounded-xl shadow-2xl border p-4 w-[420px] max-w-[92vw]"
-            style={{ background: 'var(--reader-sidebar)', borderColor: 'var(--reader-border)', color: 'var(--reader-text)' }}
+            className="m3-dialog relative p-4 !w-[420px] max-w-[92vw]"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between mb-2">
-              <h3 className="text-sm font-semibold">{noteEditor.mode === 'create' ? t('添加笔记') : t('编辑笔记')}</h3>
+              <h3 className="m3-title-small">{noteEditor.mode === 'create' ? t('添加笔记') : t('编辑笔记')}</h3>
               <span className="text-xs opacity-60">{t('第 {{page}} 页', { page: noteEditor.page })}</span>
             </div>
             {noteEditor.quote && (
@@ -634,8 +633,7 @@ export function PdfRenderer({ book, content: _content, bookId }: PdfRendererProp
               onChange={(e) => setNoteEditor((prev) => (prev ? { ...prev, value: e.target.value } : prev))}
               rows={4}
               placeholder={t('笔记内容')}
-              className="w-full px-3 py-2 rounded-lg text-sm resize-y border"
-              style={{ background: 'var(--reader-bg)', borderColor: 'var(--reader-border)', color: 'var(--reader-text)' }}
+              className="m3-text-field w-full"
               data-pdf-note-input
               autoFocus
             />
@@ -643,8 +641,8 @@ export function PdfRenderer({ book, content: _content, bookId }: PdfRendererProp
               {noteEditor.mode === 'edit' ? (
                 <button
                   type="button"
-                  className="px-2 py-1 rounded text-xs"
-                  style={{ color: 'var(--color-red)' }}
+                  className="m3-text-button is-compact"
+                  style={{ color: 'var(--md-sys-color-error)' }}
                   data-pdf-note-delete
                   onClick={() => { void deleteNote() }}
                 >
@@ -652,10 +650,9 @@ export function PdfRenderer({ book, content: _content, bookId }: PdfRendererProp
                 </button>
               ) : <span />}
               <div className="flex items-center gap-2">
-                <button type="button" className="px-3 py-1.5 rounded text-xs border" style={{ borderColor: 'var(--reader-border)' }}
+                <button type="button" className="m3-outlined-button is-compact"
                   onClick={() => setNoteEditor(null)}>{t('取消')}</button>
-                <button type="button" className="px-3 py-1.5 rounded text-xs"
-                  style={{ background: 'var(--reader-accent)', color: '#fff', opacity: noteEditor.value.trim() && !noteSaving ? 1 : 0.5 }}
+                <button type="button" className="m3-filled-button is-compact"
                   disabled={!noteEditor.value.trim() || noteSaving}
                   data-pdf-note-save
                   onClick={() => { void saveNote() }}>{t('保存')}</button>

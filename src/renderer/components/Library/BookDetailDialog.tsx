@@ -39,12 +39,10 @@ function formatDate(dateStr: string): string {
   }
 }
 
-const inputStyle: React.CSSProperties = {}
-
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label className="flex flex-col gap-1">
-      <span className="text-xs font-medium" style={{ color: 'var(--text-tertiary)' }}>{label}</span>
+      <span className="m3-label-medium">{label}</span>
       {children}
     </label>
   )
@@ -140,35 +138,35 @@ export function BookDetailDialog({ book, onClose }: BookDetailDialogProps) {
         <div className="overflow-y-auto space-y-4 pr-1">
           <Field label={t('书名')}>
             <input type="text" value={title} onChange={(e) => setTitle(e.target.value)}
-              className="input w-full" style={inputStyle} data-testid="metadata-title" autoFocus />
+              className="m3-text-field w-full" data-testid="metadata-title" autoFocus />
           </Field>
 
           <div className="grid grid-cols-2 gap-3">
             <Field label={t('作者')}>
               <input type="text" value={author} onChange={(e) => setAuthor(e.target.value)}
-                className="input w-full" style={inputStyle} data-testid="metadata-author" />
+                className="m3-text-field w-full" data-testid="metadata-author" />
             </Field>
             <Field label={t('语言')}>
               <input type="text" value={language} onChange={(e) => setLanguage(e.target.value)}
-                className="input w-full" style={inputStyle} data-testid="metadata-language" placeholder="zh / en" />
+                className="m3-text-field w-full" data-testid="metadata-language" placeholder="zh / en" />
             </Field>
           </div>
 
           <Field label={t('出版社')}>
             <input type="text" value={publisher} onChange={(e) => setPublisher(e.target.value)}
-              className="input w-full" style={inputStyle} data-testid="metadata-publisher" />
+              className="m3-text-field w-full" data-testid="metadata-publisher" />
           </Field>
 
           <Field label={t('简介')}>
             <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={3}
-              className="input w-full resize-y" style={inputStyle} data-testid="metadata-description" />
+              className="m3-text-field w-full resize-y" data-testid="metadata-description" />
           </Field>
 
           <Field label={t('标签')}>
-            <div className="flex flex-wrap items-center gap-1.5 rounded-lg px-2 py-1.5" style={inputStyle}>
+            <div className="flex flex-wrap items-center gap-1.5 rounded-lg px-2 py-1.5">
               {tags.map((tag) => (
                 <span key={tag} className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full"
-                  style={{ background: 'var(--color-indigo-bg)', color: 'var(--text-primary)' }} data-testid="metadata-tag">
+                  style={{ background: 'var(--md-sys-color-primary-container)', color: 'var(--md-sys-color-on-primary-container)' }} data-testid="metadata-tag">
                   {tag}
                   <button type="button" onClick={() => removeTag(tag)} aria-label={t('删除')}
                     className="opacity-60 hover:opacity-100" style={{ color: 'var(--text-tertiary)' }}>
@@ -191,7 +189,7 @@ export function BookDetailDialog({ book, onClose }: BookDetailDialogProps) {
                 }}
                 onBlur={() => addTag(tagInput)}
                 className="flex-1 min-w-[8rem] bg-transparent outline-none text-sm py-0.5"
-                style={{ color: 'var(--text-primary)' }}
+                style={{ color: 'var(--md-sys-color-on-surface)' }}
                 data-testid="metadata-tags-input"
               />
             </div>
@@ -200,12 +198,12 @@ export function BookDetailDialog({ book, onClose }: BookDetailDialogProps) {
           <div className="grid grid-cols-2 gap-3">
             <Field label={t('系列')}>
               <input type="text" value={seriesName} onChange={(e) => setSeriesName(e.target.value)}
-                className="input w-full" style={inputStyle} data-testid="metadata-series" placeholder={t('系列名称')} />
+                className="m3-text-field w-full" data-testid="metadata-series" placeholder={t('系列名称')} />
             </Field>
             <Field label={t('系列序号')}>
               <input type="number" min="0" step="0.1" value={seriesIndex}
                 onChange={(e) => setSeriesIndex(e.target.value)}
-                className="input w-full" style={inputStyle} data-testid="metadata-series-index" />
+                className="m3-text-field w-full" data-testid="metadata-series-index" />
             </Field>
           </div>
 
@@ -246,14 +244,14 @@ export function BookDetailDialog({ book, onClose }: BookDetailDialogProps) {
         </div>
 
         {error && (
-          <p className="text-xs mt-3 px-2 py-1.5 rounded" style={{ background: 'var(--color-red-bg)', color: 'var(--color-red)' }} data-testid="metadata-error">
+          <p className="m3-body-small mt-3 px-2 py-1.5 rounded" style={{ background: 'var(--md-sys-color-error-container)', color: 'var(--md-sys-color-error)' }} data-testid="metadata-error">
             {error}
           </p>
         )}
 
         <div className="mt-4 pt-3 border-t flex justify-end gap-2" style={{ borderColor: 'var(--acrylic-border)' }}>
-          <button onClick={onClose} className="btn-secondary text-sm" disabled={saving}>{t('取消')}</button>
-          <button onClick={() => void handleSave()} className="btn-primary text-sm" disabled={saving} data-testid="metadata-save">
+          <button onClick={onClose} className="m3-outlined-button" disabled={saving}>{t('取消')}</button>
+          <button onClick={() => void handleSave()} className="m3-filled-button" disabled={saving} data-testid="metadata-save">
             {saving ? t('保存中…') : t('保存')}
           </button>
         </div>

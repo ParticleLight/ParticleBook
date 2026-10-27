@@ -162,7 +162,7 @@ export function ReaderControls({
   }
 
   const ctrlClasses = {
-    input: 'input flex-1 !min-h-[40px]',
+    input: 'm3-text-field flex-1 !min-h-[40px]',
     inputBg: '',
     btn: 'm3-icon-button',
     btnDefault: '',
@@ -196,7 +196,7 @@ export function ReaderControls({
           <span className="text-xs" style={{ color: 'var(--reader-text)', opacity: 0.6 }}>{t('导出本书标注')}</span>
           {([['bookmarks', t('书签')], ['highlights', t('高亮')], ['notes', t('笔记')]] as const).map(([key, label]) => (
             <label key={key} className="flex items-center gap-1 text-xs" style={{ color: 'var(--reader-text)', opacity: 0.75 }}>
-              <input type="checkbox" checked={exportRange[key]} onChange={(e) => setExportRange({ ...exportRange, [key]: e.target.checked })} />
+              <input type="checkbox" className="m3-checkbox" checked={exportRange[key]} onChange={(e) => setExportRange({ ...exportRange, [key]: e.target.checked })} />
               {label}
             </label>
           ))}

@@ -3,7 +3,8 @@ import { cloneElement, isValidElement, useId, type ReactElement, type ReactNode 
 // ── shared/ui · Field ────────────────────────────────────────────────
 // PB-025-A：label + 控件 + 提示 + 错误 的组合，自动把 id / aria-invalid /
 // aria-describedby / aria-required 接到子控件上（子控件是单个 DOM 元素时）。
-// 样式走 --text-* / --border / --color-red token。
+// 样式走 globals.css 的 .pb-field*（M3 语义色 + 字阶），控件本身可再挂
+// .m3-text-field / .m3-select.is-field / .m3-checkbox。
 
 export interface FieldProps {
   label: string

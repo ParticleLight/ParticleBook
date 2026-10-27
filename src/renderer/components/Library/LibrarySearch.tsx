@@ -355,7 +355,7 @@ export function LibrarySearch({ onClose, onOpenBook }: LibrarySearchProps) {
             <button
               onClick={() => { void buildIndex() }}
               disabled={building}
-              className="btn-secondary text-xs"
+              className="m3-outlined-button"
               data-global-search-rebuild="1"
               title={t('重建索引会扫描全部书籍，可能需要一段时间')}
             >
@@ -372,7 +372,7 @@ export function LibrarySearch({ onClose, onOpenBook }: LibrarySearchProps) {
         </div>
 
         {(building || buildResult) && (
-          <div className="px-5 py-2 text-xs flex items-center gap-2 flex-wrap" style={{ borderBottom: '1px solid var(--border)', color: 'var(--text-secondary)' }}>
+          <div className="px-5 py-2 text-xs flex items-center gap-2 flex-wrap" style={{ borderBottom: '1px solid var(--md-sys-color-outline-variant)', color: 'var(--text-secondary)' }}>
             {building && <span className="inline-block w-3 h-3 rounded-full border-2 border-current border-t-transparent animate-spin" />}
             {building && <span>{t('正在建立索引…已用 {{seconds}}s', { seconds: formatSeconds(buildElapsedMs) })}</span>}
             {!building && buildResult && (
@@ -387,29 +387,28 @@ export function LibrarySearch({ onClose, onOpenBook }: LibrarySearchProps) {
               </span>
             )}
             {!building && buildResult && buildResult.errors.length > 0 && (
-              <span style={{ color: 'var(--color-red)' }}>{t('{{count}} 本书索引失败', { count: buildResult.errors.length })}</span>
+              <span style={{ color: 'var(--md-sys-color-error)' }}>{t('{{count}} 本书索引失败', { count: buildResult.errors.length })}</span>
             )}
             {!building && buildResult && !buildResult.saved && (
-              <span style={{ color: 'var(--color-red)' }}>{t('索引保存失败：{{error}}', { error: buildResult.saveError })}</span>
+              <span style={{ color: 'var(--md-sys-color-error)' }}>{t('索引保存失败：{{error}}', { error: buildResult.saveError })}</span>
             )}
           </div>
         )}
 
-        <div className="px-5 py-3" style={{ borderBottom: '1px solid var(--border)' }}>
-          <div className="relative">
-            <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" style={{ color: 'var(--text-tertiary)' }}><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+        <div className="px-5 py-3" style={{ borderBottom: '1px solid var(--md-sys-color-outline-variant)' }}>
+          <div className="m3-search">
+            <svg className="w-4 h-4 shrink-0 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
             <input
               ref={inputRef}
               type="text"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder={t('搜索全文内容…')}
-              className="w-full pl-9 pr-9 py-2 text-sm rounded-lg"
-              style={{ background: 'var(--bg-tertiary)', color: 'var(--text-primary)', border: '1px solid var(--border)' }}
+              className="flex-1 min-w-0"
               data-global-search-input="1"
             />
             {searching && (
-              <span className="absolute right-3 top-1/2 -translate-y-1/2 inline-block w-3 h-3 rounded-full border-2 border-current border-t-transparent animate-spin" style={{ color: 'var(--text-tertiary)' }} />
+              <span className="inline-block w-3 h-3 shrink-0 rounded-full border-2 border-current border-t-transparent animate-spin" style={{ color: 'var(--md-sys-color-on-surface-variant)' }} />
             )}
           </div>
         </div>
@@ -421,12 +420,12 @@ export function LibrarySearch({ onClose, onOpenBook }: LibrarySearchProps) {
             <div className="text-center py-10 px-6">
               <p className="text-sm mb-1" style={{ color: 'var(--text-secondary)' }}>{t('索引为空，点「重建索引」开始')}</p>
               <p className="text-xs mb-4" style={{ color: 'var(--text-tertiary)' }}>{t('重建索引会扫描全部书籍，可能需要一段时间')}</p>
-              <button onClick={() => { void buildIndex() }} className="btn-primary text-sm">{t('重建索引')}</button>
+              <button onClick={() => { void buildIndex() }} className="m3-filled-button">{t('重建索引')}</button>
             </div>
           ) : errorText ? (
             <div className="text-center py-8 px-6">
-              <p className="text-sm mb-3 break-words" style={{ color: 'var(--color-red)' }}>{errorText}</p>
-              <button onClick={() => setSearchNonce((n) => n + 1)} className="btn-secondary text-xs">{t('重试')}</button>
+              <p className="text-sm mb-3 break-words" style={{ color: 'var(--md-sys-color-error)' }}>{errorText}</p>
+              <button onClick={() => setSearchNonce((n) => n + 1)} className="m3-outlined-button">{t('重试')}</button>
             </div>
           ) : searching && hits.length === 0 ? (
             <p className="text-center py-10 text-sm" style={{ color: 'var(--text-tertiary)' }}>{t('搜索中…')}</p>
@@ -453,18 +452,18 @@ export function LibrarySearch({ onClose, onOpenBook }: LibrarySearchProps) {
                   onClick={() => openHit(hit)}
                   onMouseEnter={() => setActiveIndex(index)}
                   className="w-full text-left px-3 py-2 rounded-lg transition-colors"
-                  style={{ background: activeIndex === index ? 'var(--surface-hover)' : 'transparent' }}
+                  style={{ background: activeIndex === index ? 'var(--md-sys-state-hover)' : 'transparent' }}
                 >
                   <div className="flex items-center gap-2 mb-0.5 min-w-0">
                     <span className="text-sm font-medium truncate" style={{ color: 'var(--text-primary)' }}>{hit.bookTitle}</span>
-                    <span className="text-[10px] px-1.5 py-0.5 rounded flex-shrink-0" style={{ background: 'var(--bg-tertiary)', color: 'var(--text-tertiary)' }}>{hit.bookFormat.toUpperCase()}</span>
+                    <span className="text-[10px] px-1.5 py-0.5 rounded flex-shrink-0" style={{ background: 'var(--md-sys-color-surface-container-highest)', color: 'var(--md-sys-color-on-surface-variant)' }}>{hit.bookFormat.toUpperCase()}</span>
                     {hit.page > 0 && (
                       <span className="text-[10px] flex-shrink-0" style={{ color: 'var(--text-tertiary)' }}>{t('第 {{page}} 页', { page: hit.page })}</span>
                     )}
                   </div>
                   <p className="text-xs leading-relaxed break-words" style={{ color: 'var(--text-secondary)' }}>
                     {splitSnippet(hit.snippet, pendingTerms).map((part, partIndex) => part.hit
-                      ? <mark key={partIndex} style={{ background: 'var(--color-indigo-bg)', color: 'var(--text-primary)', padding: '0 1px', borderRadius: 2 }}>{part.text}</mark>
+                      ? <mark key={partIndex} style={{ background: 'var(--md-sys-color-primary-container)', color: 'var(--md-sys-color-on-primary-container)', padding: '0 1px', borderRadius: 2 }}>{part.text}</mark>
                       : <span key={partIndex}>{part.text}</span>)}
                   </p>
                 </button>
@@ -473,7 +472,7 @@ export function LibrarySearch({ onClose, onOpenBook }: LibrarySearchProps) {
           )}
         </div>
 
-        <div className="px-5 py-2.5 text-[11px] flex items-center justify-between gap-3" style={{ borderTop: '1px solid var(--border)', color: 'var(--text-tertiary)' }}>
+        <div className="px-5 py-2.5 text-[11px] flex items-center justify-between gap-3" style={{ borderTop: '1px solid var(--md-sys-color-outline-variant)', color: 'var(--text-tertiary)' }}>
           <span>{t('目前会打开命中的书；正文里的精确定位还在做')}</span>
           <span>{t('↑↓ 选择 · Enter 打开 · Esc 关闭')}</span>
         </div>

@@ -3,7 +3,7 @@ import { useCallback, useRef, type Key, type ReactNode } from 'react'
 // ── shared/ui · List ─────────────────────────────────────────────────
 // PB-025-A：可选中的列表（role=listbox/option），方向键/Home/End 移动焦点，
 // Enter/Space 选中；不可选中时退化成普通 role=list。
-// 交互色走 --surface-hover / --color-indigo-bg / --border-focus token。
+// 交互色走 M3 state / primary-container 语义（见 globals.css 的 .pb-list*）。
 
 export interface ListState {
   selected: boolean

@@ -3,7 +3,8 @@ import { forwardRef } from 'react'
 // ── shared/ui · Switch ───────────────────────────────────────────────
 // PB-025-A：主题 token 驱动的开关。
 // 语义：role="switch" + aria-checked；键盘 Space/Enter 由原生 button 处理。
-// 颜色全部走 globals.css 的 --ui-switch-* token，亮/暗/护眼自动适配。
+// 尺寸与配色在 globals.css 的 .pb-switch（M3 规格：轨道 52×32 / thumb 24-16 /
+// on 态 --md-sys-color-primary），三个主题由 M3 语义 token 自动适配。
 
 export interface SwitchProps {
   checked: boolean

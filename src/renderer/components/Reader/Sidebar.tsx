@@ -123,7 +123,7 @@ export function Sidebar({ bookId, onClose }: SidebarProps) {
                         }}
                         onBlur={handleSaveBookmark}
                         onClick={(e) => e.stopPropagation()}
-                        className="w-full px-1 py-0.5 text-sm bg-[var(--reader-bg)] border border-[var(--reader-border)] rounded text-[var(--reader-text)] focus:outline-none focus:border-[var(--reader-accent)]"
+                        className="m3-text-field is-dense w-full"
                       />
                     ) : (
                       <>
@@ -218,7 +218,7 @@ export function Sidebar({ bookId, onClose }: SidebarProps) {
                   }
                 }}
                 placeholder={t('添加笔记...')}
-                className="flex-1 px-3 py-2 bg-[var(--reader-bg)] border border-[var(--reader-border)] rounded-lg text-sm text-[var(--reader-text)] placeholder-gray-500 focus:outline-none focus:border-[var(--reader-accent)]"
+                className="m3-text-field is-dense flex-1"
               />
               <button
                 onClick={() => {
@@ -227,8 +227,7 @@ export function Sidebar({ bookId, onClose }: SidebarProps) {
                     setNewNote('')
                   }
                 }}
-                className="px-3 py-2 text-white text-sm rounded-lg"
-                style={{ backgroundColor: 'var(--reader-accent)' }}
+                className="m3-filled-button is-compact"
               >
                 {t('添加')}
               </button>

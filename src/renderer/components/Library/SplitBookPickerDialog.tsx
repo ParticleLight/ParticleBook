@@ -54,9 +54,9 @@ export function SplitBookPickerDialog({ open, primaryBookId, onCancel, onConfirm
         : t('选择第二本书')}
       footer={(
         <>
-          <button className="btn-secondary" onClick={onCancel}>{t('取消')}</button>
+          <button className="m3-outlined-button" onClick={onCancel}>{t('取消')}</button>
           <button
-            className="btn-primary"
+            className="m3-filled-button"
             disabled={!canConfirm}
             onClick={() => { if (canConfirm && selected !== null) onConfirm(selected) }}
             data-split-confirm="1"
@@ -71,13 +71,12 @@ export function SplitBookPickerDialog({ open, primaryBookId, onCancel, onConfirm
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           placeholder={t('搜索书籍')}
-          className="w-full text-sm rounded-md px-2 py-1.5 mb-3"
-          style={{ background: 'var(--bg-tertiary)', color: 'var(--text-primary)', border: '1px solid var(--border)' }}
+          className="m3-text-field is-dense w-full mb-3"
           aria-label={t('搜索书籍')}
           data-split-search="1"
         />
         {candidates.length === 0 ? (
-          <p className="text-sm" style={{ color: 'var(--text-tertiary)' }}>{t('书架里没有其它书')}</p>
+          <p className="m3-body-medium" style={{ color: 'var(--md-sys-color-on-surface-variant)' }}>{t('书架里没有其它书')}</p>
         ) : (
           <div role="listbox" aria-label={t('选择第二本书')} className="space-y-1 max-h-[46vh] overflow-y-auto">
             {candidates.map((book) => {
@@ -93,18 +92,18 @@ export function SplitBookPickerDialog({ open, primaryBookId, onCancel, onConfirm
                   onClick={() => setSelected(book.id)}
                   data-split-candidate={book.id}
                   data-split-supported={bookSupported ? '1' : '0'}
-                  className="w-full text-left px-3 py-2 rounded-md flex items-center gap-2 transition-colors"
+                  className="m3-menu-item w-full text-left"
                   style={{
-                    background: isSelected ? 'var(--color-indigo-bg)' : 'transparent',
-                    color: bookSupported ? 'var(--text-primary)' : 'var(--text-tertiary)',
+                    background: isSelected ? 'var(--md-sys-color-primary-container)' : 'transparent',
+                    color: bookSupported ? 'var(--md-sys-color-on-surface)' : 'var(--md-sys-color-on-surface-variant)',
                     opacity: bookSupported ? 1 : 0.6,
                     cursor: bookSupported ? 'pointer' : 'not-allowed',
-                    border: '1px solid ' + (isSelected ? 'var(--border-focus)' : 'transparent'),
+                    border: '1px solid ' + (isSelected ? 'var(--md-sys-color-primary)' : 'transparent'),
                   }}
                 >
                   <span className="flex-1 truncate text-sm">{book.title}</span>
-                  {book.author && <span className="text-xs truncate max-w-[35%]" style={{ color: 'var(--text-tertiary)' }}>{book.author}</span>}
-                  <span className="text-[10px] px-1.5 py-0.5 rounded shrink-0" style={{ background: 'var(--surface-hover)', color: 'var(--text-secondary)' }}>
+                  {book.author && <span className="text-xs truncate max-w-[35%]" style={{ color: 'var(--md-sys-color-on-surface-variant)' }}>{book.author}</span>}
+                  <span className="text-[10px] px-1.5 py-0.5 rounded shrink-0" style={{ background: 'var(--md-sys-color-surface-container-highest)', color: 'var(--md-sys-color-on-surface-variant)' }}>
                     {book.format.toUpperCase()}
                   </span>
                   {!bookSupported && (

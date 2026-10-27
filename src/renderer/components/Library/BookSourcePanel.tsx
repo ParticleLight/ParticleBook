@@ -111,7 +111,7 @@ export function BookSourcePanel({ onClose, isClosing }: BookSourcePanelProps) {
                 ? 'border-b-2'
                 : 'text-[var(--reader-text)] opacity-50 hover:opacity-80'
             }`}
-            style={tab === 'search' ? { color: 'var(--color-indigo)', borderColor: 'var(--color-indigo)' } : undefined}
+            style={tab === 'search' ? { color: 'var(--md-sys-color-primary)', borderColor: 'var(--md-sys-color-primary)' } : undefined}
           >
             {t('搜索')}
           </button>
@@ -122,7 +122,7 @@ export function BookSourcePanel({ onClose, isClosing }: BookSourcePanelProps) {
                 ? 'border-b-2'
                 : 'text-[var(--reader-text)] opacity-50 hover:opacity-80'
             }`}
-            style={tab === 'sources' ? { color: 'var(--color-indigo)', borderColor: 'var(--color-indigo)' } : undefined}
+            style={tab === 'sources' ? { color: 'var(--md-sys-color-primary)', borderColor: 'var(--md-sys-color-primary)' } : undefined}
           >
             {t('源管理 ({{count}})', { count: sources.length })}
           </button>
@@ -140,7 +140,8 @@ export function BookSourcePanel({ onClose, isClosing }: BookSourcePanelProps) {
                   onChange={(e) => setKeyword(e.target.value)}
                   onKeyDown={(e) => { if (e.key === 'Enter') handleSearch() }}
                   placeholder={t('搜索书名...')}
-                  className="input flex-1"
+                  className="m3-text-field flex-1"
+                  aria-label={t('搜索书名...')}
                 />
                 <button
                   onClick={handleSearch}

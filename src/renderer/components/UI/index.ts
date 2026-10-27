@@ -2,8 +2,10 @@
 // 统一导出的可复用基元。所有颜色/圆角/阴影走 globals.css 的 CSS 变量 token，
 // 因此亮色 / 暗色 / 护眼主题自动适配；组件本身不含硬编码色值。
 //
-// 说明：这些基元目前是「新增、未接线」——后续把 Reader/Settings 的弹层、
-// 开关、表单字段逐步替换过来（见 docs/THEME_AUDIT.md 的迁移建议）。
+// 说明（2026-10-28 更新）：Switch 已接线（设置页开关、书源列表行内启用状态）；
+// Field / List / Toolbar 仍是「已收口到 M3 令牌、待业务接线」的状态。
+// 表单控件请直接用 globals.css 的 .m3-text-field / .m3-select.is-field /
+// .m3-checkbox；表格用 .m3-table(+ .m3-table-wrap)。
 export { Switch } from './Switch'
 export type { SwitchProps } from './Switch'
 export { Field } from './Field'

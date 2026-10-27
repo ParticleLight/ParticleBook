@@ -41,18 +41,18 @@ export function ChangelogPanel({ onClose, isClosing }: ChangelogPanelProps) {
         {/* Content */}
         <div className="overflow-y-auto max-h-[calc(80vh-64px)] px-6 py-4">
           {changelog.map((entry, i) => (
-            <div key={entry.version} className={i < changelog.length - 1 ? 'mb-6 pb-6 border-b' : ''} style={i < changelog.length - 1 ? { borderColor: 'var(--reader-border)' } : undefined}>
+            <div key={entry.version} className={i < changelog.length - 1 ? 'mb-6 pb-6 border-b' : ''} style={i < changelog.length - 1 ? { borderColor: 'var(--md-sys-color-outline-variant)' } : undefined}>
               <div className="flex items-center gap-3 mb-3">
-                <span className="text-base font-semibold" style={{ color: 'var(--reader-text)' }}>v{entry.version}</span>
-                <span className="text-xs" style={{ color: 'var(--reader-text)', opacity: 0.4 }}>{entry.date}</span>
+                <span className="m3-title-medium">v{entry.version}</span>
+                <span className="text-xs" style={{ color: 'var(--md-sys-color-on-surface)', opacity: 0.4 }}>{entry.date}</span>
               </div>
               <div className="space-y-2">
                 {entry.changes.map((change, j) => (
                   <div key={j} className="flex items-start gap-2">
-                    <span className="flex-shrink-0 mt-0.5 px-1.5 py-0.5 text-[10px] font-medium rounded" style={labels[change.type]?.style || { color: 'var(--reader-text)', opacity: 0.5 }}>
+                    <span className="flex-shrink-0 mt-0.5 px-1.5 py-0.5 text-[10px] font-medium rounded" style={labels[change.type]?.style || { color: 'var(--md-sys-color-on-surface)', opacity: 0.5 }}>
                       {labels[change.type]?.label || change.type}
                     </span>
-                    <span className="text-sm" style={{ color: 'var(--reader-text)', opacity: 0.8 }}>{t(change.text)}</span>
+                    <span className="text-sm" style={{ color: 'var(--md-sys-color-on-surface)', opacity: 0.8 }}>{t(change.text)}</span>
                   </div>
                 ))}
               </div>
