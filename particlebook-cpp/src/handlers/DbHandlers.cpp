@@ -131,6 +131,12 @@ void RegisterDbHandlers(BridgeServer* bridge, DatabaseService* db)
             if (normalized.values.contains(it.key())) patch[it.key()] = normalized.values[it.key()];
         }
         db->UpdateSettings(patch);
+        // 原生标题栏跟随主题：设置里带了 theme 就立刻应用到窗口（复用既有的
+        // db:updateSettings 通道 —— 不新增桥接成员，避免 electron.d.ts 变更）。
+        const auto themeIt = patch.find("theme");
+        if (themeIt != patch.end() && themeIt->is_string()) {
+            App::Instance().ApplyWindowTheme(themeIt->get<std::string>());
+        }
         return json::object();
     });
     bridge->RegisterMethod("db:getBookSettings", [db](const json& p) {

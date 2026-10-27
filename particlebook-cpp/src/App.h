@@ -40,6 +40,11 @@ public:
     std::string GetLanguage() const { return m_language; }
     void SetLanguage(const std::string& lang);
 
+    // 原生 Windows 标题栏跟随 M3 主题（dark / light / sepia）。启动时由 Run()
+    // 在建窗前把 m_theme 交给 WebViewHost；设置页改主题走 db:updateSettings。
+    void ApplyWindowTheme(const std::string& theme);
+    std::string GetTheme() const { return m_theme; }
+
     // PB-019: a second process forwards paths over a named pipe. These are
     // always called on the UI thread except OnExternalOpen (pipe thread).
     void OnExternalOpen(std::vector<std::string> paths);
@@ -51,6 +56,8 @@ private:
     HINSTANCE m_hInstance = nullptr;
 
     std::string m_language = "zh";
+    // 与渲染层 settingsStore.theme 同口径；SettingsService 的枚举口径也是这三档。
+    std::string m_theme = "dark";
 
     std::shared_ptr<DatabaseService> m_db;
     std::shared_ptr<BridgeServer> m_bridge;

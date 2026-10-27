@@ -128,6 +128,10 @@ void App::Init(HINSTANCE hInstance, std::vector<std::string> startupPaths, Singl
     m_db->Load(UserDataPath() + "/data/reader.json");
     // Restore persisted UI language (must be set before toolbar scripts are injected)
     m_language = m_db->GetSettings().value("language", "zh") == "en" ? "en" : "zh";
+    // 原生标题栏主题：必须在建窗之前读出来（见 Run()）。三档口径与前端一致，
+    // 任何越界值都退回 dark（SettingsService 的默认值也是 dark）。
+    m_theme = m_db->GetSettings().value("theme", "dark");
+    if (m_theme != "light" && m_theme != "sepia") m_theme = "dark";
 
     // 2. Bridge (message dispatch)
     m_bridge = std::make_shared<BridgeServer>();
@@ -296,6 +300,9 @@ void App::Init(HINSTANCE hInstance, std::vector<std::string> startupPaths, Singl
 
 void App::Run()
 {
+    // 主题先交给 WebViewHost：CreateMainWindow 会在第一次 ShowWindow 之前把 DWM
+    // 属性设好，暗色主题启动时标题栏不会先白一下。
+    if (m_webview) m_webview->SetPendingTheme(m_theme);
     m_webview->CreateMainWindow(m_hInstance);
     m_webview->RunMessageLoop();
 }
@@ -357,6 +364,13 @@ void App::FlushOpenPaths()
         paths.swap(m_pendingOpenFiles);
     }
     if (m_bridge) m_bridge->EmitEvent("app:openFiles", json(paths));
+}
+
+void App::ApplyWindowTheme(const std::string& theme)
+{
+    // 只认三档；越界值退回 dark，避免把非法字符串透传给 DWM 层。
+    m_theme = (theme == "light" || theme == "sepia") ? theme : "dark";
+    if (m_webview) m_webview->ApplyTheme(m_theme);
 }
 
 void App::SetLanguage(const std::string& lang)

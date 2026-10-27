@@ -43,6 +43,16 @@ public:
     // 是否忽略证书错误（仅 Z-Library 会话期间置 true；见 WebViewHost.cpp 的说明）
     void SetAllowUntrustedCerts(bool on) { m_allowUntrustedCerts = on; }
 
+    // ── 原生 Windows 标题栏跟随 M3 主题（DWM）──────────────────────────
+    // theme 取值 "dark" / "light" / "sepia"（与渲染层 settingsStore.theme 同口径）。
+    // 窗口还没创建时只记下来，CreateMainWindow 会在 ShowWindow 之前应用 —— 否则
+    // 暗色主题启动时会先闪一条白标题栏；窗口已创建则立刻生效。
+    // 返回值只代表 DWM 调用本身成功；是否真的生效看 <UserData>/logs 里
+    // theme 分类的读回值（DwmGetWindowAttribute）。
+    bool ApplyTheme(const std::string& theme);
+    void SetPendingTheme(const std::string& theme) { m_pendingTheme = theme; }
+    const std::string& PendingTheme() const { return m_pendingTheme; }
+
     using DownloadCallback = std::function<void(const std::string& path, const std::string& fileName)>;
     void SetDownloadCallback(DownloadCallback cb) { m_dlCb = std::move(cb); }
 
@@ -89,6 +99,8 @@ public:
 
 private:
     static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp);
+    // 真正干活的那个：要求调用线程就是窗口线程 + m_hwnd 有效。
+    bool ApplyThemeToWindow(const std::string& theme);
     void InitWebView();
     void OnWebViewCreated(HRESULT hr, ICoreWebView2Controller* controller);
     void OnWebMessageReceived(ICoreWebView2* sender, ICoreWebView2WebMessageReceivedEventArgs* args);
@@ -115,4 +127,5 @@ private:
     UpdateCheckCb m_updateCheckCb;
     UpdateDownloadProgressCb m_updateDownloadProgressCb;
     std::vector<std::string> m_pendingScripts;
+    std::string m_pendingTheme = "dark";   // 见 ApplyTheme / SetPendingTheme
 };

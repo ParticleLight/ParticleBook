@@ -113,6 +113,7 @@ target_link_libraries(ParticleBook PRIVATE
     comdlg32
     crypt32
     sapi
+    dwmapi          # 原生标题栏跟随主题：DwmSetWindowAttribute / DwmGetWindowAttribute
 )
 
 # Copy WebView2 DLL to output (edge runtime dependency, present on Win11 anyway)
