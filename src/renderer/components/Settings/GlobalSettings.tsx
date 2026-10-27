@@ -6,6 +6,7 @@ import { useSettingsStore, type AccentColor } from '../../stores/settingsStore'
 import { copyText, downloadText } from '../../utils/download'
 import { TranslationSettings } from './TranslationSettings'
 import { SettingsSchemaForm } from './SettingsSchemaForm'
+import { Switch } from '../UI/Switch'
 import { BookSourceManager } from './BookSourceManager'
 
 interface GlobalSettingsProps {
@@ -69,15 +70,10 @@ function SvgIcon({ d, className = 'w-5 h-5' }: { d: string; className?: string }
   )
 }
 
+// PB-025-B：设置页所有开关改用 shared/ui Switch（token 配色 + aria/size 统一）。
+// 保留 Toggle 这个名字和各调用点不变，只换实现。
 function Toggle({ value, onChange }: { value: boolean; onChange: (v: boolean) => void }) {
-  return (
-    <button
-      className={`settings-toggle ${value ? 'active' : ''}`}
-      onClick={() => onChange(!value)}
-      role="switch"
-      aria-checked={value}
-    />
-  )
+  return <Switch checked={value} onChange={onChange} />
 }
 
 function Segment<T extends string>({ options, value, onChange }: {

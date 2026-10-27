@@ -91,6 +91,7 @@
   --ui-focus-ring: var(--border-focus);
   --ui-danger: var(--color-red);
   --ui-danger-bg: var(--color-red-bg);
+  --ui-danger-text: #ffffff;   /* 危险按钮文字（红底白字，三主题一致） */
 }
 
 /* === 亮色主题 === */
@@ -155,6 +156,7 @@
   --ui-focus-ring: var(--border-focus);
   --ui-danger: var(--color-red);
   --ui-danger-bg: var(--color-red-bg);
+  --ui-danger-text: #ffffff;
 }
 
 /* === 护眼主题 (保持暖调，同时应用 Fluent 结构) === */
@@ -220,6 +222,7 @@
   --ui-focus-ring: var(--border-focus);
   --ui-danger: var(--color-red);
   --ui-danger-bg: var(--color-red-bg);
+  --ui-danger-text: #ffffff;
 }
 
 /* ═══════════════════════════════════════════════════════════════

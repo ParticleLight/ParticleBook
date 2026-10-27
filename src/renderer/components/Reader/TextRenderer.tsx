@@ -370,21 +370,23 @@ export function TextRenderer({ book, content, bookId }: TextRendererProps) {
       {highlightPopup && createPortal(
         <div
           ref={popupRef}
-          className="fixed z-50 flex gap-2 bg-gray-900 border border-gray-700 rounded-lg shadow-xl p-2"
+          /* PB-025-B：不再写死深色调色板，跟随主题 token */
+          data-text-highlight-popup="1"
+          className="fixed z-50 flex gap-2 bg-[var(--ui-surface-raised)] border border-[var(--border)] rounded-lg shadow-xl p-2 text-[var(--text-secondary)]"
           style={{ left: highlightPopup.x, top: highlightPopup.y - 44 }}
         >
           {HIGHLIGHT_COLORS.map((c) => (
             <button
               key={c.value}
               onMouseDown={(e) => { e.preventDefault(); handleAddHighlight(c.value) }}
-              className="w-6 h-6 rounded-full border border-gray-600 hover:scale-110 transition-transform"
+              className="w-6 h-6 rounded-full border border-[var(--border)] hover:scale-110 transition-transform"
               style={{ backgroundColor: c.value }}
               title={c.label}
             />
           ))}
           <button
             onMouseDown={(e) => { e.preventDefault(); setHighlightPopup(null) }}
-            className="w-6 h-6 rounded-full border border-gray-600 flex items-center justify-center text-gray-400 hover:text-white text-sm"
+            className="w-6 h-6 rounded-full border border-[var(--border)] flex items-center justify-center text-[var(--text-secondary)] hover:text-[var(--text-primary)] text-sm"
           >
             ×
           </button>

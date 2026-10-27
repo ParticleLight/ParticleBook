@@ -190,9 +190,9 @@ export function DictionaryPopup({ open, onClose }: DictionaryPopupProps) {
   if (!open) return null
 
   const panelStyle = {
-    background: 'var(--reader-sidebar, #1f2937)',
-    borderColor: 'var(--reader-border, #374151)',
-    color: 'var(--reader-text, #e5e7eb)',
+    background: 'var(--reader-sidebar)',
+    borderColor: 'var(--reader-border)',
+    color: 'var(--reader-text)',
   }
   const loaded = !!(status && status.loaded)
   const enabled = status?.enabled !== false
@@ -209,7 +209,7 @@ export function DictionaryPopup({ open, onClose }: DictionaryPopupProps) {
   return (
     <div className="fixed inset-0 z-[70] flex items-start justify-center pt-16 pointer-events-none" role="dialog" aria-modal="true" aria-label={t('词典')}>
       <div className="pointer-events-auto w-[560px] max-w-[92vw] max-h-[75vh] rounded-xl border shadow-2xl overflow-hidden text-sm" style={panelStyle}>
-        <div className="flex items-center justify-between px-4 py-2.5 border-b" style={{ borderColor: 'var(--reader-border, #374151)' }}>
+        <div className="flex items-center justify-between px-4 py-2.5 border-b" style={{ borderColor: 'var(--reader-border)' }}>
           <div className="flex items-center gap-2 min-w-0">
             <span className="text-xs font-medium">{t('本地词典')}</span>
             <span className="text-[11px] opacity-60 truncate">
@@ -237,25 +237,25 @@ export function DictionaryPopup({ open, onClose }: DictionaryPopupProps) {
               onKeyDown={(e) => { if (e.key === 'Enter') void lookup(word) }}
               placeholder={t('输入单词后按 Enter 或点「查词」')}
               className="flex-1 px-3 py-2 rounded-lg text-sm border"
-              style={{ background: 'var(--reader-bg, #111827)', borderColor: 'var(--reader-border, #374151)', color: 'var(--reader-text, #e5e7eb)' }}
+              style={{ background: 'var(--reader-bg)', borderColor: 'var(--reader-border)', color: 'var(--reader-text)' }}
             />
-            <button onClick={() => void lookup(word)} disabled={busy || !word.trim()} className="px-3 py-2 rounded-lg text-xs border shrink-0" style={{ borderColor: 'var(--reader-border, #374151)' }}>
+            <button onClick={() => void lookup(word)} disabled={busy || !word.trim()} className="px-3 py-2 rounded-lg text-xs border shrink-0" style={{ borderColor: 'var(--reader-border)' }}>
               {t('查词')}
             </button>
-            <button onClick={useSelection} className="px-3 py-2 rounded-lg text-xs border shrink-0" style={{ borderColor: 'var(--reader-border, #374151)' }} title={t('取选区')}>
+            <button onClick={useSelection} className="px-3 py-2 rounded-lg text-xs border shrink-0" style={{ borderColor: 'var(--reader-border)' }} title={t('取选区')}>
               {t('取选区')}
             </button>
           </div>
 
           <div className="flex items-center gap-2">
-            <button onClick={() => void importDictionary()} disabled={importing} className="px-3 py-1.5 rounded-lg text-xs border" style={{ borderColor: 'var(--reader-border, #374151)' }}>
+            <button onClick={() => void importDictionary()} disabled={importing} className="px-3 py-1.5 rounded-lg text-xs border" style={{ borderColor: 'var(--reader-border)' }}>
               {t('导入词库')}
             </button>
-            <button onClick={() => void clearDictionary()} disabled={importing || !loaded} className="px-3 py-1.5 rounded-lg text-xs border opacity-80" style={{ borderColor: 'var(--reader-border, #374151)' }}>
+            <button onClick={() => void clearDictionary()} disabled={importing || !loaded} className="px-3 py-1.5 rounded-lg text-xs border opacity-80" style={{ borderColor: 'var(--reader-border)' }}>
               {t('清空词库')}
             </button>
             {loaded && (
-              <button onClick={() => void toggleEnabled()} disabled={importing} className="px-3 py-1.5 rounded-lg text-xs border opacity-80" style={{ borderColor: 'var(--reader-border, #374151)' }}>
+              <button onClick={() => void toggleEnabled()} disabled={importing} className="px-3 py-1.5 rounded-lg text-xs border opacity-80" style={{ borderColor: 'var(--reader-border)' }}>
                 {enabled ? t('禁用词典') : t('启用词典')}
               </button>
             )}
@@ -268,7 +268,7 @@ export function DictionaryPopup({ open, onClose }: DictionaryPopupProps) {
           )}
 
           {result && (
-            <div className="border-t pt-2" style={{ borderColor: 'var(--reader-border, #374151)' }}>
+            <div className="border-t pt-2" style={{ borderColor: 'var(--reader-border)' }}>
               {!result.ok && (
                 <p className="text-xs text-red-400 break-words">{result.error || result.code}</p>
               )}
@@ -279,12 +279,12 @@ export function DictionaryPopup({ open, onClose }: DictionaryPopupProps) {
                 <p className="text-xs opacity-70">{t('未找到该词')}</p>
               )}
               {result.hits.map((hit, index) => (
-                <div key={hit.word + '-' + index} className={index === 0 ? '' : 'mt-3 pt-3 border-t'} style={index === 0 ? undefined : { borderColor: 'var(--reader-border, #374151)' }}>
+                <div key={hit.word + '-' + index} className={index === 0 ? '' : 'mt-3 pt-3 border-t'} style={index === 0 ? undefined : { borderColor: 'var(--reader-border)' }}>
                   <div className="flex items-baseline gap-2 flex-wrap">
                     <span className="text-sm font-semibold break-all">{hit.word}</span>
                     {hit.phonetic && <span className="text-xs opacity-70">{hit.phonetic}</span>}
                     {hit.kind !== 'exact' && (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded opacity-80" style={{ background: 'var(--reader-bg, #111827)' }}>
+                      <span className="text-[10px] px-1.5 py-0.5 rounded opacity-80" style={{ background: 'var(--reader-bg)' }}>
                         {hitLabel(hit.kind)}{hit.kind === 'morphology' && hit.matched && hit.matched !== hit.word ? ' ← ' + hit.matched : ''}
                       </span>
                     )}

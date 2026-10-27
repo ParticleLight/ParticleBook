@@ -32,7 +32,7 @@ import { TranslationPopup } from './TranslationPopup'
 import { createReaderAdapter, ReaderAdapterProvider } from '../../reader'
 import { formatReadingTime } from '../../utils/format'
 import { readBookFile } from '../../utils/fileReader'
-import { ConfirmDialog } from '../UI/ConfirmDialog'
+import { Dialog } from '../UI/Dialog'
 import type { Book } from '../../stores/libraryStore'
 
 const EpubRenderer = lazy(() => import('./EpubRenderer').then(m => ({ default: m.EpubRenderer })))
@@ -110,6 +110,18 @@ export function ReaderView({ bookId, onClose }: ReaderViewProps) {
   const turnPage = useReaderStore((s) => s.turnPage)
   const saveProgress = useReaderStore((s) => s.saveProgress)
   const flushProgress = useReaderStore((s) => s.flushProgress)
+  const pendingLocator = useReaderStore((s) => s.pendingLocator)
+  const clearPendingLocator = useReaderStore((s) => s.clearPendingLocator)
+
+  // PB-006: search result -> wait for the renderer to mount, then goTo.
+  useEffect(() => {
+    if (!readerAdapter || !book || !pendingLocator) return
+    const timer = window.setTimeout(() => {
+      Promise.resolve(readerAdapter.goTo(pendingLocator))
+        .finally(() => clearPendingLocator())
+    }, 400)
+    return () => window.clearTimeout(timer)
+  }, [readerAdapter, book, pendingLocator, clearPendingLocator])
   const setBookId = useReaderStore((s) => s.setBookId)
   const startReadingSession = useReaderStore((s) => s.startReadingSession)
   const endReadingSession = useReaderStore((s) => s.endReadingSession)
@@ -408,23 +420,35 @@ export function ReaderView({ bookId, onClose }: ReaderViewProps) {
           <div className="flex justify-center gap-2">
             <button className="btn-secondary" onClick={onClose}>{t('返回书架')}</button>
             {loadError.kind !== 'gone' && (
-              <button className="btn-primary" style={{ background: 'var(--color-red)', color: '#fff' }}
+              <button className="btn-primary" style={{ background: 'var(--ui-danger)', color: 'var(--ui-danger-text)' }}
                       onClick={() => setConfirmRemove(true)}>{t('从书架移除')}</button>
             )}
           </div>
           {loadError.kind === 'missing' && (
             <p className="text-xs mt-4 opacity-60">{t('把文件放回原位，或重新导入、重新下载这本书，即可继续阅读。')}</p>
           )}
-          {confirmRemove && (
-            <ConfirmDialog
-              title={t('从书架移除这本书？')}
-              message={t('将删除书架记录以及它的阅读进度、书签和笔记；磁盘上的文件不会被删除。')}
-              confirmText={t('移除')}
-              danger
-              onConfirm={removeBook}
-              onCancel={() => setConfirmRemove(false)}
-            />
-          )}
+          {/* PB-025-B：确认框改用 shared/ui Dialog（焦点陷阱 / ESC / 滚动锁 / aria 一致） */}
+          <Dialog
+            open={confirmRemove}
+            onClose={() => setConfirmRemove(false)}
+            title={t('从书架移除这本书？')}
+            description={t('将删除书架记录以及它的阅读进度、书签和笔记；磁盘上的文件不会被删除。')}
+            footer={(
+              <>
+                <button className="btn-secondary" onClick={() => setConfirmRemove(false)}>{t('取消')}</button>
+                <button
+                  className="btn-primary"
+                  style={{ background: 'var(--ui-danger)', color: 'var(--ui-danger-text)' }}
+                  onClick={() => { void removeBook() }}
+                  data-confirm-remove="1"
+                >
+                  {t('移除')}
+                </button>
+              </>
+            )}
+          >
+            <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>{t('移除后可以重新导入这本书继续阅读。')}</p>
+          </Dialog>
         </div>
       </div>
     )
@@ -432,15 +456,15 @@ export function ReaderView({ bookId, onClose }: ReaderViewProps) {
 
   if (!book || !bookContent) {
     return (
-      <div className="h-screen flex items-center justify-center bg-gray-900">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-500"></div>
+      <div className="h-screen flex items-center justify-center" style={{ background: 'var(--reader-bg)', color: 'var(--reader-text)' }}>
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2" style={{ borderColor: 'var(--accent)' }}></div>
       </div>
     )
   }
 
   const loadingFallback = (
     <div className="h-full flex items-center justify-center">
-      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-500"></div>
+      <div className="animate-spin rounded-full h-8 w-8 border-b-2" style={{ borderColor: 'var(--accent)' }}></div>
     </div>
   )
 
