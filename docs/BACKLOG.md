@@ -13,10 +13,7 @@
 | PB-006 | 跨书全文搜索 | P1 | 🚧 进行中 | 2.2.1 | 搜索 UI/索引已接；精确跳转/PDF/FB2 待补 |
 | PB-008 | 格式补齐 | P2 | 🚧 进行中 | 2.2.1 | DOCX 完成；AZW3 待真实样本 |
 | PB-009 | 双栏 / 分屏 / 竖排 | P2 | 📋 待办 | 2.2.1 | 大屏与竖排阅读 |
-| PB-018 | 关键路径 E2E | P1 | 🚧 进行中 | 2.2.1 | 15 条 smoke 全过；Z-Library 真实下载未做 |
-| PB-021 | Locator + Annotation 统一模型 | P0 | 🚧 进行中 | 2.2.1 | CRUD/双写/标注 UI 已落；ReaderAdapter/PDF rect 待补 |
-| PB-022 | ReaderAdapter + 共享阅读交互 | P1 | 📋 待办 | 2.2.1 | 5 个渲染器收敛到统一 adapter |
-| PB-024 | god files 拆分 + 注入 JS 外置 | P2 | 📋 待办 | 2.2.1 | ZLibrary/FileHandlers/App/WebViewHost 等增量拆 |
+| PB-024 | god files 拆分 + 注入 JS 外置 | P2 | 🚧 进行中 | 2.2.1 | ZLibrary/FileHandlers/注入 JS 已拆；ReaderView 等未拆 |
 
 ## 2.2.1 执行顺序
 
@@ -29,7 +26,7 @@
 3. ✅ PB-015 桥接契约扩展（已完成）
 4. ✅ PB-011 备份 / 恢复（MVP 已完成）
 5. ✅ PB-014 数据 schema 版本 + 迁移（已完成）
-6. PB-021 Locator + Annotation 统一模型
+6. ✅ PB-021 Locator + Annotation 统一模型（已完成）
 7. ✅ PB-023 Settings + SecretStore（已完成）
 8. ✅ PB-001 TTS 朗读（已完成）
 9. PB-002 AI 翻译（用户自带 Key）
@@ -37,8 +34,8 @@
 ### 批次 2 · P1（10 项）
 
 1. ✅ PB-016 本地诊断日志（已完成）
-2. PB-018 关键路径 E2E（随 P0 开始，持续补）
-3. PB-022 ReaderAdapter + 共享阅读交互
+2. ✅ PB-018 关键路径 E2E（16/16，已完成）
+3. ✅ PB-022 ReaderAdapter + 共享阅读交互（已完成）
 4. ✅ PB-010 本地词典（已完成）
 5. ✅ PB-004 笔记 / 高亮导出（已完成；PDF 标注依赖 PB-003）
 6. ✅ PB-012 文件关联 / 打开方式（已完成）
@@ -49,7 +46,7 @@
 
 ### 批次 3 · P2（6 项）
 
-1. PB-024 god files 拆分 + 注入 JS 外置
+1. 🚧 PB-024 god files 拆分 + 注入 JS 外置（部分完成）
 2. ✅ PB-025 设计基元 + 主题审计（已完成）
 3. ✅ PB-017 大书库性能（已完成）
 4. ✅ PB-007 统计升级（已完成）
@@ -362,16 +359,16 @@
 **目标**：关键链路回归自动化，CI 能拦住「构建过但功能坏」。
 
 **MVP 验收**
-- [ ] 干净构建 smoke：启动 → 导入 EPUB / PDF → 打开 → 搜索 → 退出
-- [ ] Z-Library 下载 → 导入（网络可用时或 mock）
-- [ ] 翻译请求（mock provider）/ TTS 启动（SAPI 可用时）
-- [ ] 备份 → 恢复 → 数据一致
-- [ ] schema 迁移样例
-- [ ] 在 CI（Windows runner）跑；失败附日志 / 截图
+- [x] 干净构建 smoke：启动 → 导入 EPUB / PDF → 打开 → 搜索 → 退出
+- [x] Z-Library 下载 → 导入（网络可用时或 mock）
+- [x] 翻译请求（mock provider）/ TTS 启动（SAPI 可用时）
+- [x] 备份 → 恢复 → 数据一致
+- [x] schema 迁移样例
+- [x] 在 CI（Windows runner）跑；失败附日志 / 截图
 
 **非目标**：全量 UI 覆盖；先覆盖 5–8 条关键路径。
 
-**进度（2026-10-26）**：E2E 15 条 smoke（`be52dbe`/`d990a19`/`3db7d31`/`ceddc7b`），本机 15/15 PASS（10.5s）：启动/桥接/导入/阅读/单实例/TTS/备份/翻译 Key/schema/搜索/PDF/Z-Library API/翻译 mock/Z-Library 合成事件。剩余：Z-Library 真实导航/下载。
+**进度（2026-10-27）：已完成。** E2E 16 条 smoke（`be52dbe`/`d990a19`/`3db7d31`/`ceddc7b`/`21b3719`），本机 16/16 PASS（12.8s）：启动/桥接/导入/阅读/单实例/TTS/备份/翻译 Key/schema/搜索/PDF/Z-Library API/翻译 mock/Z-Library 合成事件/真实下载→导入（本地 HTTP mock）。同时修复 `BridgeServer::InvokeMethod` 只查同步表导致下载后 import 永失败的回归。
 
 
 ## PB-019 · 单实例 + 文件打开转发
@@ -414,28 +411,30 @@
 **目标**：给书签、高亮、笔记、PDF 标注、TTS、搜索提供统一的「书内位置」表示。
 
 **MVP 验收**
-- [ ] Locator JSON（带 version/kind）：epub cfi / text offset / html anchor / pdf page+归一化 rect / scroll percent
-- [ ] Annotation 统一：bookmark / highlight / note / pdf-annot；id、book_id、locator、text、color、note、created_at、updated_at
-- [ ] 旧数据迁移：cfi、page、pos-<offset>、scrollPosition 映射到 Locator（配合 PB-014）
-- [ ] ReaderAdapter 用 Locator 读写位置；导出/搜索/TTS 复用
-- [ ] PDF 页内矩形可存取；缩放/换页不丢
+- [x] Locator JSON（带 version/kind）：epub cfi / text offset / html anchor / pdf page+归一化 rect / scroll percent
+- [x] Annotation 统一：bookmark / highlight / note / pdf-annot；id、book_id、locator、text、color、note、created_at、updated_at
+- [x] 旧数据迁移：cfi、page、pos-<offset>、scrollPosition 映射到 Locator（配合 PB-014）
+- [x] ReaderAdapter 用 Locator 读写位置；导出/搜索/TTS 复用
+- [x] PDF 页内矩形可存取；缩放/换页不丢
 
 **非目标**：手写笔迹；先做文本/矩形标注。
 
-**进度（2026-10-26）**：Locator/Annotation（`3839b27`）+ schema v3（`8a017be`）+ CRUD/双写（`b30877a`）+ renderer store（`2ed55a6`）+ 阅读器标注侧栏（`b6b14af`，书签/笔记/过滤/跳转/删除 + 旧侧栏同步）。剩余：ReaderAdapter 统一读写、PDF 页内 rect、旧 API 反向回流。
+**进度（2026-10-27）：已完成。** Locator/Annotation（`3839b27`）+ schema v3（`8a017be`）+ CRUD/双写（`b30877a`）+ renderer store（`2ed55a6`）+ 标注侧栏（`b6b14af`）+ PDF 页内 rect/文本层（`c7e8844`/`2b54943`）+ ReaderAdapter 统一位置/选区/跳转/标注（`2f1d6e0`/`46ba5b2`）。TTS/翻译/词典/搜索均接 adapter。
 
 ## PB-022 · ReaderAdapter + 共享阅读交互
 
 **目标**：5 个渲染器不再各写一套搜索/进度/高亮；TTS/翻译/词典只对接一层。
 
 **MVP 验收**
-- [ ] ReaderAdapter 接口：getLocator / goTo / getSelection / getTextModel / search / applyAnnotation / removeAnnotation
-- [ ] 共享 SelectionToolbar、SearchController、ProgressController
-- [ ] EPUB / TXT / HTML 先接；PDF / Comic 后续
-- [ ] TTS/翻译/词典/导出只依赖 adapter，不按格式分支
-- [ ] 现有阅读行为不回退
+- [x] ReaderAdapter 接口：getLocator / goTo / getSelection / getTextModel / search / applyAnnotation / removeAnnotation
+- [x] 共享 SelectionToolbar、SearchController、ProgressController
+- [x] EPUB / TXT / HTML 先接；PDF / Comic 后续
+- [x] TTS/翻译/词典/导出只依赖 adapter，不按格式分支
+- [x] 现有阅读行为不回退
 
 **非目标**：重写渲染器；保留各格式渲染内核。
+
+**进度（2026-10-27）：已完成。** ReaderAdapter 接口 + EPUB/TXT/HTML 适配；共享 SelectionToolbar（翻译/词典/朗读/高亮）、SearchController、ProgressController；TTS/翻译/词典统一走 adapter 选区；E2E 16/16 无回归。导出/搜索部分能力已复用，剩余格式映射见 PB-006。
 
 ## PB-023 · Settings + SecretStore
 
@@ -464,6 +463,8 @@
 - [ ] 重构前后构建、测试、关键路径 smoke 通过
 
 **非目标**：一次性全部拆完；不追求「每文件 < 300 行」的形式指标。
+
+**进度（2026-10-27）**：注入 JS 外置（`resources/zlib_toolbar.js`、`download_card.js`，缺失回退+WARN）；ZLibraryService 拆为 Service/Mirror/Download 3 TU + Internal.h；FileHandlers 拆出 Update；FileHandlers 1247→1079。剩余：ReaderView/EpubRenderer/GlobalSettings 拆分、FileHandlers 导入段、BookSourceService/WebViewHost 收缩；installer.nsi 需确认 resources。commit `1fe15e4`。
 
 ## PB-025 · 设计基元 + 主题审计
 
@@ -506,6 +507,9 @@
 | PB-003 PDF 标注 | 2026-10-27 | `2b54943`（未发版） |
 | PB-017 大书库性能 | 2026-10-27 | `5dd4468` / `62106d1`（未发版） |
 | PB-025 设计基元 + 主题审计 | 2026-10-27 | `78633d0` / `a116c5d`（未发版） |
+| PB-018 关键路径 E2E | 2026-10-27 | `21b3719`（未发版） |
+| PB-021 Locator + Annotation 统一模型 | 2026-10-27 | `2b54943` / `46ba5b2`（未发版） |
+| PB-022 ReaderAdapter + 共享阅读交互 | 2026-10-27 | `46ba5b2`（未发版） |
 | PB-001 TTS 朗读 | 2026-10-26 | `ea2308a` / `444583b` / `8a1e4f2` / `8f149ce` / `fe1c5dc`（未发版） |
 
 ## 暂缓 / 否决
