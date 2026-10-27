@@ -9,7 +9,7 @@
 // WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS 打开随机空闲端口的 CDP，用 Node 内置
 // WebSocket 驱动：真实窗口 + 真实 DOM + 真实桥接调用。
 //
-// 15 步 smoke（5 条 PB-018-A 基础 + 5 步 PB-018-B + 3 步 PB-018-C + 2 步 PB-018-D）：
+// 16 步 smoke（5 条基础 + 5 步 PB-018-B + 3 步 PB-018-C + 2 步 PB-018-D + 1 步真实 Z-Library 下载）：
 //   1) launch-and-cdp          启动、CDP 就绪、页面 title、桥接 shim、沙箱隔离
 //   2) bridge-read             getPendingOpenFiles / getBooks / getSettings
 //   3) import-epub             生成最小 EPUB → importBooks → 书架出现
@@ -25,6 +25,8 @@
 //  13) zlib                    离线下验证 Z-Library API 面 + 只读 mirror/downloadPath + 事件订阅；不触发真实导航/下载
 //  14) translation-mock        本进程起 127.0.0.1 OpenAI 兼容 mock → 配置 settings+Key → translationTranslate 断言译回 + 429→quota + 清理
 //  15) zlib-mock               合成 bridge event 注入（downloadError/allMirrorsFailed 断言真实 UI banner；progress/importComplete 容错）→ 关闭实例
+//  16) zlib-real-download      本地 HTTP mock 提供 EPUB 附件 → 真实 WebView2 DownloadStarting → ZLibraryService WinHTTP
+//                              下载（>256KB 断言 downloadProgress）→ 导入书架 + library:changed（不依赖公网）
 //
 // 失败时：CDP 截图 + 页面 console + app stdout/stderr + reader.json 快照写入
 // artifacts，退出码 1。--fail-at <step> 故意失败，用来验证失败路径。
@@ -33,8 +35,9 @@ import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { CdpClient, findFreePort, iframeTextExpression, sleep, waitForPageTarget } from './lib/cdp.mjs'
-import { writeSampleEpub, writeSamplePdf } from './lib/fixtures.mjs'
+import { makeSampleEpub, writeSampleEpub, writeSamplePdf } from './lib/fixtures.mjs'
 import { startMockTranslationServer } from './lib/mock-provider.mjs'
+import { startMockZlibServer } from './lib/mock-zlib-server.mjs'
 import * as appLib from './lib/app.mjs'
 
 const USAGE = `ParticleBook E2E smoke (PB-018)
@@ -54,7 +57,8 @@ Options:
   --fail-at <step>      Force a failure at a step (launch-and-cdp | bridge-read |
                         import-epub | open-read-turn-close | settings-forward-exit |
                         extended-app | tts | backup | translation | schema |
-                        search | pdf | zlib | translation-mock | zlib-mock)
+                        search | pdf | zlib | translation-mock | zlib-mock |
+                        zlib-real-download)
   --verbose             Print extra detail
   -h, --help            Show this help
 `
@@ -133,6 +137,9 @@ const state = {
   // PB-018-D：本地 OpenAI mock + 合成 zlib 事件注入
   mockProvider: null,
   mockTranslation: null,
+  // PB-018-A：本地 HTTP mock 的真实 Z-Library 下载→导入
+  mockZlib: null,
+  zlibReal: null,
 }
 
 const log = (...args) => console.log('[e2e]', ...args)
@@ -218,6 +225,46 @@ async function waitForProgress(bookId, predicate, label, timeoutMs = 20000) {
 async function bridgeOn(cdp, method, ...args) {
   const call = `window.electronAPI.${method}(${args.map((arg) => JSON.stringify(arg)).join(', ')})`
   return cdp.evaluate(call)
+}
+
+/** waitFor 的「超时返回 false」版本（用于可选路径回退）。 */
+async function waitForOrFalse(cdp, expression, timeoutMs, label) {
+  try {
+    await cdp.waitFor(expression, { timeoutMs, label })
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * 取本 CDP 连接收到的 Runtime.addBinding 调用。
+ * 页面内注入的监听器把 bridge 事件通过 __pbE2eEvent(payload) 送过来，
+ * 数据保存在 Node 侧，跨 WebView2 页面导航也不会丢。
+ */
+function bindingEvents(cdp, name) {
+  const result = []
+  for (const entry of cdp.events) {
+    if (entry.method !== 'Runtime.bindingCalled') continue
+    if (!entry.params || entry.params.name !== name) continue
+    try {
+      result.push(JSON.parse(entry.params.payload))
+    } catch {
+      // ignore malformed payload
+    }
+  }
+  return result
+}
+
+async function waitForBinding(cdp, name, predicate, label, timeoutMs = 60000) {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    const found = bindingEvents(cdp, name).find(predicate)
+    if (found) return found
+    await sleep(100)
+  }
+  throw new Error('timed out waiting for bridge binding "' + label + '"; got='
+    + JSON.stringify(bindingEvents(cdp, name)))
 }
 
 // PB-018-C：search:* 已在 C++ 注册，但渲染层 window.electronAPI 存根还没暴露
@@ -1041,6 +1088,174 @@ async function smokeZlibMock() {
   await closeAppGracefully(state.phase4.app, 'search/pdf/zlib/translation phase app')
 }
 
+// ── PB-018-A：真实 Z-Library 下载→导入（本地 HTTP mock）─────────────
+async function smokeZlibRealDownload() {
+  const title = `PB-E2E-${state.sandbox.id} Zlib Download`
+  const epubBuffer = makeSampleEpub({
+    title,
+    chapter1: 'downloaded chapter one text',
+    chapter2: 'downloaded chapter two text',
+    paddingBytes: 700 * 1024,
+  })
+  // 端口必须是 80：ZLibraryService 下载线程手写 URL 解析，WinHTTP 固定用协议默认端口
+  // （http=80），会忽略 URL 里显式的 :port（产品既有实现限制，已记录在 docs/E2E.md）。
+  const mock = await startMockZlibServer({ epubBuffer, fileName: 'pb-zlib-download.epub', port: 80 })
+  state.mockZlib = mock
+  const downloadDir = path.join(state.sandbox.files, 'zlib-downloads')
+  await appLib.ensureDir(downloadDir)
+  let phase = null
+  try {
+    phase = await startAppOnSandbox(state.sandbox, 'app-zlib-real.log')
+    const cdp = phase.cdp
+    // 书架数量从落盘 DB 读（后面导入结果也用它断言，避免依赖当前 WebView 页面）。
+    let beforeCount = 0
+    try {
+      const beforeDb = JSON.parse(await fs.readFile(state.sandbox.dataFile, 'utf8'))
+      beforeCount = Array.isArray(beforeDb.books) ? beforeDb.books.length : 0
+    } catch { /* db 还没写出来时按 0 处理 */ }
+
+    // bridge 的 zlib 事件没有全部暴露成 electronAPI.onXxx，但都会以
+    // {type:'event', event, data} 投到当前页面。这里同时做两件事：
+    //   * Page.addScriptToEvaluateOnNewDocument 给每个新文档装监听器；
+    //   * Runtime.addBinding 把事件转发回 Node（跨导航不丢）。
+    const bindingSource = `(() => {
+      window.__pbZlibEvents = window.__pbZlibEvents || [];
+      window.chrome.webview.addEventListener('message', (event) => {
+        try {
+          const message = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
+          if (message && message.type === 'event' && typeof message.event === 'string'
+              && message.event.indexOf('zlib:') === 0) {
+            const item = { event: message.event, data: message.data };
+            window.__pbZlibEvents.push(item);
+            if (window.__pbE2eEvent) window.__pbE2eEvent(JSON.stringify(item));
+          }
+        } catch (error) { /* ignore malformed */ }
+      });
+    })()`
+    await cdp.send('Runtime.addBinding', { name: '__pbE2eEvent' })
+    await cdp.send('Page.addScriptToEvaluateOnNewDocument', { source: bindingSource })
+    await cdp.evaluate(bindingSource)
+    // 阻断镜像的 https 加载：测试只用本地 http 附件，镜像页永远不提交成新文档
+    // （避免把当前 app 页面换掉、也避免依赖公网）。失败时忽略（老 WebView2 无 Network 域）。
+    try {
+      await cdp.send('Network.enable')
+      await cdp.send('Network.setBlockedURLs', { urls: ['https://*'] })
+    } catch { /* optional */ }
+
+    const setPath = await rawBridgeInvoke('zlib:setDownloadPath', { path: downloadDir })
+    assert(setPath && typeof setPath.path === 'string',
+      'zlib:setDownloadPath failed: ' + JSON.stringify(setPath))
+
+    // m_zlibActive=true 后 DownloadStarting 才会被 ZLibraryService 拦截走 WinHTTP。
+    await bridge('zlibShow')
+    // Show() 会顺带导航到镜像；先停止它，再用 CDP Page.navigate 直接导航到本地附件 URL。
+    // 不用 Runtime.evaluate('location.href=…')：镜像文档加载中时 evaluate 可能排队 30s 超时。
+    // DownloadStarting 会把这次导航变成下载（Cancel），主文档不会真的跳走。
+    // 产品在镜像失败时会自己 Navigate 下一条线路，可能覆盖我们这一次导航。
+    // 持续重发附件导航直到 downloadStart 出现（镜像重试耗尽后必然能稳定命中）。
+    let startEvent = null
+    const triggerDeadline = Date.now() + 25000
+    while (!startEvent && Date.now() < triggerDeadline) {
+      try { await cdp.send('Page.stopLoading') } catch { /* ignore */ }
+      try {
+        await cdp.send('Page.navigate', { url: mock.url })
+      } catch { /* navigation may race with product; retry */ }
+      await sleep(400)
+      startEvent = bindingEvents(cdp, '__pbE2eEvent')
+        .find((entry) => entry.event === 'zlib:downloadStart') || null
+    }
+    assert(startEvent, 'timed out triggering zlib download; events='
+      + JSON.stringify(bindingEvents(cdp, '__pbE2eEvent')))
+    await waitForBinding(cdp, '__pbE2eEvent',
+      (entry) => entry.event === 'zlib:downloadComplete' || entry.event === 'zlib:downloadError',
+      'zlib download complete', 60000)
+    const downloadEvents = bindingEvents(cdp, '__pbE2eEvent')
+    const downloadError = downloadEvents.find((entry) => entry.event === 'zlib:downloadError')
+    assert(!downloadError, 'zlib download failed: ' + JSON.stringify(downloadError && downloadError.data))
+    const downloadComplete = downloadEvents.find((entry) => entry.event === 'zlib:downloadComplete')
+    assert(downloadComplete && downloadComplete.data && typeof downloadComplete.data.path === 'string',
+      'zlib:downloadComplete missing path: ' + JSON.stringify(downloadComplete))
+    const downloadedPath = downloadComplete.data.path
+    assert(path.resolve(downloadedPath).toLowerCase().startsWith(path.resolve(downloadDir).toLowerCase()),
+      'downloaded file escaped the mock download dir: ' + downloadedPath)
+    const stat = await fs.stat(downloadedPath)
+    assert(stat.size === mock.size, 'downloaded ' + stat.size + ' bytes, mock served ' + mock.size)
+    const handle = await fs.open(downloadedPath, 'r')
+    const head = Buffer.alloc(4)
+    await handle.read(head, 0, 4, 0)
+    await handle.close()
+    assert(head.subarray(0, 2).toString('latin1') === 'PK',
+      'downloaded file is not a ZIP/EPUB: ' + head.toString('hex'))
+    const progressEvents = downloadEvents.filter((entry) => entry.event === 'zlib:downloadProgress')
+    assert(progressEvents.length >= 1,
+      'expected >=1 zlib:downloadProgress for >256KB file, got ' + progressEvents.length)
+    for (const progress of progressEvents) {
+      assert(progress.data && typeof progress.data.received === 'number'
+        && typeof progress.data.total === 'number' && progress.data.total === mock.size,
+        'unexpected zlib:downloadProgress payload: ' + JSON.stringify(progress.data))
+    }
+    assert(startEvent && startEvent.data.fileName === mock.fileName,
+      'unexpected zlib:downloadStart fileName: ' + JSON.stringify(startEvent && startEvent.data))
+
+    await waitForBinding(cdp, '__pbE2eEvent',
+      (entry) => entry.event === 'zlib:importComplete' || entry.event === 'zlib:importError',
+      'zlib import event', 90000)
+    const allEvents = bindingEvents(cdp, '__pbE2eEvent')
+    const importError = allEvents.find((entry) => entry.event === 'zlib:importError')
+    if (importError) {
+      state.zlibReal = { blocked: true, downloadedPath, size: mock.size, events: allEvents }
+      throw new Error('BLOCKER: zlib download succeeded but import failed: '
+        + JSON.stringify(importError.data)
+        + ' — root cause: ZLibraryService::DoImport calls BridgeServer::InvokeMethod("book:import"),'
+        + ' but book:import is registered via RegisterAsyncMethod (async map); InvokeMethod only looks'
+        + ' in the sync map, so it returns nullptr and the import never runs.')
+    }
+    const importComplete = allEvents.find((entry) => entry.event === 'zlib:importComplete')
+    assert(importComplete && importComplete.data.fileName === mock.fileName,
+      'unexpected zlib:importComplete: ' + JSON.stringify(importComplete && importComplete.data))
+    // 用落盘 reader.json 断言导入结果：C++ 内部 InvokeMethod 导入不会产生渲染层
+    // book:import 响应，且下载期间 WebView 页面可能被镜像导航占住 —— 不去碰页面，
+    // 直接轮询 DB（DatabaseService 的写入是去抖的，最多等 15s）。
+    let dbBooks = []
+    const dbDeadline = Date.now() + 15000
+    while (Date.now() < dbDeadline) {
+      try {
+        const db = JSON.parse(await fs.readFile(state.sandbox.dataFile, 'utf8'))
+        dbBooks = Array.isArray(db.books) ? db.books : []
+        if (dbBooks.some((book) => book.title === title)) break
+      } catch { /* db 可能正在原子替换，重试 */ }
+      await sleep(200)
+    }
+    assert(dbBooks.some((book) => book.title === title),
+      'imported book missing from on-disk reader.json: ' + JSON.stringify(dbBooks.map((book) => book.title)))
+    assert(dbBooks.length === beforeCount + 1,
+      'expected ' + (beforeCount + 1) + ' books after import, got ' + dbBooks.length)
+    const importedBook = dbBooks.find((book) => book.title === title)
+    try {
+      await cdp.screenshot(path.join(state.artifacts, '08-zlib-download.png'))
+    } catch { /* 页面可能还在镜像导航，截图失败不影响断言 */ }
+
+    state.zlibReal = {
+      blocked: false,
+      downloadedPath,
+      size: mock.size,
+      progressEvents: progressEvents.length,
+      bookId: importedBook.id,
+      events: allEvents.map((entry) => entry.event),
+    }
+    state.notes.push('zlib real download (PB-018-A): local 127.0.0.1 attachment -> WebView2 DownloadStarting -> '
+      + 'ZLibraryService WinHTTP -> import; asserted downloadStart/progress/complete + importComplete + library:changed.')
+    log('zlib real download ok: ' + path.basename(downloadedPath) + ' (' + mock.size + ' bytes), '
+      + 'progress=' + progressEvents.length + ', book #' + importedBook.id)
+    await closeAppGracefully(phase.app, 'zlib real download app')
+    phase = null
+  } finally {
+    if (phase) await appLib.forceKill(phase.app).catch(() => {})
+    await mock.close()
+    state.mockZlib = null
+  }
+}
+
 // ── 失败采集 / 清理 / 报告 ───────────────────────────────────────
 async function captureFailureArtifacts(error) {
   const prefix = sanitize(state.currentStep)
@@ -1087,6 +1302,10 @@ async function finalize(fatal) {
   if (state.mockProvider) {
     try { await state.mockProvider.close() } catch { /* ignore */ }
     state.mockProvider = null
+  }
+  if (state.mockZlib) {
+    try { await state.mockZlib.close() } catch { /* ignore */ }
+    state.mockZlib = null
   }
 
   // 清理进程（包含 PB-018-B 额外启动的实例；已退出的 forceKill 会直接返回）
@@ -1141,6 +1360,7 @@ async function finalize(fatal) {
     })),
     pdf: state.pdfFixture ? { path: state.pdfFixture.path, title: state.pdfFixture.title, bookId: state.pdfBookId } : null,
     mockTranslation: state.mockTranslation,
+    zlibReal: state.zlibReal,
     notes: state.notes,
     steps: state.steps,
     failure: state.failure,
@@ -1275,6 +1495,9 @@ async function run() {
     // ── PB-018-D：翻译 mock（本地 OpenAI 兼容服务）+ Z-Library 受控事件 mock ──
     await step('translation-mock', smokeTranslationMock)
     await step('zlib-mock', smokeZlibMock)
+
+    // ── PB-018-A：本地 HTTP mock 的真实 Z-Library 下载 → 导入 ──
+    await step('zlib-real-download', smokeZlibRealDownload)
     state.ok = true
   } catch (error) {
     state.failure = {

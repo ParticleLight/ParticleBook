@@ -136,9 +136,11 @@ ${body}
 
 /**
  * 生成一个最小 EPUB 2.0。
- * @param {{title: string, id?: string, chapter1: string, chapter2: string}} options
+ * @param {{title: string, id?: string, chapter1: string, chapter2: string, paddingBytes?: number}} options
  *   chapter1/chapter2 是「正文段落」，会原样出现在渲染文本里，E2E 用它断言
- *   「已经读到这一页」。
+ *   「已经读到这一页」。paddingBytes > 0 时额外塞一个 STORE 的
+ *   OEBPS/padding.bin（EPUB 阅读器忽略它），用于把下载体积撑过 256KB，
+ *   这样 Z-Library 下载进度事件（每 256KB 上报一次）才能被测到。
  * @returns {Buffer}
  */
 export function makeSampleEpub(options) {
@@ -146,6 +148,7 @@ export function makeSampleEpub(options) {
   const bookId = options.id || `urn:uuid:${options.title.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}`
   const chapter1 = options.chapter1
   const chapter2 = options.chapter2
+  const paddingBytes = Number(options.paddingBytes) || 0
 
   const container = `<?xml version="1.0" encoding="UTF-8"?>
 <container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
@@ -198,7 +201,7 @@ export function makeSampleEpub(options) {
 </ncx>
 `
 
-  return zipStore([
+  const entries = [
     // mimetype 必须第一个且不压缩
     { name: 'mimetype', data: 'application/epub+zip' },
     { name: 'META-INF/container.xml', data: container },
@@ -206,14 +209,18 @@ export function makeSampleEpub(options) {
     { name: 'OEBPS/toc.ncx', data: ncx },
     { name: 'OEBPS/Text/chapter1.xhtml', data: chapterXhtml('Chapter 1', [chapter1]) },
     { name: 'OEBPS/Text/chapter2.xhtml', data: chapterXhtml('Chapter 2', [chapter2]) },
-  ])
+  ]
+  if (paddingBytes > 0) {
+    entries.push({ name: 'OEBPS/padding.bin', data: Buffer.alloc(paddingBytes, 0x42) })
+  }
+  return zipStore(entries)
 }
 
 /**
  * 在 dir 下写一个 fixture EPUB，返回 E2E 断言需要的所有信息。
  * @param {string} dir
  * @param {string} fileName
- * @param {{title: string, ch1: string, ch2: string}} options
+ * @param {{title: string, ch1: string, ch2: string, paddingBytes?: number}} options
  */
 export async function writeSampleEpub(dir, fileName, options) {
   await fs.mkdir(dir, { recursive: true })
@@ -222,6 +229,7 @@ export async function writeSampleEpub(dir, fileName, options) {
     title: options.title,
     chapter1: options.ch1,
     chapter2: options.ch2,
+    paddingBytes: options.paddingBytes,
   })
   await fs.writeFile(filePath, buffer)
   return { path: filePath, title: options.title, ch1: options.ch1, ch2: options.ch2 }

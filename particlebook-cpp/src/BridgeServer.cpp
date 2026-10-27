@@ -1,6 +1,7 @@
 #include "BridgeServer.h"
 #include "WebViewHost.h"
 #include <mutex>
+#include <condition_variable>
 #include <thread>
 #include <chrono>
 #include <fstream>
@@ -164,7 +165,47 @@ json BridgeServer::InvokeMethod(const std::string& method, const json& params)
             return json(nullptr);
         }
     }
-    return json(nullptr);
+
+    // PB-018-A BUGFIX：同步调用方（Z-Library / 书源下载线程）会请求只注册了 async
+    // 的方法（book:import 自 PB-020 起是 RegisterAsyncMethod）。此前这里只查同步表
+    // → 直接返回 nullptr，导致下载成功但导入永远 import_failed。
+    // 现在把 async handler 以「等完成」方式跑一遍：respond/reject 由 JobService
+    // 在 UI 线程回调，而调用点都在下载 worker 线程（UI 线程仍在跑消息循环），
+    // 所以不会死锁。注意：本方法不要在 UI 线程上调用 async 方法。
+    auto asyncIt = m_asyncMethods.find(method);
+    if (asyncIt == m_asyncMethods.end()) return json(nullptr);
+
+    std::mutex mutex;
+    std::condition_variable cv;
+    bool done = false;
+    json result = nullptr;
+    std::string error;
+    try {
+        asyncIt->second(params,
+            [&](json value) {
+                {
+                    std::lock_guard<std::mutex> lk(mutex);
+                    result = std::move(value);
+                    done = true;
+                }
+                cv.notify_one();
+            },
+            [&](std::string message) {
+                {
+                    std::lock_guard<std::mutex> lk(mutex);
+                    error = std::move(message);
+                    done = true;
+                }
+                cv.notify_one();
+            });
+    } catch (const std::exception&) {
+        return json(nullptr);
+    }
+
+    std::unique_lock<std::mutex> lk(mutex);
+    const bool finished = cv.wait_for(lk, std::chrono::minutes(5), [&] { return done; });
+    if (!finished || !error.empty()) return json(nullptr);
+    return result;
 }
 
 void BridgeServer::ProcessInvoke(int id, const std::string& method, const json& params)
