@@ -205,4 +205,5 @@ export const enReader: Record<string, string> = {
   '正在加载 EPUB…': 'Loading EPUB…',
   '分屏阅读文本': 'Split-view text',
   '正在加载文本…': 'Loading text…',
+
 }

@@ -3,7 +3,7 @@ import { Book } from '../../stores/libraryStore'
 import { useLibraryStore } from '../../stores/libraryStore'
 import { BookCard } from './BookCard'
 
-interface BookGridProps { books: Book[]; onOpenBook: (bookId: number) => void }
+interface BookGridProps { books: Book[]; onOpenBook: (bookId: number) => void; onOpenSplit?: (bookId: number) => void }
 
 // ── PB-017: 网格虚拟化 ────────────────────────────────────────────────
 // 5000 本时只渲染「可见行 + 上下 OVERSCAN_ROWS 行」的 BookCard，DOM 数量与
@@ -36,7 +36,7 @@ function estimateRowHeight(width: number, columns: number): number {
   return Math.ceil(cardWidth * 1.5) + TEXT_BLOCK_HEIGHT
 }
 
-export function BookGrid({ books, onOpenBook }: BookGridProps) {
+export function BookGrid({ books, onOpenBook, onOpenSplit }: BookGridProps) {
   const deleteBook = useLibraryStore((s) => s.deleteBook)
   const activeShelfId = useLibraryStore((s) => s.activeShelfId)
   const removeBookFromShelf = useLibraryStore((s) => s.removeBookFromShelf)
@@ -97,7 +97,7 @@ export function BookGrid({ books, onOpenBook }: BookGridProps) {
       <div ref={rootRef} data-virtualized="0"
         className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-5">
         {books.map((book) => (
-          <BookCard key={book.id} book={book} onOpen={onOpenBook} onDelete={deleteBook}
+          <BookCard key={book.id} book={book} onOpen={onOpenBook} onDelete={deleteBook} onOpenSplit={onOpenSplit}
             onRemoveFromShelf={activeShelfId != null ? handleRemoveFromShelf : undefined}
             activeShelfId={activeShelfId} />
         ))}
@@ -136,7 +136,7 @@ export function BookGrid({ books, onOpenBook }: BookGridProps) {
               alignItems: 'start',
             }}>
             {rowBooks.map((book) => (
-              <BookCard key={book.id} book={book} onOpen={onOpenBook} onDelete={deleteBook}
+              <BookCard key={book.id} book={book} onOpen={onOpenBook} onDelete={deleteBook} onOpenSplit={onOpenSplit}
                 onRemoveFromShelf={activeShelfId != null ? handleRemoveFromShelf : undefined}
                 activeShelfId={activeShelfId} />
             ))}

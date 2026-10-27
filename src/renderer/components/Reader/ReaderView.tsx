@@ -35,9 +35,11 @@ const SettingsPanel = lazy(() => import('../Settings/SettingsPanel').then(m => (
 interface ReaderViewProps {
   bookId: number
   onClose: () => void
+  /** PB-009-D：分屏阅读入口（App 负责选第二本书） */
+  onOpenSplit?: () => void
 }
 
-export function ReaderView({ bookId, onClose }: ReaderViewProps) {
+export function ReaderView({ bookId, onClose, onOpenSplit }: ReaderViewProps) {
   const { t } = useTranslation()
   const [book, setBook] = useState<Book | null>(null)
   const [bookContent, setBookContent] = useState<Uint8Array | null>(null)
@@ -564,6 +566,7 @@ export function ReaderView({ bookId, onClose }: ReaderViewProps) {
             dictionaryRequest={dictionaryRequest}
             onDictionaryRequestHandled={() => setDictionaryRequest(null)}
             searchController={searchController}
+            onOpenSplit={onOpenSplit}
           />
         </div>
 

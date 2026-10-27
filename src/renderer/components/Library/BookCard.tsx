@@ -13,9 +13,11 @@ interface BookCardProps {
   onDelete: (bookId: number) => void
   onRemoveFromShelf?: (bookId: number) => void
   activeShelfId?: number | null
+  /** PB-009-D：分屏阅读（选择第二本书） */
+  onOpenSplit?: (bookId: number) => void
 }
 
-function BookCardInner({ book, onOpen, onDelete, onRemoveFromShelf, activeShelfId }: BookCardProps) {
+function BookCardInner({ book, onOpen, onDelete, onRemoveFromShelf, activeShelfId, onOpenSplit }: BookCardProps) {
   const [coverUrl, setCoverUrl] = useState<string | null>(null)
   const [textPreview, setTextPreview] = useState<string | null>(null)
   const [showMenu, setShowMenu] = useState(false)
@@ -121,6 +123,13 @@ function BookCardInner({ book, onOpen, onDelete, onRemoveFromShelf, activeShelfI
             className="w-full text-left px-4 py-2 text-sm transition-colors" style={{ color: 'var(--text-primary)' }}
             onMouseEnter={(e) => e.currentTarget.style.background = 'var(--surface-hover)'}
             onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>{t('打开')}</button>
+          {onOpenSplit && (
+            <button onClick={(e) => { e.stopPropagation(); onOpenSplit(book.id); setShowMenu(false) }}
+              className="w-full text-left px-4 py-2 text-sm transition-colors" style={{ color: 'var(--text-primary)' }}
+              onMouseEnter={(e) => e.currentTarget.style.background = 'var(--surface-hover)'}
+              onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+              data-book-split={book.id}>{t('分屏阅读')}</button>
+          )}
           <button onClick={(e) => { e.stopPropagation(); setShowDetail(true); setShowMenu(false) }}
             className="w-full text-left px-4 py-2 text-sm transition-colors" style={{ color: 'var(--text-primary)' }}
             onMouseEnter={(e) => e.currentTarget.style.background = 'var(--surface-hover)'}

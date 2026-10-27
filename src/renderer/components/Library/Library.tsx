@@ -23,7 +23,7 @@ function arrayBufferToBase64(buffer: ArrayBuffer): string {
   return btoa(binary)
 }
 
-interface LibraryProps { onOpenBook: (bookId: number) => void; onOpenSettings: () => void; onOpenZLibrary: () => void; onOpenStatistics: () => void }
+interface LibraryProps { onOpenBook: (bookId: number) => void; onOpenSettings: () => void; onOpenZLibrary: () => void; onOpenStatistics: () => void; onOpenSplit?: (bookId: number) => void }
 
 function BookPickerDialog({ books, shelfName, shelfBookIds, onAdd, onClose }: { books: Book[]; shelfName: string; shelfBookIds: number[]; onAdd: (ids: number[]) => void; onClose: () => void }) {
   const [selected, setSelected] = useState<Set<number>>(new Set())
@@ -101,7 +101,7 @@ function BookPickerDialog({ books, shelfName, shelfBookIds, onAdd, onClose }: { 
   )
 }
 
-export function Library({ onOpenBook, onOpenSettings, onOpenZLibrary, onOpenStatistics }: LibraryProps) {
+export function Library({ onOpenBook, onOpenSettings, onOpenZLibrary, onOpenStatistics, onOpenSplit }: LibraryProps) {
   const books = useLibraryStore((s) => s.books)
   const isLoading = useLibraryStore((s) => s.isLoading)
   const viewMode = useLibraryStore((s) => s.viewMode)
@@ -531,7 +531,7 @@ export function Library({ onOpenBook, onOpenSettings, onOpenZLibrary, onOpenStat
               <button onClick={handleImport} className="btn-primary">{t('导入第一本书')}</button>
             </div>
           ) : viewMode === 'grid' ? (
-            <BookGrid books={sortedBooks} onOpenBook={onOpenBook} />
+            <BookGrid books={sortedBooks} onOpenBook={onOpenBook} onOpenSplit={onOpenSplit} />
           ) : (
             <BookList books={sortedBooks} onOpenBook={onOpenBook} />
           )}

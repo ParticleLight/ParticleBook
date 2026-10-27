@@ -162,4 +162,14 @@ export const enLibrary: Record<string, string> = {
   '按评分': 'By rating',
   '按系列': 'By series',
   '搜索书名 / 作者 / 标签 / 系列...': 'Search title / author / tag / series...',
+
+  // PB-009-D：分屏阅读入口 / 选书
+  '分屏阅读': 'Split view',
+  '选择第二本书': 'Choose the second book',
+  '与《{{title}}》并排阅读，选择第二本书': 'Read side by side with "{{title}}" — choose the second book',
+  '书架里没有其它书': 'There are no other books in your library',
+  '只能选择 EPUB 或 TXT 格式的书': 'Only EPUB or TXT books can be opened side by side',
+  '开始分屏': 'Start split view',
+  '不支持分屏': 'Not supported',
+  '搜索书籍': 'Search books',
 }

@@ -101,6 +101,9 @@ export function SplitReaderView({
   const [books, setBooks] = useState<{ primary: LoadedBook | null; secondary: LoadedBook | null }>({ primary: null, secondary: null })
   const [sessions, setSessions] = useState<{ primary: ReaderSession | null; secondary: ReaderSession | null }>({ primary: null, secondary: null })
   const [loadError, setLoadError] = useState('')
+  // PB-009-D：TTS 归属 —— 只有 active pane 能朗读；切栏即停（避免两段文本串台）
+  const [speakingPane, setSpeakingPane] = useState<SplitPaneKey | null>(null)
+  const textGettersRef = useRef<{ primary: (() => string) | null; secondary: (() => string) | null }>({ primary: null, secondary: null })
   const rootRef = useRef<HTMLDivElement>(null)
   const draggingRef = useRef(false)
 
@@ -162,6 +165,45 @@ export function SplitReaderView({
     active.store.getState().claimTts()
     onActivePaneChange?.(activePane)
   }, [activePane, sessions, onActivePaneChange])
+
+  // 3b) 切栏时停掉上一栏的朗读
+  useEffect(() => {
+    if (!speakingPane) return
+    if (speakingPane === activePane) return
+    void window.electronAPI.ttsStop().catch(() => {})
+    setSpeakingPane(null)
+  }, [activePane, speakingPane])
+
+  // 卸载分屏时兜底停止朗读（单栏 ReaderView 的 TtsBar 已卸载，不能留声音）
+  useEffect(() => {
+    return () => { void window.electronAPI.ttsStop().catch(() => {}) }
+  }, [])
+
+  // 朗读当前栏文本：再点一次 = 停止
+  const handleToggleSpeak = useCallback(async (pane: SplitPaneKey) => {
+    const session = sessions[pane]
+    if (!session) return
+    if (speakingPane === pane) {
+      await window.electronAPI.ttsStop().catch(() => {})
+      setSpeakingPane(null)
+      return
+    }
+    await window.electronAPI.ttsStop().catch(() => {})
+    const getter = textGettersRef.current[pane]
+    const text = (getter ? getter() : '').trim()
+    if (!text) return
+    setActivePane(pane)
+    session.store.getState().setActive(true)
+    const other = pane === 'primary' ? sessions.secondary : sessions.primary
+    other?.store.getState().setActive(false)
+    session.store.getState().claimTts()
+    try {
+      const ok = await window.electronAPI.ttsSpeak(text)
+      if (ok) setSpeakingPane(pane)
+    } catch (e) {
+      console.error('SplitReaderView: ttsSpeak failed', e)
+    }
+  }, [sessions, speakingPane])
 
   // 4) 分隔条拖动
   useEffect(() => {
@@ -234,6 +276,9 @@ export function SplitReaderView({
         session={session}
         active={activePane === pane}
         onClose={onClose}
+        speaking={speakingPane === pane}
+        onToggleSpeak={() => { void handleToggleSpeak(pane) }}
+        registerText={(getter) => { textGettersRef.current[pane] = getter }}
       />
     )
   }
@@ -293,13 +338,16 @@ export function SplitReaderView({
 // ── 单个 pane：标题栏 + 内容（EPUB / TXT）──────────────────────────────
 
 function SplitPane({
-  pane, book, session, active, onClose,
+  pane, book, session, active, onClose, speaking, onToggleSpeak, registerText,
 }: {
   pane: SplitPaneKey
   book: LoadedBook
   session: ReaderSession
   active: boolean
   onClose?: () => void
+  speaking: boolean
+  onToggleSpeak: () => void
+  registerText: (getter: () => string) => void
 }) {
   const { t } = useTranslation()
   const progress = useReaderSession(session, (state) => state.progress.progress)
@@ -313,6 +361,16 @@ function SplitPane({
         <span className={styles.title} title={book.title} data-split-title={pane}>{book.title}</span>
         <span className={styles.badge}>{book.format.toUpperCase()}</span>
         <span className={styles.progress} data-split-progress={pane}>{Math.round(progress * 10) / 10}%</span>
+        <button
+          className={styles.controlButton}
+          onClick={(event) => { event.stopPropagation(); onToggleSpeak() }}
+          title={speaking ? t('停止朗读') : t('朗读')}
+          aria-label={speaking ? t('停止朗读') : t('朗读')}
+          aria-pressed={speaking}
+          data-split-speak={pane}
+        >
+          {speaking ? t('停止朗读') : t('朗读')}
+        </button>
         {onClose && (
           <button
             className={styles.controlButton}
@@ -327,9 +385,9 @@ function SplitPane({
       </div>
       <div className={styles.body}>
         {book.format === 'epub' ? (
-          <EpubPane book={book} session={session} active={active} />
+          <EpubPane book={book} session={session} active={active} registerText={registerText} />
         ) : (
-          <TextPane book={book} session={session} active={active} />
+          <TextPane book={book} session={session} active={active} registerText={registerText} />
         )}
       </div>
     </div>
@@ -338,7 +396,7 @@ function SplitPane({
 
 // ── EPUB pane（独立 epub.js 实例，独立 CFI/进度）──────────────────────
 
-function EpubPane({ book, session, active }: { book: LoadedBook; session: ReaderSession; active: boolean }) {
+function EpubPane({ book, session, active, registerText }: { book: LoadedBook; session: ReaderSession; active: boolean; registerText: (getter: () => string) => void }) {
   const { t } = useTranslation()
   const viewerRef = useRef<HTMLDivElement | null>(null)
   const renditionRef = useRef<Rendition | null>(null)
@@ -348,6 +406,18 @@ function EpubPane({ book, session, active }: { book: LoadedBook; session: Reader
   const initialCfiRef = useRef(session.store.getState().progress.cfi)
   const fontSize = useSettingsStore((state) => state.fontSize)
   const fontFamily = useSettingsStore((state) => state.fontFamily)
+
+  // TTS 用：取当前章节（epub.js 当前 contents 的可见文本）
+  useEffect(() => {
+    registerText(() => {
+      try {
+        const contents: any = renditionRef.current?.getContents?.()
+        const list = Array.isArray(contents) ? contents : [contents]
+        const doc = list[0]?.document
+        return doc?.body?.innerText || ''
+      } catch { return '' }
+    })
+  }, [registerText])
 
   useEffect(() => {
     let cancelled = false
@@ -457,7 +527,7 @@ function EpubPane({ book, session, active }: { book: LoadedBook; session: Reader
 
 // ── TXT pane（独立滚动位置/进度；选区文本只进自己的 session）────────────
 
-function TextPane({ book, session, active }: { book: LoadedBook; session: ReaderSession; active: boolean }) {
+function TextPane({ book, session, active, registerText }: { book: LoadedBook; session: ReaderSession; active: boolean; registerText: (getter: () => string) => void }) {
   const { t } = useTranslation()
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const lastUpdateRef = useRef(0)
@@ -466,6 +536,13 @@ function TextPane({ book, session, active }: { book: LoadedBook; session: Reader
   const fontSize = useSettingsStore((state) => state.fontSize)
   const fontFamily = useSettingsStore((state) => state.fontFamily)
   const lineHeight = useSettingsStore((state) => state.lineHeight)
+  const textRef = useRef('')
+  textRef.current = text
+
+  // TTS 用：整篇 TXT 文本
+  useEffect(() => {
+    registerText(() => textRef.current)
+  }, [registerText])
 
   useEffect(() => {
     let cancelled = false

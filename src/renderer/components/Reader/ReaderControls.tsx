@@ -23,12 +23,15 @@ interface ReaderControlsProps {
   onDictionaryRequestHandled: () => void
   /** PB-022：与 ReaderView 共享的 SearchController（缺省时自建一个）。 */
   searchController?: SearchController | null
+  /** PB-009-D：分屏阅读（选择第二本书并排） */
+  onOpenSplit?: () => void
 }
 
 export function ReaderControls({
   bookId, format, onOpenSettings, onOpenTts, ttsActive,
   epubSpread, verticalText, onCycleSpread, onToggleVertical,
   dictionaryRequest = null, onDictionaryRequestHandled, searchController: sharedSearchController = null,
+  onOpenSplit,
 }: ReaderControlsProps) {
   const { t } = useTranslation()
   const adapter = useReaderAdapter()
@@ -333,6 +336,21 @@ export function ReaderControls({
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v12m0 0l-4-4m4 4l4-4M4 20h16" />
           </svg>
         </button>
+
+        {/* PB-009-D：分屏阅读（选择第二本书并排） */}
+        {onOpenSplit && (
+          <button
+            onClick={onOpenSplit}
+            className={ctrlClasses.btn + ' ' + ctrlClasses.btnDefault}
+            title={t('分屏阅读')}
+            aria-label={t('分屏阅读')}
+            data-split-entry="1"
+          >
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5h8v14H3zM13 5h8v14h-8z" />
+            </svg>
+          </button>
+        )}
 
         {/* PB-009-A：EPUB 分栏（自动/单栏/双栏循环） */}
         {format === 'epub' && (

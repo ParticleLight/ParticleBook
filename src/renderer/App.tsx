@@ -1,11 +1,14 @@
 import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Library } from './components/Library/Library'
+import { SplitBookPickerDialog } from './components/Library/SplitBookPickerDialog'
 import { ReaderView } from './components/Reader/ReaderView'
 import { UpdateBanner } from './components/UI/UpdateBanner'
 import { useSettingsStore } from './stores/settingsStore'
 import { useLibraryStore } from './stores/libraryStore'
 
+// PB-009-D：分屏视图按需加载（内含 epub.js，避免启动即拉进来）
+const SplitReaderView = lazy(() => import('./components/Reader/SplitReaderView').then(m => ({ default: m.SplitReaderView })))
 const GlobalSettings = lazy(() => import('./components/Settings/GlobalSettings').then(m => ({ default: m.GlobalSettings })))
 const StatisticsPage = lazy(() => import('./components/Library/StatisticsPage').then(m => ({ default: m.StatisticsPage })))
 
@@ -84,6 +87,12 @@ const PageShell = ({ children, show }: { children: React.ReactNode; show: boolea
 
 export default function App() {
   const [currentBookId, setCurrentBookId] = useState<number | null>(null)
+  // PB-009-D：分屏 = 两本书并排（primary/secondary bookId）；null 表示单栏
+  const [splitBooks, setSplitBooks] = useState<{ primary: number; secondary: number } | null>(null)
+  // 正在为哪本书挑第二本（非 null 时显示选书弹层）
+  const [splitPickerFor, setSplitPickerFor] = useState<number | null>(null)
+  // 分屏当前激活的一栏（TTS 归属）
+  const [splitActivePane, setSplitActivePane] = useState<'primary' | 'secondary'>('primary')
   const [page, setPage] = useState<Page>('library')
   const [pageKey, setPageKey] = useState(0)
   const [zlibLoading, setZlibLoading] = useState(false)
@@ -169,6 +178,48 @@ export default function App() {
     loadBooks()
   }, [loadBooks])
 
+  // ── PB-009-D：分屏 ──────────────────────────────────────────────
+  const requestSplit = useCallback((bookId: number) => {
+    setSplitPickerFor(bookId)
+  }, [])
+
+  const confirmSplit = useCallback((secondaryBookId: number) => {
+    const primary = splitPickerFor
+    setSplitPickerFor(null)
+    if (primary === null || secondaryBookId === primary) return
+    // 进入分屏前停掉单栏里的朗读，避免两处声音叠在一起
+    void window.electronAPI.ttsStop().catch(() => {})
+    setSplitActivePane('primary')
+    setSplitBooks({ primary, secondary: secondaryBookId })
+    setCurrentBookId(null)
+  }, [splitPickerFor])
+
+  // TTS 路由：切换激活栏时停掉旧栏的朗读（避免两段文本串在一起）；
+  // 新栏由用户点该栏「朗读」按钮开始（SplitReaderView 内部会 claimTts）。
+  const handleSplitActivePaneChange = useCallback((pane: 'primary' | 'secondary') => {
+    setSplitActivePane(pane)
+    void window.electronAPI.ttsStop().catch(() => {})
+  }, [])
+
+  const closeSplit = useCallback(() => {
+    const primary = splitBooks ? splitBooks.primary : currentBookId
+    void window.electronAPI.ttsStop().catch(() => {})
+    setSplitBooks(null)
+    setSplitActivePane('primary')
+    // 退出分屏回到 primary 的单栏阅读（任务要求「退出返回单栏」）
+    setCurrentBookId(primary ?? null)
+  }, [splitBooks, currentBookId])
+
+  // 选书弹层：阅读器与书库两处入口共用
+  const splitPicker = (
+    <SplitBookPickerDialog
+      open={splitPickerFor !== null}
+      primaryBookId={splitPickerFor}
+      onCancel={() => setSplitPickerFor(null)}
+      onConfirm={confirmSplit}
+    />
+  )
+
   const openZLibrary = useCallback(() => {
     setZlibAllFailed(false)
     setZlibLoading(true)
@@ -206,10 +257,29 @@ export default function App() {
     return () => { active = false; unsub() }
   }, [handleOpenPaths])
 
+  // PB-009-D：分屏优先于单栏 ReaderView
+  if (splitBooks) {
+    return (
+      <PageShell show key={'split-' + splitBooks.primary + '-' + splitBooks.secondary}>
+        <div style={{ height: '100%' }} data-split-active-pane={splitActivePane}>
+          <Suspense fallback={<PageLoader />}>
+            <SplitReaderView
+              primary={{ bookId: splitBooks.primary }}
+              secondary={{ bookId: splitBooks.secondary }}
+              onClose={closeSplit}
+              onActivePaneChange={handleSplitActivePaneChange}
+            />
+          </Suspense>
+        </div>
+      </PageShell>
+    )
+  }
+
   if (currentBookId !== null) {
     return (
       <PageShell show>
-        <ReaderView bookId={currentBookId} onClose={closeBook} />
+        <ReaderView bookId={currentBookId} onClose={closeBook} onOpenSplit={() => requestSplit(currentBookId)} />
+        {splitPicker}
       </PageShell>
     )
   }
@@ -246,7 +316,9 @@ export default function App() {
         onOpenSettings={() => navigateTo('settings')}
         onOpenZLibrary={openZLibrary}
         onOpenStatistics={() => navigateTo('statistics')}
+        onOpenSplit={requestSplit}
       />
+      {splitPicker}
     </PageShell>
   )
 }
