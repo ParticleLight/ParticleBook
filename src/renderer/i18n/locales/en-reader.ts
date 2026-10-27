@@ -171,6 +171,12 @@ export const enReader: Record<string, string> = {
   '在当前位置添加笔记': 'Add note at current position',
   '高亮请在正文中选中文字后添加（沿用现有高亮按钮）': 'To highlight, select text in the book and use the existing highlight button',
 
+  // PB-003：PDF 页内标注（高亮/下划线/笔记/侧栏过滤）
+  '下划线': 'Underline',
+  'PDF 标注': 'PDF annotations',
+  '编辑笔记': 'Edit note',
+  '笔记内容': 'Note text',
+
   // PB-009-A：EPUB 分栏 / 竖排（ReaderControls 工具栏）
   '分栏': 'Columns',
   '分栏：{{mode}}（点击切换）': 'Columns: {{mode}} (click to cycle)',
@@ -179,4 +185,7 @@ export const enReader: Record<string, string> = {
   '双栏': 'Two columns',
   '竖排': 'Vertical text',
   '关闭竖排': 'Turn off vertical text',
+
+  // PB-025-B：移除确认框（Dialog 接线）
+  '移除后可以重新导入这本书继续阅读。': 'You can import the book again later to keep reading.',
 }

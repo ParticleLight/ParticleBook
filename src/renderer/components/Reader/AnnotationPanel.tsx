@@ -104,6 +104,8 @@ export function AnnotationPanel({ bookId, format, onClose }: AnnotationPanelProp
   const remove = useAnnotationStore((s) => s.remove)
 
   const [typeFilter, setTypeFilter] = useState<AnnotationTypeFilter>('all')
+  // PB-003：只看 PDF 页内标注（高亮/下划线/笔记）
+  const [pdfOnly, setPdfOnly] = useState(false)
   const [sort, setSort] = useState<AnnotationSort>('position')
   const [newNote, setNewNote] = useState('')
   const [busy, setBusy] = useState(false)
@@ -130,8 +132,14 @@ export function AnnotationPanel({ bookId, format, onClose }: AnnotationPanelProp
   const counts = useMemo(() => countByType(bookAnnotations), [bookAnnotations])
   const visible = useMemo(() => {
     const types = typeFilter === 'all' ? undefined : [typeFilter]
-    return sortAnnotations(filterAnnotations(bookAnnotations, { types }), sort)
-  }, [bookAnnotations, typeFilter, sort])
+    const filtered = filterAnnotations(bookAnnotations, { types })
+    return sortAnnotations(pdfOnly ? filtered.filter((item) => item.locator.kind === 'pdf') : filtered, sort)
+  }, [bookAnnotations, typeFilter, pdfOnly, sort])
+
+  const hasPdfAnnotations = useMemo(
+    () => bookAnnotations.some((item) => item.locator.kind === 'pdf'),
+    [bookAnnotations],
+  )
 
   // 旧侧栏数据刷新（C++ 已双写，重拉一次三个旧列表即可；不触碰旧 store 的其它状态）。
   const refreshLegacyViews = async () => {
@@ -323,6 +331,21 @@ export function AnnotationPanel({ bookId, format, onClose }: AnnotationPanelProp
               {item.label}
             </button>
           ))}
+          {hasPdfAnnotations && (
+            <button
+              onClick={() => setPdfOnly((value) => !value)}
+              className={
+                'px-2 py-1 rounded-lg text-xs transition-colors ' +
+                (pdfOnly
+                  ? 'bg-[var(--reader-accent)] text-white'
+                  : 'opacity-60 hover:opacity-90 hover:bg-[var(--reader-border)]')
+              }
+              data-testid="annotation-pdf-filter"
+              title={t('PDF 标注')}
+            >
+              {t('PDF 标注')}
+            </button>
+          )}
         </div>
         <select
           value={sort}
@@ -388,6 +411,12 @@ export function AnnotationPanel({ bookId, format, onClose }: AnnotationPanelProp
                     )}
                     <div className="flex items-center gap-1.5 text-[11px] opacity-40 mt-1 flex-wrap">
                       <span>{t(TYPE_KEYS[annotation.type])}</span>
+                      {Array.isArray(annotation.tags) && annotation.tags.includes('underline') && (
+                        <>
+                          <span>·</span>
+                          <span data-testid="annotation-underline-tag">{t('下划线')}</span>
+                        </>
+                      )}
                       <span>·</span>
                       <span className="truncate max-w-[12rem]">{locatorHint(annotation.locator)}</span>
                       <span>·</span>

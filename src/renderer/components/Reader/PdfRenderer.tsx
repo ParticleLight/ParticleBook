@@ -1,6 +1,8 @@
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useReaderStore } from '../../stores/readerStore'
 import { useSettingsStore } from '../../stores/settingsStore'
+import { useAnnotationStore } from '../../stores/annotationStore'
 import type { Book } from '../../stores/libraryStore'
 import { isTypingTarget } from '../../utils/keyboard'
 
@@ -9,14 +11,48 @@ let savedZoom = 1.0
 interface PdfRendererProps { book: Book; content: Uint8Array; bookId: number }
 interface PdfTextLayer { page: number; width: number; height: number; chars: Array<{ x: number; y: number; w: number; h: number; c: string }> }
 
+// ── PB-003：PDF 页内标注 ─────────────────────────────────────────────
+// 文本层选区 → 归一化矩形（相对页面宽高，缩放/换页/重开都不丢）；高亮/下划线/
+// 笔记统一写 annotations bridge（C++ 双写旧表，导出/侧栏直接可见）。
+//   * 高亮：type=highlight + color，locator={kind:'pdf',page,rect,quote}
+//   * 下划线：同上，tags=['underline']（风格标记，验收要求的 tags style）
+//   * 笔记：type='note' + note 正文；渲染成页内小图标，点击可编辑/删除
+interface PdfRect { x: number; y: number; w: number; h: number }
+
+interface PdfSelection {
+  page: number
+  text: string
+  rect: PdfRect
+  client: { left: number; top: number; bottom: number; width: number; height: number }
+}
+
+interface PdfNoteEditor {
+  mode: 'create' | 'edit'
+  id?: number
+  page: number
+  rect?: PdfRect
+  quote?: string
+  value: string
+  client?: { left: number; top: number }
+}
+
+const PDF_HIGHLIGHT_COLORS = ['#ffd54f', '#a5d6a7', '#90caf9', '#f48fb1'] as const
+
+function clampNumber(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max)
+}
+
 export function PdfRenderer({ book, content: _content, bookId }: PdfRendererProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const [totalPages, setTotalPages] = useState(0)
   const [visiblePage, setVisiblePage] = useState(1)
   const [pageBounds, setPageBounds] = useState<Array<{ width: number; height: number }>>([])
   const [pageImages, setPageImages] = useState<Map<number, string>>(new Map())
-  const [pdfAnnotations, setPdfAnnotations] = useState<PbAnnotation[]>([])
   const [dragRect, setDragRect] = useState<{ page: number; x0: number; y0: number; x1: number; y1: number } | null>(null)
+  // PB-003：文本层选区 + 笔记编辑浮层
+  const [selection, setSelection] = useState<PdfSelection | null>(null)
+  const [noteEditor, setNoteEditor] = useState<PdfNoteEditor | null>(null)
+  const [noteSaving, setNoteSaving] = useState(false)
   const [textLayers, setTextLayers] = useState<Map<number, PdfTextLayer>>(new Map())
   const [fitScale, setFitScale] = useState(1)
   const [zoom, _setZoom] = useState(savedZoom)
@@ -40,14 +76,20 @@ export function PdfRenderer({ book, content: _content, bookId }: PdfRendererProp
   const currentSearchIndex = useReaderStore((s) => s.currentSearchIndex)
   const setSearchMatches = useReaderStore((s) => s.setSearchMatches)
   const theme = useSettingsStore((s) => s.theme)
+  const { t } = useTranslation()
 
-  const loadPdfAnnotations = useCallback(() => {
-    window.electronAPI.getAnnotations(bookId)
-      .then((rows) => setPdfAnnotations(rows.filter((a) => a.locator?.kind === 'pdf' && a.locator.page)))
-      .catch(() => {})
-  }, [bookId])
-
-  useEffect(() => { loadPdfAnnotations() }, [loadPdfAnnotations])
+  // PB-003：PDF 标注与侧栏共用 annotationStore（写入后侧栏/导出立即一致）。
+  const annotations = useAnnotationStore((s) => s.annotations)
+  const loadAnnotations = useAnnotationStore((s) => s.load)
+  const addAnnotation = useAnnotationStore((s) => s.add)
+  const updateAnnotation = useAnnotationStore((s) => s.update)
+  const removeAnnotation = useAnnotationStore((s) => s.remove)
+  const pdfAnnotations = useMemo(
+    () => annotations.filter((a) => a.bookId === bookId && a.locator.kind === 'pdf'
+      && typeof a.locator.page === 'number' && a.locator.page >= 1),
+    [annotations, bookId],
+  )
+  useEffect(() => { void loadAnnotations(bookId) }, [bookId, loadAnnotations])
 
   // PB-003: fetch selectable character boxes for current page +/- 1.
   useEffect(() => {
@@ -71,13 +113,13 @@ export function PdfRenderer({ book, content: _content, bookId }: PdfRendererProp
     const w = Math.min(1 - x, Math.abs(x1 - x0))
     const h = Math.min(1 - y, Math.abs(y1 - y0))
     if (w < 0.01 || h < 0.01) return
-    window.electronAPI.addAnnotation({
+    void addAnnotation({
       bookId,
       type: 'highlight',
       locator: { version: 1, kind: 'pdf', page, rect: { x, y, w, h }, quote: '' },
       color: '#ffd54f',
-    }).then(() => loadPdfAnnotations()).catch(() => {})
-  }, [bookId, loadPdfAnnotations])
+    }).catch((error) => console.error('Failed to add PDF highlight:', error))
+  }, [addAnnotation, bookId])
 
   const pdfPageMatchesRef = useRef<number[]>([])
 
@@ -288,17 +330,114 @@ export function PdfRenderer({ book, content: _content, bookId }: PdfRendererProp
 
   const filterStyle = theme === 'dark' ? 'invert(1) hue-rotate(180deg) brightness(0.9)' : theme === 'sepia' ? 'invert(1) hue-rotate(180deg) sepia(0.4) brightness(0.7)' : 'none'
 
+  // 文本层选区 → 页面归一化矩形（缩放/换页/重开都按比例还原）。
+  const captureSelection = useCallback((pageNum: number, pageEl: HTMLElement) => {
+    const sel = window.getSelection()
+    const text = sel?.toString().replace(/\s+/g, ' ').trim() ?? ''
+    if (!sel || sel.isCollapsed || !text || sel.rangeCount === 0) { setSelection(null); return }
+    const range = sel.getRangeAt(0)
+    if (!pageEl.contains(range.startContainer)) { setSelection(null); return }
+    const pageBox = pageEl.getBoundingClientRect()
+    const rect = range.getBoundingClientRect()
+    if (pageBox.width <= 0 || pageBox.height <= 0) return
+    const x = clampNumber((rect.left - pageBox.left) / pageBox.width, 0, 1)
+    const y = clampNumber((rect.top - pageBox.top) / pageBox.height, 0, 1)
+    const w = clampNumber(rect.width / pageBox.width, 0, 1 - x)
+    const h = clampNumber(rect.height / pageBox.height, 0, 1 - y)
+    if (w < 0.002 || h < 0.002) { setSelection(null); return }
+    setSelection({
+      page: pageNum,
+      text: text.slice(0, 500),
+      rect: { x, y, w, h },
+      client: { left: rect.left, top: rect.top, bottom: rect.bottom, width: rect.width, height: rect.height },
+    })
+  }, [])
+
+  const clearSelection = useCallback(() => {
+    setSelection(null)
+    try { window.getSelection()?.removeAllRanges() } catch { /* ignore */ }
+  }, [])
+
+  const applyPdfHighlight = useCallback(async (sel: PdfSelection, style: 'highlight' | 'underline', color: string) => {
+    const locator: PbLocator = { version: 1, kind: 'pdf', page: sel.page, rect: sel.rect, quote: sel.text }
+    await addAnnotation({
+      bookId,
+      type: 'highlight',
+      locator,
+      color,
+      // 下划线用 tags 标记风格（验收：annotation tags style），高亮不加标签
+      tags: style === 'underline' ? ['underline'] : [],
+    }).catch((error) => console.error('Failed to add PDF highlight:', error))
+    clearSelection()
+  }, [addAnnotation, bookId, clearSelection])
+
+  const openNoteEditorForSelection = useCallback((sel: PdfSelection) => {
+    setNoteEditor({
+      mode: 'create',
+      page: sel.page,
+      rect: sel.rect,
+      quote: sel.text,
+      value: '',
+      client: { left: sel.client.left, top: sel.client.top },
+    })
+  }, [])
+
+  const openNoteEditorForAnnotation = useCallback((annotation: PbAnnotation) => {
+    const rect = annotation.locator.rect
+    setNoteEditor({
+      mode: 'edit',
+      id: annotation.id,
+      page: annotation.locator.page ?? 1,
+      rect: rect ?? undefined,
+      quote: annotation.locator.quote ?? '',
+      value: annotation.note ?? '',
+    })
+  }, [])
+
+  const saveNote = useCallback(async () => {
+    const editor = noteEditor
+    if (!editor || noteSaving) return
+    const value = editor.value.trim()
+    if (!value) return
+    setNoteSaving(true)
+    try {
+      if (editor.mode === 'create' && editor.rect) {
+        const locator: PbLocator = { version: 1, kind: 'pdf', page: editor.page, rect: editor.rect, quote: editor.quote ?? '' }
+        await addAnnotation({ bookId, type: 'note', locator, note: value })
+      } else if (editor.id) {
+        await updateAnnotation(editor.id, { note: value })
+      }
+      setNoteEditor(null)
+      setSelection(null)
+    } catch (error) {
+      console.error('Failed to save PDF note:', error)
+    } finally {
+      setNoteSaving(false)
+    }
+  }, [addAnnotation, bookId, noteEditor, noteSaving, updateAnnotation])
+
+  const deleteNote = useCallback(async () => {
+    const id = noteEditor?.id
+    if (!id) return
+    await removeAnnotation(id).catch((error) => console.error('Failed to delete PDF note:', error))
+    setNoteEditor(null)
+  }, [noteEditor, removeAnnotation])
+
   return (
-    <div ref={containerRef} className="h-full overflow-auto bg-[var(--reader-bg)]">
+    <div ref={containerRef} className="h-full overflow-auto bg-[var(--reader-bg)]" onScroll={() => { if (selection) setSelection(null) }}>
       <div className="flex flex-col items-center py-2">
         {Array.from({ length: totalPages }, (_, i) => i + 1).map((pageNum) => {
           const bounds = pageBounds[pageNum - 1]
           const height = bounds ? bounds.height * fitScale : 1000
           const img = pageImages.get(pageNum)
           return (
-            <div key={pageNum} data-page={pageNum} className="relative py-2 select-none" style={{ contentVisibility: 'auto', containIntrinsicSize: `auto ${height}px` }}
+            <div key={pageNum} data-page={pageNum} data-pdf-page={pageNum} className="relative py-2 select-none" style={{ contentVisibility: 'auto', containIntrinsicSize: `auto ${height}px` }}
               onMouseDown={(e) => {
                 if (e.button !== 0) return
+                // 文本层上的按下是"选文字"，不能当成拖拽画框
+                const target = e.target as Element
+                if (target.closest('[data-pdf-text-layer]')) { setDragRect(null); return }
+                setSelection(null)
                 const r = e.currentTarget.getBoundingClientRect()
                 setDragRect({ page: pageNum, x0: (e.clientX - r.left) / r.width, y0: (e.clientY - r.top) / r.height, x1: (e.clientX - r.left) / r.width, y1: (e.clientY - r.top) / r.height })
               }}
@@ -308,6 +447,12 @@ export function PdfRenderer({ book, content: _content, bookId }: PdfRendererProp
                 setDragRect({ ...dragRect, x1: (e.clientX - r.left) / r.width, y1: (e.clientY - r.top) / r.height })
               }}
               onMouseUp={(e) => {
+                const target = e.target as Element
+                if (target.closest('[data-pdf-text-layer]')) {
+                  // PB-003：文本层选区 → 归一化矩形，浮出高亮/下划线/笔记工具条
+                  captureSelection(pageNum, e.currentTarget)
+                  return
+                }
                 if (!dragRect || dragRect.page !== pageNum) return
                 if (window.getSelection()?.toString().trim()) { setDragRect(null); return }
                 const r = e.currentTarget.getBoundingClientRect()
@@ -322,16 +467,56 @@ export function PdfRenderer({ book, content: _content, bookId }: PdfRendererProp
               )}
               {pdfAnnotations.filter((a) => a.locator.page === pageNum && a.locator.rect).map((a) => {
                 const rect = a.locator.rect!
+                const color = a.color || '#ffd54f'
+                const box = {
+                  left: rect.x * 100 + '%',
+                  top: rect.y * 100 + '%',
+                  width: rect.w * 100 + '%',
+                  height: rect.h * 100 + '%',
+                }
+                if (a.type === 'note') {
+                  return (
+                    <button
+                      key={a.id}
+                      type="button"
+                      data-pdf-note={a.id}
+                      className="absolute z-[4] w-5 h-5 rounded-full shadow flex items-center justify-center"
+                      style={{ ...box, left: rect.x * 100 + '%', top: rect.y * 100 + '%', width: 20, height: 20, background: 'rgba(0,0,0,0.62)', color: '#fff', border: '1px solid rgba(255,255,255,0.35)' }}
+                      onClick={(ev) => { ev.stopPropagation(); openNoteEditorForAnnotation(a) }}
+                      title={a.note || t('笔记')}
+                      aria-label={t('笔记')}
+                    >
+                      <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                      </svg>
+                    </button>
+                  )
+                }
+                const underline = Array.isArray(a.tags) && a.tags.includes('underline')
                 return (
-                  <div key={a.id}
-                    className="absolute rounded-sm"
-                    style={{ left: `${rect.x * 100}%`, top: `${rect.y * 100}%`, width: `${rect.w * 100}%`, height: `${rect.h * 100}%`, background: 'rgba(255,213,79,0.35)', border: '1px solid rgba(255,213,79,0.8)' }}
-                    onClick={(ev) => ev.stopPropagation()}
+                  <div
+                    key={a.id}
+                    data-pdf-annotation={a.id}
+                    data-pdf-style={underline ? 'underline' : 'highlight'}
+                    className="absolute group/ann"
+                    style={{
+                      ...box,
+                      zIndex: 3,
+                      pointerEvents: 'none',
+                      borderRadius: 2,
+                      ...(underline
+                        ? { borderBottom: '2px solid ' + color }
+                        : { background: color + '59', border: '1px solid ' + color }),
+                    }}
+                    title={a.locator.quote || ''}
                   >
                     <button
-                      className="absolute -top-2 -right-2 w-4 h-4 rounded-full text-[10px] bg-black/60 text-white"
-                      onClick={(ev) => { ev.stopPropagation(); window.electronAPI.deleteAnnotation(a.id).then(loadPdfAnnotations).catch(() => {}) }}
-                      aria-label="删除标注"
+                      type="button"
+                      data-pdf-delete={a.id}
+                      className="absolute -top-2 -right-2 w-4 h-4 rounded-full text-[10px] bg-black/60 text-white opacity-0 group-hover/ann:opacity-100"
+                      style={{ pointerEvents: 'auto' }}
+                      onClick={(ev) => { ev.stopPropagation(); void removeAnnotation(a.id).catch((error) => console.error('Failed to delete PDF annotation:', error)) }}
+                      aria-label={t('删除')}
                     >×</button>
                   </div>
                 )
@@ -371,6 +556,114 @@ export function PdfRenderer({ book, content: _content, bookId }: PdfRendererProp
       <div className="fixed bottom-20 left-1/2 -translate-x-1/2 bg-black/60 backdrop-blur-sm text-white text-sm px-4 py-2 rounded-full z-10 pointer-events-none">
         {visiblePage} / {totalPages}
       </div>
+
+      {/* PB-003：文本层选区工具条（高亮多色 / 下划线 / 笔记） */}
+      {selection && !noteEditor && (
+        <div
+          data-pdf-selection-toolbar
+          className="fixed z-[55] flex items-center gap-1.5 px-2 py-1.5 rounded-lg shadow-xl border"
+          style={{
+            left: clampNumber(selection.client.left, 8, Math.max(8, window.innerWidth - 300)),
+            top: Math.max(8, selection.client.top - 42),
+            background: 'var(--reader-sidebar)',
+            borderColor: 'var(--reader-border)',
+            color: 'var(--reader-text)',
+          }}
+          onMouseDown={(e) => e.stopPropagation()}
+        >
+          {PDF_HIGHLIGHT_COLORS.map((color) => (
+            <button
+              key={color}
+              type="button"
+              data-pdf-highlight={color}
+              className="w-4 h-4 rounded-full border border-white/50 transition-transform hover:scale-110"
+              style={{ background: color }}
+              title={t('高亮')}
+              aria-label={t('高亮')}
+              onClick={() => { void applyPdfHighlight(selection, 'highlight', color) }}
+            />
+          ))}
+          <span className="w-px h-4 mx-0.5" style={{ background: 'var(--reader-border)' }} />
+          <button
+            type="button"
+            data-pdf-underline
+            className="px-1.5 py-0.5 rounded text-xs underline decoration-2"
+            style={{ color: 'var(--reader-text)' }}
+            title={t('下划线')}
+            aria-label={t('下划线')}
+            onClick={() => { void applyPdfHighlight(selection, 'underline', '#f59e0b') }}
+          >
+            U
+          </button>
+          <button
+            type="button"
+            data-pdf-add-note
+            className="px-1.5 py-0.5 rounded text-xs flex items-center gap-1"
+            style={{ color: 'var(--reader-text)' }}
+            title={t('笔记')}
+            aria-label={t('笔记')}
+            onClick={() => openNoteEditorForSelection(selection)}
+          >
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+            {t('笔记')}
+          </button>
+        </div>
+      )}
+
+      {/* PB-003：页内笔记查看/编辑/删除 */}
+      {noteEditor && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center" data-pdf-note-editor
+          onClick={() => setNoteEditor(null)}>
+          <div className="absolute inset-0" style={{ background: 'rgba(0,0,0,0.45)' }} />
+          <div
+            className="relative rounded-xl shadow-2xl border p-4 w-[420px] max-w-[92vw]"
+            style={{ background: 'var(--reader-sidebar)', borderColor: 'var(--reader-border)', color: 'var(--reader-text)' }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-sm font-semibold">{noteEditor.mode === 'create' ? t('添加笔记') : t('编辑笔记')}</h3>
+              <span className="text-xs opacity-60">{t('第 {{page}} 页', { page: noteEditor.page })}</span>
+            </div>
+            {noteEditor.quote && (
+              <p className="text-xs opacity-60 mb-2 line-clamp-3 break-words">{noteEditor.quote}</p>
+            )}
+            <textarea
+              value={noteEditor.value}
+              onChange={(e) => setNoteEditor((prev) => (prev ? { ...prev, value: e.target.value } : prev))}
+              rows={4}
+              placeholder={t('笔记内容')}
+              className="w-full px-3 py-2 rounded-lg text-sm resize-y border"
+              style={{ background: 'var(--reader-bg)', borderColor: 'var(--reader-border)', color: 'var(--reader-text)' }}
+              data-pdf-note-input
+              autoFocus
+            />
+            <div className="flex items-center justify-between mt-3">
+              {noteEditor.mode === 'edit' ? (
+                <button
+                  type="button"
+                  className="px-2 py-1 rounded text-xs"
+                  style={{ color: 'var(--color-red)' }}
+                  data-pdf-note-delete
+                  onClick={() => { void deleteNote() }}
+                >
+                  {t('删除')}
+                </button>
+              ) : <span />}
+              <div className="flex items-center gap-2">
+                <button type="button" className="px-3 py-1.5 rounded text-xs border" style={{ borderColor: 'var(--reader-border)' }}
+                  onClick={() => setNoteEditor(null)}>{t('取消')}</button>
+                <button type="button" className="px-3 py-1.5 rounded text-xs"
+                  style={{ background: 'var(--reader-accent)', color: '#fff', opacity: noteEditor.value.trim() && !noteSaving ? 1 : 0.5 }}
+                  disabled={!noteEditor.value.trim() || noteSaving}
+                  data-pdf-note-save
+                  onClick={() => { void saveNote() }}>{t('保存')}</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
