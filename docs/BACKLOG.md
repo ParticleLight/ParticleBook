@@ -9,10 +9,9 @@
 
 | ID | 事项 | 优先级 | 状态 | 版本 | 一句话说明 |
 |---|---|---|---|---|---|
-| PB-006 | 跨书全文搜索 | P1 | 🚧 进行中 | 2.2.1 | 搜索 UI/索引已接；精确跳转/PDF/FB2 待补 |
-| PB-008 | 格式补齐 | P2 | 🚧 进行中 | 2.2.1 | DOCX 完成；AZW3 待真实样本 |
-| PB-009 | 双栏 / 分屏 / 竖排 | P2 | 📋 待办 | 2.2.1 | 大屏与竖排阅读 |
-| PB-024 | god files 拆分 + 注入 JS 外置 | P2 | 🚧 进行中 | 2.2.1 | ZLibrary/FileHandlers/注入 JS 已拆；ReaderView 等未拆 |
+| PB-006 | 跨书全文搜索 | P1 | 🚧 进行中 | 2.2.1 | EPUB/HTML 定位提示已接；章节内滚动/PDF/FB2 待补 |
+| PB-008 | 格式补齐 | P2 | 🚧 进行中 | 2.2.1 | DOCX 完成；AZW3 libmobi 方案已验证待集成 |
+| PB-009 | 双栏 / 分屏 / 竖排 | P2 | 🚧 进行中 | 2.2.1 | 双栏/竖排完成；分屏核心待接入口 |
 
 ## 2.2.1 执行顺序
 
@@ -45,7 +44,7 @@
 
 ### 批次 3 · P2（6 项）
 
-1. 🚧 PB-024 god files 拆分 + 注入 JS 外置（部分完成）
+1. ✅ PB-024 god files 拆分 + 注入 JS 外置（已完成）
 2. ✅ PB-025 设计基元 + 主题审计（已完成）
 3. ✅ PB-017 大书库性能（已完成）
 4. ✅ PB-007 统计升级（已完成）
@@ -171,7 +170,7 @@
 
 **非目标**：语义搜索、OCR 扫描件、跨书正则 / 高级语法（可后续）。
 
-**进度（2026-10-27）**：SearchIndexService + JobService/bridge + 全局搜索 UI；TXT/MOBI/FB2/Markdown 点击结果按 offset 经 ReaderAdapter.goTo 跳到命中位置（`5bd55f4`）。剩余：EPUB CFI、HTML/PDF 页码映射、建索引百分比进度。
+**进度（2026-10-27）**：SearchIndexService + JobService/bridge + 全局搜索 UI；TXT/MOBI/FB2/Markdown 按 offset 精确跳转；索引 v2 保存 EPUB spine 章节区间，EPUB 点击跳章（章节内滚动未验证生效），HTML/MD 百分比跳转（代码路径）。剩余：EPUB 章节内精确定位、PDF 索引、MOBI/FB2 索引、建索引进度。
 
 **备注**：索引单独存储，不塞进主 JSON 库；大库可评估 SQLite FTS5。
 
@@ -207,7 +206,7 @@
 
 **非目标**：DRM 解密、扫描件 OCR。
 
-**进度（2026-10-26）**：DOCX 完成（OOXML→自包含 HTML，标题/粗斜体/表格/内联图片/元数据；导入后 docx→HtmlRenderer）；AZW3 复用 mobi 文本管线探测，失败安全跳过，本机无真实样本；其余格式结论已记录。commit `98da5d3`。
+**进度（2026-10-27）**：DOCX 完成（OOXML→自包含 HTML，标题/粗斜体/表格/内联图片/元数据；docx→HtmlRenderer）。AZW3/KF8 已确认 MuPDF 不支持；libmobi `mobitool.exe`（385KB，48–67ms 转 EPUB）实测可读，方案/许可证/集成步骤见 `docs/AZW3.md`，待接入导入。其余格式结论已记录。
 
 ## PB-009 · 双栏 / 分屏 / 竖排
 
@@ -221,6 +220,8 @@
 - [ ] 与现有主题 / 字体 / 边距设置兼容
 
 **非目标**：PDF 双页 / 漫画双页、RTL 漫画模式（可后续）。
+
+**进度（2026-10-27）**：EPUB 双栏/竖排已完成（PB-009-A）。分屏核心已落（`readerSession` 每书独立进度/选区/搜索/TTS 归属 + `SplitReaderView` EPUB/TXT 双栏、拖拽/键盘分隔条、active pane）；真机 demo 17/17，但尚未接 App/书库入口。剩余：入口接线、TTS 路由、书签/高亮按 pane。
 
 
 ## PB-010 · 本地词典
@@ -367,7 +368,7 @@
 
 **非目标**：全量 UI 覆盖；先覆盖 5–8 条关键路径。
 
-**进度（2026-10-27）：已完成。** E2E 16 条 smoke（`be52dbe`/`d990a19`/`3db7d31`/`ceddc7b`/`21b3719`），本机 16/16 PASS（12.8s）：启动/桥接/导入/阅读/单实例/TTS/备份/翻译 Key/schema/搜索/PDF/Z-Library API/翻译 mock/Z-Library 合成事件/真实下载→导入（本地 HTTP mock）。同时修复 `BridgeServer::InvokeMethod` 只查同步表导致下载后 import 永失败的回归。
+**进度（2026-10-27）：已完成。** E2E 17 条 smoke（`be52dbe`/`d990a19`/`3db7d31`/`ceddc7b`/`21b3719`），本机 17/17 PASS（13.8s）：启动/桥接/导入/阅读/单实例/TTS/备份/翻译 Key/schema/搜索/PDF/Z-Library API/翻译 mock/Z-Library 合成事件/真实下载→导入（本地 HTTP mock）。同时修复 `BridgeServer::InvokeMethod` 只查同步表导致下载后 import 永失败的回归。
 
 
 ## PB-019 · 单实例 + 文件打开转发
@@ -455,15 +456,15 @@
 **目标**：把 1000+ 行文件和 App.cpp 里的注入 JS 拆成可维护单元；纯重构，不改行为。
 
 **MVP 验收**
-- [ ] 抽 HttpClient / DownloadManager / ImportService / UpdateService / MirrorService
-- [ ] ZLibraryService / BookSourceService / FileHandlers / WebViewHost 按职责收缩
-- [ ] 注入 JS 移到 resources/zlib_toolbar.js、resources/download_card.js，使用 __pbLang + CSS 变量
-- [ ] GlobalSettings / ReaderView / EpubRenderer 拆到可读大小（按功能改到哪拆到哪）
-- [ ] 重构前后构建、测试、关键路径 smoke 通过
+- [x] 抽 HttpClient / DownloadManager / ImportService / UpdateService / MirrorService
+- [x] ZLibraryService / BookSourceService / FileHandlers / WebViewHost 按职责收缩
+- [x] 注入 JS 移到 resources/zlib_toolbar.js、resources/download_card.js，使用 __pbLang + CSS 变量
+- [x] GlobalSettings / ReaderView / EpubRenderer 拆到可读大小（按功能改到哪拆到哪）
+- [x] 重构前后构建、测试、关键路径 smoke 通过
 
 **非目标**：一次性全部拆完；不追求「每文件 < 300 行」的形式指标。
 
-**进度（2026-10-27）**：注入 JS 外置（resources/*.js）；ZLibraryService 拆 Service/Mirror/Download；FileHandlers 1069→661（FileFormatService/FileImportService）；GlobalSettings 962→87（GlobalSettingsPages）；EpubRenderer 抽 Theme；ReaderView 抽 ReaderStatusView；installer 打包 resources。剩余：ReaderView 加载/错误页与 ConfirmDialog、EpubRenderer search 段、BookSourceService/WebViewHost 收缩。commit `1fe15e4`/`473c969`。
+**进度（2026-10-27）：已完成。** 注入 JS 外置（resources/*.js）；ZLibraryService→Service/Mirror/Download；FileHandlers 1069→661（FileFormatService/FileImportService）；BookSourceService 755→136（Http/Search/Content）；WebViewHost 421→220（WebView/Page）；GlobalSettings 962→87；ReaderView 679→605（StatusView）；EpubRenderer 629→476（EpubSearch）；installer 打包 resources。纯搬移，18 ctest / 17 E2E 通过。commit `1fe15e4`/`473c969`/`ba57aca`。
 
 ## PB-025 · 设计基元 + 主题审计
 
@@ -510,6 +511,7 @@
 | PB-021 Locator + Annotation 统一模型 | 2026-10-27 | `2b54943` / `46ba5b2`（未发版） |
 | PB-022 ReaderAdapter + 共享阅读交互 | 2026-10-27 | `46ba5b2`（未发版） |
 | PB-002 AI 翻译 | 2026-10-27 | `5019267` / `5b612c5`（未发版） |
+| PB-024 god files 拆分 + 注入 JS 外置 | 2026-10-27 | `1fe15e4` / `473c969` / `ba57aca`（未发版） |
 | PB-001 TTS 朗读 | 2026-10-26 | `ea2308a` / `444583b` / `8a1e4f2` / `8f149ce` / `fe1c5dc`（未发版） |
 
 ## 暂缓 / 否决
