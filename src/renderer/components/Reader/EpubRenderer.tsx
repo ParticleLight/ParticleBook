@@ -5,15 +5,7 @@ import { useTranslation } from 'react-i18next'
 import { useReaderStore } from '../../stores/readerStore'
 import { useSettingsStore } from '../../stores/settingsStore'
 import type { Book as BookType } from '../../stores/libraryStore'
-
-// epub.js exposes the spine entry list at runtime, but its bundled types omit
-// it and the property name differs between builds (`items` vs `spineItems`).
-// Model it once here so call sites read plainly instead of casting to any.
-interface PbSpineItem { href?: string; canonical?: string }
-const spineEntries = (spine: unknown): PbSpineItem[] => {
-  const s = spine as { items?: PbSpineItem[]; spineItems?: PbSpineItem[] } | undefined
-  return s?.items ?? s?.spineItems ?? []
-}
+import { VERTICAL_STYLE_ID, epubSpreadValue, setVerticalStyle, spineEntries } from './EpubRendererTheme'
 
 interface EpubRendererProps {
   book: BookType
@@ -24,35 +16,6 @@ interface EpubRendererProps {
   //   verticalText: writing-mode: vertical-rl（竖排）
   spread?: 'auto' | 'single' | 'double'
   verticalText?: boolean
-}
-
-// epub.js 的 spread 取值只有 none|auto|both
-function epubSpreadValue(spread: 'auto' | 'single' | 'double'): 'none' | 'auto' | 'both' {
-  if (spread === 'double') return 'both'
-  if (spread === 'auto') return 'auto'
-  return 'none'
-}
-
-// 竖排 CSS：writing-mode 只对当前 iframe 文档生效（不继承进 iframe）
-const VERTICAL_STYLE_ID = 'pb-vertical-text'
-const VERTICAL_CSS = 'html, body { writing-mode: vertical-rl !important; -webkit-writing-mode: vertical-rl !important; text-orientation: mixed; }'
-// 竖排时图片/表格保持正立（避免整块被旋转成奇怪方向）
-const VERTICAL_MEDIA_CSS = 'img, svg, video, table { writing-mode: horizontal-tb !important; }'
-
-function setVerticalStyle(doc: Document | null | undefined, on: boolean) {
-  if (!doc) return
-  try {
-    const existing = doc.getElementById(VERTICAL_STYLE_ID)
-    if (!on) {
-      existing?.remove()
-      return
-    }
-    if (existing) return
-    const style = doc.createElement('style')
-    style.id = VERTICAL_STYLE_ID
-    style.textContent = VERTICAL_CSS + VERTICAL_MEDIA_CSS
-    ;(doc.head || doc.documentElement).appendChild(style)
-  } catch { /* ignore */ }
 }
 
 export function EpubRenderer({ book, content, bookId, spread = 'single', verticalText = false }: EpubRendererProps) {

@@ -1,4 +1,4 @@
-﻿; ParticleBook NSIS Installer
+; ParticleBook NSIS Installer
 ; First install: choose directory. Update: auto-detect existing path.
 
 Unicode true
@@ -124,7 +124,10 @@ Section "Install"
     Delete "$INSTDIR\*.dll"
     Delete "$INSTDIR\*.bin"
     RMDir /r "$INSTDIR\locales"
-    RMDir /r "$INSTDIR\resources"
+    ; PB-024-B: $INSTDIR\resources 现在是本应用的注入脚本目录（resources/*.js），
+    ; 不能再整目录删除；只清旧 Electron 版残留的 asar 包。
+    Delete "$INSTDIR\resources\app.asar"
+    RMDir /r "$INSTDIR\resources\app.asar.unpacked"
 
     SetOutPath "$INSTDIR"
 
@@ -132,6 +135,11 @@ Section "Install"
     File "..\build2\ParticleBook.exe"
     File "..\build2\mutool.exe"
     File "..\build2\WebView2Loader.dll"
+
+    ; PB-024-A/B: Z-Library 注入脚本（App.cpp 启动时从 <exe>/resources/*.js 读取；
+    ; 缺失会回退到内置最小脚本并打 WARN，所以这里必须随包分发）
+    SetOutPath "$INSTDIR\resources"
+    File "..\build2\resources\*.js"
 
     ; Renderer
     SetOutPath "$INSTDIR\renderer"
@@ -218,6 +226,8 @@ Section "Uninstall"
     Delete "$INSTDIR\renderer\assets\*.css"
     RMDir "$INSTDIR\renderer\assets"
     RMDir "$INSTDIR\renderer"
+    Delete "$INSTDIR\resources\*.js"
+    RMDir "$INSTDIR\resources"
     Delete "$INSTDIR\uninstall.exe"
     RMDir "$INSTDIR"
 

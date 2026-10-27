@@ -61,6 +61,8 @@ add_executable(ParticleBook WIN32
     src/handlers/BookMetadataHandlers.cpp
     src/handlers/FileHandlers.cpp
     src/handlers/FileHandlersUpdate.cpp
+    src/handlers/FileFormatService.cpp
+    src/handlers/FileImportService.cpp
     src/handlers/BackupHandlers.cpp
     src/handlers/ExportHandlers.cpp
     src/handlers/TtsHandlers.cpp

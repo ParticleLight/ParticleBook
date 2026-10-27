@@ -4,26 +4,8 @@ import { useReaderStore } from '../../stores/readerStore'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { isTypingTarget } from '../../utils/keyboard'
 
-function useAnimatedMount(isOpen: boolean, duration = 200) {
-  const [shouldRender, setShouldRender] = useState(isOpen)
-  const [isClosing, setIsClosing] = useState(false)
-
-  useEffect(() => {
-    if (isOpen) {
-      setShouldRender(true)
-      setIsClosing(false)
-    } else if (shouldRender) {
-      setIsClosing(true)
-      const timer = setTimeout(() => {
-        setShouldRender(false)
-        setIsClosing(false)
-      }, duration)
-      return () => clearTimeout(timer)
-    }
-  }, [isOpen, shouldRender])
-
-  return { shouldRender, isClosing }
-}
+// PB-024-B：状态视图已抽到 ReaderStatusView（最小 targeted edit，见该文件注释）
+import { useAnimatedMount, ReadingTimeDisplay, type LoadError } from './ReaderStatusView'
 import { Sidebar } from './Sidebar'
 import { AnnotationPanel } from './AnnotationPanel'
 import { SelectionToolbar } from './SelectionToolbar'
@@ -50,33 +32,9 @@ const HtmlRenderer = lazy(() => import('./HtmlRenderer').then(m => ({ default: m
 const TextRenderer = lazy(() => import('./TextRenderer').then(m => ({ default: m.TextRenderer })))
 const SettingsPanel = lazy(() => import('../Settings/SettingsPanel').then(m => ({ default: m.SettingsPanel })))
 
-// 打开失败的三条路径（此前都是静默 onClose()，用户只看到"闪一下回书架"）：
-//   missing = 文件读不到（多半被移走/改名/删了）
-//   gone    = 书架里已经没有这条记录（在别处被删）
-//   unknown = 其它异常
-type LoadError =
-  | { kind: 'missing'; path: string }
-  | { kind: 'gone' }
-  | { kind: 'unknown'; detail: string }
-
 interface ReaderViewProps {
   bookId: number
   onClose: () => void
-}
-
-function ReadingTimeDisplay() {
-  const { t } = useTranslation()
-  const currentReadingTime = useReaderStore((s) => s.currentReadingTime)
-  const showReadingTime = useSettingsStore((s) => s.showReadingTime)
-  if (!showReadingTime) return null
-  return (
-    <span title={t('本次阅读时长')}>
-      <svg className="w-3 h-3 inline mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-      </svg>
-      {t('阅读 {{time}}', { time: formatReadingTime(currentReadingTime) })}
-    </span>
-  )
 }
 
 export function ReaderView({ bookId, onClose }: ReaderViewProps) {
@@ -117,7 +75,13 @@ export function ReaderView({ bookId, onClose }: ReaderViewProps) {
   // 工具条动作：翻译/词典把选区作为请求发给对应弹层；朗读打开 TTS（TtsBar 读 adapter 选区）；
   // 高亮直接用 adapter.applyAnnotation 写 annotations bridge（EPUB 选区无 CFI 时返回 null）。
   const handleSelectionTranslate = (selection: ReaderSelection) => {
-    setTranslationRequest({ id: ++translationSeq.current, text: selection.text, rect: selection.rect })
+    setTranslationRequest({
+      id: ++translationSeq.current,
+      text: selection.text,
+      rect: selection.rect,
+      // PB-002-B：把 adapter 抓到的前后文一起发给翻译（长句/代词消歧）。
+      context: selection.context,
+    })
   }
   const handleSelectionDictionary = (selection: ReaderSelection) => {
     setShowControls(true)
