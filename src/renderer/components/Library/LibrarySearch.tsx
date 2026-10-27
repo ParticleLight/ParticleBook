@@ -341,16 +341,15 @@ export function LibrarySearch({ onClose, onOpenBook }: LibrarySearchProps) {
       onKeyDown={handleKeyDown}
       data-global-search="1"
     >
-      <div className="absolute inset-0" style={{ background: 'rgba(0,0,0,0.45)' }} />
+      <div className="m3-dialog-backdrop absolute inset-0" />
       <div
-        className="relative w-[760px] max-w-[94vw] max-h-[82vh] rounded-xl shadow-win-lg flex flex-col overflow-hidden animate-scale-in"
-        style={{ background: 'var(--acrylic-bg)', backdropFilter: 'blur(24px)', border: '1px solid var(--acrylic-border)' }}
+        className="m3-dialog relative w-[760px] max-w-[94vw] max-h-[82vh] flex flex-col overflow-hidden animate-scale-in"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-start justify-between px-5 py-3.5 gap-3" style={{ borderBottom: '1px solid var(--border)' }}>
+        <div className="flex items-start justify-between px-6 py-5 gap-3">
           <div className="min-w-0">
-            <h3 className="text-base font-semibold" style={{ color: 'var(--text-primary)' }}>{t('全文搜索')}</h3>
-            <p className="text-xs mt-0.5" style={{ color: 'var(--text-tertiary)' }}>{statusText}</p>
+            <h3 className="m3-title-large">{t('全文搜索')}</h3>
+            <p className="m3-body-small mt-1">{statusText}</p>
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
             <button
@@ -365,8 +364,7 @@ export function LibrarySearch({ onClose, onOpenBook }: LibrarySearchProps) {
             <button
               onClick={onClose}
               aria-label={t('关闭全文搜索')}
-              className="p-1 rounded-md transition-colors"
-              style={{ color: 'var(--text-tertiary)' }}
+              className="m3-icon-button"
             >
               <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
             </button>

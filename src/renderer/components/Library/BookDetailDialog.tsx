@@ -39,11 +39,7 @@ function formatDate(dateStr: string): string {
   }
 }
 
-const inputStyle: React.CSSProperties = {
-  color: 'var(--text-primary)',
-  background: 'var(--bg-tertiary)',
-  border: '1px solid var(--border)',
-}
+const inputStyle: React.CSSProperties = {}
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -128,16 +124,15 @@ export function BookDetailDialog({ book, onClose }: BookDetailDialogProps) {
       aria-modal="true"
       data-testid="book-detail-dialog"
     >
-      <div className="absolute inset-0" style={{ background: 'rgba(0,0,0,0.45)' }} />
+      <div className="m3-dialog-backdrop absolute inset-0" />
       <div
-        className="relative rounded-xl shadow-win-lg p-6 max-w-2xl w-full mx-4 animate-scale-in max-h-[88vh] flex flex-col"
-        style={{ background: 'var(--acrylic-bg)', backdropFilter: 'blur(24px)', border: '1px solid var(--acrylic-border)' }}
+        className="m3-dialog relative p-6 max-w-2xl w-full mx-4 animate-scale-in max-h-[88vh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-base font-semibold" style={{ color: 'var(--text-primary)' }}>{t('编辑书籍信息')}</h3>
+          <h3 className="m3-title-large">{t('编辑书籍信息')}</h3>
           <button onClick={onClose} aria-label={t('关闭')} data-testid="metadata-cancel"
-            className="w-7 h-7 rounded flex items-center justify-center transition-colors hover:bg-white/10" style={{ color: 'var(--text-tertiary)' }}>
+            className="m3-icon-button">
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
           </button>
         </div>

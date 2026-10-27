@@ -623,16 +623,16 @@ export function TtsBar({ bookId, filePath, format, onClose }: TtsBarProps) {
   const progressText = sentences.length ? (current + 1) + '/' + sentences.length : ''
 
   return (
-    <div className="max-w-3xl mx-auto mb-2 px-3 py-2 rounded-xl border flex items-center gap-2 text-sm"
+    <div className="m3-card max-w-5xl mx-auto mb-2 px-4 py-2.5 flex items-center gap-2 text-sm"
          data-tts-bar="1"
          data-book-id={bookId}
-         style={{ background: 'var(--reader-sidebar)', borderColor: 'var(--reader-border)', color: 'var(--reader-text)' }}>
+         style={{ borderRadius: 'var(--md-sys-shape-xl)', background: 'var(--md-sys-color-surface-container-high)', borderColor: 'var(--md-sys-color-outline-variant)' }}>
       {/* 播放 / 暂停 / 继续 */}
       {phase !== 'playing' ? (
         <button
           onClick={() => { void (phase === 'paused' ? resume() : startReading()) }}
           disabled={busy || unsupported || !voices.length}
-          className="p-2 rounded-lg transition-colors hover:bg-[var(--reader-bg)] disabled:opacity-40"
+          className="m3-icon-button" 
           title={phase === 'paused' ? t('继续朗读') : t('开始朗读')}
           aria-label={phase === 'paused' ? t('继续朗读') : t('开始朗读')}
         >
@@ -641,7 +641,7 @@ export function TtsBar({ bookId, filePath, format, onClose }: TtsBarProps) {
       ) : (
         <button
           onClick={() => { void pause() }}
-          className="p-2 rounded-lg transition-colors hover:bg-[var(--reader-bg)]"
+          className="m3-icon-button"
           title={t('暂停朗读')}
           aria-label={t('暂停朗读')}
         >
@@ -653,7 +653,7 @@ export function TtsBar({ bookId, filePath, format, onClose }: TtsBarProps) {
       <button
         onClick={() => { void stop() }}
         disabled={phase === 'idle'}
-        className="p-2 rounded-lg transition-colors hover:bg-[var(--reader-bg)] disabled:opacity-30"
+        className="m3-icon-button"
         title={t('停止朗读')}
         aria-label={t('停止朗读')}
       >
@@ -686,8 +686,7 @@ export function TtsBar({ bookId, filePath, format, onClose }: TtsBarProps) {
           step={1}
           value={rate}
           onChange={(e) => handleRateChange(Number(e.target.value))}
-          className="w-20 h-1 rounded-lg appearance-none cursor-pointer"
-          style={{ accentColor: 'var(--reader-accent)' }}
+          className="m3-slider w-20 cursor-pointer"
           aria-label={t('语速')}
         />
         <span className="text-xs w-6 text-center tabular-nums">{rate > 0 ? '+' + rate : rate}</span>
@@ -701,8 +700,7 @@ export function TtsBar({ bookId, filePath, format, onClose }: TtsBarProps) {
         <select
           value={sleepMode}
           onChange={(e) => { setHint(''); setSleepMode(e.target.value as SleepMode) }}
-          className="shrink-0 px-2 py-1 rounded-lg text-xs border"
-          style={{ background: 'var(--reader-bg)', borderColor: 'var(--reader-border)', color: 'var(--reader-text)' }}
+          className="m3-select shrink-0"
           title={t('睡眠定时')}
           aria-label={t('睡眠定时')}
           data-tts-sleep="1"
@@ -723,8 +721,7 @@ export function TtsBar({ bookId, filePath, format, onClose }: TtsBarProps) {
         value={voiceId}
         onChange={(e) => handleVoiceChange(e.target.value)}
         disabled={voices.length <= 1}
-        className="shrink-0 max-w-[10rem] px-2 py-1 rounded-lg text-xs border"
-        style={{ background: 'var(--reader-bg)', borderColor: 'var(--reader-border)', color: 'var(--reader-text)' }}
+        className="m3-select shrink-0 max-w-[10rem]"
         title={t('音色')}
         aria-label={t('音色')}
       >
@@ -739,7 +736,7 @@ export function TtsBar({ bookId, filePath, format, onClose }: TtsBarProps) {
       {/* 关闭 */}
       <button
         onClick={handleClose}
-        className="p-2 rounded-lg transition-colors hover:bg-[var(--reader-bg)] opacity-70 hover:opacity-100"
+        className="m3-icon-button"
         title={t('关闭朗读条')}
         aria-label={t('关闭朗读条')}
       >

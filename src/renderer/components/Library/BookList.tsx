@@ -94,24 +94,22 @@ export function BookList({ books, onOpenBook }: BookListProps) {
 
   const renderRow = (book: Book) => (
     <div key={book.id} data-testid="book-row" onClick={() => onOpenBook(book.id)}
-      className="grid grid-cols-12 gap-4 px-3 py-3 rounded-md cursor-pointer transition-all duration-150 group"
-      onMouseEnter={(e) => e.currentTarget.style.background = 'var(--surface-hover)'}
-      onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
+      role="button" tabIndex={0} aria-label={safeText(book.title)}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpenBook(book.id) } }}
+      className="grid grid-cols-12 gap-4 px-3 py-3 rounded-lg cursor-pointer transition-colors duration-150 group hover:bg-[var(--md-sys-state-hover)] outline-none focus-visible:outline-2 focus-visible:outline-[var(--md-sys-state-focus-ring)]">
       <div className="col-span-6 flex items-center gap-3">
         <ListCover book={book} />
-        <span className="text-sm font-medium truncate" style={{ color: 'var(--text-primary)' }}>{safeText(book.title)}</span>
+        <span className="m3-title-small truncate">{safeText(book.title)}</span>
       </div>
       <div className="col-span-2 text-sm truncate flex items-center" style={{ color: 'var(--text-secondary)' }}>{safeText(book.author) || '—'}</div>
       <div className="col-span-1 flex items-center">
-        <span className={`text-[11px] font-semibold text-white px-1.5 py-0.5 rounded-full ${formatColors[book.format] || 'bg-[var(--text-tertiary)]'}`}>{book.format.toUpperCase()}</span>
+        <span className={`m3-badge ${formatColors[book.format] || ''}`}>{book.format.toUpperCase()}</span>
       </div>
       <div className="col-span-1 text-sm flex items-center" style={{ color: 'var(--text-tertiary)' }}>{formatFileSize(book.file_size)}</div>
       <div className="col-span-1 text-sm flex items-center" style={{ color: 'var(--text-tertiary)' }}>{new Date(book.added_at).toLocaleDateString(i18n.language)}</div>
       <div className="col-span-1 flex items-center justify-end">
         <button onClick={(e) => handleDelete(e, book)} aria-label={activeShelfId != null ? t('从书柜移除') : t('删除')} title={activeShelfId != null ? t('从书柜移除') : t('删除')}
-          className="p-1 rounded-md transition-all duration-150" style={{ color: activeShelfId != null ? 'var(--color-orange)' : 'var(--color-red)', opacity: 0.3 }}
-          onMouseEnter={(e) => { e.currentTarget.style.opacity = '1'; e.currentTarget.style.background = 'var(--surface-hover)' }}
-          onMouseLeave={(e) => { e.currentTarget.style.opacity = '0.3'; e.currentTarget.style.background = 'transparent' }}>
+          className="m3-icon-button opacity-60 hover:opacity-100" style={{ color: activeShelfId != null ? 'var(--color-orange)' : 'var(--md-sys-color-error)' }}>
           <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={activeShelfId != null ? "M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" : "M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"} />
           </svg>
@@ -121,7 +119,7 @@ export function BookList({ books, onOpenBook }: BookListProps) {
   )
 
   const header = (
-    <div ref={headerRef} className="grid grid-cols-12 gap-4 px-3 py-2 text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--text-tertiary)', borderBottom: '1px solid var(--border)' }}>
+    <div ref={headerRef} className="grid grid-cols-12 gap-4 px-3 py-2 m3-label-medium" style={{ borderBottom: '1px solid var(--md-sys-color-outline-variant)' }}>
       <div className="col-span-6">{t('书名')}</div>
       <div className="col-span-2">{t('作者')}</div>
       <div className="col-span-1">{t('格式')}</div>

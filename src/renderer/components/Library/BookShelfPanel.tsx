@@ -30,11 +30,9 @@ export function BookShelfPanel({ onOpenBookSource, onOpenZLibrary, onAddFromAll 
 
   const navItem = (label: string, icon: React.ReactNode, active: boolean, onClick: () => void, onContextMenu?: (e: React.MouseEvent) => void) => (
     <button onClick={onClick} onContextMenu={onContextMenu}
-      className="w-full text-left px-3 py-2 rounded-md text-sm flex items-center gap-3 transition-all duration-150 relative group"
-      style={{ color: active ? 'var(--text-primary)' : 'var(--text-secondary)', background: active ? 'var(--surface-active)' : 'transparent', fontWeight: active ? 600 : 400 }}
-      onMouseEnter={(e) => { if (!active) { e.currentTarget.style.background = 'var(--surface-hover)'; e.currentTarget.style.color = 'var(--text-primary)' } }}
-      onMouseLeave={(e) => { if (!active) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-secondary)' } }}>
-      {active && <div className="absolute left-0 top-1.5 bottom-1.5 w-0.5 rounded-full" style={{ background: 'var(--accent)' }} />}
+      className={'m3-nav-item ' + (active ? 'is-active' : '')}
+      aria-current={active ? 'page' : undefined}
+      aria-label={label}>
       <span className="flex-shrink-0 w-5 h-5 flex items-center justify-center">{icon}</span>
       <span className="truncate flex-1">{label}</span>
     </button>
@@ -43,27 +41,23 @@ export function BookShelfPanel({ onOpenBookSource, onOpenZLibrary, onAddFromAll 
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="px-4 py-2.5 flex items-center justify-between">
-        <h3 className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--text-tertiary)' }}>{t('书柜')}</h3>
+      <div className="px-4 pt-3 pb-1 flex items-center justify-between">
+        <h3 className="m3-section-title">{t('书柜')}</h3>
         <div className="flex items-center gap-1">
           {activeShelfId != null && onAddFromAll && (
             <button onClick={onAddFromAll} aria-label={t('从全部添加')} title={t('从全部添加')}
-              className="px-1.5 py-0.5 text-[11px] rounded-md transition-all duration-150"
-              style={{ color: 'var(--accent)', background: 'var(--color-indigo-bg)' }}>
+              className="m3-text-button !min-h-8 !px-2 !text-[12px]">
               <svg className="w-3 h-3 inline mr-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
               {t('从全部添加')}
             </button>
           )}
-          <button onClick={() => setShowDialog(true)} aria-label={t('新建书柜')}
-            className="p-0.5 rounded-md transition-all duration-150"
-            style={{ color: 'var(--text-tertiary)' }}
-            onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--text-primary)'; e.currentTarget.style.background = 'var(--surface-hover)' }}
-            onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-tertiary)'; e.currentTarget.style.background = 'transparent' }}>
+          <button onClick={() => setShowDialog(true)} aria-label={t('新建书柜')} title={t('新建书柜')}
+            className="m3-icon-button !w-8 !h-8">
             <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
           </button>
         </div>
       </div>
-      <div className="flex-1 overflow-y-auto px-3 space-y-0.5">
+      <div className="flex-1 overflow-y-auto px-3 py-1 space-y-1">
         {navItem(t('全部书籍'),
           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" /></svg>,
           isActive(null), () => setActiveShelf(null))}
@@ -88,28 +82,22 @@ export function BookShelfPanel({ onOpenBookSource, onOpenZLibrary, onAddFromAll 
       </div>
 
       {/* Bottom actions */}
-      <div className="px-3 py-2 space-y-0.5" style={{ borderTop: '1px solid var(--border)' }}>
+      <div className="px-3 py-2 space-y-1" style={{ borderTop: '1px solid var(--md-sys-color-outline-variant)' }}>
         {onOpenZLibrary && (
-          <button onClick={onOpenZLibrary} className="w-full text-left px-3 py-2 rounded-md text-sm flex items-center gap-3 transition-all duration-150" style={{ color: 'var(--text-tertiary)' }}
-            onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--text-primary)'; e.currentTarget.style.background = 'var(--surface-hover)' }}
-            onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-tertiary)'; e.currentTarget.style.background = 'transparent' }}>
+          <button onClick={onOpenZLibrary} className="m3-nav-item">
             <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
             Z-Library
           </button>
         )}
         {onOpenBookSource && (
-          <button onClick={onOpenBookSource} className="w-full text-left px-3 py-2 rounded-md text-sm flex items-center gap-3 transition-all duration-150" style={{ color: 'var(--text-tertiary)' }}
-            onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--text-primary)'; e.currentTarget.style.background = 'var(--surface-hover)' }}
-            onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-tertiary)'; e.currentTarget.style.background = 'transparent' }}>
+          <button onClick={onOpenBookSource} className="m3-nav-item">
             <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" /></svg>
             {t('书源管理')}
           </button>
         )}
 
         {/* New shelf button */}
-        <button onClick={() => setShowDialog(true)} className="w-full text-left px-3 py-2 rounded-md text-sm flex items-center gap-3 transition-all duration-150" style={{ color: 'var(--text-tertiary)' }}
-          onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--text-primary)'; e.currentTarget.style.background = 'var(--surface-hover)' }}
-          onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-tertiary)'; e.currentTarget.style.background = 'transparent' }}>
+        <button onClick={() => setShowDialog(true)} className="m3-nav-item">
           <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
           {t('新建书柜')}
         </button>
@@ -135,15 +123,15 @@ export function BookShelfPanel({ onOpenBookSource, onOpenZLibrary, onAddFromAll 
       {/* Create dialog —— 同上，必须 portal，否则 320px 宽的弹窗会被挤进 256px 的侧栏里 */}
       {showDialog && createPortal(
         <div className="fixed inset-0 z-50 flex items-center justify-center animate-fade-in" onClick={() => { setShowDialog(false); setNewName('') }}>
-          <div className="absolute inset-0" style={{ background: 'rgba(0,0,0,0.45)' }} />
-          <div className="relative w-80 rounded-xl shadow-win-lg p-6 animate-scale-in" style={{ background: 'var(--acrylic-bg)', backdropFilter: 'blur(24px)', border: '1px solid var(--acrylic-border)' }}>
-            <h3 className="text-base font-semibold mb-4" style={{ color: 'var(--text-primary)' }}>{t('新建书柜')}</h3>
+          <div className="m3-dialog-backdrop absolute inset-0" />
+          <div className="m3-dialog relative w-80 p-6 animate-scale-in">
+            <h3 className="m3-title-large mb-4">{t('新建书柜')}</h3>
             <input autoFocus value={newName} onChange={(e) => setNewName(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter') handleCreate(); if (e.key === 'Escape') { setShowDialog(false); setNewName('') } }}
               placeholder={t('请输入书柜名称...')} className="w-full input mb-4" />
             <div className="flex justify-end gap-2">
-              <button onClick={() => { setShowDialog(false); setNewName('') }} className="btn-secondary">{t('取消')}</button>
-              <button onClick={handleCreate} className="btn-primary">{t('创建')}</button>
+              <button onClick={() => { setShowDialog(false); setNewName('') }} className="m3-text-button">{t('取消')}</button>
+              <button onClick={handleCreate} className="m3-filled-button">{t('创建')}</button>
             </div>
           </div>
         </div>,

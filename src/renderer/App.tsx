@@ -20,17 +20,17 @@ let autoCheckFired = false
 type Page = 'library' | 'settings' | 'statistics'
 
 const PageLoader = () => (
-  <div className="h-screen flex items-center justify-center" style={{ background: 'var(--bg)' }}>
-    <div className="w-8 h-8 rounded-full border-2 border-[var(--border)] border-t-[var(--accent)] animate-spin" />
+  <div className="h-screen flex items-center justify-center" style={{ background: 'var(--md-sys-color-surface)' }} role="status" aria-label="Loading">
+    <div className="w-9 h-9 rounded-full border-2 animate-spin" style={{ borderColor: 'var(--md-sys-color-surface-container-highest)', borderTopColor: 'var(--md-sys-color-primary)' }} />
   </div>
 )
 
 const ZlibLoadingOverlay = () => {
   const { t } = useTranslation()
   return (
-    <div className="fixed inset-0 z-50 flex flex-col items-center justify-center animate-fade-in" style={{ background: 'var(--bg)' }}>
-      <div className="w-10 h-10 rounded-full border-2 border-[var(--border)] border-t-[var(--accent)] animate-spin mb-4" />
-      <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>{t('正在连接 Z-Library...')}</p>
+    <div className="fixed inset-0 z-50 flex flex-col items-center justify-center animate-fade-in" style={{ background: 'var(--md-sys-color-surface)' }} role="status" aria-live="polite">
+      <div className="w-10 h-10 rounded-full border-2 animate-spin mb-4" style={{ borderColor: 'var(--md-sys-color-surface-container-highest)', borderTopColor: 'var(--md-sys-color-primary)' }} />
+      <p className="m3-body-medium" style={{ color: 'var(--md-sys-color-on-surface-variant)' }}>{t('正在连接 Z-Library...')}</p>
     </div>
   )
 }
@@ -38,10 +38,10 @@ const ZlibLoadingOverlay = () => {
 const ZlibFailedBanner = ({ onDismiss }: { onDismiss: () => void }) => {
   const { t } = useTranslation()
   return (
-    <div className="fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-4 py-2 animate-fade-in"
-      style={{ background: 'rgba(220,38,38,0.9)', backdropFilter: 'blur(8px)', color: '#fff' }}>
-      <span className="text-sm">{t('所有 Z-Library 镜像暂时不可达，请稍后重试或手动切换线路')}</span>
-      <button onClick={onDismiss} className="text-white opacity-70 hover:opacity-100 ml-4 text-lg leading-none">&times;</button>
+    <div className="fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-4 py-3 animate-fade-in"
+      style={{ background: 'var(--md-sys-color-error-container)', color: 'var(--md-sys-color-on-error-container)', borderBottom: '1px solid var(--md-sys-color-error)' }} role="alert">
+      <span className="m3-body-medium">{t('所有 Z-Library 镜像暂时不可达，请稍后重试或手动切换线路')}</span>
+      <button onClick={onDismiss} className="m3-icon-button" aria-label={t('关闭')} title={t('关闭')}>×</button>
     </div>
   )
 }
@@ -70,10 +70,10 @@ const ZlibDownloadFailedBanner = ({ code, onDismiss }: { code: string; onDismiss
   const reason = ZLIB_DOWNLOAD_ERROR_KEYS[code]
     ?? (/^http_\d+$/.test(code) ? t('服务器返回错误 {{code}}', { code: code.slice(5) }) : '未知错误')
   return (
-    <div className="fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-4 py-2 animate-fade-in"
-      style={{ background: 'rgba(220,38,38,0.9)', backdropFilter: 'blur(8px)', color: '#fff' }}>
-      <span className="text-sm">{t('Z-Library 下载失败：{{reason}}', { reason: t(reason) })}</span>
-      <button onClick={onDismiss} className="text-white opacity-70 hover:opacity-100 ml-4 text-lg leading-none">&times;</button>
+    <div className="fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-4 py-3 animate-fade-in"
+      style={{ background: 'var(--md-sys-color-error-container)', color: 'var(--md-sys-color-on-error-container)', borderBottom: '1px solid var(--md-sys-color-error)' }} role="alert">
+      <span className="m3-body-medium">{t('Z-Library 下载失败：{{reason}}', { reason: t(reason) })}</span>
+      <button onClick={onDismiss} className="m3-icon-button" aria-label={t('关闭')} title={t('关闭')}>×</button>
     </div>
   )
 }

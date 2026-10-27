@@ -162,16 +162,17 @@ export function ReaderControls({
   }
 
   const ctrlClasses = {
-    input: 'px-3 py-2 rounded-lg text-sm border focus:outline-none transition-colors',
-    inputBg: 'bg-[var(--reader-sidebar)] border-[var(--reader-border)] text-[var(--reader-text)]',
-    btn: 'p-2 rounded-lg transition-colors',
-    btnDefault: 'text-[var(--reader-text)] opacity-70 hover:opacity-100 hover:bg-[var(--reader-bg)]',
-    btnPrimary: 'px-4 py-2 text-white text-sm rounded-lg transition-colors',
-    dialogBtn: 'px-3 py-2 text-sm rounded-lg transition-colors',
+    input: 'input flex-1 !min-h-[40px]',
+    inputBg: '',
+    btn: 'm3-icon-button',
+    btnDefault: '',
+    btnPrimary: 'm3-filled-button !min-h-[40px]',
+    dialogBtn: 'm3-outlined-button !min-h-[40px]',
   }
 
   return (
-    <div className="bg-gradient-to-t from-black/60 via-black/30 to-transparent px-6 py-4">
+    <div className="reader-toolbar-root px-4 pb-4">
+      <div className="m3-reader-toolbar max-w-4xl mx-auto">
       {showNoteInput && (
         <div className="max-w-2xl mx-auto mb-3">
           <div className="flex gap-2">
@@ -184,8 +185,8 @@ export function ReaderControls({
               className={`flex-1 ${ctrlClasses.input} ${ctrlClasses.inputBg} placeholder:opacity-40`}
               autoFocus
             />
-            <button onClick={handleAddNote} className={`${ctrlClasses.btnPrimary} bg-[var(--reader-accent)] hover:brightness-110`}>{t('保存')}</button>
-            <button onClick={toggleNoteInput} className={`${ctrlClasses.dialogBtn} bg-[var(--reader-sidebar)] text-[var(--reader-text)] border border-[var(--reader-border)]`}>{t('取消')}</button>
+            <button onClick={handleAddNote} className={ctrlClasses.btnPrimary}>{t('保存')}</button>
+            <button onClick={toggleNoteInput} className={ctrlClasses.dialogBtn}>{t('取消')}</button>
           </div>
         </div>
       )}
@@ -201,20 +202,20 @@ export function ReaderControls({
           ))}
           {(['markdown', 'csv', 'json'] as const).map((fmt) => (
             <button key={fmt} onClick={() => handleExport(fmt)} disabled={exportBusy}
-              className={`${ctrlClasses.dialogBtn} bg-[var(--reader-sidebar)] text-[var(--reader-text)] border border-[var(--reader-border)]`}>
+              className={ctrlClasses.dialogBtn}>
               {fmt === 'markdown' ? 'Markdown' : fmt.toUpperCase()}
             </button>
           ))}
-          <button onClick={handlePreview} disabled={exportBusy} className={`${ctrlClasses.dialogBtn} bg-[var(--reader-sidebar)] text-[var(--reader-text)] border border-[var(--reader-border)]`}>{t('预览')}</button>
-          <button onClick={handleCopyExport} disabled={exportBusy} className={`${ctrlClasses.dialogBtn} bg-[var(--reader-sidebar)] text-[var(--reader-text)] border border-[var(--reader-border)]`}>{t('复制 Markdown')}</button>
-          <button onClick={() => setShowExport(false)} className={`${ctrlClasses.dialogBtn} text-[var(--reader-text)] opacity-60`}>{t('取消')}</button>
+          <button onClick={handlePreview} disabled={exportBusy} className={ctrlClasses.dialogBtn}>{t('预览')}</button>
+          <button onClick={handleCopyExport} disabled={exportBusy} className={ctrlClasses.dialogBtn}>{t('复制 Markdown')}</button>
+          <button onClick={() => setShowExport(false)} className={ctrlClasses.dialogBtn}>{t('取消')}</button>
         </div>
       )}
 
       {showSearch && (
         <div className="max-w-2xl mx-auto mb-3">
-          <div className="flex items-center gap-2">
-            <svg className="w-4 h-4 shrink-0" style={{ color: 'var(--reader-text)', opacity: 0.5 }} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <div className="m3-search !min-h-[44px]">
+            <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
             </svg>
             <input
@@ -224,10 +225,10 @@ export function ReaderControls({
               onChange={(e) => setSearchQuery(e.target.value)}
               onKeyDown={handleSearchKeyDown}
               placeholder={t('搜索全书... (Enter/Shift+Enter)')}
-              className={`flex-1 ${ctrlClasses.input} ${ctrlClasses.inputBg} placeholder:opacity-40`}
+              className="flex-1 min-w-0 border-0 bg-transparent outline-none text-sm"
             />
-            <span className={`text-xs shrink-0 min-w-[2.5rem] text-center ${searchMatches.length === 0 && searchQuery ? 'text-red-400' : ''}`}
-              style={{ color: searchMatches.length === 0 && searchQuery ? undefined : 'var(--reader-text)', opacity: searchMatches.length === 0 && searchQuery ? 1 : 0.5 }}>
+            <span className="text-xs shrink-0 min-w-[2.5rem] text-center"
+              style={{ color: searchMatches.length === 0 && searchQuery ? 'var(--md-sys-color-error)' : 'var(--md-sys-color-on-surface-variant)' }}>
               {searchMatches.length > 0 ? `${currentSearchIndex + 1}/${searchMatches.length}` : searchQuery ? '0/0' : ''}
             </span>
             <button onClick={prevSearchMatch} className={`${ctrlClasses.btn} ${ctrlClasses.btnDefault}`} title={t('上一个 (Shift+Enter)')}>
@@ -250,10 +251,9 @@ export function ReaderControls({
           max="100"
           value={progress.progress || 0}
           onChange={(e) => seekTo(Number(e.target.value))}
-          className="w-full h-1 rounded-lg appearance-none cursor-pointer"
-          style={{ background: 'var(--reader-border)', accentColor: 'var(--reader-accent)' }}
+          className="m3-slider w-full cursor-pointer"
         />
-        <div className="flex justify-between text-xs mt-1" style={{ color: 'var(--reader-text)', opacity: 0.4 }}>
+        <div className="flex justify-between m3-label-small mt-1">
           <span>{(progress.progress || 0).toFixed(2)}%</span>
           <span>{['txt','mobi','fb2','html','markdown'].includes(format) ? '' : progress.page != null ? t('第 {{page}} 页', { page: progress.page }) : ''}</span>
         </div>
@@ -268,7 +268,7 @@ export function ReaderControls({
 
         <button
           onClick={handleToggleBookmark}
-          className={`${ctrlClasses.btn} ${isBookmarked ? 'text-yellow-400 bg-yellow-400/20 hover:bg-yellow-400/30' : ctrlClasses.btnDefault}`}
+          className={`${ctrlClasses.btn} ${isBookmarked ? 'is-active' : ''}`}
           title={t(isBookmarked ? '取消书签' : '添加书签')}
           aria-label={t(isBookmarked ? '取消书签' : '添加书签')}
         >
@@ -285,7 +285,7 @@ export function ReaderControls({
 
         <button
           onClick={toggleNoteInput}
-          className={`${ctrlClasses.btn} ${showNoteInput ? 'text-[var(--reader-accent)] bg-[var(--color-indigo-bg)]' : ctrlClasses.btnDefault}`}
+          className={`${ctrlClasses.btn} ${showNoteInput ? 'is-active' : ctrlClasses.btnDefault}`}
           title={t('添加笔记')}
           aria-label={t('添加笔记')}
         >
@@ -296,7 +296,7 @@ export function ReaderControls({
 
         <button
           onClick={() => setShowSearch(!showSearch)}
-          className={`${ctrlClasses.btn} ${showSearch ? 'text-[var(--reader-accent)] bg-[var(--color-indigo-bg)]' : ctrlClasses.btnDefault}`}
+          className={`${ctrlClasses.btn} ${showSearch ? 'is-active' : ctrlClasses.btnDefault}`}
           title={t('搜索 (Ctrl+F)')}
           aria-label={t('搜索')}
         >
@@ -311,24 +311,24 @@ export function ReaderControls({
           </svg>
         </button>
 
-        <div className="flex items-center gap-1 bg-[var(--reader-bg)]/30 rounded-lg p-1">
+        <span className="m3-toolbar-divider" aria-hidden="true" />
+        <div className="m3-segmented mx-1">
           {themes.map((themeId) => (
             <button
               key={themeId}
               onClick={() => setTheme(themeId)}
-              className={`px-2 py-1 text-xs rounded transition-colors ${
-                theme === themeId ? 'bg-[var(--reader-accent)] text-white' : 'opacity-50 hover:opacity-100'
-              }`}
-              style={{ color: theme !== themeId ? 'var(--reader-text)' : undefined }}
+              className={'m3-segmented-btn ' + (theme === themeId ? 'is-active' : '')}
+              aria-pressed={theme === themeId}
             >
               {themeId === 'light' ? t('亮') : themeId === 'dark' ? t('暗') : t('护眼')}
             </button>
           ))}
         </div>
+        <span className="m3-toolbar-divider" aria-hidden="true" />
 
         <button
           onClick={() => setShowExport(!showExport)}
-          className={`${ctrlClasses.btn} ${showExport ? 'text-[var(--reader-accent)] bg-[var(--color-indigo-bg)]' : ctrlClasses.btnDefault}`}
+          className={`${ctrlClasses.btn} ${showExport ? 'is-active' : ctrlClasses.btnDefault}`}
           title={t('导出标注')}
           aria-label={t('导出标注')}
         >
@@ -356,7 +356,7 @@ export function ReaderControls({
         {format === 'epub' && (
           <button
             onClick={onCycleSpread}
-            className={`${ctrlClasses.btn} ${epubSpread !== 'single' ? 'text-[var(--reader-accent)] bg-[var(--color-indigo-bg)]' : ctrlClasses.btnDefault}`}
+            className={`${ctrlClasses.btn} ${epubSpread !== 'single' ? 'is-active' : ctrlClasses.btnDefault}`}
             title={t('分栏：{{mode}}（点击切换）', { mode: t(epubSpread === 'auto' ? '自动' : epubSpread === 'double' ? '双栏' : '单栏') })}
             aria-label={t('分栏')}
             data-spread-button="1"
@@ -371,7 +371,7 @@ export function ReaderControls({
         {(format === 'epub' || format === 'html' || format === 'fb2') && (
           <button
             onClick={onToggleVertical}
-            className={`${ctrlClasses.btn} ${verticalText ? 'text-[var(--reader-accent)] bg-[var(--color-indigo-bg)]' : ctrlClasses.btnDefault}`}
+            className={`${ctrlClasses.btn} ${verticalText ? 'is-active' : ctrlClasses.btnDefault}`}
             title={t(verticalText ? '关闭竖排' : '竖排')}
             aria-label={t('竖排')}
             data-vertical-button="1"
@@ -382,9 +382,10 @@ export function ReaderControls({
           </button>
         )}
 
+        <span className="m3-toolbar-divider" aria-hidden="true" />
         <button
           onClick={onOpenTts}
-          className={`${ctrlClasses.btn} ${ttsActive ? 'text-[var(--reader-accent)] bg-[var(--color-indigo-bg)]' : ctrlClasses.btnDefault}`}
+          className={`${ctrlClasses.btn} ${ttsActive ? 'is-active' : ctrlClasses.btnDefault}`}
           title={t('朗读 (TTS)')}
           aria-label={t('朗读 (TTS)')}
         >
@@ -412,20 +413,23 @@ export function ReaderControls({
         </button>
       </div>
       {preview && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" role="dialog" aria-modal="true">
-          <div className="w-full max-w-3xl max-h-[85vh] flex flex-col rounded-xl border border-[var(--reader-border)]" style={{ background: 'var(--reader-sidebar)' }}>
-            <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--reader-border)]">
-              <span className="text-sm font-medium text-[var(--reader-text)]">{preview.fileName}</span>
-              <button onClick={() => setPreview(null)} className="text-[var(--reader-text)] opacity-60 hover:opacity-100" aria-label={t('关闭')}>{t('关闭')}</button>
+        <div className="m3-dialog-backdrop fixed inset-0 z-[80] flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label={t('导出预览')}>
+          <div className="m3-dialog flex flex-col" style={{ width: 'min(840px, 92vw)', maxHeight: '85vh' }}>
+            <div className="flex items-center justify-between px-6 py-4">
+              <h2 className="m3-title-medium truncate">{preview.fileName}</h2>
+              <button onClick={() => setPreview(null)} className="m3-icon-button" aria-label={t('关闭')} title={t('关闭')}>
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
             </div>
-            <pre className="flex-1 overflow-auto p-4 text-xs whitespace-pre-wrap text-[var(--reader-text)]">{preview.content.slice(0, 20000)}</pre>
-            <div className="flex justify-end gap-2 px-4 py-3 border-t border-[var(--reader-border)]">
-              <button onClick={() => downloadText(preview.content, preview.fileName, preview.mimeType)} className="btn-primary text-xs px-3 py-1.5">{t('下载')}</button>
-              <button onClick={() => copyText(preview.content)} className="btn-secondary text-xs px-3 py-1.5">{t('复制 Markdown')}</button>
+            <pre className="flex-1 overflow-auto px-6 pb-4 text-xs whitespace-pre-wrap m3-body-small">{preview.content.slice(0, 20000)}</pre>
+            <div className="m3-dialog-footer">
+              <button onClick={() => copyText(preview.content)} className="m3-text-button">{t('复制 Markdown')}</button>
+              <button onClick={() => downloadText(preview.content, preview.fileName, preview.mimeType)} className="m3-filled-button">{t('下载')}</button>
             </div>
           </div>
         </div>
       )}
+      </div>
 
       <DictionaryPopup
         open={dictionaryVisible}

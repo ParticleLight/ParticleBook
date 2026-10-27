@@ -45,18 +45,21 @@ export function GlobalSettings({ onBack }: GlobalSettingsProps) {
 
   return (
     <div className="h-screen flex flex-col" style={{ background: 'var(--bg)' }}>
-      {/* Header */}
-      <header className="drag-region flex items-center gap-4 px-6 py-3.5 shrink-0" style={{ borderBottom: '1px solid var(--border)' }}>
-        <button onClick={onBack} className="no-drag p-1.5 rounded-lg transition-colors hover:bg-[var(--surface-hover)]" style={{ color: 'var(--text-secondary)' }}>
+      {/* M3 top app bar */}
+      <header className="m3-top-app-bar drag-region shrink-0">
+        <button onClick={onBack} className="no-drag m3-icon-button" aria-label={t('返回')} title={t('返回')}>
           <SvgIcon d="M15 19l-7-7 7-7" />
         </button>
-        <h1 className="no-drag text-base font-semibold" style={{ color: 'var(--text-primary)' }}>{t('设置')}</h1>
+        <div className="no-drag min-w-0">
+          <h1 className="m3-title-large truncate">{t('设置')}</h1>
+          <p className="m3-label-medium truncate">{navItems.find((item) => item.key === activeNav)?.label}</p>
+        </div>
       </header>
 
       {/* Body */}
       <div className="flex-1 flex min-h-0">
-        {/* Left nav */}
-        <nav className="w-56 shrink-0 p-3 overflow-y-auto" style={{ borderRight: '1px solid var(--border)' }}>
+        {/* M3 navigation drawer */}
+        <nav className="m3-nav-drawer w-60 shrink-0 p-3 overflow-y-auto" aria-label={t('设置导航')}>
           <div className="space-y-0.5">
             {navItems.map((item) => (
               <button
@@ -73,11 +76,11 @@ export function GlobalSettings({ onBack }: GlobalSettingsProps) {
         </nav>
 
         {/* Right content */}
-        <main className="flex-1 overflow-y-auto p-8">
+        <main className="flex-1 overflow-y-auto px-6 py-6 lg:px-10 lg:py-8">
           {/* 内容列铺满可用宽度：此前是 max-w-2xl，窗口一宽右侧就空一大片
               （用户截图："全屏下设置界面全挤到左侧"）。按用户要求改为用满，
               不做居中留白。 */}
-          <div className="w-full">
+          <div className="w-full max-w-[1200px] mx-auto">
             {renderPage()}
           </div>
         </main>

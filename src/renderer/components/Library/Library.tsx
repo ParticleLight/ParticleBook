@@ -44,18 +44,15 @@ function BookPickerDialog({ books, shelfName, shelfBookIds, onAdd, onClose }: { 
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center animate-fade-in" onClick={onClose}>
-      <div className="absolute inset-0" style={{ background: 'rgba(0,0,0,0.45)' }} />
-      <div className="relative w-[500px] max-h-[70vh] rounded-xl shadow-win-lg flex flex-col animate-scale-in"
-        style={{ background: 'var(--acrylic-bg)', backdropFilter: 'blur(24px)', border: '1px solid var(--acrylic-border)' }}
+      <div className="m3-dialog-backdrop absolute inset-0" />
+      <div className="m3-dialog relative w-[500px] max-h-[70vh] flex flex-col animate-scale-in"
         onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 py-3.5" style={{ borderBottom: '1px solid var(--border)' }}>
           <div>
-            <h3 className="text-base font-semibold" style={{ color: 'var(--text-primary)' }}>{t('添加到「{{shelfName}}」', { shelfName })}</h3>
-            <p className="text-xs mt-0.5" style={{ color: 'var(--text-tertiary)' }}>{t('从全部书籍中选择，已选 {{count}} 本', { count: selected.size })}</p>
+            <h3 className="m3-title-large">{t('添加到「{{shelfName}}」', { shelfName })}</h3>
+            <p className="m3-body-small mt-1">{t('从全部书籍中选择，已选 {{count}} 本', { count: selected.size })}</p>
           </div>
-          <button onClick={onClose} className="p-1 rounded-md transition-colors" style={{ color: 'var(--text-tertiary)' }}
-            onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--text-primary)'; e.currentTarget.style.background = 'var(--surface-hover)' }}
-            onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-tertiary)'; e.currentTarget.style.background = 'transparent' }}>
+          <button onClick={onClose} className="m3-icon-button" aria-label={t('关闭')}>
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
           </button>
         </div>
@@ -92,9 +89,9 @@ function BookPickerDialog({ books, shelfName, shelfBookIds, onAdd, onClose }: { 
             </div>
           )})}
         </div>
-        <div className="flex justify-end gap-2 px-5 py-3.5" style={{ borderTop: '1px solid var(--border)' }}>
-          <button onClick={onClose} className="btn-secondary">{t('取消')}</button>
-          <button onClick={() => onAdd(Array.from(selected))} disabled={selected.size === 0} className="btn-primary" style={selected.size === 0 ? { opacity: 0.5, cursor: 'not-allowed' } : undefined}>{t('添加')} {selected.size > 0 ? `(${selected.size})` : ''}</button>
+        <div className="flex justify-end gap-2 px-5 py-3.5" style={{ borderTop: '1px solid var(--md-sys-color-outline-variant)' }}>
+          <button onClick={onClose} className="m3-text-button">{t('取消')}</button>
+          <button onClick={() => onAdd(Array.from(selected))} disabled={selected.size === 0} className="m3-filled-button">{t('添加')} {selected.size > 0 ? `(${selected.size})` : ''}</button>
         </div>
       </div>
     </div>
@@ -298,105 +295,103 @@ export function Library({ onOpenBook, onOpenSettings, onOpenZLibrary, onOpenStat
     <div className="h-screen flex flex-col" style={{ background: 'var(--bg)' }}
       onDrop={handleDrop} onDragEnter={handleDragEnter} onDragOver={handleDragOver} onDragLeave={handleDragLeave}>
 
-      {/* Compact command bar */}
-      <header className="drag-region flex items-center justify-between px-4 py-2 gap-3" style={{ background: 'var(--mica-bg)', borderBottom: '1px solid var(--border)' }}>
-        {/* Left: app identity */}
-        <div className="no-drag flex items-center gap-2.5">
-          {/* 图标（蓝色圆角方块 + 书本）按用户要求去掉，只留应用名 */}
-          <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>ParticleBook</span>
+      {/* M3 top app bar: destination + search + primary action */}
+      <header className="m3-top-app-bar library-top-bar drag-region" data-testid="library-app-bar">
+        <div className="no-drag flex items-center gap-3 min-w-0">
+          <span className="m3-title-large truncate">ParticleBook</span>
+
         </div>
 
-        {/* Center: search */}
-        <div className="no-drag flex-1 max-w-lg mx-auto relative">
-          <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" style={{ color: 'var(--text-tertiary)' }}><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
-          <input type="text" placeholder={t('搜索书名 / 作者 / 标签 / 系列...')} value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
-            data-testid="library-search-input"
-            className="w-full pl-9 pr-10 py-1.5 text-sm rounded-lg transition-all duration-150"
-            style={{ background: 'var(--bg-tertiary)', color: 'var(--text-primary)', border: '1px solid transparent' }}
-            onFocus={(e) => e.currentTarget.style.borderColor = 'var(--border-focus)'}
-            onBlur={(e) => e.currentTarget.style.borderColor = 'transparent'}
-          />
-          {/* PB-006-B：全局全文搜索入口（书名/作者搜索之外的正文搜索） */}
-          <button
-            onClick={() => setShowGlobalSearch(true)}
-            className="absolute right-1 top-1/2 -translate-y-1/2 p-1.5 rounded-md transition-colors"
-            style={{ color: 'var(--text-tertiary)' }}
-            title={t('全文搜索 (Ctrl+Shift+F)')}
-            aria-label={t('全文搜索')}
-            data-global-search-open="1"
-            onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--text-primary)'; e.currentTarget.style.background = 'var(--surface-hover)' }}
-            onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-tertiary)'; e.currentTarget.style.background = 'transparent' }}
-          >
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+        <div className="no-drag flex-1 max-w-[560px] mx-auto">
+          <div className="m3-search" role="search">
+            <svg className="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
             </svg>
-          </button>
+            <input
+              type="text"
+              placeholder={t('搜索书名 / 作者 / 标签 / 系列...')}
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              data-testid="library-search-input"
+              aria-label={t('搜索书库')}
+            />
+            <button
+              onClick={() => setShowGlobalSearch(true)}
+              className="m3-icon-button"
+              title={t('全文搜索 (Ctrl+Shift+F)')}
+              aria-label={t('全文搜索')}
+              data-global-search-open="1"
+            >
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              </svg>
+            </button>
+          </div>
         </div>
 
-        {/* Right: actions */}
-        <div className="no-drag flex items-center gap-1">
-          <select value={sortBy} onChange={(e) => setSortBy(e.target.value as any)}
+        <div className="no-drag flex items-center gap-1.5">
+          <select
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value as any)}
             data-testid="library-sort"
-            className="px-2 py-1.5 text-xs rounded-md" style={{ background: 'var(--bg-tertiary)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}>
-            <option value="last_opened">{t('最近')}</option><option value="added_at">{t('添加', { context: 'sort' })}</option><option value="title">{t('书名')}</option><option value="author">{t('作者')}</option>
-            <option value="rating">{t('按评分')}</option><option value="series">{t('按系列')}</option>
+            aria-label={t('排序')}
+            className="m3-select hidden md:block"
+            title={t('排序')}
+          >
+            <option value="last_opened">{t('最近')}</option>
+            <option value="added_at">{t('添加', { context: 'sort' })}</option>
+            <option value="title">{t('书名')}</option>
+            <option value="author">{t('作者')}</option>
+            <option value="rating">{t('按评分')}</option>
+            <option value="series">{t('按系列')}</option>
           </select>
 
-          <div className="flex rounded-md overflow-hidden ml-1" style={{ border: '1px solid var(--border)' }}>
-            <button onClick={() => setViewMode('grid')} aria-label={t('网格视图')} data-testid="view-grid" className="p-1.5 transition-colors" style={{ background: viewMode === 'grid' ? 'var(--accent)' : 'transparent', color: viewMode === 'grid' ? '#fff' : 'var(--text-tertiary)' }}>
-              <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 16 16"><path d="M1 2.5A1.5 1.5 0 012.5 1h3A1.5 1.5 0 017 2.5v3A1.5 1.5 0 015.5 7h-3A1.5 1.5 0 011 5.5v-3zm8 0A1.5 1.5 0 0110.5 1h3A1.5 1.5 0 0115 2.5v3A1.5 1.5 0 0113.5 7h-3A1.5 1.5 0 019 5.5v-3zm-8 8A1.5 1.5 0 012.5 9h3A1.5 1.5 0 017 10.5v3A1.5 1.5 0 015.5 15h-3A1.5 1.5 0 011 13.5v-3zm8 0A1.5 1.5 0 0110.5 9h3a1.5 1.5 0 011.5 1.5v3a1.5 1.5 0 01-1.5 1.5h-3A1.5 1.5 0 019 13.5v-3z" /></svg>
+          <div className="m3-segmented hidden sm:inline-flex" role="group" aria-label={t('视图')}>
+            <button onClick={() => setViewMode('grid')} aria-label={t('网格视图')} aria-pressed={viewMode === 'grid'} data-testid="view-grid" className={'m3-segmented-btn ' + (viewMode === 'grid' ? 'is-active' : '')}>
+              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 16 16"><path d="M1 2.5A1.5 1.5 0 012.5 1h3A1.5 1.5 0 017 2.5v3A1.5 1.5 0 015.5 7h-3A1.5 1.5 0 011 5.5v-3zm8 0A1.5 1.5 0 0110.5 1h3A1.5 1.5 0 0115 2.5v3A1.5 1.5 0 0113.5 7h-3A1.5 1.5 0 019 5.5v-3zm-8 8A1.5 1.5 0 012.5 9h3A1.5 1.5 0 017 10.5v3A1.5 1.5 0 015.5 15h-3A1.5 1.5 0 011 13.5v-3zm8 0A1.5 1.5 0 0110.5 9h3a1.5 1.5 0 011.5 1.5v3a1.5 1.5 0 01-1.5 1.5h-3A1.5 1.5 0 019 13.5v-3z" /></svg>
             </button>
-            <button onClick={() => setViewMode('list')} aria-label={t('列表视图')} data-testid="view-list" className="p-1.5 transition-colors" style={{ background: viewMode === 'list' ? 'var(--accent)' : 'transparent', color: viewMode === 'list' ? '#fff' : 'var(--text-tertiary)' }}>
-              <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 16 16"><path fillRule="evenodd" d="M2.5 12a.5.5 0 01.5-.5h10a.5.5 0 010 1H3a.5.5 0 01-.5-.5zm0-4a.5.5 0 01.5-.5h10a.5.5 0 010 1H3a.5.5 0 01-.5-.5zm0-4a.5.5 0 01.5-.5h10a.5.5 0 010 1H3a.5.5 0 01-.5-.5z" /></svg>
+            <button onClick={() => setViewMode('list')} aria-label={t('列表视图')} aria-pressed={viewMode === 'list'} data-testid="view-list" className={'m3-segmented-btn ' + (viewMode === 'list' ? 'is-active' : '')}>
+              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 16 16"><path fillRule="evenodd" d="M2.5 12a.5.5 0 01.5-.5h10a.5.5 0 010 1H3a.5.5 0 01-.5-.5zm0-4a.5.5 0 01.5-.5h10a.5.5 0 010 1H3a.5.5 0 01-.5-.5zm0-4a.5.5 0 01.5-.5h10a.5.5 0 010 1H3a.5.5 0 01-.5-.5z" /></svg>
             </button>
           </div>
 
-          <button onClick={handleImport} className="btn-primary flex items-center gap-1.5 ml-1 text-xs" aria-label={t('导入书籍')}>
-            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
-            {t('导入')}
+          <button onClick={handleImport} className="m3-filled-button" aria-label={t('导入书籍')} title={t('导入书籍')}>
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+            <span className="hidden sm:inline">{t('导入')}</span>
           </button>
 
-          {/* More menu */}
-          <div className="relative ml-0.5">
-            <button ref={moreBtnRef} onClick={() => setShowMore(!showMore)} aria-label={t('更多操作')}
-              className="p-1.5 rounded-md transition-colors" style={{ color: 'var(--text-secondary)' }}
-              onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--text-primary)'; e.currentTarget.style.background = 'var(--surface-hover)' }}
-              onMouseLeave={(e) => { if (!showMore) { e.currentTarget.style.color = 'var(--text-secondary)'; e.currentTarget.style.background = 'transparent' } }}>
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h.01M12 12h.01M19 12h.01M6 12a1 1 0 11-2 0 1 1 0 012 0zm7 0a1 1 0 11-2 0 1 1 0 012 0zm7 0a1 1 0 11-2 0 1 1 0 012 0z" /></svg>
+          <div className="relative">
+            <button ref={moreBtnRef} onClick={() => setShowMore(!showMore)} aria-label={t('更多操作')} aria-expanded={showMore} className="m3-icon-button">
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h.01M12 12h.01M19 12h.01M6 12a1 1 0 11-2 0 1 1 0 012 0zm7 0a1 1 0 11-2 0 1 1 0 012 0zm7 0a1 1 0 11-2 0 1 1 0 012 0z" /></svg>
             </button>
             {showMore && (
-              <div className="absolute right-0 top-full mt-1 rounded-lg overflow-hidden shadow-win-lg animate-scale-in z-50 min-w-[180px]"
-                style={{ background: 'var(--acrylic-bg)', backdropFilter: 'blur(24px)', border: '1px solid var(--acrylic-border)' }}>
-<button onClick={() => { loadBooks(); setShowMore(false) }} className="w-full text-left px-4 py-2 text-sm flex items-center gap-2 whitespace-nowrap transition-colors" style={{ color: 'var(--text-primary)' }} onMouseEnter={(e) => e.currentTarget.style.background = 'var(--surface-hover)'} onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
-                  <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg> {t('刷新书架')}
+              <div className="m3-menu absolute right-0 top-full mt-2 z-50 animate-scale-in">
+                <button onClick={() => { loadBooks(); setShowMore(false) }} className="m3-menu-item">
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg> {t('刷新书架')}
                 </button>
-                <button onClick={() => { onOpenStatistics(); setShowMore(false) }} className="w-full text-left px-4 py-2 text-sm flex items-center gap-2 whitespace-nowrap transition-colors" style={{ color: 'var(--text-primary)' }} onMouseEnter={(e) => e.currentTarget.style.background = 'var(--surface-hover)'} onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
-                  <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg> {t('阅读统计')}
+                <button onClick={() => { onOpenStatistics(); setShowMore(false) }} className="m3-menu-item">
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg> {t('阅读统计')}
                 </button>
-                <button onClick={() => { setShowChangelog(true); setShowMore(false) }} className="w-full text-left px-4 py-2 text-sm flex items-center gap-2 whitespace-nowrap transition-colors" style={{ color: 'var(--text-primary)' }} onMouseEnter={(e) => e.currentTarget.style.background = 'var(--surface-hover)'} onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
-                  <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg> {t('更新日志')}
+                <button onClick={() => { setShowChangelog(true); setShowMore(false) }} className="m3-menu-item">
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg> {t('更新日志')}
                 </button>
               </div>
             )}
           </div>
 
-          <button onClick={onOpenSettings} aria-label={t('全局设置')}
-            className="p-1.5 rounded-md transition-colors ml-0.5" style={{ color: 'var(--text-secondary)' }}
-            onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--text-primary)'; e.currentTarget.style.background = 'var(--surface-hover)' }}
-            onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-secondary)'; e.currentTarget.style.background = 'transparent' }}>
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+          <button onClick={onOpenSettings} aria-label={t('全局设置')} title={t('全局设置')} className="m3-icon-button">
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
           </button>
         </div>
       </header>
 
       {/* Body */}
       <main className="flex-1 flex overflow-hidden">
-        {/* Acrylic navigation sidebar */}
-        <nav className="w-64 flex-shrink-0 overflow-y-auto flex flex-col" style={{ background: 'var(--acrylic-bg)', backdropFilter: 'blur(24px)', borderRight: '1px solid var(--acrylic-border)' }}>
-          {/* Sidebar header */}
-          <div className="px-4 pt-4 pb-1.5">
-            <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--text-tertiary)' }}>{shelfName}</p>
-            <p className="text-xs mt-0.5" style={{ color: 'var(--text-tertiary)' }}>{t('{{count}} 本书', { count: books.length })}</p>
+        {/* M3 navigation drawer */}
+        <nav className="m3-nav-drawer w-[248px] flex-shrink-0 overflow-y-auto flex flex-col" aria-label={t('书库导航')}>
+          <div className="px-5 pt-5 pb-2">
+            <p className="m3-section-title">{t('书库')}</p>
+            <p className="m3-body-small mt-1">{t('{{count}} 本书', { count: books.length })}</p>
           </div>
           <div className="flex-1">
             <BookShelfPanel onOpenBookSource={() => setShowBookSource(true)} onOpenZLibrary={onOpenZLibrary} onAddFromAll={() => setShowBookPicker(true)} />
@@ -404,13 +399,19 @@ export function Library({ onOpenBook, onOpenSettings, onOpenZLibrary, onOpenStat
         </nav>
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto p-8 relative" data-library-scroll="1"
+        <div className="flex-1 overflow-y-auto relative" data-library-scroll="1"
           style={{ background: 'var(--bg)', overflowAnchor: 'none' }}>
+          <div className="mx-auto w-full max-w-[1600px] px-5 py-6 lg:px-8 lg:py-8">
+            <div className="flex items-end justify-between gap-4 mb-5">
+              <div className="min-w-0">
+                <h1 className="m3-headline-small truncate">{shelfName}</h1>
+                <p className="m3-supporting-text mt-1">{t('{{count}} 本书', { count: sortedBooks.length })}</p>
+              </div>
+            </div>
           {/* PB-017-B：批量导入进度 / 逐条错误汇总（C++ book:importProgress 事件） */}
           {importProgress && importProgress.total > 0 && (
-            <div data-testid="import-progress" className="mb-4 rounded-lg px-3 py-2"
-              style={{ background: 'var(--acrylic-bg)', border: '1px solid var(--acrylic-border)' }}>
-              <div className="flex items-center justify-between gap-3 text-xs" style={{ color: 'var(--text-secondary)' }}>
+            <div data-testid="import-progress" className="m3-card p-3 mb-4">
+              <div className="flex items-center justify-between gap-3 m3-body-small">
                 <span className="truncate">
                   {importProgress.done
                     ? t('导入完成')
@@ -422,21 +423,18 @@ export function Library({ onOpenBook, onOpenSettings, onOpenZLibrary, onOpenStat
                 </span>
                 <span className="font-mono flex-shrink-0">{importPercent}%</span>
               </div>
-              <div className="mt-1.5 h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--bg-tertiary)' }}>
-                <div style={{ width: `${importPercent}%`, height: '100%', background: 'var(--accent)', transition: 'width 150ms ease' }} />
+              <div className="m3-linear-progress mt-2" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={importPercent}>
+                <span style={{ width: `${importPercent}%` }} />
               </div>
             </div>
           )}
           {importErrors.length > 0 && (
-            <div data-testid="import-errors" className="mb-4 rounded-lg px-3 py-2"
-              style={{ background: 'var(--color-red-bg)', border: '1px solid var(--color-red)' }}>
+            <div data-testid="import-errors" className="m3-card p-3 mb-4" style={{ background: 'var(--md-sys-color-error-container)', borderColor: 'transparent' }}>
               <div className="flex items-center justify-between gap-2">
-                <span className="text-xs font-semibold" style={{ color: 'var(--text-primary)' }}>
+                <span className="m3-title-small" style={{ color: 'var(--md-sys-color-on-error-container)' }}>
                   {t('部分文件导入失败（{{count}}）', { count: importErrors.length })}
                 </span>
-                <button onClick={clearImportErrors} className="text-xs px-2 py-0.5 rounded"
-                  style={{ color: 'var(--text-secondary)', border: '1px solid var(--border)' }}
-                  aria-label={t('关闭')}>{t('关闭')}</button>
+                <button onClick={clearImportErrors} className="m3-text-button" aria-label={t('关闭')}>{t('关闭')}</button>
               </div>
               <ul className="mt-1 max-h-24 overflow-y-auto text-xs" style={{ color: 'var(--text-secondary)' }}>
                 {importErrors.slice(0, 20).map((error, index) => (
@@ -455,8 +453,8 @@ export function Library({ onOpenBook, onOpenSettings, onOpenZLibrary, onOpenStat
               <select
                 value={filterTag}
                 onChange={(e) => setFilterTag(e.target.value)}
-                className="px-2 py-1.5 text-xs rounded-md"
-                style={{ background: 'var(--bg-tertiary)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}
+                className={'m3-select ' + (filterTag ? 'is-selected' : '')}
+                aria-label={t('标签')}
                 title={t('标签')}
                 data-testid="filter-tag"
               >
@@ -466,8 +464,8 @@ export function Library({ onOpenBook, onOpenSettings, onOpenZLibrary, onOpenStat
               <select
                 value={filterSeries}
                 onChange={(e) => setFilterSeries(e.target.value)}
-                className="px-2 py-1.5 text-xs rounded-md"
-                style={{ background: 'var(--bg-tertiary)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}
+                className={'m3-select ' + (filterSeries ? 'is-selected' : '')}
+                aria-label={t('系列')}
                 title={t('系列')}
                 data-testid="filter-series"
               >
@@ -477,8 +475,8 @@ export function Library({ onOpenBook, onOpenSettings, onOpenZLibrary, onOpenStat
               <select
                 value={String(minRating)}
                 onChange={(e) => setMinRating(Number(e.target.value))}
-                className="px-2 py-1.5 text-xs rounded-md"
-                style={{ background: 'var(--bg-tertiary)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}
+                className={'m3-select ' + (minRating !== 0 ? 'is-selected' : '')}
+                aria-label={t('评分')}
                 title={t('评分')}
                 data-testid="filter-rating"
               >
@@ -491,16 +489,13 @@ export function Library({ onOpenBook, onOpenSettings, onOpenZLibrary, onOpenStat
               {(filterTag || filterSeries || minRating !== 0) && (
                 <button
                   onClick={() => { setFilterTag(''); setFilterSeries(''); setMinRating(0) }}
-                  className="px-2 py-1.5 text-xs rounded-md transition-colors"
-                  style={{ color: 'var(--text-tertiary)', border: '1px solid var(--border)' }}
+                  className="m3-text-button"
                   data-testid="filter-clear"
-                  onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--text-primary)'; e.currentTarget.style.background = 'var(--surface-hover)' }}
-                  onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-tertiary)'; e.currentTarget.style.background = 'transparent' }}
                 >
                   {t('清除筛选')}
                 </button>
               )}
-              <span className="text-xs ml-auto" style={{ color: 'var(--text-tertiary)' }}>
+              <span className="m3-label-medium ml-auto" aria-live="polite">
                 {t('{{count}} 本书', { count: sortedBooks.length })}
               </span>
             </div>
@@ -520,21 +515,22 @@ export function Library({ onOpenBook, onOpenSettings, onOpenZLibrary, onOpenStat
           )}
 
           {isLoading ? (
-            <div className="flex items-center justify-center h-full"><div className="w-10 h-10 rounded-full border-2 border-[var(--border)] border-t-[var(--accent)] animate-spin" /></div>
+            <div className="flex items-center justify-center h-full"><div className="w-10 h-10 rounded-full border-2 border-[var(--border)] border-t-[var(--accent)] animate-spin" role="status" aria-label={t('加载中...')} /></div>
           ) : sortedBooks.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-full" style={{ color: 'var(--text-tertiary)' }}>
-              <div className="w-32 h-32 rounded-full flex items-center justify-center mb-6" style={{ background: 'var(--bg-tertiary)' }}>
-                <svg className="w-16 h-16 opacity-30" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" /></svg>
+            <div className="m3-empty-state">
+              <div className="m3-empty-state-icon">
+                <svg className="w-10 h-10" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" /></svg>
               </div>
-              <p className="text-xl font-semibold mb-1" style={{ color: 'var(--text-secondary)' }}>{t('开始你的阅读之旅')}</p>
-              <p className="text-sm mb-4" style={{ color: 'var(--text-tertiary)' }}>{t('点击「导入」或拖放文件到此处')}</p>
-              <button onClick={handleImport} className="btn-primary">{t('导入第一本书')}</button>
+              <p className="m3-title-large mb-1">{t('开始你的阅读之旅')}</p>
+              <p className="m3-body-medium mb-5" style={{ color: 'var(--md-sys-color-on-surface-variant)' }}>{t('点击「导入」或拖放文件到此处')}</p>
+              <button onClick={handleImport} className="m3-filled-button">{t('导入第一本书')}</button>
             </div>
           ) : viewMode === 'grid' ? (
             <BookGrid books={sortedBooks} onOpenBook={onOpenBook} onOpenSplit={onOpenSplit} />
           ) : (
             <BookList books={sortedBooks} onOpenBook={onOpenBook} />
           )}
+          </div>
         </div>
       </main>
 

@@ -59,11 +59,13 @@ function BookCardInner({ book, onOpen, onDelete, onRemoveFromShelf, activeShelfI
   const handleContextMenu = (e: React.MouseEvent) => { e.preventDefault(); setMenuPos({ x: e.clientX, y: e.clientY }); setShowShelfMenu(false); setShowMenu(true) }
 
   return (
-    <div className="group relative cursor-pointer" onClick={() => onOpen(book.id)} onContextMenu={handleContextMenu} onMouseLeave={() => setShowMenu(false)}
+    <div className="group relative cursor-pointer m3-card p-2.5 outline-none" onClick={() => onOpen(book.id)} onContextMenu={handleContextMenu} onMouseLeave={() => setShowMenu(false)}
+      role="button" tabIndex={0} aria-label={safeText(book.title) + (book.author ? ' — ' + safeText(book.author) : '')}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpen(book.id) } }}
       data-testid="book-card" data-book-id={book.id}>
 
       {/* Cover card */}
-      <div className="relative aspect-[2/3] rounded-lg overflow-hidden transition-all duration-300 group-hover:-translate-y-1 group-hover:shadow-win-lg" style={{ boxShadow: 'var(--shadow-sm)' }}>
+      <div className="relative aspect-[2/3] overflow-hidden" style={{ borderRadius: 'var(--md-sys-shape-sm)', background: 'var(--md-sys-color-surface-container-high)' }}>
         {coverUrl ? (
           <img src={coverUrl} alt={book.title} className="w-full h-full object-cover" />
         ) : textPreview ? (
@@ -80,7 +82,7 @@ function BookCardInner({ book, onOpen, onDelete, onRemoveFromShelf, activeShelfI
         )}
 
         {/* Format badge */}
-        <span className={`absolute top-2 right-2 text-xs font-bold text-white px-2 py-0.5 rounded ${formatColors[book.format] || 'bg-[var(--text-tertiary)]'}`}>{book.format.toUpperCase()}</span>
+        <span className={`absolute top-2 right-2 m3-badge !min-h-[22px] ${formatColors[book.format] || ''}`}>{book.format.toUpperCase()}</span>
 
         {/* Hover overlay */}
         <div className="absolute inset-0 bg-black/0 group-hover:bg-black/25 transition-colors duration-300 flex items-center justify-center">
@@ -89,11 +91,11 @@ function BookCardInner({ book, onOpen, onDelete, onRemoveFromShelf, activeShelfI
       </div>
 
       {/* Title & author */}
-      <div className="mt-2 px-0.5">
-        <p className="text-sm font-medium truncate" style={{ color: 'var(--text-primary)' }}>{safeText(book.title)}</p>
-        <p className="text-xs truncate" style={{ color: 'var(--text-tertiary)' }}>{safeText(book.author) || t('未知作者')}</p>
+      <div className="mt-3 px-1 pb-1">
+        <p className="m3-title-small truncate">{safeText(book.title)}</p>
+        <p className="m3-body-small truncate mt-0.5">{safeText(book.author) || t('未知作者')}</p>
         {book.series_name ? (
-          <p className="text-[11px] truncate" style={{ color: 'var(--text-tertiary)' }} title={book.series_name}>
+          <p className="m3-label-small truncate mt-0.5" title={book.series_name}>
             {book.series_name}{book.series_index ? ' #' + book.series_index : ''}
           </p>
         ) : null}
@@ -108,7 +110,7 @@ function BookCardInner({ book, onOpen, onDelete, onRemoveFromShelf, activeShelfI
           </div>
         ) : null}
         {readingTime > 0 && (
-          <p className="text-xs mt-0.5 flex items-center gap-1" style={{ color: 'var(--text-tertiary)' }}>
+          <p className="m3-label-small mt-1 flex items-center gap-1">
             <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
             {t('已读 {{time}}', { time: formatReadingTime(readingTime) })}
           </p>
@@ -117,37 +119,27 @@ function BookCardInner({ book, onOpen, onDelete, onRemoveFromShelf, activeShelfI
 
       {/* Acrylic context menu */}
       {showMenu && (
-        <div className="fixed z-50 rounded-lg overflow-hidden shadow-win-lg py-0.5 min-w-[120px] animate-scale-in"
-          style={{ left: menuPos.x, top: menuPos.y, background: 'var(--acrylic-bg)', backdropFilter: 'blur(24px)', border: '1px solid var(--acrylic-border)' }}>
+        <div className="m3-menu fixed z-50 animate-scale-in"
+          style={{ left: menuPos.x, top: menuPos.y }}>
           <button onClick={(e) => { e.stopPropagation(); onOpen(book.id); setShowMenu(false) }}
-            className="w-full text-left px-4 py-2 text-sm transition-colors" style={{ color: 'var(--text-primary)' }}
-            onMouseEnter={(e) => e.currentTarget.style.background = 'var(--surface-hover)'}
-            onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>{t('打开')}</button>
+            className="m3-menu-item">{t('打开')}</button>
           {onOpenSplit && (
             <button onClick={(e) => { e.stopPropagation(); onOpenSplit(book.id); setShowMenu(false) }}
-              className="w-full text-left px-4 py-2 text-sm transition-colors" style={{ color: 'var(--text-primary)' }}
-              onMouseEnter={(e) => e.currentTarget.style.background = 'var(--surface-hover)'}
-              onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+              className="m3-menu-item"
               data-book-split={book.id}>{t('分屏阅读')}</button>
           )}
           <button onClick={(e) => { e.stopPropagation(); setShowDetail(true); setShowMenu(false) }}
-            className="w-full text-left px-4 py-2 text-sm transition-colors" style={{ color: 'var(--text-primary)' }}
-            onMouseEnter={(e) => e.currentTarget.style.background = 'var(--surface-hover)'}
-            onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>{t('详情')}</button>
+            className="m3-menu-item">{t('详情')}</button>
           {bookshelves.length > 0 && (
             <button onClick={(e) => { e.stopPropagation(); setShowShelfMenu(!showShelfMenu) }}
-              className="w-full text-left px-4 py-2 text-sm transition-colors flex items-center justify-between" style={{ color: 'var(--text-primary)' }}
-              onMouseEnter={(e) => e.currentTarget.style.background = 'var(--surface-hover)'}
-              onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
+              className="m3-menu-item justify-between">
               {t('添加到书柜')}
               <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
             </button>
           )}
           {showShelfMenu && bookshelves.map((shelf) => (
             <button key={shelf.id} onClick={(e) => { e.stopPropagation(); addBookToShelf(shelf.id, book.id); setShowMenu(false); setShowShelfMenu(false) }}
-              className="w-full text-left px-6 py-1.5 text-sm transition-colors" style={{ color: 'var(--text-secondary)' }}
-              onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--surface-hover)'; e.currentTarget.style.color = 'var(--text-primary)' }}
-              onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-secondary)' }}>{shelf.name}</button>
+              className="m3-menu-item !pl-8">{shelf.name}</button>
           ))}
           {activeShelfId != null && onRemoveFromShelf ? (
             <button onClick={(e) => { e.stopPropagation(); onRemoveFromShelf(book.id); setShowMenu(false) }}

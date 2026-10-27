@@ -496,7 +496,8 @@ export function ReaderView({ bookId, onClose, onOpenSplit }: ReaderViewProps) {
         {/* Back button */}
         <button
           onClick={async () => { await endReadingSession(); await flushProgress(); clearBookSettings(); onClose() }}
-          className="absolute top-4 left-4 z-30 p-2 rounded-lg bg-black/20 hover:bg-black/40 text-white/70 hover:text-white transition-all backdrop-blur-sm"
+          className="m3-icon-button absolute top-4 left-4 z-30 !w-12 !h-12"
+          style={{ background: 'var(--md-sys-color-surface-container-high)', color: 'var(--md-sys-color-on-surface)', boxShadow: 'var(--md-sys-elevation-1)' }}
         >
           <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
@@ -507,7 +508,8 @@ export function ReaderView({ bookId, onClose, onOpenSplit }: ReaderViewProps) {
             两者互斥，本按钮不替代旧侧栏。 */}
         <button
           onClick={() => setShowAnnotations((value) => !value)}
-          className="absolute top-4 right-4 z-30 p-2 rounded-lg bg-black/20 hover:bg-black/40 text-white/70 hover:text-white transition-all backdrop-blur-sm"
+          className="m3-icon-button absolute top-4 right-4 z-30 !w-12 !h-12"
+          style={{ background: 'var(--md-sys-color-surface-container-high)', color: 'var(--md-sys-color-on-surface)', boxShadow: 'var(--md-sys-elevation-1)' }}
           title={t('标注')}
           aria-label={t('标注')}
           data-testid="annotation-toggle"
@@ -526,7 +528,8 @@ export function ReaderView({ bookId, onClose, onOpenSplit }: ReaderViewProps) {
         {/* Page turn arrows */}
         <button
           onClick={(e) => { e.stopPropagation(); turnPage(-1) }}
-          className={`absolute left-2 top-1/2 -translate-y-1/2 z-20 p-3 rounded-full bg-black/30 hover:bg-black/50 text-white/60 hover:text-white transition-all duration-300 backdrop-blur-sm ${showArrows ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+          className={`m3-icon-button absolute left-2 top-1/2 -translate-y-1/2 z-20 !w-12 !h-12 ${showArrows ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+          style={{ background: 'var(--md-sys-color-surface-container-high)', color: 'var(--md-sys-color-on-surface)', boxShadow: 'var(--md-sys-elevation-1)' }}
           title={t('上一页')}
         >
           <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -535,7 +538,8 @@ export function ReaderView({ bookId, onClose, onOpenSplit }: ReaderViewProps) {
         </button>
         <button
           onClick={(e) => { e.stopPropagation(); turnPage(1) }}
-          className={`absolute right-2 top-1/2 -translate-y-1/2 z-20 p-3 rounded-full bg-black/30 hover:bg-black/50 text-white/60 hover:text-white transition-all duration-300 backdrop-blur-sm ${showArrows ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+          className={`m3-icon-button absolute right-2 top-1/2 -translate-y-1/2 z-20 !w-12 !h-12 ${showArrows ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+          style={{ background: 'var(--md-sys-color-surface-container-high)', color: 'var(--md-sys-color-on-surface)', boxShadow: 'var(--md-sys-elevation-1)' }}
           title={t('下一页')}
         >
           <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">

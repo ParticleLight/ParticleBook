@@ -103,7 +103,7 @@ function Segment<T extends string>({ options, value, onChange }: {
 }
 
 function SectionTitle({ children }: { children: React.ReactNode }) {
-  return <h3 className="text-[13px] font-semibold uppercase tracking-wider mb-3" style={{ color: 'var(--text-tertiary)' }}>{children}</h3>
+  return <h3 className="m3-section-title mb-3">{children}</h3>
 }
 
 // ─── Settings pages ───

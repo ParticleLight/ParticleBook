@@ -203,11 +203,6 @@ export function DictionaryPopup({ open, onClose, request }: DictionaryPopupProps
 
   if (!open) return null
 
-  const panelStyle = {
-    background: 'var(--reader-sidebar)',
-    borderColor: 'var(--reader-border)',
-    color: 'var(--reader-text)',
-  }
   const loaded = !!(status && status.loaded)
   const enabled = status?.enabled !== false
 
@@ -222,17 +217,17 @@ export function DictionaryPopup({ open, onClose, request }: DictionaryPopupProps
 
   return (
     <div className="fixed inset-0 z-[70] flex items-start justify-center pt-16 pointer-events-none" role="dialog" aria-modal="true" aria-label={t('词典')}>
-      <div className="pointer-events-auto w-[560px] max-w-[92vw] max-h-[75vh] rounded-xl border shadow-2xl overflow-hidden text-sm" style={panelStyle}>
-        <div className="flex items-center justify-between px-4 py-2.5 border-b" style={{ borderColor: 'var(--reader-border)' }}>
+      <div className="m3-dialog pointer-events-auto w-[560px] max-w-[92vw] max-h-[75vh] overflow-hidden text-sm flex flex-col">
+        <div className="flex items-center justify-between px-5 py-4">
           <div className="flex items-center gap-2 min-w-0">
-            <span className="text-xs font-medium">{t('本地词典')}</span>
-            <span className="text-[11px] opacity-60 truncate">
+            <span className="m3-title-medium">{t('本地词典')}</span>
+            <span className="m3-body-small truncate">
               {loaded ? t('词库已加载：{{count}} 个词条', { count: status?.entries ?? 0 }) : t('尚未导入词库')}
             </span>
           </div>
           <button
             onClick={onClose}
-            className="p-1 rounded opacity-60 hover:opacity-100"
+            className="m3-icon-button !w-9 !h-9"
             title={t('关闭词典')}
             aria-label={t('关闭词典')}
           >
@@ -250,8 +245,7 @@ export function DictionaryPopup({ open, onClose, request }: DictionaryPopupProps
               onChange={(e) => setWord(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter') void lookup(word) }}
               placeholder={t('输入单词后按 Enter 或点「查词」')}
-              className="flex-1 px-3 py-2 rounded-lg text-sm border"
-              style={{ background: 'var(--reader-bg)', borderColor: 'var(--reader-border)', color: 'var(--reader-text)' }}
+              className="input flex-1"
             />
             <button onClick={() => void lookup(word)} disabled={busy || !word.trim()} className="px-3 py-2 rounded-lg text-xs border shrink-0" style={{ borderColor: 'var(--reader-border)' }}>
               {t('查词')}

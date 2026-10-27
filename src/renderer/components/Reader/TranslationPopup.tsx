@@ -341,25 +341,21 @@ export function TranslationPopup({ bottomInset = 120, onOpenSettings, request, o
       {panel.open && panelPos && (
         <div
           data-pb-translate-panel="1"
-          className="fixed z-[61] rounded-xl border shadow-2xl overflow-hidden text-sm"
+          className="m3-dialog fixed z-[61] overflow-hidden text-sm"
           style={{
             left: panelPos.left,
             top: panelPos.top,
             width: PANEL_WIDTH,
             maxHeight: PANEL_MAX_HEIGHT,
-            background: 'var(--reader-sidebar, #1f2937)',
-            borderColor: 'var(--reader-border, #374151)',
-            color: 'var(--reader-text, #e5e7eb)',
           }}
           onMouseDown={(e) => e.stopPropagation()}
         >
-          <div className="flex items-center justify-between px-3 py-2 border-b" style={{ borderColor: 'var(--reader-border, #374151)' }}>
-            <span className="text-xs font-medium opacity-80">
+          <div className="flex items-center justify-between px-4 py-3">
+            <span className="m3-title-small">
               {t('翻译')}{panel.target ? ' → ' + panel.target : ''}
               {panel.cached && (
                 <span
-                  className="ml-2 px-1.5 py-0.5 rounded text-[10px] align-middle"
-                  style={{ background: 'var(--accent)', color: 'var(--bg-primary)' }}
+                  className="m3-badge ml-2 align-middle"
                   title={t('来自本地缓存，可离线查看')}
                 >
                   {t('缓存')}
@@ -369,7 +365,7 @@ export function TranslationPopup({ bottomInset = 120, onOpenSettings, request, o
             <div className="flex items-center gap-1">
               <button
                 onClick={speakSource}
-                className="px-2 py-0.5 rounded text-xs opacity-70 hover:opacity-100"
+                className="m3-text-button !min-h-8 !px-2"
                 title={t('朗读')}
                 aria-label={t('朗读')}
               >
@@ -378,7 +374,7 @@ export function TranslationPopup({ bottomInset = 120, onOpenSettings, request, o
               {panel.translation && (
                 <button
                   onClick={copyTranslation}
-                  className="px-2 py-0.5 rounded text-xs opacity-70 hover:opacity-100"
+                  className="m3-text-button !min-h-8 !px-2"
                   title={t('复制译文')}
                   aria-label={t('复制译文')}
                 >
@@ -387,7 +383,7 @@ export function TranslationPopup({ bottomInset = 120, onOpenSettings, request, o
               )}
               <button
                 onClick={closePanel}
-                className="p-1 rounded opacity-60 hover:opacity-100"
+                className="m3-icon-button !w-8 !h-8"
                 title={t('关闭翻译')}
                 aria-label={t('关闭翻译')}
               >
