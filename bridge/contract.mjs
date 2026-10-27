@@ -256,6 +256,19 @@ export const types = [
   },
   { name: 'PbChapter', body: ['  name: string', '  url: string'] },
   {
+    name: 'PbImportProgress',
+    body: [
+      '  // PB-017-B：book:import 逐文件进度。开始处理第 current 个文件时发出一次，',
+      '  // 全部处理完再发一次 done=true 的收尾事件（message 为空，errors 为汇总）。',
+      '  // errors 是 "文件名: 原因" 的可读字符串（致命跳过才会进这个列表）。',
+      '  current: number',
+      '  total: number',
+      '  message: string',
+      '  done: boolean',
+      '  errors: string[]'
+    ]
+  },
+  {
     name: 'PbDownloadProgress',
     body: [
       '  // 阶段序列：fetching_toc -> downloading（带 chapterName）-> assembling',
@@ -333,7 +346,16 @@ export const contract = [
     kind: "invoke",
     group: "Files",
     params: [{ n: "filePaths", t: "string[]" }],
+    // 逐文件进度走 book:importProgress 事件（onImportProgress）；返回值仍是
+    // 成功导入/已存在的书籍数组，失败文件不进来（错误在事件的 errors 里）。
     returns: "Promise<PbBook[]>"
+  },
+  {
+    member: "onImportProgress", method: "book:importProgress",
+    kind: "event",
+    group: "Files",
+    params: [{ n: "callback", t: "(progress: PbImportProgress) => void" }],
+    returns: "() => void"
   },
   {
     member: "writeDroppedFile", method: "book:writeDroppedFile",

@@ -354,6 +354,7 @@ std::string BridgeServer::GenerateBridgeScript()
     onZlibDownloadError: function(cb)   { return onEvent('zlib:downloadError', cb); },
 
     onLibraryChanged: function(cb) { return onEvent('library:changed', cb); },
+    onImportProgress: function(cb) { return onEvent('book:importProgress', cb); },
     getPendingOpenFiles: function() { return invoke('app:getPendingOpenFiles'); },
     exportDiagnostics: function() { return invoke('app:exportDiagnostics'); },
     exportAnnotations: function(bookId, format, options) { return invoke('export:annotations', {bookId:bookId||0, format:format||'markdown', options:options||{}}); },

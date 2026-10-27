@@ -31,6 +31,11 @@ export const enLibrary: Record<string, string> = {
   '列表视图': 'List view',
   '导入书籍': 'Import books',
   '导入': 'Import',
+  // PB-017-B：批量导入进度 / 错误汇总
+  '导入中 {{current}}/{{total}}：{{message}}': 'Importing {{current}}/{{total}}: {{message}}',
+  '导入完成': 'Import complete',
+  '部分文件导入失败（{{count}}）': 'Some files failed to import ({{count}})',
+  '还有 {{count}} 条…': 'and {{count}} more…',
   '更多操作': 'More actions',
   '刷新书架': 'Refresh library',
   '阅读统计': 'Reading statistics',

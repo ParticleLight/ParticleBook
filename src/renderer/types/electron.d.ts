@@ -216,6 +216,17 @@ interface PbChapter {
   url: string
 }
 
+interface PbImportProgress {
+  // PB-017-B：book:import 逐文件进度。开始处理第 current 个文件时发出一次，
+  // 全部处理完再发一次 done=true 的收尾事件（message 为空，errors 为汇总）。
+  // errors 是 "文件名: 原因" 的可读字符串（致命跳过才会进这个列表）。
+  current: number
+  total: number
+  message: string
+  done: boolean
+  errors: string[]
+}
+
 interface PbDownloadProgress {
   // 阶段序列：fetching_toc -> downloading（带 chapterName）-> assembling
   //          -> importing -> done | error。done/error 带 bookId；
@@ -291,6 +302,7 @@ interface ElectronAPI {
   openFile: () => Promise<string | null>
   readFile: (filePath: string) => Promise<PbFileContent>
   importBooks: (filePaths: string[]) => Promise<PbBook[]>
+  onImportProgress: (callback: (progress: PbImportProgress) => void) => () => void
   writeDroppedFile: (name: string, dataB64: string) => Promise<{ path: string; size: number } | null>
   getCoverImage: (bookId: number) => Promise<string | null>
 

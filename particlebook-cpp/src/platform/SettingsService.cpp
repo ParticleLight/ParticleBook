@@ -728,6 +728,9 @@ const std::vector<SettingSpec>& SettingsService::Schema()
         // 语言是全局设置（渲染层特意不放进 SETTINGS_KEYS，避免被书级值覆盖）
         specs.push_back(MakeEnum("language", "zh", {"zh", "en"}));
 
+        // PB-017：书库性能 / 封面内存缓存上限（渲染层 LRU 保留条数，50..1000）。
+        specs.push_back(MakeInt("library.coverCacheSize", 300, 50, 1000));
+
         // 预留：PB-001 TTS（音色 / 语速 / 音量 / 睡眠定时；voice 是系统音色 id，
         // 非敏感，Key 类配置不属于这里）
         specs.push_back(MakeBool("tts.enabled", false));

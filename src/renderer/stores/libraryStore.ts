@@ -11,12 +11,17 @@ import { useSettingsStore } from './settingsStore'
 //   * 超过上限按插入顺序淘汰最久未用（get 时 refresh 顺序 = LRU）；
 //   * 缓存值不写入磁盘，只活在渲染进程内存里，退出即释放。
 // 这样 BookCard 不需要改动（不在本次改动范围），也天然对列表视图生效。
-const COVER_CACHE_MAX = 300
+// PB-017-B：上限可由 settings 的 library.coverCacheSize 配置（50..1000，默认 300）。
+const COVER_CACHE_MIN = 50
+const COVER_CACHE_DEFAULT = 300
+const COVER_CACHE_HARD_MAX = 1000
+let coverCacheMax = COVER_CACHE_DEFAULT
 const coverCache = new Map<number, string>()
 const coverInflight = new Map<number, Promise<string | null>>()
 let coverHits = 0
 let coverMisses = 0
 let coverEvictions = 0
+let importProgressClearTimer: ReturnType<typeof setTimeout> | null = null
 
 export interface CoverCacheStats {
   size: number
@@ -27,11 +32,8 @@ export interface CoverCacheStats {
   inflight: number
 }
 
-function touchCover(bookId: number, dataUrl: string): void {
-  // 重新插入到 Map 末尾 = 最近使用；Map 迭代顺序作为 LRU 顺序。
-  if (coverCache.has(bookId)) coverCache.delete(bookId)
-  coverCache.set(bookId, dataUrl)
-  while (coverCache.size > COVER_CACHE_MAX) {
+function trimCoverCache(): void {
+  while (coverCache.size > coverCacheMax) {
     const oldest = coverCache.keys().next().value
     if (oldest === undefined) break
     coverCache.delete(oldest)
@@ -39,10 +41,30 @@ function touchCover(bookId: number, dataUrl: string): void {
   }
 }
 
+function touchCover(bookId: number, dataUrl: string): void {
+  // 重新插入到 Map 末尾 = 最近使用；Map 迭代顺序作为 LRU 顺序。
+  if (coverCache.has(bookId)) coverCache.delete(bookId)
+  coverCache.set(bookId, dataUrl)
+  trimCoverCache()
+}
+
+/** 设置封面 LRU 上限（settings 的 library.coverCacheSize，50..1000）。返回实际生效值。 */
+export function setCoverCacheLimit(limit: number): number {
+  const parsed = Number(limit)
+  const normalized = Number.isFinite(parsed) ? Math.round(parsed) : COVER_CACHE_DEFAULT
+  coverCacheMax = Math.min(COVER_CACHE_HARD_MAX, Math.max(COVER_CACHE_MIN, normalized))
+  trimCoverCache()
+  return coverCacheMax
+}
+
+export function getCoverCacheLimit(): number {
+  return coverCacheMax
+}
+
 export function getCoverCacheStats(): CoverCacheStats {
   return {
     size: coverCache.size,
-    max: COVER_CACHE_MAX,
+    max: coverCacheMax,
     hits: coverHits,
     misses: coverMisses,
     evictions: coverEvictions,
@@ -102,6 +124,15 @@ if (bridgeApi && typeof bridgeApi.getCoverImage === 'function' && !bridgeApi.__p
 //   已随别名化移除。）
 export type Book = PbBook
 
+/** PB-017-B：book:importProgress 的渲染层快照（字段与契约 PbImportProgress 对齐）。 */
+export interface ImportProgressState {
+  current: number
+  total: number
+  message: string
+  done: boolean
+  errors: string[]
+}
+
 export interface Bookshelf {
   id: number
   name: string
@@ -132,6 +163,14 @@ export interface LibraryState {
   // Reading time
   readingTimeMap: Record<number, number>
   readingProgressMap: Record<number, { progress: number; page?: number; updated_at: string }>
+
+  // PB-017-B：批量导入进度 / 错误汇总 / 封面缓存上限（来自 settings）
+  importProgress: ImportProgressState | null
+  importErrors: string[]
+  coverCacheSize: number
+  setImportProgress: (progress: PbImportProgress | null) => void
+  clearImportErrors: () => void
+  loadCoverCacheConfig: () => Promise<void>
 
   loadBooks: () => Promise<void>
   importBook: (filePath: string) => Promise<Book | null>
@@ -194,6 +233,49 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
   readingTimeMap: {},
   readingProgressMap: {},
 
+  // ── PB-017-B：批量导入进度 / 封面缓存上限 ────────────────────────
+  importProgress: null,
+  importErrors: [],
+  coverCacheSize: COVER_CACHE_DEFAULT,
+  setImportProgress: (progress) => {
+    if (importProgressClearTimer !== null) {
+      clearTimeout(importProgressClearTimer)
+      importProgressClearTimer = null
+    }
+    if (!progress) {
+      set({ importProgress: null })
+      return
+    }
+    set({
+      importProgress: {
+        current: Number(progress.current) || 0,
+        total: Number(progress.total) || 0,
+        message: progress.message ?? '',
+        done: !!progress.done,
+        errors: Array.isArray(progress.errors) ? progress.errors.slice() : [],
+      },
+      importErrors: Array.isArray(progress.errors) ? progress.errors.slice() : [],
+    })
+    // 完成态保留 3 秒让用户看到「100%」，错误列表则保留到用户手动关闭。
+    if (progress.done) {
+      importProgressClearTimer = setTimeout(() => {
+        importProgressClearTimer = null
+        set({ importProgress: null })
+      }, 3000)
+    }
+  },
+  clearImportErrors: () => set({ importErrors: [] }),
+  loadCoverCacheConfig: async () => {
+    try {
+      const settings = (await window.electronAPI.getSettings()) as Record<string, unknown>
+      const raw = Number(settings['library.coverCacheSize'])
+      const limit = setCoverCacheLimit(Number.isFinite(raw) && raw > 0 ? raw : COVER_CACHE_DEFAULT)
+      set({ coverCacheSize: limit })
+    } catch (error) {
+      console.error('Failed to load cover cache setting:', error)
+    }
+  },
+
   loadBooks: async () => {
     set({ isLoading: true })
     try {
@@ -209,6 +291,8 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
       set({ books, allBooks })
       // 标签 / 系列下拉框的数据源（新导入的书没有标签，但删除的书可能带走旧标签）
       void get().loadMetadataFacets()
+      // PB-017-B：每次刷新书架顺带读取封面缓存上限（设置页改完回书架即生效）。
+      void get().loadCoverCacheConfig()
     } catch (e) {
       console.error('Failed to load books:', e)
     } finally {

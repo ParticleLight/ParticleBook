@@ -513,9 +513,37 @@ static std::string ParentDirOf(const std::string& path)
     return slash == std::string::npos ? std::string(".") : path.substr(0, slash);
 }
 
-static json ImportPaths(DatabaseService* db, const json& paths, pb::JobContext& job)
+static json ImportPaths(DatabaseService* db, const json& paths, pb::JobContext& job,
+                        BridgeServer* bridge)
 {
     json result = json::array();
+
+    // PB-017-B：批量导入进度 / 逐条错误汇总。
+    //   进度：每个文件开始处理时 job.Progress()（JobService 的节流/UI 回投）+
+    //         book:importProgress 事件（渲染层进度条用）；
+    //   汇总：致命跳过（格式不支持 / 文件读不了 / DOCX 转换失败 / AZW3 无文本 /
+    //         异常）按 "文件名: 原因" 记入 errors；非致命 warning 只写日志。
+    json errors = json::array();
+    const auto emitProgress = [bridge, &job, &errors](long long current, long long total,
+                                                      const std::string& message, bool done) {
+        if (job.IsCancelled() && !done) return;
+        const double percent = total > 0
+            ? 100.0 * static_cast<double>(current) / static_cast<double>(total)
+            : 0.0;
+        job.Progress(percent, message);
+        if (bridge) {
+            bridge->EmitEvent("book:importProgress", json{
+                {"current", current},
+                {"total", total},
+                {"message", message},
+                {"done", done},
+                {"errors", errors},
+            });
+        }
+    };
+    const auto recordError = [&errors](const std::string& path, const std::string& reason) {
+        errors.push_back(GetFileName(path) + ": " + reason);
+    };
 
     char debugBuf[1024];
     snprintf(debugBuf, sizeof(debugBuf),
@@ -529,12 +557,20 @@ static json ImportPaths(DatabaseService* db, const json& paths, pb::JobContext& 
     }
     const size_t requested = paths.size();
 
-    for (const auto& pathJson : paths) {
+    for (size_t index = 0; index < requested; ++index) {
         if (job.IsCancelled()) break;
         std::string path;   // 提到 try 外：catch 里要记录是哪个文件失败
         try {
-            path = pathJson.get<std::string>();
-
+            path = paths[index].get<std::string>();
+        } catch (const std::exception&) {
+            recordError("?", "invalid path");
+            emitProgress(static_cast<long long>(index + 1),
+                         static_cast<long long>(requested), "invalid path", false);
+            continue;
+        }
+        emitProgress(static_cast<long long>(index + 1),
+                     static_cast<long long>(requested), GetFileName(path), false);
+        try {
             snprintf(debugBuf, sizeof(debugBuf), "book:import processing: %s", path.c_str());
             DebugLog(debugBuf);
 
@@ -552,6 +588,7 @@ static json ImportPaths(DatabaseService* db, const json& paths, pb::JobContext& 
             if (format.empty()) {
                 DebugLog("book:import: unknown format, skip");
                 pb::LogWarn("import", "book:import: unknown format, skipped: " + GetFileName(path));
+                recordError(path, "unsupported format");
                 continue;
             }
 
@@ -568,6 +605,7 @@ static json ImportPaths(DatabaseService* db, const json& paths, pb::JobContext& 
                 DebugLog("book:import: file_size failed");
                 pb::LogWarn("import", "book:import: cannot read file size (" +
                                           std::to_string((long long)fileSize) + "): " + GetFileName(path));
+                recordError(path, "cannot read file");
                 continue;
             }
 
@@ -617,6 +655,7 @@ static json ImportPaths(DatabaseService* db, const json& paths, pb::JobContext& 
                 if (!converted.ok) {
                     pb::LogWarn("import", "book:import: DOCX conversion failed (" + converted.error +
                                               "): " + GetFileName(path));
+                    recordError(path, "docx conversion failed");
                     continue;
                 }
                 const std::string docxDir = ParentDirOf(db->Path()) + "/docx";
@@ -647,6 +686,7 @@ static json ImportPaths(DatabaseService* db, const json& paths, pb::JobContext& 
                 if (probe.empty()) {
                     pb::LogWarn("import", "book:import: AZW3 text conversion unavailable "
                                               "(MuPDF unsupported or DRM): " + GetFileName(path));
+                    recordError(path, "azw3 text unavailable (DRM or unsupported)");
                     continue;
                 }
             }
@@ -674,10 +714,16 @@ static json ImportPaths(DatabaseService* db, const json& paths, pb::JobContext& 
             snprintf(debugBuf, sizeof(debugBuf), "book:import: exception: %s", e.what());
             DebugLog(debugBuf);
             pb::LogError("import", "book:import: exception for " + GetFileName(path) + ": " + e.what());
+            recordError(path, std::string("import failed: ") + e.what());
         } catch (...) {
             DebugLog("book:import: unknown crash, skipping file");
             pb::LogError("import", "book:import: unknown exception for " + GetFileName(path));
+            recordError(path, "import failed: unknown exception");
         }
+    }
+    if (!job.IsCancelled()) {
+        emitProgress(static_cast<long long>(requested), static_cast<long long>(requested),
+                     std::string(), true);
     }
     snprintf(debugBuf, sizeof(debugBuf), "book:import: returning %zu books", result.size());
     DebugLog(debugBuf);
@@ -723,12 +769,14 @@ void RegisterFileHandlers(BridgeServer* bridge, DatabaseService* db, ContentCach
         });
 
     bridge->RegisterAsyncMethod("book:import",
-        [db, jobs](const json& p, std::function<void(json)> respond, std::function<void(std::string)> reject) {
+        [db, jobs, bridge](const json& p, std::function<void(json)> respond, std::function<void(std::string)> reject) {
             if (!jobs) { reject("job_service_unavailable"); return; }
             const json paths = p.value("paths", json::array());
             auto out = std::make_shared<json>(json::array());
             const pb::JobId id = jobs->Submit("book:import",
-                [db, paths, out](pb::JobContext& job) { *out = ImportPaths(db, paths, job); },
+                [db, bridge, paths, out](pb::JobContext& job) {
+                    *out = ImportPaths(db, paths, job, bridge);
+                },
                 nullptr,
                 [out, respond, reject](const pb::JobResult& r) {
                     if (!r.ok) { reject(r.cancelled ? "cancelled" : r.error); return; }

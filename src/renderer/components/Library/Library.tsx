@@ -136,6 +136,11 @@ export function Library({ onOpenBook, onOpenSettings, onOpenZLibrary, onOpenStat
   const loadBookshelves = useLibraryStore((s) => s.loadBookshelves)
   const loadReadingTime = useLibraryStore((s) => s.loadReadingTime)
   const loadReadingProgress = useLibraryStore((s) => s.loadReadingProgress)
+  const loadCoverCacheConfig = useLibraryStore((s) => s.loadCoverCacheConfig)
+  // PB-017-B：批量导入进度 / 逐条错误（C++ book:importProgress）
+  const importProgress = useLibraryStore((s) => s.importProgress)
+  const importErrors = useLibraryStore((s) => s.importErrors)
+  const clearImportErrors = useLibraryStore((s) => s.clearImportErrors)
   const [isDragOver, setIsDragOver] = useState(false)
   const [showChangelog, setShowChangelog] = useState(false)
   const [showBookSource, setShowBookSource] = useState(false)
@@ -147,7 +152,12 @@ export function Library({ onOpenBook, onOpenSettings, onOpenZLibrary, onOpenStat
   const moreBtnRef = useRef<HTMLButtonElement>(null)
   const { t } = useTranslation()
 
-  useEffect(() => { loadBookshelves(); loadReadingTime(); loadReadingProgress(); loadMetadataFacets() }, [loadBookshelves, loadReadingTime, loadReadingProgress, loadMetadataFacets])
+  useEffect(() => {
+    loadBookshelves(); loadReadingTime(); loadReadingProgress(); loadMetadataFacets()
+    // PB-017-B：进入书库就应用 settings 里的封面缓存上限（设置页改完返回即生效，
+    // 不必等下一次 loadBooks）。
+    void loadCoverCacheConfig()
+  }, [loadBookshelves, loadReadingTime, loadReadingProgress, loadMetadataFacets, loadCoverCacheConfig])
 
   useEffect(() => { applyDisplayDefaults() }, [applyDisplayDefaults, defaultViewMode, defaultSortBy])
 
@@ -160,6 +170,15 @@ export function Library({ onOpenBook, onOpenSettings, onOpenZLibrary, onOpenStat
       useLibraryStore.getState().loadBooks()
     }
     return () => { delete window.__refreshLibrary }
+  }, [])
+
+  // PB-017-B：C++ 在 book:import 里逐文件发 book:importProgress；这里写入 store，
+  // 进度条 + 错误列表由下面的 UI 渲染（事件里 done=true 是收尾汇总）。
+  useEffect(() => {
+    const unsubscribe = window.electronAPI.onImportProgress((progress) => {
+      useLibraryStore.getState().setImportProgress(progress)
+    })
+    return unsubscribe
   }, [])
 
   const sortedBooks = useMemo(() => {
@@ -271,6 +290,9 @@ export function Library({ onOpenBook, onOpenSettings, onOpenZLibrary, onOpenStat
   const shelfName = activeShelfId !== null
     ? (bookshelves.find((s) => s.id === activeShelfId)?.name ?? '')
     : t('全部书籍')
+  const importPercent = importProgress && importProgress.total > 0
+    ? Math.min(100, Math.round((importProgress.current / importProgress.total) * 100))
+    : 0
 
   return (
     <div className="h-screen flex flex-col" style={{ background: 'var(--bg)' }}
@@ -384,6 +406,49 @@ export function Library({ onOpenBook, onOpenSettings, onOpenZLibrary, onOpenStat
         {/* Content */}
         <div className="flex-1 overflow-y-auto p-8 relative" data-library-scroll="1"
           style={{ background: 'var(--bg)', overflowAnchor: 'none' }}>
+          {/* PB-017-B：批量导入进度 / 逐条错误汇总（C++ book:importProgress 事件） */}
+          {importProgress && importProgress.total > 0 && (
+            <div data-testid="import-progress" className="mb-4 rounded-lg px-3 py-2"
+              style={{ background: 'var(--acrylic-bg)', border: '1px solid var(--acrylic-border)' }}>
+              <div className="flex items-center justify-between gap-3 text-xs" style={{ color: 'var(--text-secondary)' }}>
+                <span className="truncate">
+                  {importProgress.done
+                    ? t('导入完成')
+                    : t('导入中 {{current}}/{{total}}：{{message}}', {
+                        current: importProgress.current,
+                        total: importProgress.total,
+                        message: importProgress.message || '…',
+                      })}
+                </span>
+                <span className="font-mono flex-shrink-0">{importPercent}%</span>
+              </div>
+              <div className="mt-1.5 h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--bg-tertiary)' }}>
+                <div style={{ width: `${importPercent}%`, height: '100%', background: 'var(--accent)', transition: 'width 150ms ease' }} />
+              </div>
+            </div>
+          )}
+          {importErrors.length > 0 && (
+            <div data-testid="import-errors" className="mb-4 rounded-lg px-3 py-2"
+              style={{ background: 'var(--color-red-bg)', border: '1px solid var(--color-red)' }}>
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-semibold" style={{ color: 'var(--text-primary)' }}>
+                  {t('部分文件导入失败（{{count}}）', { count: importErrors.length })}
+                </span>
+                <button onClick={clearImportErrors} className="text-xs px-2 py-0.5 rounded"
+                  style={{ color: 'var(--text-secondary)', border: '1px solid var(--border)' }}
+                  aria-label={t('关闭')}>{t('关闭')}</button>
+              </div>
+              <ul className="mt-1 max-h-24 overflow-y-auto text-xs" style={{ color: 'var(--text-secondary)' }}>
+                {importErrors.slice(0, 20).map((error, index) => (
+                  <li key={`${index}-${error}`} className="truncate" title={error}>{error}</li>
+                ))}
+                {importErrors.length > 20 && (
+                  <li>{t('还有 {{count}} 条…', { count: importErrors.length - 20 })}</li>
+                )}
+              </ul>
+            </div>
+          )}
+
           {/* PB-005：标签 / 系列 / 评分筛选（与搜索、排序叠加） */}
           {books.length > 0 && (
             <div className="flex flex-wrap items-center gap-2 mb-4" data-testid="library-filters">
