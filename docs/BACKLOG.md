@@ -9,7 +9,6 @@
 
 | ID | 事项 | 优先级 | 状态 | 版本 | 一句话说明 |
 |---|---|---|---|---|---|
-| PB-002 | AI 翻译（用户自带 Key） | P0 | 🚧 进行中 | 2.2.1 | 全链已接；真实 provider/共用弹层待补 |
 | PB-006 | 跨书全文搜索 | P1 | 🚧 进行中 | 2.2.1 | 搜索 UI/索引已接；精确跳转/PDF/FB2 待补 |
 | PB-008 | 格式补齐 | P2 | 🚧 进行中 | 2.2.1 | DOCX 完成；AZW3 待真实样本 |
 | PB-009 | 双栏 / 分屏 / 竖排 | P2 | 📋 待办 | 2.2.1 | 大屏与竖排阅读 |
@@ -29,7 +28,7 @@
 6. ✅ PB-021 Locator + Annotation 统一模型（已完成）
 7. ✅ PB-023 Settings + SecretStore（已完成）
 8. ✅ PB-001 TTS 朗读（已完成）
-9. PB-002 AI 翻译（用户自带 Key）
+9. ✅ PB-002 AI 翻译（用户自带 Key，已完成）
 
 ### 批次 2 · P1（10 项）
 
@@ -94,17 +93,17 @@
 - 兼容 OpenAI 兼容接口（DeepSeek / OpenAI / Kimi / 智谱 / 硅基流动等），Base URL 与模型名可填。
 
 **MVP 验收**
-- [ ] 设置页：Base URL / API Key / 模型名 / 目标语言 / 「测试连接」
-- [ ] 选中文本弹层「翻译」，显示原文 + 译文，可复制
-- [ ] 段落翻译（EPUB / TXT / HTML / FB2 / Markdown；PDF 无文本层，先不做划词）
-- [ ] 结果本地缓存（按原文 hash），重复翻译/离线可看
-- [ ] 错误处理：Key 无效、额度不足、网络失败、超时、模型不存在，给可读提示
-- [ ] 只发送选中的文本 + 必要参数；不发送书名 / 文件路径（可选上下文由用户勾选）
-- [ ] 与 TTS / 高亮共用同一个选中文本弹层
+- [x] 设置页：Base URL / API Key / 模型名 / 目标语言 / 「测试连接」
+- [x] 选中文本弹层「翻译」，显示原文 + 译文，可复制
+- [x] 段落翻译（EPUB / TXT / HTML / FB2 / Markdown；PDF 无文本层，先不做划词）
+- [x] 结果本地缓存（按原文 hash），重复翻译/离线可看
+- [x] 错误处理：Key 无效、额度不足、网络失败、超时、模型不存在，给可读提示
+- [x] 只发送选中的文本 + 必要参数；不发送书名 / 文件路径（可选上下文由用户勾选）
+- [x] 与 TTS / 高亮共用同一个选中文本弹层
 
 **非目标（本版）**：离线模型、免费公共接口、全书一键翻译、词典释义、语音翻译、流式输出（可后续）。
 
-**进度（2026-10-26）**：TranslationService（`bfc4fd2`）+ SecretStore/handler/设置页（`23fd60b`）+ 选中翻译弹层/缓存/测试连接（`5019267`），CDP mock 成功/离线缓存/错误分支。剩余：真实 provider 验证、与高亮共用同一弹层、PDF 划词（非目标）。
+**进度（2026-10-27）：已完成。** TranslationService + SecretStore/设置页 + 选中翻译弹层/缓存/测试连接；SelectionToolbar 与 TTS/高亮共用入口；adapter 选区上下文（前后 300 字）纳入请求与缓存 key；真实 WinHTTP + 本地 OpenAI 兼容 provider E2E 通过（17/17）。外部公网 provider 需用户 Key，未在本机验证。
 
 **决策记录**：2026-10-26 用户明确——翻译只用 AI，必须用户填写第三方 Key 才可使用；不做离线模型 / 免费公共接口。
 
@@ -464,7 +463,7 @@
 
 **非目标**：一次性全部拆完；不追求「每文件 < 300 行」的形式指标。
 
-**进度（2026-10-27）**：注入 JS 外置（`resources/zlib_toolbar.js`、`download_card.js`，缺失回退+WARN）；ZLibraryService 拆为 Service/Mirror/Download 3 TU + Internal.h；FileHandlers 拆出 Update；FileHandlers 1247→1079。剩余：ReaderView/EpubRenderer/GlobalSettings 拆分、FileHandlers 导入段、BookSourceService/WebViewHost 收缩；installer.nsi 需确认 resources。commit `1fe15e4`。
+**进度（2026-10-27）**：注入 JS 外置（resources/*.js）；ZLibraryService 拆 Service/Mirror/Download；FileHandlers 1069→661（FileFormatService/FileImportService）；GlobalSettings 962→87（GlobalSettingsPages）；EpubRenderer 抽 Theme；ReaderView 抽 ReaderStatusView；installer 打包 resources。剩余：ReaderView 加载/错误页与 ConfirmDialog、EpubRenderer search 段、BookSourceService/WebViewHost 收缩。commit `1fe15e4`/`473c969`。
 
 ## PB-025 · 设计基元 + 主题审计
 
@@ -510,6 +509,7 @@
 | PB-018 关键路径 E2E | 2026-10-27 | `21b3719`（未发版） |
 | PB-021 Locator + Annotation 统一模型 | 2026-10-27 | `2b54943` / `46ba5b2`（未发版） |
 | PB-022 ReaderAdapter + 共享阅读交互 | 2026-10-27 | `46ba5b2`（未发版） |
+| PB-002 AI 翻译 | 2026-10-27 | `5019267` / `5b612c5`（未发版） |
 | PB-001 TTS 朗读 | 2026-10-26 | `ea2308a` / `444583b` / `8a1e4f2` / `8f149ce` / `fe1c5dc`（未发版） |
 
 ## 暂缓 / 否决
