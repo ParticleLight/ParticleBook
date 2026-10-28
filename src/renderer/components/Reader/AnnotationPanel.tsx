@@ -24,6 +24,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import i18n from '../../i18n'
 import { useAnnotationStore } from '../../stores/annotationStore'
+import { M3Select, type M3SelectOption } from '../UI/M3Select'
 import { useReaderStore, type ReadingProgress } from '../../stores/readerStore'
 import {
   annotationText,
@@ -140,6 +141,12 @@ export function AnnotationPanel({ bookId, format, onClose }: AnnotationPanelProp
     () => bookAnnotations.some((item) => item.locator.kind === 'pdf'),
     [bookAnnotations],
   )
+
+  // 排序下拉的选项（原 <option> 列表一一映射）
+  const sortOptions = useMemo<M3SelectOption[]>(() => [
+    { value: 'position', label: t('按位置') },
+    { value: 'created', label: t('按时间') },
+  ], [t])
 
   // 旧侧栏数据刷新（C++ 已双写，重拉一次三个旧列表即可；不触碰旧 store 的其它状态）。
   const refreshLegacyViews = async () => {
@@ -337,16 +344,13 @@ export function AnnotationPanel({ bookId, format, onClose }: AnnotationPanelProp
             </button>
           )}
         </div>
-        <select
+        <M3Select
           value={sort}
-          onChange={(e) => setSort(e.target.value as AnnotationSort)}
-          className="m3-select"
+          options={sortOptions}
+          onChange={(next) => setSort(next as AnnotationSort)}
           title={t('排序')}
           aria-label={t('排序')}
-        >
-          <option value="position">{t('按位置')}</option>
-          <option value="created">{t('按时间')}</option>
-        </select>
+        />
       </div>
 
       {error && (

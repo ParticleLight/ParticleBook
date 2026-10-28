@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useReaderStore } from '../../stores/readerStore'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { useReaderAdapter } from '../../reader'
+import { M3Select, type M3SelectOption } from '../UI/M3Select'
 
 // ── PB-001-B：阅读器内的 TTS 控制条 ──────────────────────────────────
 //
@@ -622,6 +623,25 @@ export function TtsBar({ bookId, filePath, format, onClose }: TtsBarProps) {
   const currentSentence = current >= 0 ? sentences[current] : ''
   const progressText = sentences.length ? (current + 1) + '/' + sentences.length : ''
 
+  // 睡眠定时 / 音色下拉的选项（原 <option> 列表一一映射）
+  const sleepOptions = useMemo<M3SelectOption[]>(() => [
+    { value: 'off', label: t('关闭定时') },
+    ...SLEEP_MINUTES.map((minutes) => ({
+      value: String(minutes),
+      label: t('{{n}} 分钟', { n: minutes }),
+    })),
+    { value: 'chapter', label: t('到本章结束') },
+  ], [t])
+
+  const voiceOptions = useMemo<M3SelectOption[]>(() => (
+    voices.length === 0
+      ? [{ value: '', label: t('无可用音色') }]
+      : voices.map((voice) => ({
+          value: voice.id,
+          label: voice.language ? `${voice.name} (${voice.language})` : voice.name,
+        }))
+  ), [t, voices])
+
   return (
     <div className="m3-card max-w-5xl mx-auto mb-2 px-4 py-2.5 flex items-center gap-2 text-sm"
          data-tts-bar="1"
@@ -697,41 +717,30 @@ export function TtsBar({ bookId, filePath, format, onClose }: TtsBarProps) {
         <svg className="w-4 h-4 opacity-60" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
         </svg>
-        <select
+        <M3Select
           value={sleepMode}
-          onChange={(e) => { setHint(''); setSleepMode(e.target.value as SleepMode) }}
-          className="m3-select shrink-0"
+          options={sleepOptions}
+          onChange={(next) => { setHint(''); setSleepMode(next as SleepMode) }}
+          className="shrink-0"
           title={t('睡眠定时')}
           aria-label={t('睡眠定时')}
           data-tts-sleep="1"
-        >
-          <option value="off">{t('关闭定时')}</option>
-          {SLEEP_MINUTES.map((minutes) => (
-            <option key={minutes} value={String(minutes)}>{t('{{n}} 分钟', { n: minutes })}</option>
-          ))}
-          <option value="chapter">{t('到本章结束')}</option>
-        </select>
+        />
         {sleepLeft && (
           <span className="text-xs tabular-nums opacity-70 min-w-[2.6rem] text-center" data-tts-sleep-left="1">{sleepLeft}</span>
         )}
       </div>
 
       {/* 音色 */}
-      <select
+      <M3Select
         value={voiceId}
-        onChange={(e) => handleVoiceChange(e.target.value)}
+        options={voiceOptions}
+        onChange={handleVoiceChange}
         disabled={voices.length <= 1}
-        className="m3-select shrink-0 max-w-[10rem]"
+        className="shrink-0 max-w-[10rem]"
         title={t('音色')}
         aria-label={t('音色')}
-      >
-        {voices.length === 0 && <option value="">{t('无可用音色')}</option>}
-        {voices.map((v) => (
-          <option key={v.id} value={v.id}>
-            {v.name}{v.language ? ' (' + v.language + ')' : ''}
-          </option>
-        ))}
-      </select>
+      />
 
       {/* 关闭 */}
       <button

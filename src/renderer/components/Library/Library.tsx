@@ -6,6 +6,7 @@ import { BookGrid } from './BookGrid'
 import { BookList } from './BookList'
 import { BookShelfPanel } from './BookShelfPanel'
 import { NavRail, ModalNavDrawer, type NavRailItem } from '../UI/NavRail'
+import { M3Select, type M3SelectOption } from '../UI/M3Select'
 import { useWindowSizeClass } from '../../hooks/useWindowSizeClass'
 import { safeText } from '../../utils/safeText'
 import { useTranslation } from 'react-i18next'
@@ -251,6 +252,32 @@ export function Library({ onOpenBook, onOpenSettings, onOpenZLibrary, onOpenStat
     })
   }, [books, searchQuery, sortBy, filterTag, filterSeries, minRating])
 
+  // 排序 / 筛选下拉的选项（原 <option> 列表一一映射；M3Select 的 options 形参）
+  const sortOptions = useMemo<M3SelectOption[]>(() => [
+    { value: 'last_opened', label: t('最近') },
+    { value: 'added_at', label: t('添加', { context: 'sort' }) },
+    { value: 'title', label: t('书名') },
+    { value: 'author', label: t('作者') },
+    { value: 'rating', label: t('按评分') },
+    { value: 'series', label: t('按系列') },
+  ], [t])
+
+  const tagOptions = useMemo<M3SelectOption[]>(() => [
+    { value: '', label: t('全部标签') },
+    ...allTags.map((tag) => ({ value: tag, label: tag })),
+  ], [allTags, t])
+
+  const seriesOptions = useMemo<M3SelectOption[]>(() => [
+    { value: '', label: t('全部系列') },
+    ...allSeries.map((series) => ({ value: series, label: series })),
+  ], [allSeries, t])
+
+  const ratingOptions = useMemo<M3SelectOption[]>(() => [
+    { value: '0', label: t('全部评分') },
+    { value: '-1', label: t('仅未评分') },
+    ...[5, 4, 3, 2, 1].map((n) => ({ value: String(n), label: t('评分 ≥ {{n}} 星', { n }) })),
+  ], [t])
+
   const handleImport = useCallback(async () => { const filePath = await window.electronAPI.openFile(); if (filePath) await importBooks([filePath]) }, [importBooks])
 
   // C++ 侧【内部】发起的导入（书源下载、Z-Library 下载后自动入库）不会走
@@ -453,21 +480,15 @@ export function Library({ onOpenBook, onOpenSettings, onOpenZLibrary, onOpenStat
         {/* shrink-0：动作按钮（导入 / 更多 / 设置）永远保持 40px，不参与压缩 ——
             否则窄窗口下它们会被挤扁、甚至被裁到不可点。 */}
         <div className="no-drag flex items-center gap-1.5 shrink-0">
-          <select
+          <M3Select
             value={sortBy}
-            onChange={(e) => setSortBy(e.target.value as any)}
-            data-testid="library-sort"
+            options={sortOptions}
+            onChange={(next) => setSortBy(next as Parameters<typeof setSortBy>[0])}
+            testid="library-sort"
             aria-label={t('排序')}
-            className="m3-select hidden md:block"
+            className="hidden md:block"
             title={t('排序')}
-          >
-            <option value="last_opened">{t('最近')}</option>
-            <option value="added_at">{t('添加', { context: 'sort' })}</option>
-            <option value="title">{t('书名')}</option>
-            <option value="author">{t('作者')}</option>
-            <option value="rating">{t('按评分')}</option>
-            <option value="series">{t('按系列')}</option>
-          </select>
+          />
 
           {/* 视图切换：compact 收起（分段按钮宽约 90px，是窄顶栏溢出的主因之一，
               而且 .m3-segmented{display:inline-flex} 在 globals.css 里比 Tailwind 的
@@ -607,42 +628,33 @@ export function Library({ onOpenBook, onOpenSettings, onOpenZLibrary, onOpenStat
           {/* PB-005：标签 / 系列 / 评分筛选（与搜索、排序叠加） */}
           {books.length > 0 && (
             <div className="flex flex-wrap items-center gap-2 mb-4" data-testid="library-filters">
-              <select
+              <M3Select
                 value={filterTag}
-                onChange={(e) => setFilterTag(e.target.value)}
-                className={'m3-select ' + (filterTag ? 'is-selected' : '')}
+                options={tagOptions}
+                onChange={setFilterTag}
+                active={Boolean(filterTag)}
                 aria-label={t('标签')}
                 title={t('标签')}
-                data-testid="filter-tag"
-              >
-                <option value="">{t('全部标签')}</option>
-                {allTags.map((tag) => <option key={tag} value={tag}>{tag}</option>)}
-              </select>
-              <select
+                testid="filter-tag"
+              />
+              <M3Select
                 value={filterSeries}
-                onChange={(e) => setFilterSeries(e.target.value)}
-                className={'m3-select ' + (filterSeries ? 'is-selected' : '')}
+                options={seriesOptions}
+                onChange={setFilterSeries}
+                active={Boolean(filterSeries)}
                 aria-label={t('系列')}
                 title={t('系列')}
-                data-testid="filter-series"
-              >
-                <option value="">{t('全部系列')}</option>
-                {allSeries.map((series) => <option key={series} value={series}>{series}</option>)}
-              </select>
-              <select
+                testid="filter-series"
+              />
+              <M3Select
                 value={String(minRating)}
-                onChange={(e) => setMinRating(Number(e.target.value))}
-                className={'m3-select ' + (minRating !== 0 ? 'is-selected' : '')}
+                options={ratingOptions}
+                onChange={(next) => setMinRating(Number(next))}
+                active={minRating !== 0}
                 aria-label={t('评分')}
                 title={t('评分')}
-                data-testid="filter-rating"
-              >
-                <option value="0">{t('全部评分')}</option>
-                <option value="-1">{t('仅未评分')}</option>
-                {[5, 4, 3, 2, 1].map((n) => (
-                  <option key={n} value={n}>{t('评分 ≥ {{n}} 星', { n })}</option>
-                ))}
-              </select>
+                testid="filter-rating"
+              />
               {(filterTag || filterSeries || minRating !== 0) && (
                 <button
                   onClick={() => { setFilterTag(''); setFilterSeries(''); setMinRating(0) }}

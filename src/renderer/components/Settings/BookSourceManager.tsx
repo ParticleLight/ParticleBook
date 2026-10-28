@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { useBookSourceStore, type BookSourceImportSummary } from '../../stores/bookSourceStore'
 import type { BookSourceInfo } from '../../types/bookSource'
 import { Switch } from '../UI/Switch'
+import { M3Select, type M3SelectOption } from '../UI/M3Select'
 
 // ── PB-013-A：设置页「书源管理」────────────────────────────────────
 //
@@ -145,6 +146,18 @@ export function BookSourceManager() {
     }
     return Array.from(set).sort((a, b) => a.localeCompare(b, 'zh-Hans-CN'))
   }, [sources])
+
+  // 分组 / 排序下拉的选项（原 <option> 列表一一映射）
+  const groupSelectOptions = useMemo<M3SelectOption[]>(() => [
+    { value: '__all__', label: t('全部分组') },
+    ...groupOptions.map((group) => ({ value: group, label: group })),
+  ], [groupOptions, t])
+
+  const sortSelectOptions = useMemo<M3SelectOption[]>(() => [
+    { value: 'name', label: t('按名称') },
+    { value: 'group', label: t('按分组') },
+    { value: 'added', label: t('按添加时间') },
+  ], [t])
 
   // 筛选 + 排序后的列表（筛选按分组；排序支持名称/分组/添加时间）
   const visibleSources = useMemo(() => {
@@ -595,29 +608,20 @@ export function BookSourceManager() {
           <div>
             {/* PB-013-B：分组筛选 / 排序 / 批量操作 */}
             <div className="flex items-center gap-2 flex-wrap pb-3 mb-3" style={{ borderBottom: '1px solid var(--md-sys-color-outline-variant)' }}>
-              <select
+              <M3Select
                 value={groupFilter}
-                onChange={(e) => { setGroupFilter(e.target.value); setSelectedIds([]) }}
-                className="m3-select"
+                options={groupSelectOptions}
+                onChange={(next) => { setGroupFilter(next); setSelectedIds([]) }}
                 aria-label={t('筛选分组')}
                 data-source-group-filter="1"
-              >
-                <option value="__all__">{t('全部分组')}</option>
-                {groupOptions.map((option) => (
-                  <option key={option} value={option}>{option}</option>
-                ))}
-              </select>
-              <select
+              />
+              <M3Select
                 value={sortBy}
-                onChange={(e) => setSortBy(e.target.value as 'name' | 'group' | 'added')}
-                className="m3-select"
+                options={sortSelectOptions}
+                onChange={(next) => setSortBy(next as 'name' | 'group' | 'added')}
                 aria-label={t('排序方式')}
                 data-source-sort="1"
-              >
-                <option value="name">{t('按名称')}</option>
-                <option value="group">{t('按分组')}</option>
-                <option value="added">{t('按添加时间')}</option>
-              </select>
+              />
               <span className="m3-label-small" data-source-selected-count={visibleSelectedIds.length}>
                 {t('已选择 {{count}} 个', { count: visibleSelectedIds.length })}
               </span>

@@ -135,4 +135,6 @@ export const enUi: Record<string, string> = {
   '词典正在加载…': 'Loading dictionary…',
   '打开词典': 'Open dictionary',
   '未发布': 'Unreleased',
+  '书柜操作': 'Bookshelf actions',
+  '书籍操作': 'Book actions',
 }

@@ -370,23 +370,27 @@ export function TextRenderer({ book, content, bookId }: TextRendererProps) {
       {highlightPopup && createPortal(
         <div
           ref={popupRef}
-          /* PB-025-B：不再写死深色调色板，跟随主题 token */
+          /* PB-025-B：不再写死深色调色板，跟随主题 token；
+             表面统一到 .m3-menu（surface-container-high + radius 12 + elevation-2 + padding 8） */
           data-text-highlight-popup="1"
-          className="fixed z-50 flex gap-2 bg-[var(--ui-surface-raised)] border border-[var(--border)] rounded-lg shadow-xl p-2 text-[var(--text-secondary)]"
+          className="m3-menu fixed z-50 flex items-center gap-2"
           style={{ left: highlightPopup.x, top: highlightPopup.y - 44 }}
         >
           {HIGHLIGHT_COLORS.map((c) => (
             <button
               key={c.value}
               onMouseDown={(e) => { e.preventDefault(); handleAddHighlight(c.value) }}
-              className="w-6 h-6 rounded-full border border-[var(--border)] hover:scale-110 transition-transform"
+              className="w-6 h-6 rounded-full border border-[var(--md-sys-color-outline-variant)] hover:border-[var(--md-sys-color-primary)] hover:scale-110 transition-transform"
               style={{ backgroundColor: c.value }}
               title={c.label}
+              aria-label={c.label}
             />
           ))}
           <button
             onMouseDown={(e) => { e.preventDefault(); setHighlightPopup(null) }}
-            className="w-6 h-6 rounded-full border border-[var(--border)] flex items-center justify-center text-[var(--text-secondary)] hover:text-[var(--text-primary)] text-sm"
+            className="w-6 h-6 rounded-full border border-[var(--md-sys-color-outline-variant)] flex items-center justify-center text-sm text-[var(--md-sys-color-on-surface-variant)] hover:text-[var(--md-sys-color-on-surface)] transition-colors"
+            aria-label={t('关闭')}
+            title={t('关闭')}
           >
             ×
           </button>

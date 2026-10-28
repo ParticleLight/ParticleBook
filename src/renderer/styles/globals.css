@@ -1644,3 +1644,112 @@ input[type="range"]::-webkit-slider-thumb {
   }
   .m3-reader-toolbar, .m3-dialog, .m3-menu, .m3-card { transition: none !important; }
 }
+
+/* ── M3Select（task-5）：原生 select 的 M3 替身 ──────────────────────
+   触发器沿用 .m3-select / .m3-select.is-field 的边框、圆角、字阶与右侧双渐变
+   箭头（含 .is-selected 激活态），这里只补 button 语义需要的排版；弹层复用
+   .m3-menu 表面 + .m3-menu-item，并新增选中项表达。config 见 UI/M3Select.tsx。 */
+
+/* display / align 必须降特异性到 0（:where）：@tailwind utilities 在本文件顶部，
+   同特异性下后写的规则会盖掉调用方传进来的 hidden / md:block / w-full 等工具类。 */
+:where(.m3-select-trigger) {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-align: left;
+  vertical-align: middle;
+}
+/* 垂直居中：调用方把 display 改成 block（顶栏的 hidden md:block）时也成立 ——
+   行高 = 内容盒高度（32 - 2 / 44 - 2 / 36 - 2）。 */
+.m3-select.m3-select-trigger { line-height: 30px; }
+.m3-select.is-field.m3-select-trigger { line-height: 42px; }
+.m3-select.is-field.is-dense.m3-select-trigger { line-height: 34px; }
+.m3-select-trigger:disabled { opacity: 0.38; cursor: default; }
+.m3-select-trigger > .m3-select-label {
+  /* min-width:0 让 flex 布局下长标签能收缩并出省略号（而不是硬裁） */
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 弹层：.m3-menu 提供表面 / 圆角 / 阴影 / padding，这里只把它变成 fixed 定位
+   容器，并把选项区拆成独立滚动层（圆角与 padding 不跟着滚）。 */
+.m3-select-menu {
+  position: fixed;
+  z-index: 80;
+  min-width: 180px;
+  max-width: calc(100vw - 16px);
+  max-height: calc(100vh - 16px);
+  animation: m3-select-menu-in 140ms cubic-bezier(0.2, 0, 0, 1);
+}
+.m3-select-list {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--md-sys-color-outline-variant) transparent;
+}
+.m3-select-list::-webkit-scrollbar { width: 8px; }
+.m3-select-list::-webkit-scrollbar-track { background: transparent; }
+.m3-select-list::-webkit-scrollbar-thumb {
+  background: var(--md-sys-color-outline-variant);
+  border-radius: var(--md-sys-shape-full);
+}
+
+/* 焦点表达：菜单里用「高亮底色」而不是大纲环 —— 与参照菜单（书库「更多操作」）一致，
+   也和平台菜单惯例相同。listbox 容器是被程序聚焦的（选项本身 tabindex=-1），
+   它不需要可见焦点环，否则整块菜单会套一圈蓝边。 */
+.m3-select-list:focus,
+.m3-select-list:focus-visible { outline: none; }
+.m3-menu-item:focus { outline: none; }
+.m3-menu-item:focus-visible { outline: none; background: var(--md-sys-state-hover); }
+.m3-menu-item:focus-visible[aria-selected="true"] { background: var(--md-sys-color-primary-container); }
+.m3-menu-item.is-destructive:focus-visible { background: var(--md-sys-color-error-container); }
+
+/* 选中项（当前值）：primary-container 底 + on-primary-container 文字 */
+.m3-menu-item[aria-selected="true"] {
+  background: var(--md-sys-color-primary-container);
+  color: var(--md-sys-color-on-primary-container);
+}
+.m3-menu-item[aria-selected="true"]:hover {
+  background: var(--md-sys-color-primary-container);
+}
+/* 键盘 / 鼠标高亮项走 state 层；写在选中规则之前，选中态优先级更高 */
+.m3-menu-item.is-active { background: var(--md-sys-state-hover); }
+.m3-menu-item.is-active[aria-selected="true"] { background: var(--md-sys-color-primary-container); }
+/* 禁用项：既标 aria-disabled 也用原生 disabled，观感统一压到 38% */
+.m3-menu-item:disabled,
+.m3-menu-item[aria-disabled="true"] { opacity: 0.38; cursor: default; }
+.m3-menu-item[aria-disabled="true"]:hover { background: transparent; }
+/* 勾选图标位：无论是否选中都占位，所有选项文字左对齐（同书库「更多操作」菜单） */
+.m3-menu-check {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: inherit;
+}
+.m3-menu-item .m3-select-option-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@keyframes m3-select-menu-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .m3-select-menu { animation: none; }
+}
+

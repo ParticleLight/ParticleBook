@@ -487,8 +487,11 @@ export function EpubRenderer({ book, content, bookId, spread = 'single', vertica
 
       {/* Highlight popup - rendered via portal to escape overflow-hidden */}
       {highlightPopup && createPortal(
+        /* 表面统一到 .m3-menu（surface-container-high + radius 12 + elevation-2 + padding 8）；
+           不挂 animate-scale-in：这里靠内联 transform 做 -50%/-100% 锚点，
+           动画的 transform 会盖掉它，弹层会先跳到错位再回弹。 */
         <div
-          className="fixed z-[9999] flex items-center gap-2 bg-[var(--reader-sidebar)] border border-[var(--reader-border)] rounded-xl px-3 py-2 shadow-xl"
+          className="m3-menu fixed z-[9999] flex items-center gap-2"
           style={{ left: highlightPopup.x, top: highlightPopup.y, transform: 'translate(-50%, -100%)' }}
           onClick={(e) => e.stopPropagation()}
         >
@@ -496,14 +499,17 @@ export function EpubRenderer({ book, content, bookId, spread = 'single', vertica
             <button
               key={c.value}
               onClick={() => handleAddHighlight(c.value)}
-              className="w-6 h-6 rounded-full border-2 border-transparent hover:border-white transition-colors"
+              className="w-6 h-6 rounded-full border border-[var(--md-sys-color-outline-variant)] hover:border-[var(--md-sys-color-primary)] transition-colors"
               style={{ backgroundColor: c.value }}
               title={c.name}
+              aria-label={c.name}
             />
           ))}
           <button
             onClick={() => setHighlightPopup(null)}
-            className="ml-1 text-[var(--reader-text)] opacity-50 hover:opacity-100 text-xs"
+            className="ml-1 text-[var(--md-sys-color-on-surface-variant)] opacity-60 hover:opacity-100 text-xs"
+            aria-label={t('关闭')}
+            title={t('关闭')}
           >
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />

@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { Switch } from '../UI/Switch'
+import { M3Select } from '../UI/M3Select'
 
 // ── PB-023-B：schema 驱动的设置表单 ──────────────────────────────────
 //
@@ -319,17 +320,15 @@ export function SettingsSchemaForm({ className = '' }: SettingsSchemaFormProps) 
     if (spec.type === 'enum') {
       const allowed = spec.allowed ?? []
       return (
-        <select
+        <M3Select
           value={String(value ?? '')}
-          onChange={(e) => commitValue(spec, e.target.value)}
-          className="m3-select is-field w-full"
+          options={allowed.map((option) => ({ value: option, label: enumLabel(t, spec.key, option) }))}
+          onChange={(next) => commitValue(spec, next)}
+          variant="field"
+          className="w-full"
           aria-label={labelOf(t, spec.key)}
           data-setting-key={spec.key}
-        >
-          {allowed.map((option) => (
-            <option key={option} value={option}>{enumLabel(t, spec.key, option)}</option>
-          ))}
-        </select>
+        />
       )
     }
 

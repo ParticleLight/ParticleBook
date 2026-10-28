@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useLibraryStore } from '../../stores/libraryStore'
 import { useTranslation } from 'react-i18next'
@@ -29,6 +29,48 @@ export function BookShelfPanel({ onOpenBookSource, onOpenZLibrary, onAddFromAll,
   // "重命名"下方极易误点 —— 同应用删书都有确认，这里此前没有。
   const [pendingDeleteId, setPendingDeleteId] = useState<number | null>(null)
   const { t } = useTranslation()
+  const contextMenuRef = useRef<HTMLDivElement | null>(null)
+  // 触发右键菜单的那个书柜项：Esc 关闭后把焦点还回去（WAI-ARIA 的菜单模式）
+  const contextMenuTriggerRef = useRef<HTMLElement | null>(null)
+
+  // 菜单内的方向键导航（右键菜单里没有输入框，绑在菜单自己的 onKeyDown 上即可）
+  const focusMenuItem = (step: 1 | -1 | 'first' | 'last') => {
+    const items = Array.from(contextMenuRef.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [])
+    if (items.length === 0) return
+    const current = items.indexOf(document.activeElement as HTMLElement)
+    const next = step === 'first' ? 0
+      : step === 'last' ? items.length - 1
+        : current < 0 ? 0 : (current + step + items.length) % items.length
+    items[next]?.focus()
+  }
+
+  // 视口夹边：在窗口右/下边缘右键时菜单不能溢出到窗口外。
+  // 在 layout effect（首帧绘制前）量一次尺寸再纠正坐标，不会先闪一下再跳。
+  useLayoutEffect(() => {
+    const el = contextMenuRef.current
+    if (!contextMenu || !el) return
+    const margin = 8
+    const left = Math.min(Math.max(contextMenu.x, margin), Math.max(margin, window.innerWidth - el.offsetWidth - margin))
+    const top = Math.min(Math.max(contextMenu.y, margin), Math.max(margin, window.innerHeight - el.offsetHeight - margin))
+    if (left !== contextMenu.x || top !== contextMenu.y) setContextMenu({ ...contextMenu, x: left, y: top })
+  }, [contextMenu])
+
+  // Esc / 键盘可达：打开时把焦点收进第一项；Esc 在捕获阶段吃掉这次按键，
+  // 避免逐层关闭的语义（书库/阅读器的全局 Esc）也跟着响应。
+  const contextMenuOpen = contextMenu !== null
+  useEffect(() => {
+    if (!contextMenuOpen) return
+    contextMenuRef.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus()
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      e.stopPropagation()
+      setContextMenu(null)
+      const trigger = contextMenuTriggerRef.current
+      window.requestAnimationFrame(() => { try { trigger?.focus() } catch { /* ignore */ } })
+    }
+    document.addEventListener('keydown', onKeyDown, true)
+    return () => document.removeEventListener('keydown', onKeyDown, true)
+  }, [contextMenuOpen])
 
   const handleCreate = () => { if (newName.trim()) { createBookshelf(newName.trim()); setNewName(''); setShowDialog(false) } }
   const handleRename = () => { if (editingId !== null && editName.trim()) { renameBookshelf(editingId, editName.trim()); setEditingId(null); setEditName('') } }
@@ -82,7 +124,11 @@ export function BookShelfPanel({ onOpenBookSource, onOpenZLibrary, onAddFromAll,
               navItem(shelf.name,
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" /></svg>,
                 isActive(shelf.id), () => { setActiveShelf(shelf.id); onAfterSelect?.() },
-                (e) => { e.preventDefault(); setContextMenu({ id: shelf.id, x: e.clientX, y: e.clientY }) })
+                (e) => {
+                  e.preventDefault()
+                  contextMenuTriggerRef.current = e.currentTarget as HTMLElement
+                  setContextMenu({ id: shelf.id, x: e.clientX, y: e.clientY })
+                })
             )}
           </div>
         ))}
@@ -112,16 +158,29 @@ export function BookShelfPanel({ onOpenBookSource, onOpenZLibrary, onAddFromAll,
 
       {/* Context menu —— 必须 portal 到 body：外层侧栏 nav 带 backdrop-filter，CSS 规定
           它会成为 fixed 后代的包含块，于是 inset-0 只盖住侧栏、菜单坐标被解释成"相对
-          侧栏"，整体下移并在靠右时被 overflow 裁掉。 */}
+          侧栏"，整体下移并在靠右时被 overflow 裁掉。
+          表面统一到 .m3-menu / .m3-menu-item（与书库「更多操作」菜单同一套 token：
+          surface-container-high + radius 12 + elevation-2 + 40px 项高）。 */}
       {contextMenu && createPortal(
-        <div className="fixed inset-0 z-50" onClick={() => setContextMenu(null)}>
-          <div className="absolute rounded-lg overflow-hidden shadow-win-lg animate-scale-in" style={{ left: contextMenu.x, top: contextMenu.y, background: 'var(--acrylic-bg)', backdropFilter: 'blur(24px)', border: '1px solid var(--acrylic-border)' }}>
-            <button onClick={() => { setEditingId(contextMenu.id); setEditName(bookshelves.find((s) => s.id === contextMenu.id)?.name || ''); setContextMenu(null) }}
-              className="w-full text-left px-4 py-2 text-sm transition-colors" style={{ color: 'var(--text-primary)' }}
-              onMouseEnter={(e) => e.currentTarget.style.background = 'var(--surface-hover)'} onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>{t('重命名')}</button>
-            <button onClick={() => { setPendingDeleteId(contextMenu.id); setContextMenu(null) }}
-              className="w-full text-left px-4 py-2 text-sm transition-colors" style={{ color: 'var(--color-red)' }}
-              onMouseEnter={(e) => e.currentTarget.style.background = 'var(--color-red-bg)'} onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>{t('删除')}</button>
+        <div className="fixed inset-0 z-50" onClick={() => setContextMenu(null)}
+          onContextMenu={(e) => { e.preventDefault(); setContextMenu(null) }}>
+          <div
+            ref={contextMenuRef}
+            role="menu"
+            aria-label={t('书柜操作')}
+            className="m3-menu absolute animate-scale-in"
+            style={{ left: contextMenu.x, top: contextMenu.y }}
+            onClick={(e) => e.stopPropagation()}
+            onContextMenu={(e) => { e.preventDefault(); e.stopPropagation() }}
+            onKeyDown={(e) => {
+              if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); focusMenuItem(e.key === 'ArrowDown' ? 1 : -1); return }
+              if (e.key === 'Home' || e.key === 'End') { e.preventDefault(); focusMenuItem(e.key === 'Home' ? 'first' : 'last') }
+            }}
+          >
+            <button role="menuitem" onClick={() => { setEditingId(contextMenu.id); setEditName(bookshelves.find((s) => s.id === contextMenu.id)?.name || ''); setContextMenu(null) }}
+              className="m3-menu-item">{t('重命名')}</button>
+            <button role="menuitem" onClick={() => { setPendingDeleteId(contextMenu.id); setContextMenu(null) }}
+              className="m3-menu-item is-destructive">{t('删除')}</button>
           </div>
         </div>,
         document.body

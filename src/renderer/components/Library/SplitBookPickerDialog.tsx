@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useLibraryStore } from '../../stores/libraryStore'
 import { isSplitReadable } from '../../stores/readerSession'
@@ -78,10 +78,22 @@ export function SplitBookPickerDialog({ open, primaryBookId, onCancel, onConfirm
         {candidates.length === 0 ? (
           <p className="m3-body-medium" style={{ color: 'var(--md-sys-color-on-surface-variant)' }}>{t('书架里没有其它书')}</p>
         ) : (
+          /* 列表表面：仍由 Dialog（surface-container-high）承担 —— 再套一层同色的 .m3-menu
+             只会多出一道边框、双层阴影，并不比现在更像菜单。行本身已用 .m3-menu-item
+             （40px / radius 8 / body-medium / hover state）。
+             选中态走 aria-selected，交给 globals.css 的
+             `.m3-menu-item[aria-selected="true"]`（primary-container + on-primary-container）；
+             这里只补一圈 primary 描边（inset 阴影画，不占位、不导致行移位）。
+             禁用态交给 `.m3-menu-item:disabled`（38% 不透明度），只额外压掉禁用项的悬停底色。 */
           <div role="listbox" aria-label={t('选择第二本书')} className="space-y-1 max-h-[46vh] overflow-y-auto">
             {candidates.map((book) => {
               const bookSupported = isSplitReadable(book.format)
               const isSelected = selected === book.id
+              // 不再给未选中行内联 background/opacity/cursor：内联样式会盖掉更靠后的
+              // .m3-menu-item:hover / :disabled，这列候选此前完全没有悬停、禁用观感也不统一。
+              const ringStyle: CSSProperties | undefined = isSelected
+                ? { boxShadow: 'inset 0 0 0 1px var(--md-sys-color-primary)' }
+                : undefined
               return (
                 <button
                   key={book.id}
@@ -92,14 +104,8 @@ export function SplitBookPickerDialog({ open, primaryBookId, onCancel, onConfirm
                   onClick={() => setSelected(book.id)}
                   data-split-candidate={book.id}
                   data-split-supported={bookSupported ? '1' : '0'}
-                  className="m3-menu-item w-full text-left"
-                  style={{
-                    background: isSelected ? 'var(--md-sys-color-primary-container)' : 'transparent',
-                    color: bookSupported ? 'var(--md-sys-color-on-surface)' : 'var(--md-sys-color-on-surface-variant)',
-                    opacity: bookSupported ? 1 : 0.6,
-                    cursor: bookSupported ? 'pointer' : 'not-allowed',
-                    border: '1px solid ' + (isSelected ? 'var(--md-sys-color-primary)' : 'transparent'),
-                  }}
+                  className="m3-menu-item w-full text-left disabled:hover:bg-transparent"
+                  style={ringStyle}
                 >
                   <span className="flex-1 truncate text-sm">{book.title}</span>
                   {book.author && <span className="text-xs truncate max-w-[35%]" style={{ color: 'var(--md-sys-color-on-surface-variant)' }}>{book.author}</span>}

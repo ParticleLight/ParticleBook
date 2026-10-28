@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, memo } from 'react'
+import { useState, useEffect, useLayoutEffect, useRef, memo } from 'react'
 import { Book, useLibraryStore } from '../../stores/libraryStore'
 import { safeText } from '../../utils/safeText'
 import { formatReadingTime, extractTextPreview, formatColors } from '../../utils/format'
@@ -31,6 +31,57 @@ function BookCardInner({ book, onOpen, onDelete, onRemoveFromShelf, activeShelfI
   const addBookToShelf = useLibraryStore((s) => s.addBookToShelf)
   const readingTime = useLibraryStore((s) => s.readingTimeMap[book.id] || 0)
   const { t } = useTranslation()
+  const menuRef = useRef<HTMLDivElement | null>(null)
+  const cardRef = useRef<HTMLDivElement | null>(null)
+
+  // 菜单内的方向键导航
+  const focusMenuItem = (step: 1 | -1 | 'first' | 'last') => {
+    const items = Array.from(menuRef.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [])
+    if (items.length === 0) return
+    const current = items.indexOf(document.activeElement as HTMLElement)
+    const next = step === 'first' ? 0
+      : step === 'last' ? items.length - 1
+        : current < 0 ? 0 : (current + step + items.length) % items.length
+    items[next]?.focus()
+  }
+
+  // 视口夹边：书卡可能贴着窗口右/下边缘，右键后 fixed 定位的菜单会溢出到窗口外。
+  // 先按 clientX/clientY 落位，再在首帧绘制前量一次尺寸纠正到 [8, innerWidth - w] 内。
+  // 依赖里带上 showShelfMenu：子菜单展开/收起会改变菜单高度，靠底部时要重新夹。
+  useLayoutEffect(() => {
+    const el = menuRef.current
+    if (!showMenu || !el) return
+    const margin = 8
+    const left = Math.min(Math.max(menuPos.x, margin), Math.max(margin, window.innerWidth - el.offsetWidth - margin))
+    const top = Math.min(Math.max(menuPos.y, margin), Math.max(margin, window.innerHeight - el.offsetHeight - margin))
+    if (left !== menuPos.x || top !== menuPos.y) setMenuPos({ x: left, y: top })
+  }, [showMenu, showShelfMenu, menuPos.x, menuPos.y])
+
+  // Esc / 点击外部关闭：都是窗口级监听（菜单项不在书卡的可聚焦路径里，只绑 onKeyDown 收不全）。
+  // mousedown 而非 click：要在按下的瞬间收起，别让它漏到下层卡片上。
+  // Esc 在捕获阶段 stopPropagation，保证这次的 Esc 只关菜单，不触发上层逐层关闭。
+  useEffect(() => {
+    if (!showMenu) return
+    menuRef.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus()
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      e.stopPropagation()
+      setShowMenu(false)
+      setShowShelfMenu(false)
+      window.requestAnimationFrame(() => { try { cardRef.current?.focus() } catch { /* ignore */ } })
+    }
+    const onMouseDown = (e: MouseEvent) => {
+      if (menuRef.current?.contains(e.target as Node)) return
+      setShowMenu(false)
+      setShowShelfMenu(false)
+    }
+    document.addEventListener('keydown', onKeyDown, true)
+    document.addEventListener('mousedown', onMouseDown)
+    return () => {
+      document.removeEventListener('keydown', onKeyDown, true)
+      document.removeEventListener('mousedown', onMouseDown)
+    }
+  }, [showMenu])
 
   useEffect(() => {
     let mounted = true
@@ -59,7 +110,7 @@ function BookCardInner({ book, onOpen, onDelete, onRemoveFromShelf, activeShelfI
   const handleContextMenu = (e: React.MouseEvent) => { e.preventDefault(); setMenuPos({ x: e.clientX, y: e.clientY }); setShowShelfMenu(false); setShowMenu(true) }
 
   return (
-    <div className="group relative cursor-pointer m3-card p-2.5 outline-none" onClick={() => onOpen(book.id)} onContextMenu={handleContextMenu} onMouseLeave={() => setShowMenu(false)}
+    <div ref={cardRef} className="group relative cursor-pointer m3-card p-2.5 outline-none" onClick={() => onOpen(book.id)} onContextMenu={handleContextMenu} onMouseLeave={() => setShowMenu(false)}
       role="button" tabIndex={0} aria-label={safeText(book.title) + (book.author ? ' — ' + safeText(book.author) : '')}
       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpen(book.id) } }}
       data-testid="book-card" data-book-id={book.id}>
@@ -117,40 +168,53 @@ function BookCardInner({ book, onOpen, onDelete, onRemoveFromShelf, activeShelfI
         )}
       </div>
 
-      {/* Acrylic context menu */}
+      {/* 右键菜单：表面统一到 .m3-menu / .m3-menu-item（与书库「更多操作」同一套 token）。
+          保留原来的非 portal 写法（书卡内部 fixed 定位），只补视口夹边与键盘/点击外部关闭。 */}
       {showMenu && (
-        <div className="m3-menu fixed z-50 animate-scale-in"
-          style={{ left: menuPos.x, top: menuPos.y }}>
-          <button onClick={(e) => { e.stopPropagation(); onOpen(book.id); setShowMenu(false) }}
+        <div ref={menuRef} role="menu" aria-label={t('书籍操作')}
+          className="m3-menu fixed z-50 animate-scale-in"
+          style={{ left: menuPos.x, top: menuPos.y }}
+          onClick={(e) => e.stopPropagation()}
+          onContextMenu={(e) => { e.preventDefault(); e.stopPropagation() }}
+          onKeyDown={(e) => {
+            // 菜单项本身是 <button>，Enter/Space 的原生激活已经够用；这里只拦住冒泡，
+            // 否则书卡的 onKeyDown 会把同一次回车当成「打开这本书」再触发一遍。
+            e.stopPropagation()
+            if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); focusMenuItem(e.key === 'ArrowDown' ? 1 : -1); return }
+            if (e.key === 'Home' || e.key === 'End') { e.preventDefault(); focusMenuItem(e.key === 'Home' ? 'first' : 'last') }
+          }}>
+          <button role="menuitem" onClick={(e) => { e.stopPropagation(); onOpen(book.id); setShowMenu(false) }}
             className="m3-menu-item">{t('打开')}</button>
           {onOpenSplit && (
-            <button onClick={(e) => { e.stopPropagation(); onOpenSplit(book.id); setShowMenu(false) }}
+            <button role="menuitem" onClick={(e) => { e.stopPropagation(); onOpenSplit(book.id); setShowMenu(false) }}
               className="m3-menu-item"
               data-book-split={book.id}>{t('分屏阅读')}</button>
           )}
-          <button onClick={(e) => { e.stopPropagation(); setShowDetail(true); setShowMenu(false) }}
+          <button role="menuitem" onClick={(e) => { e.stopPropagation(); setShowDetail(true); setShowMenu(false) }}
             className="m3-menu-item">{t('详情')}</button>
           {bookshelves.length > 0 && (
-            <button onClick={(e) => { e.stopPropagation(); setShowShelfMenu(!showShelfMenu) }}
-              className="m3-menu-item justify-between">
+            /* 子菜单展开态：aria-expanded + 箭头转 90° + 状态层背景（内联，因为
+               Tailwind 工具类会被更靠后的 .m3-menu-item 同权重规则盖掉）。 */
+            <button role="menuitem" aria-haspopup="menu" aria-expanded={showShelfMenu}
+              onClick={(e) => { e.stopPropagation(); setShowShelfMenu(!showShelfMenu) }}
+              className="m3-menu-item justify-between"
+              style={showShelfMenu ? { background: 'var(--md-sys-state-hover)' } : undefined}>
               {t('添加到书柜')}
-              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+              <svg className={'w-3 h-3 shrink-0 transition-transform' + (showShelfMenu ? ' rotate-90' : '')}
+                style={{ color: showShelfMenu ? 'var(--md-sys-color-primary)' : 'var(--md-sys-color-on-surface-variant)' }}
+                fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
             </button>
           )}
           {showShelfMenu && bookshelves.map((shelf) => (
-            <button key={shelf.id} onClick={(e) => { e.stopPropagation(); addBookToShelf(shelf.id, book.id); setShowMenu(false); setShowShelfMenu(false) }}
+            <button key={shelf.id} role="menuitem" onClick={(e) => { e.stopPropagation(); addBookToShelf(shelf.id, book.id); setShowMenu(false); setShowShelfMenu(false) }}
               className="m3-menu-item !pl-8">{shelf.name}</button>
           ))}
           {activeShelfId != null && onRemoveFromShelf ? (
-            <button onClick={(e) => { e.stopPropagation(); onRemoveFromShelf(book.id); setShowMenu(false) }}
-              className="w-full text-left px-4 py-2 text-sm transition-colors" style={{ color: 'var(--color-orange)' }}
-              onMouseEnter={(e) => e.currentTarget.style.background = 'var(--color-orange-bg)'}
-              onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>{t('从书柜移除')}</button>
+            <button role="menuitem" onClick={(e) => { e.stopPropagation(); onRemoveFromShelf(book.id); setShowMenu(false) }}
+              className="m3-menu-item">{t('从书柜移除')}</button>
           ) : (
-            <button onClick={(e) => { e.stopPropagation(); setShowConfirmDelete(true); setShowMenu(false) }}
-              className="w-full text-left px-4 py-2 text-sm transition-colors" style={{ color: 'var(--color-red)' }}
-              onMouseEnter={(e) => e.currentTarget.style.background = 'var(--color-red-bg)'}
-              onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>{t('删除')}</button>
+            <button role="menuitem" onClick={(e) => { e.stopPropagation(); setShowConfirmDelete(true); setShowMenu(false) }}
+              className="m3-menu-item is-destructive">{t('删除')}</button>
           )}
         </div>
       )}
