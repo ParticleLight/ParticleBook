@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 
 interface StatisticsPageProps { onBack: () => void }
@@ -68,6 +69,8 @@ export function StatisticsPage({ onBack }: StatisticsPageProps) {
   const stats = useMemo(() => {
     const daily = new Map<string, number>()
     const perBook = new Map<number, number>()
+    // 悬停明细用：某一天里「每本书读了多久」（day → bookId → 秒）
+    const perDayBook = new Map<string, Map<number, number>>()
     for (const s of sessions) {
       const secs = Math.max(0, Number(s.duration_seconds) || 0)
       if (!secs) continue
@@ -76,6 +79,9 @@ export function StatisticsPage({ onBack }: StatisticsPageProps) {
       const key = dayKey(d)
       daily.set(key, (daily.get(key) || 0) + secs)
       perBook.set(s.book_id, (perBook.get(s.book_id) || 0) + secs)
+      let dayMap = perDayBook.get(key)
+      if (!dayMap) { dayMap = new Map<number, number>(); perDayBook.set(key, dayMap) }
+      dayMap.set(s.book_id, (dayMap.get(s.book_id) || 0) + secs)
     }
     const today = new Date()
     const todayKey = dayKey(today)
@@ -106,7 +112,9 @@ export function StatisticsPage({ onBack }: StatisticsPageProps) {
       .filter((b) => b.secs > 0)
       .sort((a, b) => b.secs - a.secs)
       .slice(0, 10)
-    return { todaySecs, weekSecs, monthSecs, totalSecs, streak, weeks, ranking }
+    const titleOf = new Map<number, string>()
+    for (const b of books) titleOf.set(b.id, b.title)
+    return { todaySecs, weekSecs, monthSecs, totalSecs, streak, weeks, ranking, perDayBook, titleOf }
   }, [sessions, books])
 
   // 排行榜封面：与书库卡片同一个桥接调用（getCoverImage 返回 data URL 或 null），
@@ -124,6 +132,35 @@ export function StatisticsPage({ onBack }: StatisticsPageProps) {
       })
     return () => { alive = false }
   }, [stats.ranking])
+
+  // 热力图悬停明细：格子中心 + 上下沿，明细用 portal + fixed 定位（不会被卡片或滚动
+  // 容器裁掉），pointer-events: none 避免鼠标移进提示框后闪烁。
+  const [hoverCell, setHoverCell] = useState<{ key: string; left: number; right: number; top: number } | null>(null)
+  const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => () => { if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current) }, [])
+  const showCellDetail = (key: string, el: HTMLElement) => {
+    const rect = el.getBoundingClientRect()
+    if (hoverTimerRef.current) { clearTimeout(hoverTimerRef.current); hoverTimerRef.current = null }
+    // 40ms 去抖：快速扫过整片网格时不会疯狂重渲染
+    hoverTimerRef.current = setTimeout(() => {
+      setHoverCell({ key, left: rect.left, right: rect.right, top: rect.top })
+    }, 40)
+  }
+  const hideCellDetail = () => {
+    if (hoverTimerRef.current) { clearTimeout(hoverTimerRef.current); hoverTimerRef.current = null }
+    setHoverCell(null)
+  }
+  const hoverDetail = useMemo(() => {
+    if (!hoverCell) return null
+    const dayMap = stats.perDayBook.get(hoverCell.key)
+    const rows = dayMap
+      ? Array.from(dayMap.entries())
+          .map(([bookId, secs]) => ({ bookId, title: stats.titleOf.get(bookId) || '#' + bookId, secs }))
+          .sort((a, b) => b.secs - a.secs)
+      : []
+    const totalSecs = rows.reduce((sum, row) => sum + row.secs, 0)
+    return { rows, totalSecs }
+  }, [hoverCell, stats.perDayBook, stats.titleOf])
 
   const dailyGoal = Number(settings['reading.dailyGoalMinutes'] ?? 30) || 0
   const weeklyGoal = Number(settings['reading.weeklyGoalMinutes'] ?? 180) || 0
@@ -207,13 +244,45 @@ export function StatisticsPage({ onBack }: StatisticsPageProps) {
                         key={cell.key}
                         className="m3-heatmap-cell aspect-square w-full"
                         data-level={heatLevel(cell.minutes)}
-                        title={`${cell.key} · ${Math.round(cell.minutes)} ${t('分钟')}`}
+                        onMouseEnter={(e) => showCellDetail(cell.key, e.currentTarget)}
+                        onMouseLeave={hideCellDetail}
                       />
                     ) : (
                       <div key={`${wi}-${di}`} className="aspect-square w-full" />
                     )
                   )))}
                 </div>
+                {hoverCell && hoverDetail && createPortal(
+                  <div
+                    className="m3-menu fixed z-[80] px-3 py-2.5 pointer-events-none"
+                    style={{
+                      left: Math.min(Math.max(hoverCell.left + (hoverCell.right - hoverCell.left) / 2, 150), Math.max(150, window.innerWidth - 150)),
+                      top: Math.max(8, hoverCell.top - 8),
+                      transform: 'translate(-50%, -100%)',
+                      minWidth: 240,
+                      maxWidth: 320,
+                    }}
+                    role="status"
+                    data-stat-day-detail={hoverCell.key}
+                  >
+                    <div className="flex items-baseline justify-between gap-3 mb-1.5">
+                      <span className="m3-label-large">{hoverCell.key}</span>
+                      <span className="m3-label-small">{hoverDetail.totalSecs > 0 ? fmtMinutes(hoverDetail.totalSecs / 60) : t('无阅读记录')}</span>
+                    </div>
+                    {hoverDetail.rows.length === 0 ? (
+                      <p className="m3-body-small">{t('这天没有阅读记录')}</p>
+                    ) : hoverDetail.rows.slice(0, 6).map((row) => (
+                      <div key={row.bookId} className="flex items-baseline justify-between gap-3 py-0.5">
+                        <span className="m3-body-small truncate" title={row.title}>{row.title}</span>
+                        <span className="m3-label-small shrink-0">{fmtMinutes(row.secs / 60)}</span>
+                      </div>
+                    ))}
+                    {hoverDetail.rows.length > 6 && (
+                      <p className="m3-label-small mt-1">{t('还有 {{n}} 本…', { n: hoverDetail.rows.length - 6 })}</p>
+                    )}
+                  </div>,
+                  document.body,
+                )}
               </div>
 
               {/* 阅读最多的书：封面 + 书名 + 时长（前 10，宽屏两列） */}

@@ -180,7 +180,10 @@ export const enLibrary: Record<string, string> = {
   '不支持分屏': 'Not supported',
   '搜索书籍': 'Search books',
 
-  // 阅读统计页（2026-10-28）：热力图图例
+  // 阅读统计页（2026-10-28）：热力图图例 + 悬停明细
   '少': 'Less',
   '多': 'More',
+  '无阅读记录': 'No reading',
+  '这天没有阅读记录': 'No reading recorded on this day',
+  '还有 {{n}} 本…': 'and {{n}} more…',
 }
