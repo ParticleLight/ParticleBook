@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useReaderStore } from '../../stores/readerStore'
+import { usePaging } from '../../reader'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { useAnnotationStore } from '../../stores/annotationStore'
 import type { Book } from '../../stores/libraryStore'
@@ -68,8 +69,7 @@ export function PdfRenderer({ book, content: _content, bookId }: PdfRendererProp
   const saveProgress = useReaderStore((s) => s.saveProgress)
   const navigateTarget = useReaderStore((s) => s.navigateTarget)
   const clearNavigateTarget = useReaderStore((s) => s.clearNavigateTarget)
-  const turnPageDelta = useReaderStore((s) => s.turnPageDelta)
-  const clearTurnPage = useReaderStore((s) => s.clearTurnPage)
+  const paging = usePaging()
   const seekTarget = useReaderStore((s) => s.seekTarget)
   const clearSeekTarget = useReaderStore((s) => s.clearSeekTarget)
   const searchQuery = useReaderStore((s) => s.searchQuery)
@@ -244,13 +244,17 @@ export function PdfRenderer({ book, content: _content, bookId }: PdfRendererProp
     clearNavigateTarget()
   }, [navigateTarget, clearNavigateTarget])
 
+  // 统一翻页：注册「±1 页并滚动到该页」的翻页器（边界自己夹紧，单页 PDF 不会越界）。
   useEffect(() => {
-    if (turnPageDelta === null || !containerRef.current) return
-    const tp = Math.max(1, Math.min(visiblePage + turnPageDelta, totalPages))
-    const el = containerRef.current.querySelector(`[data-page="${tp}"]`)
-    if (el) el.scrollIntoView({ behavior: 'smooth' })
-    clearTurnPage()
-  }, [turnPageDelta, visiblePage, totalPages, clearTurnPage])
+    if (!paging) return
+    const goByPage = (dir: 1 | -1) => {
+      const target = Math.max(1, Math.min(visiblePage + dir, totalPages))
+      const el = containerRef.current?.querySelector(`[data-page="${target}"]`)
+      if (el) el.scrollIntoView({ behavior: 'smooth' })
+    }
+    paging.register({ next: () => goByPage(1), prev: () => goByPage(-1) })
+    return () => paging.register(null)
+  }, [paging, visiblePage, totalPages])
 
   useEffect(() => {
     if (seekTarget === null || totalPages === 0 || !containerRef.current) return

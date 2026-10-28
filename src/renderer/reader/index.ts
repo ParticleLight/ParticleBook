@@ -12,6 +12,9 @@
 
 export * from './types'
 export { ReaderAdapterProvider, useReaderAdapter } from './ReaderAdapterContext'
+export { createPagingApi } from './paging'
+export type { PagingApi, PagingZone, ReaderPager } from './paging'
+export { PagingProvider, usePaging } from './PagingContext'
 export { createProgressController } from './progressController'
 export type { ProgressController, ProgressSnapshot } from './progressController'
 export { createSearchController } from './searchController'

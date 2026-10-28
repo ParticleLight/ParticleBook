@@ -3,6 +3,7 @@ import type { JSX } from 'react'   // React 19 removed the global JSX namespace
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import { useReaderStore } from '../../stores/readerStore'
+import { usePaging } from '../../reader'
 import { useSettingsStore } from '../../stores/settingsStore'
 import type { Book } from '../../stores/libraryStore'
 
@@ -31,8 +32,7 @@ export function TextRenderer({ book, content, bookId }: TextRendererProps) {
   const setTableOfContents = useReaderStore((s) => s.setTableOfContents)
   const navigateTarget = useReaderStore((s) => s.navigateTarget)
   const clearNavigateTarget = useReaderStore((s) => s.clearNavigateTarget)
-  const turnPageDelta = useReaderStore((s) => s.turnPageDelta)
-  const clearTurnPage = useReaderStore((s) => s.clearTurnPage)
+  const paging = usePaging()
   const seekTarget = useReaderStore((s) => s.seekTarget)
   const clearSeekTarget = useReaderStore((s) => s.clearSeekTarget)
 
@@ -301,12 +301,17 @@ export function TextRenderer({ book, content, bookId }: TextRendererProps) {
     clearNavigateTarget()
   }, [navigateTarget])
 
+  // 统一翻页：注册「按视口滚动」的翻页器（键盘 / 点击两侧 / 箭头都走这里）。
   useEffect(() => {
-    if (turnPageDelta === null || !containerRef.current) return
-    const container = containerRef.current
-    container.scrollBy({ top: turnPageDelta > 0 ? container.clientHeight : -container.clientHeight, behavior: 'smooth' })
-    clearTurnPage()
-  }, [turnPageDelta])
+    if (!paging) return
+    const scrollByPage = (dir: 1 | -1) => {
+      const container = containerRef.current
+      if (!container) return
+      container.scrollBy({ top: dir * container.clientHeight * 0.92, behavior: 'smooth' })
+    }
+    paging.register({ next: () => scrollByPage(1), prev: () => scrollByPage(-1) })
+    return () => paging.register(null)
+  }, [paging])
 
   useEffect(() => {
     if (seekTarget === null || !containerRef.current) return

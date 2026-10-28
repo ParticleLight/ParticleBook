@@ -111,9 +111,6 @@ export interface ReaderState {
   setPendingLocator: (locator: PbLocator | null) => void
   clearPendingLocator: () => void
 
-  turnPageDelta: number | null
-  turnPage: (delta: number) => void
-  clearTurnPage: () => void
 
   seekTarget: number | null
   seekTo: (percent: number) => void
@@ -162,7 +159,6 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
   controlsLocked: false,
   navigateTarget: null,
   pendingLocator: null,
-  turnPageDelta: null,
   seekTarget: null,
   showSearch: false,
   searchQuery: '',
@@ -410,8 +406,6 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
   clearNavigateTarget: () => set({ navigateTarget: null }),
   setPendingLocator: (pendingLocator) => set({ pendingLocator }),
   clearPendingLocator: () => set({ pendingLocator: null }),
-  turnPage: (delta) => set({ turnPageDelta: delta }),
-  clearTurnPage: () => set({ turnPageDelta: null }),
   seekTo: (percent) => set({ seekTarget: percent }),
   clearSeekTarget: () => set({ seekTarget: null }),
 

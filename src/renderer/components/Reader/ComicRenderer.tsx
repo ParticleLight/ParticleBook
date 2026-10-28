@@ -1,8 +1,8 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useReaderStore } from '../../stores/readerStore'
+import { usePaging } from '../../reader'
 import type { Book } from '../../stores/libraryStore'
-import { isTypingTarget } from '../../utils/keyboard'
 
 interface ComicRendererProps {
   book: Book
@@ -32,8 +32,7 @@ export function ComicRenderer({ book, content, bookId }: ComicRendererProps) {
   const saveProgress = useReaderStore((s) => s.saveProgress)
   const navigateTarget = useReaderStore((s) => s.navigateTarget)
   const clearNavigateTarget = useReaderStore((s) => s.clearNavigateTarget)
-  const turnPageDelta = useReaderStore((s) => s.turnPageDelta)
-  const clearTurnPage = useReaderStore((s) => s.clearTurnPage)
+  const paging = usePaging()
   const seekTarget = useReaderStore((s) => s.seekTarget)
   const clearSeekTarget = useReaderStore((s) => s.clearSeekTarget)
 
@@ -129,11 +128,15 @@ export function ComicRenderer({ book, content, bookId }: ComicRendererProps) {
     clearNavigateTarget()
   }, [navigateTarget, totalPages])
 
+  // 统一翻页：注册「索引 ±1」的翻页器；边界夹紧在回调里。
   useEffect(() => {
-    if (turnPageDelta === null) return
-    setCurrentIndex((i) => Math.max(0, Math.min(i + turnPageDelta, totalPages - 1)))
-    clearTurnPage()
-  }, [turnPageDelta])
+    if (!paging) return
+    paging.register({
+      next: () => setCurrentIndex((i) => Math.min(i + 1, Math.max(0, totalPages - 1))),
+      prev: () => setCurrentIndex((i) => Math.max(i - 1, 0)),
+    })
+    return () => paging.register(null)
+  }, [paging, totalPages])
 
   // Progress-bar seek (drag the ReaderControls range input)
   useEffect(() => {
@@ -153,24 +156,6 @@ export function ComicRenderer({ book, content, bookId }: ComicRendererProps) {
     saveProgress()
   }, [currentIndex, totalPages])
 
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      // 正在输入框里打字时不能抢键：这里的空格/方向键都调了 preventDefault，
-      // 会把搜索框里的空格吃掉（表现为"打不出空格"，且每按一次还翻一页）。
-      if (isTypingTarget(e)) return
-      if (e.key === 'ArrowRight' || e.key === ' ' || e.key === 'PageDown') {
-        e.preventDefault()
-        setCurrentIndex((i) => Math.min(i + 1, totalPages - 1))
-      }
-      if (e.key === 'ArrowLeft' || e.key === 'PageUp') {
-        setCurrentIndex((i) => Math.max(i - 1, 0))
-      }
-      if (e.key === 'Home') setCurrentIndex(0)
-      if (e.key === 'End') setCurrentIndex(totalPages - 1)
-    }
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [totalPages])
 
   if (isLoading) {
     return (

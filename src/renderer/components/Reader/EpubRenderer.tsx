@@ -7,7 +7,7 @@ import { useSettingsStore } from '../../stores/settingsStore'
 import type { Book as BookType } from '../../stores/libraryStore'
 import { VERTICAL_STYLE_ID, epubSpreadValue, setVerticalStyle, spineEntries } from './EpubRendererTheme'
 import { useEpubSearch } from './EpubSearch'
-import { isTypingTarget } from '../../utils/keyboard'
+import { usePaging } from '../../reader'
 
 interface EpubRendererProps {
   book: BookType
@@ -48,8 +48,7 @@ export function EpubRenderer({ book, content, bookId, spread = 'single', vertica
   const bookmarks = useReaderStore((s) => s.bookmarks)
   const navigateTarget = useReaderStore((s) => s.navigateTarget)
   const clearNavigateTarget = useReaderStore((s) => s.clearNavigateTarget)
-  const turnPageDelta = useReaderStore((s) => s.turnPageDelta)
-  const clearTurnPage = useReaderStore((s) => s.clearTurnPage)
+  const paging = usePaging()
   const seekTarget = useReaderStore((s) => s.seekTarget)
   const clearSeekTarget = useReaderStore((s) => s.clearSeekTarget)
   const searchQuery = useReaderStore((s) => s.searchQuery)
@@ -86,35 +85,15 @@ export function EpubRenderer({ book, content, bookId, spread = 'single', vertica
     clearNavigateTarget()
   }, [navigateTarget])
 
-  // Handle page turn from arrows / 点击两侧区域
-  // 队列化：epub.js 在上一页还在渲染时再调 next() 可能被丢掉，用户连点几下只看
-  // 到翻一页（"前几次没反应"）。这里累积意图、逐页 await 执行。
-  const pendingTurnsRef = useRef(0)
-  const turningRef = useRef(false)
+  // 统一翻页：把 EPUB 的 next/prev 注册给 PagingApi；队列/连点去重由 paging 统一处理。
   useEffect(() => {
-    if (!turnPageDelta) return
-    pendingTurnsRef.current += turnPageDelta > 0 ? 1 : -1
-    clearTurnPage()
-    const drain = async () => {
-      if (turningRef.current) return
-      turningRef.current = true
-      try {
-        while (pendingTurnsRef.current !== 0) {
-          const rendition = renditionRef.current
-          if (!rendition) break
-          const dir = pendingTurnsRef.current > 0 ? 1 : -1
-          pendingTurnsRef.current -= dir
-          try {
-            if (dir > 0) await rendition.next()
-            else await rendition.prev()
-          } catch { /* epub.js 在边界处会 reject，忽略 */ }
-        }
-      } finally {
-        turningRef.current = false
-      }
-    }
-    void drain()
-  }, [turnPageDelta, clearTurnPage])
+    if (!paging) return
+    paging.register({
+      next: () => renditionRef.current?.next(),
+      prev: () => renditionRef.current?.prev(),
+    })
+    return () => paging.register(null)
+  }, [paging])
 
   // Handle seek from progress bar
   useEffect(() => {
@@ -253,7 +232,17 @@ export function EpubRenderer({ book, content, bookId, spread = 'single', vertica
         doc.head?.appendChild(st)
       }
 
-      const onMousemove = () => window.dispatchEvent(new MouseEvent('mousemove'))
+      // 转发时带上换算后的窗口坐标：以前不传坐标（默认 0,0），父层的「鼠标在上下热区
+      // 才显示工具栏」会被误判成永远在最上面，阅读器 chrome 一直不收。
+      const onMousemove = (e: MouseEvent) => {
+        const frame = viewerRef.current?.querySelector('iframe')
+        const bounds = frame?.getBoundingClientRect()
+        window.dispatchEvent(new MouseEvent('mousemove', {
+          bubbles: true,
+          clientX: (bounds?.left ?? 0) + e.clientX,
+          clientY: (bounds?.top ?? 0) + e.clientY,
+        }))
+      }
       // EPUB 正文在 iframe 里：点击**不会冒泡到父文档**，所以父层的「点左侧 30%
       // 上一页 / 右侧 30% 下一页」对正文点击一直没生效，用户只能瞄准那两个小小的
       // 圆形箭头（“点翻页键前几次没反应”）。这里把 iframe 内的点击翻译成翻页，
@@ -271,10 +260,7 @@ export function EpubRenderer({ book, content, bookId, spread = 'single', vertica
         const frame = viewerRef.current?.querySelector('iframe')
         if (!frame) return
         const bounds = frame.getBoundingClientRect()
-        const x = bounds.left + e.clientX
-        const w = window.innerWidth || document.documentElement.clientWidth
-        if (x < w * 0.3) goPrevRef.current()
-        else if (x > w * 0.7) goNextRef.current()
+        paging?.click(bounds.left + e.clientX)
       }
       const onWheel = (e: WheelEvent) => {
         window.dispatchEvent(new WheelEvent('wheel', {
@@ -282,15 +268,32 @@ export function EpubRenderer({ book, content, bookId, spread = 'single', vertica
           ctrlKey: e.ctrlKey, shiftKey: e.shiftKey, altKey: e.altKey, bubbles: true,
         }))
       }
+      // 键盘同样转给父窗口：点过正文后焦点在 iframe 里，Esc / ← → / B 这些全局
+      // 快捷键原本到不了父窗口（「点了下正文，翻页键就不管用了」的另一条路径）。
+      const onKeydown = (e: KeyboardEvent) => {
+        window.dispatchEvent(new KeyboardEvent('keydown', {
+          key: e.key,
+          code: e.code,
+          ctrlKey: e.ctrlKey,
+          metaKey: e.metaKey,
+          altKey: e.altKey,
+          shiftKey: e.shiftKey,
+          repeat: e.repeat,
+          bubbles: true,
+          cancelable: true,
+        }))
+      }
       doc.addEventListener('mousemove', onMousemove)
       doc.addEventListener('mousedown', onMouseDown)
       doc.addEventListener('click', onClick)
       doc.addEventListener('wheel', onWheel)
+      doc.addEventListener('keydown', onKeydown)
       contentCleanupFns.push(() => {
         doc.removeEventListener('mousemove', onMousemove)
         doc.removeEventListener('mousedown', onMouseDown)
         doc.removeEventListener('click', onClick)
         doc.removeEventListener('wheel', onWheel)
+        doc.removeEventListener('keydown', onKeydown)
       })
 
       // Fallback: detect selection via mouseup if 'selected' event doesn't fire
@@ -485,36 +488,8 @@ export function EpubRenderer({ book, content, bookId, spread = 'single', vertica
     return () => window.clearTimeout(timer)
   }, [verticalText, isReady, content])
 
-  const goNext = useCallback(() => renditionRef.current?.next(), [])
-  const goPrev = useCallback(() => renditionRef.current?.prev(), [])
-  // iframe 内的点击转发要用到这两个回调；hook 注册早于它们被定义，用 ref 桥接。
-  const goNextRef = useRef<() => void>(() => {})
-  const goPrevRef = useRef<() => void>(() => {})
-  useEffect(() => {
-    goNextRef.current = () => { void renditionRef.current?.next() }
-    goPrevRef.current = () => { void renditionRef.current?.prev() }
-  }, [])
 
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      // 正在输入（如工具栏的「添加笔记」输入框）时方向键是移光标，不该翻页；
-      // 其余渲染器早已按 isTypingTarget 过滤，这里补齐。
-      if (isTypingTarget(e)) return
-      if (e.key === 'ArrowLeft') goPrev()
-      if (e.key === 'ArrowRight') goNext()
-      // 书签快捷键 'b' 已上移到 ReaderView 统一处理（此前只在 EPUB 里实现，
-      // TXT/HTML/MD/PDF/漫画下按 B 无反应，而设置页把它写成通用快捷键）。
-    }
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [bookId, goNext, goPrev, addBookmark, t])
 
-  const handleClick = useCallback((e: React.MouseEvent) => {
-    const x = e.clientX
-    const w = window.innerWidth
-    if (x < w * 0.3) goPrev()
-    else if (x > w * 0.7) goNext()
-  }, [goNext, goPrev])
 
   // 工具条点「高亮」→ 显示候选取色板（显示后清空候选，避免重复弹）。
   useEffect(() => {
@@ -583,7 +558,7 @@ export function EpubRenderer({ book, content, bookId, spread = 'single', vertica
   }, [highlightPopup, bookId, addHighlight, closeHighlightPopup])
 
   return (
-    <div className="h-full relative" onClick={handleClick}>
+    <div className="h-full relative">
       <div ref={viewerRef} className="h-full" />
       {!isReady && (
         <div className="absolute inset-0 flex items-center justify-center bg-[var(--reader-bg)]">

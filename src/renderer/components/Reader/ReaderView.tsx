@@ -13,9 +13,11 @@ import { ReaderControls } from './ReaderControls'
 import { TtsBar } from './TtsBar'
 import { TranslationPopup } from './TranslationPopup'
 import {
+  createPagingApi,
   createReaderAdapter,
   createProgressController,
   createSearchController,
+  PagingProvider,
   ReaderAdapterProvider,
   type ReaderSelection,
   type TranslationRequest,
@@ -47,10 +49,8 @@ export function ReaderView({ bookId, onClose, onOpenSplit }: ReaderViewProps) {
   const [showTts, setShowTts] = useState(false)
   // PB-021-D：统一标注面板（annotations API）；与旧 Sidebar 互斥。
   const [showAnnotations, setShowAnnotations] = useState(false)
-  const [showArrows, setShowArrows] = useState(false)
   const [loadError, setLoadError] = useState<LoadError | null>(null)
   const [confirmRemove, setConfirmRemove] = useState(false)
-  const arrowTimerRef = useRef<number | null>(null)
   const sessionActiveRef = useRef(false)
   const settingsOpenRef = useRef(false)
   // PB-001-B：Esc 需要知道朗读条是否开着（事件处理器里不能读闭包里的旧 state）
@@ -73,6 +73,11 @@ export function ReaderView({ bookId, onClose, onOpenSplit }: ReaderViewProps) {
   const dictionarySeq = useRef(0)
   const [translationRequest, setTranslationRequest] = useState<TranslationRequest | null>(null)
   const [dictionaryRequest, setDictionaryRequest] = useState<{ id: number; text: string } | null>(null)
+  // 输入层（键盘 / 点击区域）要读最新的浮层状态，但监听器只注册一次 —— 用 ref 同步。
+  const translationRequestRef = useRef<TranslationRequest | null>(null)
+  const dictionaryRequestRef = useRef<{ id: number; text: string } | null>(null)
+  useEffect(() => { translationRequestRef.current = translationRequest }, [translationRequest])
+  useEffect(() => { dictionaryRequestRef.current = dictionaryRequest }, [dictionaryRequest])
 
   // 工具条动作：翻译/词典把选区作为请求发给对应弹层；朗读打开 TTS（TtsBar 读 adapter 选区）；
   // 高亮直接用 adapter.applyAnnotation 写 annotations bridge（EPUB 选区无 CFI 时返回 null）。
@@ -139,7 +144,8 @@ export function ReaderView({ bookId, onClose, onOpenSplit }: ReaderViewProps) {
   const loadBookmarks = useReaderStore((s) => s.loadBookmarks)
   const loadHighlights = useReaderStore((s) => s.loadHighlights)
   const loadNotes = useReaderStore((s) => s.loadNotes)
-  const turnPage = useReaderStore((s) => s.turnPage)
+  // 统一翻页：渲染器注册翻页器，输入层（键盘 / 点击 / 滚轮 / 箭头）只调这里。
+  // 队列串行执行，连点几下就翻几页（旧实现用 store 的 turnPageDelta，同值不触发）。
   const saveProgress = useReaderStore((s) => s.saveProgress)
   const flushProgress = useReaderStore((s) => s.flushProgress)
   const pendingLocator = useReaderStore((s) => s.pendingLocator)
@@ -185,7 +191,11 @@ export function ReaderView({ bookId, onClose, onOpenSplit }: ReaderViewProps) {
   const cycleEpubSpread = useSettingsStore((s) => s.cycleEpubSpread)
   const setVerticalText = useSettingsStore((s) => s.setVerticalText)
 
+  const paging = useMemo(() => createPagingApi(), [bookId])
   const { loadBookSettings, clearBookSettings } = useSettingsStore()
+  // 阅读器「chrome」（工具栏 + 两侧箭头）用同一个可见性：鼠标在上下热区 / 锁定 /
+  // 朗读条打开时出现。箭头不再单独计时，避免出现两种可见性打架。
+  const chromeVisible = showControls || controlsLocked || showTts
   const { shouldRender: renderSidebar, isClosing: sidebarClosing } = useAnimatedMount(showSidebar, 200)
   const { shouldRender: renderSettings, isClosing: settingsClosing } = useAnimatedMount(showSettings, 200)
   const { shouldRender: renderAnnotations, isClosing: annotationsClosing } = useAnimatedMount(showAnnotations, 200)
@@ -367,6 +377,22 @@ export function ReaderView({ bookId, onClose, onOpenSplit }: ReaderViewProps) {
         e.preventDefault()
         setShowSearch(true)
       }
+      // ── 统一翻页：所有格式同一套键位（EPUB/CBZ/PDF 翻页，TXT/HTML 按视口滚动）──
+      // 浮层（设置 / 标注 / 侧栏 / 搜索 / 翻译 / 词典 / 取色板）打开时不翻页，避免误触。
+      const store = useReaderStore.getState()
+      const overlayOpen = settingsOpenRef.current || annotationsOpenRef.current ||
+        store.showSidebar || store.showSearch || store.highlightPaletteOpen ||
+        !!translationRequestRef.current || !!dictionaryRequestRef.current
+      // 焦点在按钮/链接上时，空格留给「按一下」语义（否则会同时翻页并触发按钮）
+      const focusEl = document.activeElement as HTMLElement | null
+      const spaceTaken = !!focusEl && focusEl !== document.body &&
+        (focusEl.tagName === 'BUTTON' || focusEl.tagName === 'A' || focusEl.getAttribute('role') === 'button')
+      if (!overlayOpen && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        const isNext = e.key === 'ArrowRight' || e.key === 'PageDown' || (e.key === ' ' && !spaceTaken)
+        const isPrev = e.key === 'ArrowLeft' || e.key === 'PageUp' || (e.key === ' ' && e.shiftKey)
+        if (isNext) { e.preventDefault(); paging.next(); return }
+        if (isPrev) { e.preventDefault(); paging.prev(); return }
+      }
       // 书签快捷键：全格式统一（此前只有 EPUB 阅读器实现了它，而设置页把
       // "B = 添加书签"写成通用快捷键）。切换判断在 store 里与按钮共用一处。
       if ((e.key === 'b' || e.key === 'B') && !e.ctrlKey && !e.metaKey && !e.altKey) {
@@ -375,7 +401,7 @@ export function ReaderView({ bookId, onClose, onOpenSplit }: ReaderViewProps) {
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [onClose])
+  }, [onClose, paging])
 
   // Mouse wheel page turning for paginated formats
   useEffect(() => {
@@ -396,8 +422,8 @@ export function ReaderView({ bookId, onClose, onOpenSplit }: ReaderViewProps) {
       if (wheelTimer) return
       wheelTimer = setTimeout(() => { wheelTimer = null }, 200)
 
-      if (e.deltaY > 0) turnPage(1)
-      else if (e.deltaY < 0) turnPage(-1)
+      if (e.deltaY > 0) paging.next()
+      else if (e.deltaY < 0) paging.prev()
     }
 
     window.addEventListener('wheel', handleWheel, { passive: false })
@@ -405,17 +431,13 @@ export function ReaderView({ bookId, onClose, onOpenSplit }: ReaderViewProps) {
       window.removeEventListener('wheel', handleWheel)
       if (wheelTimer) clearTimeout(wheelTimer)
     }
-  }, [book, turnPage])
+  }, [book, paging])
 
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
-      // 翻页箭头和工具栏自动隐藏解耦：controlsLocked 只是「别把工具栏收起来」
-      // （添加笔记时会置位）。若连 mousemove 一起 return，箭头隐藏后永远不再出现，
-      // 表现就是「点了下底部工具栏，翻页键就不管用了」（2026-10-28 反馈）。
-      setShowArrows(true)
-      if (arrowTimerRef.current) clearTimeout(arrowTimerRef.current)
-      arrowTimerRef.current = window.setTimeout(() => setShowArrows(false), 2000)
-
+      // 这里只负责「工具栏显隐」。翻页箭头不再有独立的 2 秒计时器/淡出：
+      // 它跟工具栏一起出现、一起消失（见下方 chromeVisible），没有
+      // 「半透明但能点 / 隐身却吃点击」这类中间态（2026-10-28 重构）。
       if (controlsLocked) return
       const y = e.clientY
       const h = window.innerHeight
@@ -424,10 +446,6 @@ export function ReaderView({ bookId, onClose, onOpenSplit }: ReaderViewProps) {
     window.addEventListener('mousemove', handleMouseMove)
     return () => {
       window.removeEventListener('mousemove', handleMouseMove)
-      if (arrowTimerRef.current) {
-        clearTimeout(arrowTimerRef.current)
-        arrowTimerRef.current = null
-      }
     }
   }, [controlsLocked])
 
@@ -487,6 +505,7 @@ export function ReaderView({ bookId, onClose, onOpenSplit }: ReaderViewProps) {
 
   return (
     <ReaderAdapterProvider adapter={readerAdapter}>
+    <PagingProvider api={paging}>
     <div className="h-screen flex bg-[var(--reader-bg)] text-[var(--reader-text)] relative">
       {/* Sidebar overlay */}
       {renderSidebar && (
@@ -558,46 +577,53 @@ export function ReaderView({ bookId, onClose, onOpenSplit }: ReaderViewProps) {
           </svg>
         </button>
 
-        {/* Book content */}
-        <div className="h-full">
+        {/* Book content —— 点击左 30% 上一页 / 右 30% 下一页。
+            DOM 格式（TXT/HTML/PDF/漫画）的点击在这里处理；EPUB 在 iframe 里，
+            由 EpubRenderer 的内容 hook 转发到同一个 paging.click()。 */}
+        <div
+          className="h-full"
+          onClick={(e) => {
+            const store = useReaderStore.getState()
+            const overlayOpen = showSettings || showAnnotations || showSidebar || showSearch ||
+              store.highlightPaletteOpen || !!translationRequest || !!dictionaryRequest
+            if (overlayOpen) return
+            const selection = window.getSelection()
+            if (selection && !selection.isCollapsed) return
+            paging.click(e.clientX)
+          }}
+        >
           {renderContent()}
         </div>
 
-        {/* Page turn arrows —— 光标停在箭头上时保持可见（holdArrows）。
-            否则「鼠标停住 → 2 秒后箭头淡出 + pointer-events:none → 后续点击落到
-            下面的 iframe（EPUB）上」，表现就是「前几次点翻页没反应，得多点几次」。 */}
-        <button
-          onClick={(e) => { e.stopPropagation(); turnPage(-1) }}
-          onMouseEnter={() => { if (arrowTimerRef.current) clearTimeout(arrowTimerRef.current); setShowArrows(true) }}
-          onMouseLeave={() => {
-            if (arrowTimerRef.current) clearTimeout(arrowTimerRef.current)
-            arrowTimerRef.current = window.setTimeout(() => setShowArrows(false), 800)
-          }}
-          className={`m3-icon-button absolute left-2 top-1/2 -translate-y-1/2 z-20 !w-12 !h-12 ${showArrows ? 'opacity-100' : 'opacity-0'}`}
-          style={{ background: 'var(--md-sys-color-surface-container-high)', color: 'var(--md-sys-color-on-surface)', boxShadow: 'var(--md-sys-elevation-1)' }}
-          title={t('上一页')}
-          data-testid="reader-prev-page"
-        >
-          <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-          </svg>
-        </button>
-        <button
-          onClick={(e) => { e.stopPropagation(); turnPage(1) }}
-          onMouseEnter={() => { if (arrowTimerRef.current) clearTimeout(arrowTimerRef.current); setShowArrows(true) }}
-          onMouseLeave={() => {
-            if (arrowTimerRef.current) clearTimeout(arrowTimerRef.current)
-            arrowTimerRef.current = window.setTimeout(() => setShowArrows(false), 800)
-          }}
-          className={`m3-icon-button absolute right-2 top-1/2 -translate-y-1/2 z-20 !w-12 !h-12 ${showArrows ? 'opacity-100' : 'opacity-0'}`}
-          style={{ background: 'var(--md-sys-color-surface-container-high)', color: 'var(--md-sys-color-on-surface)', boxShadow: 'var(--md-sys-elevation-1)' }}
-          title={t('下一页')}
-          data-testid="reader-next-page"
-        >
-          <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-          </svg>
-        </button>
+        {/* Page turn arrows：与工具栏同步出现/消失（chromeVisible），不再有独立的
+            2 秒淡出计时器 —— 也就没有「隐身但吃点击」「淡出后点不到」的中间态。
+            不显示时，同一位置仍是内容点击区（左右 30%），照样能翻页。 */}
+        {chromeVisible && (
+          <>
+            <button
+              onClick={(e) => { e.stopPropagation(); paging.prev() }}
+              className="m3-icon-button absolute left-2 top-1/2 -translate-y-1/2 z-20 !w-12 !h-12"
+              style={{ background: 'var(--md-sys-color-surface-container-high)', color: 'var(--md-sys-color-on-surface)', boxShadow: 'var(--md-sys-elevation-1)' }}
+              title={t('上一页')}
+              data-testid="reader-prev-page"
+            >
+              <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+              </svg>
+            </button>
+            <button
+              onClick={(e) => { e.stopPropagation(); paging.next() }}
+              className="m3-icon-button absolute right-2 top-1/2 -translate-y-1/2 z-20 !w-12 !h-12"
+              style={{ background: 'var(--md-sys-color-surface-container-high)', color: 'var(--md-sys-color-on-surface)', boxShadow: 'var(--md-sys-elevation-1)' }}
+              title={t('下一页')}
+              data-testid="reader-next-page"
+            >
+              <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+              </svg>
+            </button>
+          </>
+        )}
 
         {/* TTS 朗读条 + Controls（PB-001-B） */}
         <div className={`absolute bottom-0 left-0 right-0 transition-opacity duration-300 ${(showControls || showSearch || showTts || dictionaryVisible) ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
@@ -660,6 +686,7 @@ export function ReaderView({ bookId, onClose, onOpenSplit }: ReaderViewProps) {
         onDismiss={() => setTranslationRequest(null)}
       />
     </div>
+    </PagingProvider>
     </ReaderAdapterProvider>
   )
 }
