@@ -5,6 +5,8 @@
 // no dictionary. Keep keys EXACTLY as they appear in the components (they
 // double as the Chinese source). {{var}} placeholders must match verbatim.
 export const enReader: Record<string, string> = {
+  // ReaderView / ReaderControls（2026-10-28：目录 / 书签 / 笔记 合并成一个侧栏按钮）
+  '侧栏': 'Sidebar',
   // ReaderView
   '本次阅读时长': 'Reading time',
   '这本书已不在书架': 'This book is no longer in your library',

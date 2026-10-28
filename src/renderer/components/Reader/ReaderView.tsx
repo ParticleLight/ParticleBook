@@ -163,6 +163,22 @@ export function ReaderView({ bookId, onClose, onOpenSplit }: ReaderViewProps) {
   const setShowSearch = useReaderStore((s) => s.setShowSearch)
   const clearSearch = useReaderStore((s) => s.clearSearch)
 
+  // 侧栏合并成一个按钮后，标签页按书记忆：「打开侧栏沿用这本书上次关闭前的标签页」。
+  // 存 localStorage（与分栏/竖排同一层持久化），键按 bookId 分开。
+  const sidebarTab = useReaderStore((s) => s.sidebarTab)
+  const sidebarBookRef = useRef(bookId)
+  useEffect(() => {
+    sidebarBookRef.current = bookId
+    let saved: string | null = null
+    try { saved = localStorage.getItem('pb.reader.sidebarTab.' + bookId) } catch { /* ignore */ }
+    if (saved === 'toc' || saved === 'bookmarks' || saved === 'highlights' || saved === 'notes') {
+      useReaderStore.getState().restoreSidebarTab(saved)
+    }
+  }, [bookId])
+  useEffect(() => {
+    try { localStorage.setItem('pb.reader.sidebarTab.' + sidebarBookRef.current, sidebarTab) } catch { /* ignore */ }
+  }, [sidebarTab])
+
   // PB-009-A：EPUB 分栏 / 竖排（持久化在 localStorage，见 settingsStore）
   const epubSpread = useSettingsStore((s) => s.epubSpread)
   const verticalText = useSettingsStore((s) => s.verticalText)

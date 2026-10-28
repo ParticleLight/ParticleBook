@@ -142,6 +142,8 @@ export interface ReaderState {
   setHighlightPaletteOpen: (open: boolean) => void
 
   setSidebarTab: (tab: 'toc' | 'bookmarks' | 'highlights' | 'notes') => void
+  /** 只切标签页、不打开侧栏（按书记住侧栏状态时用） */
+  restoreSidebarTab: (tab: 'toc' | 'bookmarks' | 'highlights' | 'notes') => void
   toggleSidebar: () => void
   setShowSidebar: (show: boolean) => void
   setShowControls: (show: boolean) => void
@@ -428,6 +430,9 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
   },
   clearSearch: () => set({ showSearch: false, searchQuery: '', searchMatches: [], currentSearchIndex: -1 }),
   setSidebarTab: (sidebarTab) => set({ sidebarTab, showSidebar: true }),
+  // 只切标签页、不打开侧栏：ReaderView 按书记住侧栏标签页时用（合并按钮后
+  // 「打开侧栏沿用这本书上次关闭前的标签页」）。
+  restoreSidebarTab: (sidebarTab) => set({ sidebarTab }),
   toggleSidebar: () => set({ showSidebar: !get().showSidebar }),
   setShowSidebar: (show) => set({ showSidebar: show }),
   setShowControls: (showControls) => set({ showControls }),

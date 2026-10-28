@@ -47,6 +47,8 @@ export function ReaderControls({
   const toggleBookmarkAtProgress = useReaderStore((s) => s.toggleBookmarkAtProgress)
   const addNote = useReaderStore((s) => s.addNote)
   const setSidebarTab = useReaderStore((s) => s.setSidebarTab)
+  const showSidebar = useReaderStore((s) => s.showSidebar)
+  const toggleSidebar = useReaderStore((s) => s.toggleSidebar)
   const setControlsLocked = useReaderStore((s) => s.setControlsLocked)
   const seekTo = useReaderStore((s) => s.seekTo)
   // PB-010-B：本地词典弹层（数据来自 C++ DictionaryService，离线）。
@@ -269,7 +271,19 @@ export function ReaderControls({
       </div>
 
       <div className="flex items-center justify-center gap-2">
-        <button onClick={() => setSidebarTab('toc')} className={`${ctrlClasses.btn} ${ctrlClasses.btnDefault}`} title={t('目录')} aria-label={t('目录')}>
+        {/* 目录 / 书签 / 笔记 三个入口合并成一个侧栏按钮：打开时沿用这本书上次
+            关闭侧栏时的标签页（ReaderView 按 bookId 持久化），标签页切换仍在侧栏内。 */}
+        <button
+          onClick={() => {
+            if (useReaderStore.getState().showSidebar) { toggleSidebar(); return }
+            setSidebarTab(useReaderStore.getState().sidebarTab)
+          }}
+          className={`${ctrlClasses.btn} ${showSidebar ? 'is-active' : ctrlClasses.btnDefault}`}
+          title={t('侧栏')}
+          aria-label={t('侧栏')}
+          aria-expanded={showSidebar}
+          data-testid="reader-sidebar-toggle"
+        >
           <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 10h16M4 14h16M4 18h16" />
           </svg>
@@ -283,12 +297,6 @@ export function ReaderControls({
         >
           <svg className="w-5 h-5" fill={isBookmarked ? 'currentColor' : 'none'} viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
-          </svg>
-        </button>
-
-        <button onClick={() => setSidebarTab('bookmarks')} className={`${ctrlClasses.btn} ${ctrlClasses.btnDefault}`} title={t('书签列表')} aria-label={t('书签列表')}>
-          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
           </svg>
         </button>
 
@@ -311,12 +319,6 @@ export function ReaderControls({
         >
           <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-          </svg>
-        </button>
-
-        <button onClick={() => setSidebarTab('notes')} className={`${ctrlClasses.btn} ${ctrlClasses.btnDefault}`} title={t('笔记列表')} aria-label={t('笔记列表')}>
-          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
           </svg>
         </button>
 
