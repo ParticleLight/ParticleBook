@@ -1,6 +1,11 @@
 export interface ChangelogEntry {
   version: string
   date: string
+  /**
+   * 尚未发版的条目：ChangelogPanel 会在版本号旁显示「未发布」标记。
+   * 「更新日志实时写」——功能一落地就往当前未发布版本里追加；发版时删掉这个标记。
+   */
+  unreleased?: boolean
   changes: {
     type: 'feature' | 'fix' | 'improve'
     text: string
@@ -8,6 +13,42 @@ export interface ChangelogEntry {
 }
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: '2.2.1',
+    date: '2026-10-28',
+    unreleased: true,
+    changes: [
+      { type: 'feature', text: '文本朗读（TTS）：离线 SAPI 朗读 EPUB / TXT / HTML / PDF，可选音色与语速，逐句高亮并自动滚动，支持睡眠定时；窗口最小化或浏览 Z-Library 时不会中断' },
+      { type: 'feature', text: 'AI 翻译：选中即译（也支持整段），兼容 DeepSeek / OpenAI / Kimi / 智谱等任意 OpenAI 兼容服务；Key 用 Windows DPAPI 加密只存本机，不进设置、备份与日志；译文按原文缓存，重复翻译零请求' },
+      { type: 'feature', text: 'PDF 标注：补全 PDF 文本层（可选中、可复制），支持 4 色高亮、下划线与页内文字笔记，按页加百分比坐标持久化，缩放 / 换页 / 重开都不丢，侧栏列表可点击跳转' },
+      { type: 'feature', text: '笔记导出：书签、高亮、笔记与 PDF 标注可导出为 Markdown / CSV / JSON，支持单本或全库、导出前预览与范围选择、一键复制到剪贴板' },
+      { type: 'feature', text: '元数据管理：书籍详情可直接编辑书名 / 作者 / 语言 / 出版社 / 简介，新增标签、系列（含序号）与 1–5 星评分，并接入筛选、排序与书库搜索' },
+      { type: 'feature', text: '跨书全文搜索：导入时自动建索引，一次搜遍整个书架并跳到书内命中位置（EPUB 精确到 CFI、TXT / MOBI 到字符偏移、PDF 到页），支持手动重建索引' },
+      { type: 'feature', text: '阅读统计升级：日 / 周 / 月 / 累计阅读时长、365 天热力图、连续阅读天数、每日与每周目标进度、按书与按格式排行；数据全部来自本地、不上传' },
+      { type: 'feature', text: '格式补齐：新增 AZW3 / AZW（Kindle KF8，经 mobitool 转 EPUB，保留原文件与封面）与 DOCX 导入阅读；DRM 加密文件仍不支持' },
+      { type: 'feature', text: '双栏 / 分屏 / 竖排：EPUB 支持宽屏双栏与竖排；分屏把两本书并排阅读，两栏各自独立进度与选区，朗读只归属当前激活栏，退出回到单栏' },
+      { type: 'feature', text: '本地词典：内置 ECDICT 离线词库，选中单词即可看音标 / 释义 / 词形 / 考试标签，支持导入 StarDict 词库与中文分词取词，全程不联网' },
+      { type: 'feature', text: '备份与恢复：一键导出 zip（数据库 / 设置 / 标注 / 封面），恢复前自动留底，数据版本不兼容时拒绝并提示，导出导入带进度与失败重试' },
+      { type: 'feature', text: '文件关联：安装器注册 ProgID 与「打开方式」，可用 ParticleBook 打开 EPUB / PDF / MOBI / FB2 / TXT / CBZ / CBR；不写默认关联，卸载清理干净' },
+      { type: 'feature', text: '书源管理增强：支持 URL / 剪贴板 / 文件（含批量）导入并去重，可视化编辑搜索 / 详情 / 目录 / 正文规则且保留未知字段，单源测试能定位到具体出错规则，支持分组筛选、排序与批量启停 / 删除' },
+      { type: 'feature', text: 'Material 3 界面：书库、设置、阅读器、朗读条与各类弹层统一到 M3 语义 token（颜色 / 字阶 / 形状 / 状态 / 动效），并提供可复用的 m3-* 基元' },
+      { type: 'feature', text: '原生标题栏跟随主题：暗色 / 亮色 / 护眼三档下 Windows 标题栏与内容同色，启动时不再先闪一条白标题栏' },
+      { type: 'feature', text: '窄窗口自适应导航：窗口宽度大于等于 840px 用常驻导航抽屉，640–839px 收成 80px 图标 rail，小于 640px 改为顶栏汉堡加模态抽屉；书库与设置页行为一致' },
+      { type: 'feature', text: '表单与表格统一到 M3：文本输入、下拉、勾选、开关与表格全部改用统一基元（书源列表改成真表格、设置页开关换成 M3 开关），替换此前各页面零散的控件样式' },
+      { type: 'feature', text: '大书库性能：网格 / 列表超过 120 本自动虚拟化，封面懒加载并带 LRU 缓存与并发去重，导入时逐文件进度与错误汇总；5000 本基准首屏在 1 秒内' },
+      { type: 'feature', text: '单实例与文件转发：同一时间只允许一个进程，第二次打开文件会把路径转给已运行窗口并直接导入或打开' },
+      { type: 'feature', text: '数据版本化：书库文件带版本号与迁移注册表，迁移前自动备份、失败保留原文件，旧版本打开新库会拒绝并提示' },
+      { type: 'feature', text: '本地诊断日志：滚动日志加一键导出诊断包（日志 / 版本 / 系统信息 / 脱敏设置），默认只落本机，无遥测、无上传' },
+      { type: 'fix', text: '修复亮色主题下设置页「外观主题 / 主题色 / 字体」卡片文字几乎不可读（body 上的深色工具类压过了主题变量）' },
+      { type: 'fix', text: '修复书源弹层的「导入 JSON / 搜索 / 下载」按钮是紫色、与主题强调色不一致的问题' },
+      { type: 'improve', text: '桥接契约单一来源并加生成物新鲜度校验与无消费者成员审计（100 个调用 + 14 个事件 + 1 个前端本地工具），新增接口不再各写一份类型' },
+      { type: 'improve', text: '长任务统一交给后台线程池（导入、PDF 渲染与取文、书源搜索等不再卡界面），后台事件全部回抛到 UI 线程，退出时按顺序收尾' },
+      { type: 'improve', text: '阅读位置与标注统一为 Locator / Annotation 模型（书签、高亮、笔记、PDF 标注、朗读与搜索共用一套位置表示），各格式渲染器共享搜索 / 进度 / 选区交互层' },
+      { type: 'improve', text: '设置改为 schema 驱动（按组呈现、即改即存、一键恢复默认），第三方 Key 走 DPAPI 的 SecretStore，不写进设置、备份与日志' },
+      { type: 'improve', text: '大文件按职责拆分：Z-Library、文件/导入、书源、WebView 外壳、设置页与 EPUB 渲染器各自收敛，注入脚本外置到 resources 目录，改界面不必重编译' },
+      { type: 'improve', text: '回归护栏：18 条关键路径 E2E（真实窗口 + WebView2/CDP，用户数据沙箱隔离）与 18 个 C++ 单测，CI 覆盖类型检查、契约、版本一致性与 i18n' },
+    ],
+  },
   {
     version: '2.2.0',
     date: '2026-09-13',

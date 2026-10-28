@@ -11,6 +11,7 @@
   "scripts": {
     "build": "vite build",
     "i18n:check": "node scripts/check-i18n-keys.js",
+    "check:changelog": "node scripts/check-changelog.mjs",
     "bench:library": "node scripts/bench/library-bench.mjs",
     "check:bridge-handlers": "node scripts/check-bridge-handlers.js",
     "gen:bridge-dts": "node scripts/gen-bridge-dts.mjs",

@@ -134,4 +134,5 @@ export const enUi: Record<string, string> = {
   '词形变化': 'Word form',
   '词典正在加载…': 'Loading dictionary…',
   '打开词典': 'Open dictionary',
+  '未发布': 'Unreleased',
 }

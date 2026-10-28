@@ -44,6 +44,15 @@ export function ChangelogPanel({ onClose, isClosing }: ChangelogPanelProps) {
             <div key={entry.version} className={i < changelog.length - 1 ? 'mb-6 pb-6 border-b' : ''} style={i < changelog.length - 1 ? { borderColor: 'var(--md-sys-color-outline-variant)' } : undefined}>
               <div className="flex items-center gap-3 mb-3">
                 <span className="m3-title-medium">v{entry.version}</span>
+                {entry.unreleased && (
+                  <span
+                    className="m3-label-small rounded-full px-2 py-0.5"
+                    style={{ background: 'var(--md-sys-color-primary-container)', color: 'var(--md-sys-color-on-primary-container)' }}
+                    data-testid="changelog-unreleased"
+                  >
+                    {t('未发布')}
+                  </span>
+                )}
                 <span className="text-xs" style={{ color: 'var(--md-sys-color-on-surface)', opacity: 0.4 }}>{entry.date}</span>
               </div>
               <div className="space-y-2">
