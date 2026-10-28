@@ -21,6 +21,8 @@ interface ReaderControlsProps {
   // PB-022：SelectionToolbar 的词典请求（打开词典并查首词）
   dictionaryRequest?: { id: number; text: string } | null
   onDictionaryRequestHandled: () => void
+  /** 词典弹层可见性（ReaderView 用它阻止工具栏「移开鼠标就整体淡出」）。 */
+  onDictionaryVisibilityChange?: (open: boolean) => void
   /** PB-022：与 ReaderView 共享的 SearchController（缺省时自建一个）。 */
   searchController?: SearchController | null
   /** PB-009-D：分屏阅读（选择第二本书并排） */
@@ -30,7 +32,8 @@ interface ReaderControlsProps {
 export function ReaderControls({
   bookId, format, onOpenSettings, onOpenTts, ttsActive,
   epubSpread, verticalText, onCycleSpread, onToggleVertical,
-  dictionaryRequest = null, onDictionaryRequestHandled, searchController: sharedSearchController = null,
+  dictionaryRequest = null, onDictionaryRequestHandled, onDictionaryVisibilityChange,
+  searchController: sharedSearchController = null,
   onOpenSplit,
 }: ReaderControlsProps) {
   const { t } = useTranslation()
@@ -54,6 +57,12 @@ export function ReaderControls({
     setDictionaryOpen(false)
     onDictionaryRequestHandled()
   }
+  // 词典弹层是 fixed 全屏浮层，但挂在工具栏的自动隐藏容器里：容器一淡出（鼠标离开
+  // 上下热区）整个弹层就看不见了，表现为「鼠标一动词典就消失」。这里把可见性上报给
+  // ReaderView，让容器在词典打开期间保持可见。
+  useEffect(() => {
+    onDictionaryVisibilityChange?.(dictionaryVisible)
+  }, [dictionaryVisible, onDictionaryVisibilityChange])
 
   const showSearch = useReaderStore((s) => s.showSearch)
   const setShowSearch = useReaderStore((s) => s.setShowSearch)

@@ -126,6 +126,9 @@ export function ReaderView({ bookId, onClose, onOpenSplit }: ReaderViewProps) {
 
   // 取色板打开期间隐藏选区工具条（否则两者叠在同一处，用户截图反馈）
   const highlightPaletteOpen = useReaderStore((s) => s.highlightPaletteOpen)
+  // 词典弹层挂在工具栏的自动隐藏容器里：容器淡出会让弹层「鼠标一动就消失」。
+  // 可见性由 ReaderControls 上报，容器在弹层打开期间保持可见。
+  const [dictionaryVisible, setDictionaryVisible] = useState(false)
   const showSidebar = useReaderStore((s) => s.showSidebar)
   const showControls = useReaderStore((s) => s.showControls)
   const controlsLocked = useReaderStore((s) => s.controlsLocked)
@@ -564,7 +567,7 @@ export function ReaderView({ bookId, onClose, onOpenSplit }: ReaderViewProps) {
         </button>
 
         {/* TTS 朗读条 + Controls（PB-001-B） */}
-        <div className={`absolute bottom-0 left-0 right-0 transition-opacity duration-300 ${(showControls || showSearch || showTts) ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
+        <div className={`absolute bottom-0 left-0 right-0 transition-opacity duration-300 ${(showControls || showSearch || showTts || dictionaryVisible) ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
           {showTts && book && (
             <TtsBar
               bookId={bookId}
@@ -585,6 +588,7 @@ export function ReaderView({ bookId, onClose, onOpenSplit }: ReaderViewProps) {
             onToggleVertical={() => setVerticalText(!verticalText)}
             dictionaryRequest={dictionaryRequest}
             onDictionaryRequestHandled={() => setDictionaryRequest(null)}
+            onDictionaryVisibilityChange={setDictionaryVisible}
             searchController={searchController}
             onOpenSplit={onOpenSplit}
           />
