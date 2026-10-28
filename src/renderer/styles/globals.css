@@ -1753,3 +1753,17 @@ input[type="range"]::-webkit-slider-thumb {
   .m3-select-menu { animation: none; }
 }
 
+/* ── 统计页热力图（2026-10-28）────────────────────────────────────
+   5 档格子：0 = 无记录（surface-container-highest），1–4 由浅到深。
+   用 color-mix 从 --md-sys-color-primary 推出中间档，三套主题（暗/亮/护眼）
+   自动跟随；旧实现写死 rgba(96,205,255,…) 蓝色，亮色主题下几乎看不见。
+   格子尺寸由父级 grid 的 auto-cols-fr + aspect-square 决定（铺满宽度）。 */
+.m3-heatmap-cell {
+  border-radius: 3px;
+  background: var(--md-sys-color-surface-container-highest);
+}
+.m3-heatmap-cell[data-level="1"] { background: color-mix(in srgb, var(--md-sys-color-primary) 22%, var(--md-sys-color-surface-container-high)); }
+.m3-heatmap-cell[data-level="2"] { background: color-mix(in srgb, var(--md-sys-color-primary) 42%, var(--md-sys-color-surface-container-high)); }
+.m3-heatmap-cell[data-level="3"] { background: color-mix(in srgb, var(--md-sys-color-primary) 66%, var(--md-sys-color-surface-container-high)); }
+.m3-heatmap-cell[data-level="4"] { background: var(--md-sys-color-primary); }
+

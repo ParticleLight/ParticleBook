@@ -179,4 +179,8 @@ export const enLibrary: Record<string, string> = {
   '开始分屏': 'Start split view',
   '不支持分屏': 'Not supported',
   '搜索书籍': 'Search books',
+
+  // 阅读统计页（2026-10-28）：热力图图例
+  '少': 'Less',
+  '多': 'More',
 }

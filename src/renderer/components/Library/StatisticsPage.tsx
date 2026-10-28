@@ -3,17 +3,55 @@ import { useTranslation } from 'react-i18next'
 
 interface StatisticsPageProps { onBack: () => void }
 interface SessionRow { id: number; book_id: number; started_at: string; ended_at: string | null; duration_seconds: number }
+interface BookLite { id: number; title: string; format?: string }
 
 function dayKey(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
+// 热力图分档：0 无记录、1-4 由浅到深（四档阈值与配色见 globals.css 的 .m3-heatmap-cell）
+function heatLevel(minutes: number): 0 | 1 | 2 | 3 | 4 {
+  if (minutes <= 0) return 0
+  if (minutes < 15) return 1
+  if (minutes < 30) return 2
+  if (minutes < 60) return 3
+  return 4
+}
+
+interface HeatCell { key: string; minutes: number }
+
+/**
+ * 把最近一年切成「周一到周日」的列。
+ * 旧实现直接从 365 天前连续铺 7 行，行不对应星期几、列也不对应自然周；这里对齐到
+ * 周一，行 = 星期几、列 = 一周，并且只填到今天之后留空（未来格子透明）。
+ */
+function buildWeeks(today: Date, daily: Map<string, number>): Array<Array<HeatCell | null>> {
+  const start = new Date(today)
+  start.setHours(0, 0, 0, 0)
+  start.setDate(start.getDate() - 364)
+  start.setDate(start.getDate() - ((start.getDay() + 6) % 7)) // 回退到本周一
+  const weeks: Array<Array<HeatCell | null>> = []
+  const cursor = new Date(start)
+  while (cursor <= today) {
+    const week: Array<HeatCell | null> = []
+    for (let i = 0; i < 7; i += 1) {
+      if (cursor > today) { week.push(null); continue }
+      const key = dayKey(cursor)
+      week.push({ key, minutes: (daily.get(key) || 0) / 60 })
+      cursor.setDate(cursor.getDate() + 1)
+    }
+    weeks.push(week)
+  }
+  return weeks
+}
+
 export function StatisticsPage({ onBack }: StatisticsPageProps) {
   const { t } = useTranslation()
   const [sessions, setSessions] = useState<SessionRow[]>([])
-  const [books, setBooks] = useState<any[]>([])
-  const [settings, setSettings] = useState<any>({})
+  const [books, setBooks] = useState<BookLite[]>([])
+  const [settings, setSettings] = useState<Record<string, unknown>>({})
   const [loading, setLoading] = useState(true)
+  const [covers, setCovers] = useState<Record<number, string | null>>({})
 
   useEffect(() => {
     Promise.all([
@@ -22,8 +60,8 @@ export function StatisticsPage({ onBack }: StatisticsPageProps) {
       window.electronAPI.getSettings(),
     ]).then(([s, b, cfg]) => {
       setSessions(Array.isArray(s) ? s : [])
-      setBooks(Array.isArray(b) ? b : [])
-      setSettings(cfg || {})
+      setBooks(Array.isArray(b) ? b as BookLite[] : [])
+      setSettings((cfg || {}) as Record<string, unknown>)
     }).catch(() => {}).finally(() => setLoading(false))
   }, [])
 
@@ -41,7 +79,7 @@ export function StatisticsPage({ onBack }: StatisticsPageProps) {
     }
     const today = new Date()
     const todayKey = dayKey(today)
-    const weekStart = new Date(today); weekStart.setDate(today.getDate() - ((today.getDay() + 6) % 7))
+    const weekStart = new Date(today); weekStart.setDate(today.getDate() - ((today.getDay() + 6) % 7)); weekStart.setHours(0, 0, 0, 0)
     const monthStart = new Date(today.getFullYear(), today.getMonth(), 1)
     let todaySecs = 0, weekSecs = 0, monthSecs = 0, totalSecs = 0
     for (const [key, secs] of daily) {
@@ -57,103 +95,167 @@ export function StatisticsPage({ onBack }: StatisticsPageProps) {
       const key = dayKey(cursor)
       if ((daily.get(key) || 0) > 0) { streak += 1; cursor.setDate(cursor.getDate() - 1) } else break
     }
-    const days: Array<{ key: string; minutes: number }> = []
-    for (let i = 364; i >= 0; i -= 1) {
-      const d = new Date(today); d.setDate(today.getDate() - i)
-      const key = dayKey(d)
-      days.push({ key, minutes: (daily.get(key) || 0) / 60 })
-    }
-    const formatTotals = new Map<string, number>()
-    for (const book of books) {
-      const secs = perBook.get(book.id) || 0
-      if (!secs) continue
-      const fmt = String(book.format || 'other')
-      formatTotals.set(fmt, (formatTotals.get(fmt) || 0) + secs)
-    }
+    const weeks = buildWeeks(today, daily)
     const ranking = books
-      .map((b) => ({ id: b.id, title: b.title, secs: perBook.get(b.id) || 0 }))
+      .map((b) => ({
+        id: b.id,
+        title: b.title,
+        format: String(b.format || ''),
+        secs: perBook.get(b.id) || 0,
+      }))
       .filter((b) => b.secs > 0)
       .sort((a, b) => b.secs - a.secs)
       .slice(0, 10)
-    return { todaySecs, weekSecs, monthSecs, totalSecs, streak, days, ranking, formatTotals }
+    return { todaySecs, weekSecs, monthSecs, totalSecs, streak, weeks, ranking }
   }, [sessions, books])
+
+  // 排行榜封面：与书库卡片同一个桥接调用（getCoverImage 返回 data URL 或 null），
+  // 一次并发取完前 10 本；拿不到就退化成格式角标。
+  useEffect(() => {
+    const ids = stats.ranking.map((r) => r.id)
+    if (ids.length === 0) return
+    let alive = true
+    Promise.all(ids.map((id) => window.electronAPI.getCoverImage(id).catch(() => null)))
+      .then((urls) => {
+        if (!alive) return
+        const next: Record<number, string | null> = {}
+        ids.forEach((id, index) => { next[id] = urls[index] ?? null })
+        setCovers(next)
+      })
+    return () => { alive = false }
+  }, [stats.ranking])
 
   const dailyGoal = Number(settings['reading.dailyGoalMinutes'] ?? 30) || 0
   const weeklyGoal = Number(settings['reading.weeklyGoalMinutes'] ?? 180) || 0
-  const fmtMinutes = (min: number) => (min >= 60 ? t('{{h}} 小时 {{m}} 分钟', { h: Math.floor(min / 60), m: Math.round(min % 60) }) : t('{{m}} 分钟', { m: Math.round(min) }))
+  const fmtMinutes = (min: number) => (min >= 60
+    ? t('{{h}} 小时 {{m}} 分钟', { h: Math.floor(min / 60), m: Math.round(min % 60) })
+    : t('{{m}} 分钟', { m: Math.round(min) }))
   const pct = (value: number, goal: number) => goal > 0 ? Math.min(100, Math.round(value / goal * 100)) : 0
-  const heatColor = (minutes: number) => {
-    if (minutes <= 0) return 'var(--border)'
-    if (minutes < 15) return 'rgba(96,205,255,0.25)'
-    if (minutes < 30) return 'rgba(96,205,255,0.45)'
-    if (minutes < 60) return 'rgba(96,205,255,0.7)'
-    return 'var(--accent)'
-  }
+
+  const metricCards: Array<[string, number]> = [
+    [t('今日'), stats.todaySecs],
+    [t('本周'), stats.weekSecs],
+    [t('本月'), stats.monthSecs],
+    [t('累计'), stats.totalSecs],
+  ]
+  const goalCards: Array<[string, number, number]> = [
+    [t('今日目标'), stats.todaySecs / 60, dailyGoal],
+    [t('本周目标'), stats.weekSecs / 60, weeklyGoal],
+  ]
 
   return (
-    <div className="h-full flex flex-col" style={{ background: 'var(--bg)' }}>
-      <div className="flex items-center gap-3 px-6 py-4" style={{ borderBottom: '1px solid var(--border)' }}>
+    <div className="h-full flex flex-col" style={{ background: 'var(--md-sys-color-surface)' }}>
+      <div className="flex items-center gap-3 px-6 py-4" style={{ borderBottom: '1px solid var(--md-sys-color-outline-variant)' }}>
         <button onClick={onBack} className="m3-icon-button" aria-label={t('返回')}>
           <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
         </button>
         <span className="m3-title-large">{t('阅读统计')}</span>
       </div>
-      <div className="flex-1 overflow-y-auto px-6 py-4">
-        {loading ? <p className="text-sm opacity-60">{t('加载中...')}</p> : (
-          <>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
-              {[[t('今日'), stats.todaySecs], [t('本周'), stats.weekSecs], [t('本月'), stats.monthSecs], [t('累计'), stats.totalSecs]].map(([label, secs]) => (
-                <div key={String(label)} className="rounded-lg p-3" style={{ background: 'var(--bg-secondary)' }}>
-                  <div className="text-xs opacity-60">{label}</div>
-                  <div className="text-lg font-semibold mt-1">{fmtMinutes(Number(secs) / 60)}</div>
-                </div>
-              ))}
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-5">
-              <div className="rounded-lg p-3" style={{ background: 'var(--bg-secondary)' }}>
-                <div className="flex justify-between text-xs mb-1"><span>{t('今日目标')}</span><span>{Math.round(stats.todaySecs / 60)} / {dailyGoal} {t('分钟')}</span></div>
-                <div className="m3-linear-progress" role="progressbar" aria-valuenow={pct(stats.todaySecs / 60, dailyGoal)} aria-valuemin={0} aria-valuemax={100}><span style={{ width: `${pct(stats.todaySecs / 60, dailyGoal)}%` }} /></div>
-              </div>
-              <div className="rounded-lg p-3" style={{ background: 'var(--bg-secondary)' }}>
-                <div className="flex justify-between text-xs mb-1"><span>{t('本周目标')}</span><span>{Math.round(stats.weekSecs / 60)} / {weeklyGoal} {t('分钟')}</span></div>
-                <div className="m3-linear-progress" role="progressbar" aria-valuenow={pct(stats.weekSecs / 60, weeklyGoal)} aria-valuemin={0} aria-valuemax={100}><span style={{ width: `${pct(stats.weekSecs / 60, weeklyGoal)}%` }} /></div>
-              </div>
-            </div>
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-sm font-medium">{t('最近一年')}</span>
-              <span className="text-xs opacity-60">{t('连续阅读 {{n}} 天', { n: stats.streak })}</span>
-            </div>
-            <div className="flex gap-[2px] overflow-x-auto pb-2 mb-5" aria-label={t('阅读热力图')}>
-              {Array.from({ length: 53 }, (_, w) => (
-                <div key={w} className="flex flex-col gap-[2px]">
-                  {Array.from({ length: 7 }, (_, d) => {
-                    const item = stats.days[w * 7 + d]
-                    if (!item) return <div key={d} style={{ width: 8, height: 8 }} />
-                    return <div key={d} title={`${item.key}: ${Math.round(item.minutes)} min`} style={{ width: 8, height: 8, borderRadius: 2, background: heatColor(item.minutes) }} />
-                  })}
-                </div>
-              ))}
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <h3 className="text-sm font-medium mb-2">{t('阅读最多的书')}</h3>
-                {stats.ranking.length === 0 ? <p className="text-xs opacity-60">{t('暂无阅读记录')}</p> : stats.ranking.map((b) => (
-                  <div key={b.id} className="flex justify-between text-xs py-1 border-b" style={{ borderColor: 'var(--border)' }}>
-                    <span className="truncate pr-2">{b.title}</span><span className="opacity-70 shrink-0">{fmtMinutes(b.secs / 60)}</span>
+
+      <div className="flex-1 overflow-y-auto">
+        <div className="mx-auto w-full max-w-[1500px] px-6 py-5">
+          {loading ? <p className="m3-body-medium m3-supporting-text">{t('加载中...')}</p> : (
+            <>
+              {/* 总量：今日 / 本周 / 本月 / 累计 */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                {metricCards.map(([label, secs]) => (
+                  <div key={label} className="m3-card p-4">
+                    <div className="m3-label-medium">{label}</div>
+                    <div className="m3-title-large mt-1">{fmtMinutes(secs / 60)}</div>
                   </div>
                 ))}
               </div>
-              <div>
-                <h3 className="text-sm font-medium mb-2">{t('按格式')}</h3>
-                {stats.formatTotals.size === 0 ? <p className="text-xs opacity-60">{t('暂无阅读记录')}</p> : Array.from(stats.formatTotals.entries()).sort((a, b) => b[1] - a[1]).map(([fmt, secs]) => (
-                  <div key={fmt} className="flex justify-between text-xs py-1 border-b" style={{ borderColor: 'var(--border)' }}>
-                    <span className="uppercase">{fmt}</span><span className="opacity-70">{fmtMinutes(secs / 60)}</span>
+
+              {/* 目标进度 */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
+                {goalCards.map(([label, minutes, goal]) => (
+                  <div key={label} className="m3-card p-4">
+                    <div className="flex justify-between m3-label-medium mb-2">
+                      <span>{label}</span>
+                      <span>{Math.round(minutes)} / {goal} {t('分钟')}</span>
+                    </div>
+                    <div className="m3-linear-progress" role="progressbar" aria-valuenow={pct(minutes, goal)} aria-valuemin={0} aria-valuemax={100}>
+                      <span style={{ width: `${pct(minutes, goal)}%` }} />
+                    </div>
                   </div>
                 ))}
               </div>
-            </div>
-          </>
-        )}
+
+              {/* 最近一年热力图：铺满宽度（列 = 周、行 = 星期几），图例在右上 */}
+              <div className="m3-card p-4 mb-4">
+                <div className="flex items-start justify-between gap-4 mb-3">
+                  <div>
+                    <h3 className="m3-title-small">{t('最近一年')}</h3>
+                    <p className="m3-body-small mt-1">{t('连续阅读 {{n}} 天', { n: stats.streak })}</p>
+                  </div>
+                  <div className="flex items-center gap-1.5 m3-label-small shrink-0">
+                    <span>{t('少')}</span>
+                    {[0, 1, 2, 3, 4].map((level) => (
+                      <span key={level} className="m3-heatmap-cell" data-level={level} style={{ width: 12, height: 12 }} />
+                    ))}
+                    <span>{t('多')}</span>
+                  </div>
+                </div>
+                <div
+                  className="grid grid-flow-col auto-cols-fr grid-rows-7 gap-[3px]"
+                  role="img"
+                  aria-label={t('阅读热力图')}
+                >
+                  {stats.weeks.flatMap((week, wi) => week.map((cell, di) => (
+                    cell ? (
+                      <div
+                        key={cell.key}
+                        className="m3-heatmap-cell aspect-square w-full"
+                        data-level={heatLevel(cell.minutes)}
+                        title={`${cell.key} · ${Math.round(cell.minutes)} ${t('分钟')}`}
+                      />
+                    ) : (
+                      <div key={`${wi}-${di}`} className="aspect-square w-full" />
+                    )
+                  )))}
+                </div>
+              </div>
+
+              {/* 阅读最多的书：封面 + 书名 + 时长（前 10，宽屏两列） */}
+              <div className="m3-card p-4">
+                <h3 className="m3-title-small mb-2">{t('阅读最多的书')}</h3>
+                {stats.ranking.length === 0 ? (
+                  <p className="m3-body-medium m3-supporting-text py-2">{t('暂无阅读记录')}</p>
+                ) : (
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-6">
+                    {stats.ranking.map((book, index) => {
+                      const cover = covers[book.id] || null
+                      return (
+                        <div
+                          key={book.id}
+                          className="flex items-center gap-3 py-2"
+                          style={{ borderBottom: '1px solid var(--md-sys-color-outline-variant)' }}
+                          data-stat-book={book.id}
+                        >
+                          <span className="w-5 shrink-0 text-center m3-label-medium" style={{ color: 'var(--md-sys-color-on-surface-variant)' }}>{index + 1}</span>
+                          <div className="w-9 h-12 shrink-0 overflow-hidden" style={{ borderRadius: 'var(--md-sys-shape-xs)', background: 'var(--md-sys-color-surface-container-highest)' }}>
+                            {cover ? (
+                              <img src={cover} alt="" className="w-full h-full object-cover" />
+                            ) : (
+                              <span className="w-full h-full flex items-center justify-center m3-label-small" style={{ color: 'var(--md-sys-color-on-surface-variant)' }}>
+                                {(book.format || '?').toUpperCase().slice(0, 4)}
+                              </span>
+                            )}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="m3-body-medium truncate" title={book.title}>{book.title}</p>
+                            {book.format ? <p className="m3-body-small uppercase">{book.format}</p> : null}
+                          </div>
+                          <span className="m3-label-medium shrink-0">{fmtMinutes(book.secs / 60)}</span>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+        </div>
       </div>
     </div>
   )
