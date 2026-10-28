@@ -409,14 +409,17 @@ export function ReaderView({ bookId, onClose, onOpenSplit }: ReaderViewProps) {
 
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
+      // 翻页箭头和工具栏自动隐藏解耦：controlsLocked 只是「别把工具栏收起来」
+      // （添加笔记时会置位）。若连 mousemove 一起 return，箭头隐藏后永远不再出现，
+      // 表现就是「点了下底部工具栏，翻页键就不管用了」（2026-10-28 反馈）。
+      setShowArrows(true)
+      if (arrowTimerRef.current) clearTimeout(arrowTimerRef.current)
+      arrowTimerRef.current = window.setTimeout(() => setShowArrows(false), 2000)
+
       if (controlsLocked) return
       const y = e.clientY
       const h = window.innerHeight
       setShowControls(y > h - 120 || y < 60)
-
-      setShowArrows(true)
-      if (arrowTimerRef.current) clearTimeout(arrowTimerRef.current)
-      arrowTimerRef.current = window.setTimeout(() => setShowArrows(false), 2000)
     }
     window.addEventListener('mousemove', handleMouseMove)
     return () => {

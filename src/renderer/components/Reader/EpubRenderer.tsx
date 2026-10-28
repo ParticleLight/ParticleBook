@@ -7,6 +7,7 @@ import { useSettingsStore } from '../../stores/settingsStore'
 import type { Book as BookType } from '../../stores/libraryStore'
 import { VERTICAL_STYLE_ID, epubSpreadValue, setVerticalStyle, spineEntries } from './EpubRendererTheme'
 import { useEpubSearch } from './EpubSearch'
+import { isTypingTarget } from '../../utils/keyboard'
 
 interface EpubRendererProps {
   book: BookType
@@ -441,6 +442,9 @@ export function EpubRenderer({ book, content, bookId, spread = 'single', vertica
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // 正在输入（如工具栏的「添加笔记」输入框）时方向键是移光标，不该翻页；
+      // 其余渲染器早已按 isTypingTarget 过滤，这里补齐。
+      if (isTypingTarget(e)) return
       if (e.key === 'ArrowLeft') goPrev()
       if (e.key === 'ArrowRight') goNext()
       // 书签快捷键 'b' 已上移到 ReaderView 统一处理（此前只在 EPUB 里实现，
