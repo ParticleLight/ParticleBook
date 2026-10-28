@@ -93,11 +93,25 @@ export function ReaderView({ bookId, onClose, onOpenSplit }: ReaderViewProps) {
     setShowControls(true)
     setShowTts(true)
   }
+  // 工具条「高亮」：优先让当前渲染器弹取色板 —— EPUB 需要 cfiRange、TXT 需要
+  // 字符偏移，只有渲染器自己拿得到；渲染器不在（HTML / PDF 等）才退回 adapter 默认色。
+  // 2026-10-28：取色板以前在选区结束时自己弹，和工具条叠在一起（用户截图反馈），
+  // 现在改为「工具条 → 渲染器 → 取色板」的单一路径。
   const handleSelectionHighlight = (selection: ReaderSelection) => {
-    if (!readerAdapter) return
-    void readerAdapter.applyAnnotation({ type: 'highlight', color: '#fbbf24', text: selection.text })
-      .then((created) => { if (created) useReaderStore.getState().clearSelection() })
-      .catch((error) => console.error('Failed to highlight selection:', error))
+    let handled = false
+    const onOpened = () => { handled = true }
+    window.addEventListener('pb:highlightPaletteOpened', onOpened)
+    window.dispatchEvent(new CustomEvent('pb:openHighlightPalette'))
+    window.setTimeout(() => {
+      window.removeEventListener('pb:highlightPaletteOpened', onOpened)
+      // 取色板接管时不用动选区：readerStore.highlightPaletteOpen 已让工具条隐藏，
+      // 取色板自己关闭时会收掉选区（两件事都在渲染器里做）。
+      if (handled) return
+      if (!readerAdapter) return
+      void readerAdapter.applyAnnotation({ type: 'highlight', color: '#fbbf24', text: selection.text })
+        .then((created) => { if (created) useReaderStore.getState().clearSelection() })
+        .catch((error) => console.error('Failed to highlight selection:', error))
+    }, 0)
   }
 
   // PB-022：调试 / E2E 钩子（与 window.__pbReaderAdapter 同风格）
@@ -110,6 +124,8 @@ export function ReaderView({ bookId, onClose, onOpenSplit }: ReaderViewProps) {
     }
   }, [progressController, searchController])
 
+  // 取色板打开期间隐藏选区工具条（否则两者叠在同一处，用户截图反馈）
+  const highlightPaletteOpen = useReaderStore((s) => s.highlightPaletteOpen)
   const showSidebar = useReaderStore((s) => s.showSidebar)
   const showControls = useReaderStore((s) => s.showControls)
   const controlsLocked = useReaderStore((s) => s.controlsLocked)
@@ -593,7 +609,7 @@ export function ReaderView({ bookId, onClose, onOpenSplit }: ReaderViewProps) {
           bottomInset 跟着朗读条走，保证浮层不压在 TTS 条上。 */}
       {/* PB-022：选区唯一入口 —— 翻译 / 词典 / 朗读 / 高亮都从这里触发 */}
       <SelectionToolbar
-        hidden={showSettings || showAnnotations || showSearch || showSidebar || !!translationRequest || !!dictionaryRequest}
+        hidden={highlightPaletteOpen || showSettings || showAnnotations || showSearch || showSidebar || !!translationRequest || !!dictionaryRequest}
         onTranslate={handleSelectionTranslate}
         onDictionary={handleSelectionDictionary}
         onRead={handleSelectionRead}

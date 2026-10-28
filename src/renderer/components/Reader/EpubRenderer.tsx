@@ -33,6 +33,9 @@ export function EpubRenderer({ book, content, bookId, spread = 'single', vertica
   const renditionRef = useRef<Rendition | null>(null)
   const [isReady, setIsReady] = useState(false)
   const [highlightPopup, setHighlightPopup] = useState<{ x: number; y: number; cfiRange: string; text: string } | null>(null)
+  // 选区结束时只记下候选（位置 / CFI / 文本），等工具条点「高亮」才弹出取色板；
+  // 以前一选中就自己弹，会和 SelectionToolbar 叠在一起。
+  const pendingPopupRef = useRef<{ x: number; y: number; cfiRange: string; text: string } | null>(null)
 
   const progress = useReaderStore((s) => s.progress)
   const saveProgress = useReaderStore((s) => s.saveProgress)
@@ -195,7 +198,7 @@ export function EpubRenderer({ book, content, bookId, spread = 'single', vertica
       const x = iframeBounds.left + rect.left + rect.width / 2
       const y = iframeBounds.top + rect.top - 10
 
-      setHighlightPopup({ x, y, cfiRange, text })
+      pendingPopupRef.current = { x, y, cfiRange, text }
     })
 
     // Fix iframe sandbox, enable text selection, and forward mousemove
@@ -266,7 +269,7 @@ export function EpubRenderer({ book, content, bookId, spread = 'single', vertica
             if (cfi) {
               const x = iframeBounds.left + rect.left + rect.width / 2
               const y = iframeBounds.top + rect.top - 10
-              setHighlightPopup({ x, y, cfiRange: cfi, text })
+              pendingPopupRef.current = { x, y, cfiRange: cfi, text }
             }
           }, 10)
       }
@@ -454,6 +457,50 @@ export function EpubRenderer({ book, content, bookId, spread = 'single', vertica
     else if (x > w * 0.7) goNext()
   }, [goNext, goPrev])
 
+  // 工具条点「高亮」→ 显示候选取色板（显示后清空候选，避免重复弹）。
+  useEffect(() => {
+    const onOpen = () => {
+      const pending = pendingPopupRef.current
+      if (!pending) return
+      pendingPopupRef.current = null
+      setHighlightPopup(pending)
+      useReaderStore.getState().setHighlightPaletteOpen(true)
+      window.dispatchEvent(new CustomEvent('pb:highlightPaletteOpened'))
+    }
+    window.addEventListener('pb:openHighlightPalette', onOpen)
+    return () => window.removeEventListener('pb:openHighlightPalette', onOpen)
+  }, [])
+
+  // 取色板统一收尾：关闭弹层并清掉「取色板打开」标记（工具条恢复显示）。
+  const closeHighlightPopup = useCallback(() => {
+    setHighlightPopup(null)
+    useReaderStore.getState().setHighlightPaletteOpen(false)
+    // iframe 里的选区不会自己清，轮询会把工具条又顶出来；这里主动收掉
+    try {
+      const contents: any = renditionRef.current?.getContents?.()
+      const list = Array.isArray(contents) ? contents : contents ? [contents] : []
+      list.forEach((item: any) => { item?.window?.getSelection?.()?.removeAllRanges?.() })
+    } catch { /* ignore */ }
+    useReaderStore.getState().clearSelection()
+  }, [])
+
+  // 之前这里没有「点空白 / 滚动」关闭：取色板会一直挂在旧坐标上。顺手补上。
+  useEffect(() => {
+    if (!highlightPopup) return
+    const onMouseDown = (e: MouseEvent) => {
+      const el = document.querySelector('[data-epub-highlight-popup]')
+      if (el && e.target instanceof Node && el.contains(e.target)) return
+      closeHighlightPopup()
+    }
+    const onScroll = () => closeHighlightPopup()
+    window.addEventListener('mousedown', onMouseDown)
+    window.addEventListener('scroll', onScroll, true)
+    return () => {
+      window.removeEventListener('mousedown', onMouseDown)
+      window.removeEventListener('scroll', onScroll, true)
+    }
+  }, [highlightPopup, closeHighlightPopup])
+
   const handleAddHighlight = useCallback((color: string) => {
     if (!highlightPopup || !renditionRef.current) return
     const { cfiRange, text } = highlightPopup
@@ -473,8 +520,8 @@ export function EpubRenderer({ book, content, bookId, spread = 'single', vertica
       color,
     })
 
-    setHighlightPopup(null)
-  }, [highlightPopup, bookId, addHighlight])
+    closeHighlightPopup()
+  }, [highlightPopup, bookId, addHighlight, closeHighlightPopup])
 
   return (
     <div className="h-full relative" onClick={handleClick}>
@@ -492,6 +539,7 @@ export function EpubRenderer({ book, content, bookId, spread = 'single', vertica
            动画的 transform 会盖掉它，弹层会先跳到错位再回弹。 */
         <div
           className="m3-menu fixed z-[9999] flex items-center gap-2"
+          data-epub-highlight-popup="1"
           style={{ left: highlightPopup.x, top: highlightPopup.y, transform: 'translate(-50%, -100%)' }}
           onClick={(e) => e.stopPropagation()}
         >
@@ -506,7 +554,7 @@ export function EpubRenderer({ book, content, bookId, spread = 'single', vertica
             />
           ))}
           <button
-            onClick={() => setHighlightPopup(null)}
+            onClick={closeHighlightPopup}
             className="ml-1 text-[var(--md-sys-color-on-surface-variant)] opacity-60 hover:opacity-100 text-xs"
             aria-label={t('关闭')}
             title={t('关闭')}

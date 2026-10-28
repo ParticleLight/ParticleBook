@@ -40,6 +40,9 @@ export function TextRenderer({ book, content, bookId }: TextRendererProps) {
   const addHighlight = useReaderStore((s) => s.addHighlight)
   const [highlightPopup, setHighlightPopup] = useState<{ x: number; y: number; text: string; offset: number } | null>(null)
   const popupRef = useRef<HTMLDivElement | null>(null)
+  // 选区结束时只记下候选（位置 / 文本 / 偏移），等工具条点了「高亮」才弹出取色板 ——
+  // 以前选区一松手就自己弹，和 SelectionToolbar 叠在一起（用户截图反馈）。
+  const pendingPopupRef = useRef<{ x: number; y: number; text: string; offset: number } | null>(null)
 
   // Full-text search
   const searchQuery = useReaderStore((s) => s.searchQuery)
@@ -122,11 +125,34 @@ export function TextRenderer({ book, content, bookId }: TextRendererProps) {
           }
           curOff += (node.textContent || '').length
         }
-        setHighlightPopup({ x: e.clientX, y: e.clientY, text: selectedText, offset: selOff >= 0 ? selOff : 0 })
+        pendingPopupRef.current = { x: e.clientX, y: e.clientY, text: selectedText, offset: selOff >= 0 ? selOff : 0 }
       }, 0)
     }
     container.addEventListener('mouseup', handleMouseUp)
     return () => container.removeEventListener('mouseup', handleMouseUp)
+  }, [])
+
+  // 工具条点「高亮」→ 这里才把候选取色板显示出来；显示后同步清空候选，避免重复弹。
+  useEffect(() => {
+    const onOpen = () => {
+      const pending = pendingPopupRef.current
+      if (!pending) return
+      pendingPopupRef.current = null
+      setHighlightPopup(pending)
+      useReaderStore.getState().setHighlightPaletteOpen(true)
+      window.dispatchEvent(new CustomEvent('pb:highlightPaletteOpened'))
+    }
+    window.addEventListener('pb:openHighlightPalette', onOpen)
+    return () => window.removeEventListener('pb:openHighlightPalette', onOpen)
+  }, [])
+
+  // 取色板的统一收尾：关掉弹层的同时清掉「取色板打开」标记，工具条才能恢复显示。
+  const closeHighlightPopup = useCallback(() => {
+    setHighlightPopup(null)
+    useReaderStore.getState().setHighlightPaletteOpen(false)
+    // 关掉取色板后把选区收掉：否则轮询会立刻把工具条又顶出来
+    try { window.getSelection()?.removeAllRanges() } catch { /* ignore */ }
+    useReaderStore.getState().clearSelection()
   }, [])
 
   // 弹窗此前只能靠"选色"或"×"关掉：点空白处、滚动正文都不会让它消失，于是它
@@ -136,9 +162,9 @@ export function TextRenderer({ book, content, bookId }: TextRendererProps) {
     const onMouseDown = (e: MouseEvent) => {
       const el = popupRef.current
       if (el && e.target instanceof Node && el.contains(e.target)) return
-      setHighlightPopup(null)
+      closeHighlightPopup()
     }
-    const onScroll = () => setHighlightPopup(null)
+    const onScroll = () => closeHighlightPopup()
     const container = containerRef.current
     window.addEventListener('mousedown', onMouseDown)
     container?.addEventListener('scroll', onScroll, { passive: true })
@@ -146,15 +172,15 @@ export function TextRenderer({ book, content, bookId }: TextRendererProps) {
       window.removeEventListener('mousedown', onMouseDown)
       container?.removeEventListener('scroll', onScroll)
     }
-  }, [highlightPopup])
+  }, [highlightPopup, closeHighlightPopup])
 
   const handleAddHighlight = useCallback((color: string) => {
     if (!highlightPopup) return
     const { text: selectedText, offset } = highlightPopup
     const page = (offset / text.length) * 100
     addHighlight({ book_id: bookId, text: selectedText, color, page, cfi: `pos-${offset}` })
-    setHighlightPopup(null)
-  }, [highlightPopup, text, bookId, addHighlight])
+    closeHighlightPopup()
+  }, [highlightPopup, text, bookId, addHighlight, closeHighlightPopup])
 
   const highlightedContent = useMemo(() => {
     const ranges: { start: number; end: number; color: string; type: 'highlight' | 'search' | 'searchActive' }[] = []
@@ -387,7 +413,7 @@ export function TextRenderer({ book, content, bookId }: TextRendererProps) {
             />
           ))}
           <button
-            onMouseDown={(e) => { e.preventDefault(); setHighlightPopup(null) }}
+            onMouseDown={(e) => { e.preventDefault(); closeHighlightPopup() }}
             className="w-6 h-6 rounded-full border border-[var(--md-sys-color-outline-variant)] flex items-center justify-center text-sm text-[var(--md-sys-color-on-surface-variant)] hover:text-[var(--md-sys-color-on-surface)] transition-colors"
             aria-label={t('关闭')}
             title={t('关闭')}

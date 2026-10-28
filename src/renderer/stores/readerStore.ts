@@ -137,6 +137,9 @@ export interface ReaderState {
   selection: ReaderSelectionState | null
   setSelection: (selection: ReaderSelectionState | null) => void
   clearSelection: () => void
+  /** 取色板打开期间隐藏 SelectionToolbar：两者叠在同一处会互相遮挡（2026-10-28）。 */
+  highlightPaletteOpen: boolean
+  setHighlightPaletteOpen: (open: boolean) => void
 
   setSidebarTab: (tab: 'toc' | 'bookmarks' | 'highlights' | 'notes') => void
   toggleSidebar: () => void
@@ -165,6 +168,7 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
   currentSearchIndex: -1,
   tableOfContents: [],
   selection: null,
+  highlightPaletteOpen: false,
 
   // Reading time tracking
   readingSessionId: null,
@@ -430,4 +434,5 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
   setTableOfContents: (tableOfContents) => set({ tableOfContents }),
   setSelection: (selection) => set({ selection }),
   clearSelection: () => set({ selection: null }),
+  setHighlightPaletteOpen: (highlightPaletteOpen) => set({ highlightPaletteOpen }),
 }))
