@@ -119,7 +119,33 @@ const BASE_SECTION: Record<string, SectionId> = {
   defaultSortBy: 'library',
 }
 
-const HIDDEN_KEYS = new Set(['language', 'backup.lastBackupAt'])
+// 「高级设置」只补位：凡是已经有专门设置页的项、以及 schema 里预留但运行时
+// 还没接线的项，都不在这里重复出现（用户 2026-10-28 反馈「跟已有设置重复」）。
+const DEDICATED_UI_KEYS = new Set([
+  // 外观页：主题 / 主题色 / 界面语言
+  'theme', 'accentColor', 'language',
+  // 阅读页：进度与阅读时间
+  'autoSaveProgress', 'showReadingTime',
+  // 书架页：默认视图 / 默认排序
+  'defaultViewMode', 'defaultSortBy',
+  // 阅读页「翻译服务」区块（TranslationSettings 组件）
+  'translation.enabled', 'translation.provider', 'translation.baseUrl',
+  'translation.model', 'translation.targetLanguage',
+])
+
+// 预留键：schema 保留以便后端做范围/枚举校验与白名单，但运行时没有任何 reader
+// 读它们，渲染成开关只会让用户「改了没效果」：
+//   tts.*        实际运行时用 settingsStore 的 ttsVoiceId / ttsRate（朗读条里改）
+//   dictionary.* DictionaryService 不读 settings（词典在设置页有单独入口）
+//   backup.*     BackupService 是手动触发，没有定时器读这些键
+const UNWIRED_KEYS = new Set([
+  'tts.enabled', 'tts.voice', 'tts.rate', 'tts.volume', 'tts.highlightSentence', 'tts.sleepTimerMinutes',
+  'dictionary.enabled', 'dictionary.provider', 'dictionary.autoLookup', 'dictionary.maxResults',
+  'backup.enabled', 'backup.path', 'backup.intervalDays', 'backup.keepCount',
+  'backup.lastBackupAt', // 运行时状态，不是用户可编辑项
+])
+
+const HIDDEN_KEYS = new Set([...DEDICATED_UI_KEYS, ...UNWIRED_KEYS])
 
 function sectionOf(key: string): SectionId {
   const dot = key.indexOf('.')
@@ -397,7 +423,7 @@ export function SettingsSchemaForm({ className = '' }: SettingsSchemaFormProps) 
   return (
     <div className={className} data-settings-schema-form="1">
       <p className="m3-body-small mb-3 break-words">
-        {t('由 C++ Settings schema 自动生成，共 {{count}} 项；只显示全局设置（字号/行距/边距/对齐这些书级排版请到阅读设置里调整）。', { count: specs.length })}
+        {t('由 C++ Settings schema 自动生成，共 {{count}} 项可调项。已经有专门设置页的（外观 / 阅读 / 书架 / 翻译服务）、书级排版项（字号、行距、边距、对齐）以及尚未接线的预留项，都不在这里重复出现。', { count: specs.length })}
       </p>
 
       {specs.length === 0 && (

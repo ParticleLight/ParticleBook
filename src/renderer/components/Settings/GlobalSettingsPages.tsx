@@ -884,7 +884,7 @@ export function AdvancedSettingsPage() {
     <>
       <SectionTitle>{t('高级设置')}</SectionTitle>
       <p className="text-sm mb-4 break-words" style={{ color: 'var(--text-secondary)' }}>
-        {t('这些设置项由 C++ Settings schema 自动生成，修改后立即保存；范围、枚举与 URL 还会由后端再校验一次。')}
+        {t('这里是自动生成的补位页：只列出没有专门设置页、且已经接线的全局设置。主题 / 语言 / 阅读进度 / 书架默认值 / 翻译服务请到对应页面修改；范围、枚举与 URL 由后端再校验一次。')}
       </p>
       <SettingsSchemaForm />
     </>

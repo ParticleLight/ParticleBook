@@ -193,10 +193,10 @@ export const enSettings: Record<string, string> = {
 
   // 高级设置 / SettingsSchemaForm（PB-023-B，schema 驱动表单）
   '高级设置': 'Advanced',
-  '这些设置项由 C++ Settings schema 自动生成，修改后立即保存；范围、枚举与 URL 还会由后端再校验一次。':
-    'These settings are generated from the C++ settings schema. Changes save immediately; ranges, enums and URLs are validated again on the backend.',
-  '由 C++ Settings schema 自动生成，共 {{count}} 项；只显示全局设置（字号/行距/边距/对齐这些书级排版请到阅读设置里调整）。':
-    'Generated from the C++ settings schema — {{count}} items. Only global settings are shown (per-book typography such as font size, line height, margins and alignment lives in reading settings).',
+  '这里是自动生成的补位页：只列出没有专门设置页、且已经接线的全局设置。主题 / 语言 / 阅读进度 / 书架默认值 / 翻译服务请到对应页面修改；范围、枚举与 URL 由后端再校验一次。':
+    'This page only fills the gaps: it lists global settings that have no dedicated page yet and are actually wired up. Change the theme, language, reading progress, library defaults and translation service on their own pages; ranges, enums and URLs are validated again on the backend.',
+  '由 C++ Settings schema 自动生成，共 {{count}} 项可调项。已经有专门设置页的（外观 / 阅读 / 书架 / 翻译服务）、书级排版项（字号、行距、边距、对齐）以及尚未接线的预留项，都不在这里重复出现。':
+    'Generated from the C++ settings schema — {{count}} items. Anything with a dedicated page (appearance, reading, library, translation service), per-book typography (font size, line height, margins, alignment) and reserved keys that are not wired up yet is not repeated here.',
   '正在加载设置 schema…': 'Loading the settings schema…',
   '加载设置 schema 失败：{{error}}': 'Could not load the settings schema: {{error}}',
   '高级设置依赖 C++ 的 settings:schema 接口；这里失败不影响其它设置页。':
