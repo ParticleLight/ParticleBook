@@ -25,11 +25,13 @@ interface UpdateInfo {
   sha512?: string
 }
 
-export type NavKey = 'appearance' | 'reading' | 'library' | 'zlibrary' | 'about' | 'advanced' | 'booksources'
+export type NavKey = 'appearance' | 'reading' | 'translation' | 'library' | 'zlibrary' | 'about' | 'advanced' | 'booksources'
 
 export const NAV_ITEMS = (t: TFunction): { key: NavKey; label: string; icon: string }[] => [
   { key: 'appearance', label: t('外观'), icon: 'M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01' },
   { key: 'reading', label: t('阅读'), icon: 'M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253' },
+  // 2026-10-28：AI 翻译从「关于」页拆出来，单独一个导航项（用户要求）
+  { key: 'translation', label: t('翻译'), icon: 'M3 5h12M9 3v2m1.048 9.5A18.022 18.022 0 016.412 9m6.088 9h7M11 21l5-10 5 10M12.751 5C11.783 10.77 8.07 15.61 3 18.129' },
   { key: 'library', label: t('书架'), icon: 'M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10' },
   { key: 'zlibrary', label: 'Z-Library', icon: 'M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9' },
   { key: 'about', label: t('关于'), icon: 'M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z' },
@@ -338,6 +340,21 @@ export function ReadingPage() {
         </div>
       </div>
     </div>
+  )
+}
+
+// AI 翻译（直接复用 TranslationSettings：它自带 settings-card 与「AI 翻译」小节标题，
+// Key 走 SecretStore/DPAPI，不进 settings）。
+export function TranslationPage() {
+  const { t } = useTranslation()
+  return (
+    <>
+      <SectionTitle>{t('翻译')}</SectionTitle>
+      <p className="text-sm mb-4 break-words" style={{ color: 'var(--text-secondary)' }}>
+        {t('选中正文即可翻译（也支持整段）。只使用你自己配置的 OpenAI 兼容服务，不内置任何免费源。')}
+      </p>
+      <TranslationSettings />
+    </>
   )
 }
 
@@ -741,9 +758,6 @@ export function AboutPage() {
           </button>
         )}
       </div>
-
-      {/* AI translation config */}
-      <TranslationSettings />
 
       {/* Export all annotations */}
       <div className="settings-card">

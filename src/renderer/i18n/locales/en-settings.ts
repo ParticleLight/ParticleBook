@@ -191,6 +191,11 @@ export const enSettings: Record<string, string> = {
   '{{hours}} 小时 {{minutes}} 分钟': '{{hours}}h {{minutes}}m',
   '阅读 {{time}}': 'Read {{time}}',
 
+  // 翻译设置页（2026-10-28 从「关于」页拆出）
+  '翻译': 'Translation',
+  '选中正文即可翻译（也支持整段）。只使用你自己配置的 OpenAI 兼容服务，不内置任何免费源。':
+    'Select text in the reader to translate it (whole paragraphs work too). Only the OpenAI-compatible service you configure yourself is used; no free source is bundled.',
+
   // 高级设置 / SettingsSchemaForm（PB-023-B，schema 驱动表单）
   '高级设置': 'Advanced',
   '这里是自动生成的补位页：只列出没有专门设置页、且已经接线的全局设置。主题 / 语言 / 阅读进度 / 书架默认值 / 翻译服务请到对应页面修改；范围、枚举与 URL 由后端再校验一次。':

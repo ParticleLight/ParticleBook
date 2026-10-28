@@ -8,6 +8,7 @@ import {
   SvgIcon,
   AppearancePage,
   ReadingPage,
+  TranslationPage,
   LibraryPage,
   ZLibraryPage,
   AboutPage,
@@ -55,6 +56,7 @@ export function GlobalSettings({ onBack }: GlobalSettingsProps) {
     switch (activeNav) {
       case 'appearance': return <AppearancePage />
       case 'reading': return <ReadingPage />
+      case 'translation': return <TranslationPage />
       case 'library': return <LibraryPage />
       case 'zlibrary': return <ZLibraryPage />
       case 'about': return <AboutPage />
