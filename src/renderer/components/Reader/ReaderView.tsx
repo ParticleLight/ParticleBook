@@ -563,12 +563,20 @@ export function ReaderView({ bookId, onClose, onOpenSplit }: ReaderViewProps) {
           {renderContent()}
         </div>
 
-        {/* Page turn arrows */}
+        {/* Page turn arrows —— 光标停在箭头上时保持可见（holdArrows）。
+            否则「鼠标停住 → 2 秒后箭头淡出 + pointer-events:none → 后续点击落到
+            下面的 iframe（EPUB）上」，表现就是「前几次点翻页没反应，得多点几次」。 */}
         <button
           onClick={(e) => { e.stopPropagation(); turnPage(-1) }}
-          className={`m3-icon-button absolute left-2 top-1/2 -translate-y-1/2 z-20 !w-12 !h-12 ${showArrows ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+          onMouseEnter={() => { if (arrowTimerRef.current) clearTimeout(arrowTimerRef.current); setShowArrows(true) }}
+          onMouseLeave={() => {
+            if (arrowTimerRef.current) clearTimeout(arrowTimerRef.current)
+            arrowTimerRef.current = window.setTimeout(() => setShowArrows(false), 800)
+          }}
+          className={`m3-icon-button absolute left-2 top-1/2 -translate-y-1/2 z-20 !w-12 !h-12 ${showArrows ? 'opacity-100' : 'opacity-0'}`}
           style={{ background: 'var(--md-sys-color-surface-container-high)', color: 'var(--md-sys-color-on-surface)', boxShadow: 'var(--md-sys-elevation-1)' }}
           title={t('上一页')}
+          data-testid="reader-prev-page"
         >
           <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
@@ -576,9 +584,15 @@ export function ReaderView({ bookId, onClose, onOpenSplit }: ReaderViewProps) {
         </button>
         <button
           onClick={(e) => { e.stopPropagation(); turnPage(1) }}
-          className={`m3-icon-button absolute right-2 top-1/2 -translate-y-1/2 z-20 !w-12 !h-12 ${showArrows ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+          onMouseEnter={() => { if (arrowTimerRef.current) clearTimeout(arrowTimerRef.current); setShowArrows(true) }}
+          onMouseLeave={() => {
+            if (arrowTimerRef.current) clearTimeout(arrowTimerRef.current)
+            arrowTimerRef.current = window.setTimeout(() => setShowArrows(false), 800)
+          }}
+          className={`m3-icon-button absolute right-2 top-1/2 -translate-y-1/2 z-20 !w-12 !h-12 ${showArrows ? 'opacity-100' : 'opacity-0'}`}
           style={{ background: 'var(--md-sys-color-surface-container-high)', color: 'var(--md-sys-color-on-surface)', boxShadow: 'var(--md-sys-elevation-1)' }}
           title={t('下一页')}
+          data-testid="reader-next-page"
         >
           <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
