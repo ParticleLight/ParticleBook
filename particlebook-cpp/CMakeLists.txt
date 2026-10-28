@@ -35,6 +35,23 @@ if(NOT EXISTS "${CMAKE_SOURCE_DIR}/third_party/mupdf-1.25.0-windows/mutool.exe")
     endif()
 endif()
 
+# ── Ensure mobitool.exe exists (AZW3/KF8 → EPUB import) ──────────
+# Same convention as mupdf: mobitool.exe is matched by *.exe in .gitignore, so the
+# built binary travels as a small zip (source tarball + build script + licence
+# files live in third_party/mobitool/, see docs/AZW3.md). The POST_BUILD copy
+# below must never fail when the binary is absent — CI went red for every commit
+# until 2026-10-29 because of exactly that.
+if(NOT EXISTS "${CMAKE_SOURCE_DIR}/third_party/mobitool/mobitool.exe")
+    message(STATUS "mobitool.exe not found — unpacking mobitool-windows.zip")
+    execute_process(COMMAND "${CMAKE_COMMAND}" -E tar xzf
+        "${CMAKE_SOURCE_DIR}/third_party/mobitool-windows.zip"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/third_party"
+        RESULT_VARIABLE _mobitool_unpack)
+    if(NOT _mobitool_unpack EQUAL 0)
+        message(WARNING "Failed to unpack mobitool-windows.zip — AZW3/KF8 conversion will fall back to text")
+    endif()
+endif()
+
 # Main executable
 add_executable(ParticleBook WIN32
     src/main.cpp
@@ -133,14 +150,15 @@ add_custom_command(TARGET ParticleBook POST_BUILD
 # Copy mobitool.exe for AZW3/KF8 → EPUB import (PB-008-D). Built from the
 # vendored libmobi source/commit via scripts/azw3/build-mobitool.ps1; if the
 # binary is missing the importer falls back to the old mutool text probe.
-if(NOT EXISTS "${CMAKE_SOURCE_DIR}/third_party/mobitool/mobitool.exe")
+if(EXISTS "${CMAKE_SOURCE_DIR}/third_party/mobitool/mobitool.exe")
+    add_custom_command(TARGET ParticleBook POST_BUILD
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+            "${CMAKE_SOURCE_DIR}/third_party/mobitool/mobitool.exe"
+            "$<TARGET_FILE_DIR:ParticleBook>"
+    )
+else()
     message(WARNING "mobitool.exe not found in third_party/mobitool — AZW3/KF8 conversion will fall back to text")
 endif()
-add_custom_command(TARGET ParticleBook POST_BUILD
-    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
-        "${CMAKE_SOURCE_DIR}/third_party/mobitool/mobitool.exe"
-        "$<TARGET_FILE_DIR:ParticleBook>"
-)
 
 # ── PB-024-A: injected UI scripts (editable without recompiling) ──
 # resources/zlib_toolbar.js + download_card.js are read from
@@ -162,7 +180,9 @@ add_custom_command(TARGET ParticleBook POST_BUILD
 # ── Install ─────────────────────────────────────────────────────
 install(TARGETS ParticleBook RUNTIME DESTINATION .)
 install(FILES "${CMAKE_SOURCE_DIR}/third_party/mupdf-1.25.0-windows/mutool.exe" DESTINATION .)
-install(FILES "${CMAKE_SOURCE_DIR}/third_party/mobitool/mobitool.exe" DESTINATION .)
+if(EXISTS "${CMAKE_SOURCE_DIR}/third_party/mobitool/mobitool.exe")
+    install(FILES "${CMAKE_SOURCE_DIR}/third_party/mobitool/mobitool.exe" DESTINATION .)
+endif()
 install(FILES "${CMAKE_SOURCE_DIR}/third_party/mobitool/COPYING"
               "${CMAKE_SOURCE_DIR}/third_party/mobitool/NOTICE.md"
               "${CMAKE_SOURCE_DIR}/third_party/mobitool/README.md"
