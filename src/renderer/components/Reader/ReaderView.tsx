@@ -627,36 +627,37 @@ export function ReaderView({ bookId, onClose, onOpenSplit }: ReaderViewProps) {
         {/* Page turn arrows：与工具栏同步出现/消失（chromeVisible），不再有独立的
             2 秒淡出计时器 —— 也就没有「隐身但吃点击」「淡出后点不到」的中间态。
             不显示时，同一位置仍是内容点击区（左右 30%），照样能翻页。 */}
-        {arrowsVisible && (
-          <>
-            <button
-              onClick={(e) => { e.stopPropagation(); paging.prev() }}
-              onMouseEnter={() => setArrowHovered(true)}
-              onMouseLeave={() => setArrowHovered(false)}
-              className="m3-icon-button absolute left-2 top-1/2 -translate-y-1/2 z-20 !w-12 !h-12"
-              style={{ background: 'var(--md-sys-color-surface-container-high)', color: 'var(--md-sys-color-on-surface)', boxShadow: 'var(--md-sys-elevation-1)' }}
-              title={t('上一页')}
-              data-testid="reader-prev-page"
-            >
-              <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-              </svg>
-            </button>
-            <button
-              onClick={(e) => { e.stopPropagation(); paging.next() }}
-              onMouseEnter={() => setArrowHovered(true)}
-              onMouseLeave={() => setArrowHovered(false)}
-              className="m3-icon-button absolute right-2 top-1/2 -translate-y-1/2 z-20 !w-12 !h-12"
-              style={{ background: 'var(--md-sys-color-surface-container-high)', color: 'var(--md-sys-color-on-surface)', boxShadow: 'var(--md-sys-elevation-1)' }}
-              title={t('下一页')}
-              data-testid="reader-next-page"
-            >
-              <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-              </svg>
-            </button>
-          </>
-        )}
+        {/* Page turn arrows：**始终挂载**，只切换 opacity —— 位置恒定，不会因为
+            显隐条件变化而重新挂载/跳动。不可见时 pointer-events:none，点击会落到
+            正文点击区（左右 30%），照样翻页。 */}
+        <>
+          <button
+            onClick={(e) => { e.stopPropagation(); paging.prev() }}
+            onMouseEnter={() => setArrowHovered(true)}
+            onMouseLeave={() => setArrowHovered(false)}
+            className={`m3-icon-button absolute left-2 top-1/2 -translate-y-1/2 z-20 !w-12 !h-12 transition-opacity duration-200 ${arrowsVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+            style={{ background: 'var(--md-sys-color-surface-container-high)', color: 'var(--md-sys-color-on-surface)', boxShadow: 'var(--md-sys-elevation-1)' }}
+            title={t('上一页')}
+            data-testid="reader-prev-page"
+          >
+            <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+            </svg>
+          </button>
+          <button
+            onClick={(e) => { e.stopPropagation(); paging.next() }}
+            onMouseEnter={() => setArrowHovered(true)}
+            onMouseLeave={() => setArrowHovered(false)}
+            className={`m3-icon-button absolute right-2 top-1/2 -translate-y-1/2 z-20 !w-12 !h-12 transition-opacity duration-200 ${arrowsVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+            style={{ background: 'var(--md-sys-color-surface-container-high)', color: 'var(--md-sys-color-on-surface)', boxShadow: 'var(--md-sys-elevation-1)' }}
+            title={t('下一页')}
+            data-testid="reader-next-page"
+          >
+            <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+            </svg>
+          </button>
+        </>
 
         {/* TTS 朗读条 + Controls（PB-001-B） */}
         <div
