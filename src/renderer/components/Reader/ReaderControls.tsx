@@ -27,6 +27,8 @@ interface ReaderControlsProps {
   searchController?: SearchController | null
   /** PB-009-D：分屏阅读（选择第二本书并排） */
   onOpenSplit?: () => void
+  /** 2026-10-29：手动收起整个工具栏（收起后由 ReaderView 的小圆钮唤出）。 */
+  onCollapse?: () => void
 }
 
 export function ReaderControls({
@@ -35,6 +37,7 @@ export function ReaderControls({
   dictionaryRequest = null, onDictionaryRequestHandled, onDictionaryVisibilityChange,
   searchController: sharedSearchController = null,
   onOpenSplit,
+  onCollapse,
 }: ReaderControlsProps) {
   const { t } = useTranslation()
   const adapter = useReaderAdapter()
@@ -422,6 +425,21 @@ export function ReaderControls({
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
           </svg>
         </button>
+
+        {/* 手动收起工具栏：收起后不再随鼠标自动出现，底部中间换成小圆形向上箭头。 */}
+        {onCollapse && (
+          <button
+            onClick={onCollapse}
+            className={`${ctrlClasses.btn} ${ctrlClasses.btnDefault}`}
+            title={t('收起工具栏')}
+            aria-label={t('收起工具栏')}
+            data-testid="reader-chrome-collapse"
+          >
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
+        )}
       </div>
       {preview && (
         <div className="m3-dialog-backdrop fixed inset-0 z-[80] flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label={t('导出预览')}>

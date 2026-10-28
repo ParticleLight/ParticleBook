@@ -23,6 +23,9 @@ export const enReader: Record<string, string> = {
   '把文件放回原位，或重新导入、重新下载这本书，即可继续阅读。': 'Put the file back, or re-import / re-download this book to keep reading.',
   '上一页': 'Previous page',
   '下一页': 'Next page',
+  // 2026-10-29：工具栏收起/展开（小圆钮）
+  '收起工具栏': 'Collapse toolbar',
+  '展开工具栏': 'Show toolbar',
   '第 {{page}} 页': 'Page {{page}}',
 
   // ReaderControls

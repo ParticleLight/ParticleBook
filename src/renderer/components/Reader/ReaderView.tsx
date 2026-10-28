@@ -51,6 +51,11 @@ export function ReaderView({ bookId, onClose, onOpenSplit }: ReaderViewProps) {
   const [showAnnotations, setShowAnnotations] = useState(false)
   const [loadError, setLoadError] = useState<LoadError | null>(null)
   const [confirmRemove, setConfirmRemove] = useState(false)
+  // 工具栏手动收起（用户 2026-10-29 要求）：收起后不再随鼠标自动出现，
+  // 改为底部中间一个小圆形向上箭头，点它才重新弹出。
+  const [chromeCollapsed, setChromeCollapsed] = useState(false)
+  // 鼠标贴左右边缘 → 唤出翻页箭头（否则箭头只跟随工具栏，想点时它已经没了）。
+  const [nearEdge, setNearEdge] = useState(false)
   const sessionActiveRef = useRef(false)
   const settingsOpenRef = useRef(false)
   // PB-001-B：Esc 需要知道朗读条是否开着（事件处理器里不能读闭包里的旧 state）
@@ -193,9 +198,12 @@ export function ReaderView({ bookId, onClose, onOpenSplit }: ReaderViewProps) {
 
   const paging = useMemo(() => createPagingApi(), [bookId])
   const { loadBookSettings, clearBookSettings } = useSettingsStore()
-  // 阅读器「chrome」（工具栏 + 两侧箭头）用同一个可见性：鼠标在上下热区 / 锁定 /
-  // 朗读条打开时出现。箭头不再单独计时，避免出现两种可见性打架。
-  const chromeVisible = showControls || controlsLocked || showTts
+  // 阅读器「chrome」= 顶部返回/标注 + 底部工具栏 + 两侧箭头，统一可见性：
+  //   · 自动模式：鼠标在上下热区 / 工具栏被锁定 / 朗读条打开时出现；
+  //   · 手动收起后（chromeCollapsed）不再自动出现，只留底部中间的小圆钮重新唤出；
+  //   · 两侧箭头额外支持「贴边悬停唤出」——鼠标移到左右边缘就出现，否则点不到。
+  const chromeVisible = !chromeCollapsed && (showControls || controlsLocked || showTts)
+  const arrowsVisible = chromeVisible || nearEdge
   const { shouldRender: renderSidebar, isClosing: sidebarClosing } = useAnimatedMount(showSidebar, 200)
   const { shouldRender: renderSettings, isClosing: settingsClosing } = useAnimatedMount(showSettings, 200)
   const { shouldRender: renderAnnotations, isClosing: annotationsClosing } = useAnimatedMount(showAnnotations, 200)
@@ -435,10 +443,10 @@ export function ReaderView({ bookId, onClose, onOpenSplit }: ReaderViewProps) {
 
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
-      // 这里只负责「工具栏显隐」。翻页箭头不再有独立的 2 秒计时器/淡出：
-      // 它跟工具栏一起出现、一起消失（见下方 chromeVisible），没有
-      // 「半透明但能点 / 隐身却吃点击」这类中间态（2026-10-28 重构）。
-      if (controlsLocked) return
+      // 贴边唤出翻页箭头（左右 96px）；指针移开就收。
+      const edge = 96
+      setNearEdge(e.clientX <= edge || e.clientX >= window.innerWidth - edge)
+      if (controlsLocked || chromeCollapsed) return
       const y = e.clientY
       const h = window.innerHeight
       setShowControls(y > h - 120 || y < 60)
@@ -447,7 +455,7 @@ export function ReaderView({ bookId, onClose, onOpenSplit }: ReaderViewProps) {
     return () => {
       window.removeEventListener('mousemove', handleMouseMove)
     }
-  }, [controlsLocked])
+  }, [controlsLocked, chromeCollapsed])
 
   // 打开失败时给一个能看懂、能操作的界面（PB-024-C：整页已抽到 ReaderStatusView）
   if (loadError) {
@@ -550,32 +558,40 @@ export function ReaderView({ bookId, onClose, onOpenSplit }: ReaderViewProps) {
 
       {/* Main Content */}
       <div className="flex-1 relative overflow-hidden">
-        {/* Back button */}
-        <button
-          onClick={async () => { await endReadingSession(); await flushProgress(); clearBookSettings(); onClose() }}
-          className="m3-icon-button absolute top-4 left-4 z-30 !w-12 !h-12"
-          style={{ background: 'var(--md-sys-color-surface-container-high)', color: 'var(--md-sys-color-on-surface)', boxShadow: 'var(--md-sys-elevation-1)' }}
-        >
-          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-          </svg>
-        </button>
+        {/* 顶部两个悬浮按钮也跟随 chrome 显隐：此前它们常驻，阅读正文时压住首行文字
+            （用户 2026-10-29 反馈「有时会遮挡字」）。鼠标移到顶部即可唤出。 */}
+        {chromeVisible && (
+          <>
+            <button
+              onClick={async () => { await endReadingSession(); await flushProgress(); clearBookSettings(); onClose() }}
+              className="m3-icon-button absolute top-4 left-4 z-30 !w-12 !h-12"
+              style={{ background: 'var(--md-sys-color-surface-container-high)', color: 'var(--md-sys-color-on-surface)', boxShadow: 'var(--md-sys-elevation-1)' }}
+              title={t('返回')}
+              aria-label={t('返回')}
+              data-testid="reader-back"
+            >
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+              </svg>
+            </button>
 
-        {/* 标注面板入口（PB-021-D）。旧侧栏仍由 ReaderControls 的目录按钮打开；
-            两者互斥，本按钮不替代旧侧栏。 */}
-        <button
-          onClick={() => setShowAnnotations((value) => !value)}
-          className="m3-icon-button absolute top-4 right-4 z-30 !w-12 !h-12"
-          style={{ background: 'var(--md-sys-color-surface-container-high)', color: 'var(--md-sys-color-on-surface)', boxShadow: 'var(--md-sys-elevation-1)' }}
-          title={t('标注')}
-          aria-label={t('标注')}
-          data-testid="annotation-toggle"
-        >
-          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                  d="M7 8h10M7 12h6m-4 8l-4-4V6a2 2 0 012-2h12a2 2 0 012 2v8a2 2 0 01-2 2H9l-6 6z" />
-          </svg>
-        </button>
+            {/* 标注面板入口（PB-021-D）。旧侧栏仍由 ReaderControls 的目录按钮打开；
+                两者互斥，本按钮不替代旧侧栏。 */}
+            <button
+              onClick={() => setShowAnnotations((value) => !value)}
+              className="m3-icon-button absolute top-4 right-4 z-30 !w-12 !h-12"
+              style={{ background: 'var(--md-sys-color-surface-container-high)', color: 'var(--md-sys-color-on-surface)', boxShadow: 'var(--md-sys-elevation-1)' }}
+              title={t('标注')}
+              aria-label={t('标注')}
+              data-testid="annotation-toggle"
+            >
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                      d="M7 8h10M7 12h6m-4 8l-4-4V6a2 2 0 012-2h12a2 2 0 012 2v8a2 2 0 01-2 2H9l-6 6z" />
+              </svg>
+            </button>
+          </>
+        )}
 
         {/* Book content —— 点击左 30% 上一页 / 右 30% 下一页。
             DOM 格式（TXT/HTML/PDF/漫画）的点击在这里处理；EPUB 在 iframe 里，
@@ -598,7 +614,7 @@ export function ReaderView({ bookId, onClose, onOpenSplit }: ReaderViewProps) {
         {/* Page turn arrows：与工具栏同步出现/消失（chromeVisible），不再有独立的
             2 秒淡出计时器 —— 也就没有「隐身但吃点击」「淡出后点不到」的中间态。
             不显示时，同一位置仍是内容点击区（左右 30%），照样能翻页。 */}
-        {chromeVisible && (
+        {arrowsVisible && (
           <>
             <button
               onClick={(e) => { e.stopPropagation(); paging.prev() }}
@@ -626,7 +642,7 @@ export function ReaderView({ bookId, onClose, onOpenSplit }: ReaderViewProps) {
         )}
 
         {/* TTS 朗读条 + Controls（PB-001-B） */}
-        <div className={`absolute bottom-0 left-0 right-0 transition-opacity duration-300 ${(showControls || showSearch || showTts || dictionaryVisible) ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
+        <div className={`absolute bottom-0 left-0 right-0 transition-opacity duration-300 ${(!chromeCollapsed && (showControls || showSearch || showTts || dictionaryVisible)) ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
           {showTts && book && (
             <TtsBar
               bookId={bookId}
@@ -650,8 +666,26 @@ export function ReaderView({ bookId, onClose, onOpenSplit }: ReaderViewProps) {
             onDictionaryVisibilityChange={setDictionaryVisible}
             searchController={searchController}
             onOpenSplit={onOpenSplit}
+            onCollapse={() => setChromeCollapsed(true)}
           />
         </div>
+
+        {/* 工具栏手动收起后：底部中间的小圆形向上箭头，点它才重新弹出。
+            收起状态不再随鼠标自动出现（用户 2026-10-29 要求），阅读区更干净。 */}
+        {chromeCollapsed && (
+          <button
+            onClick={() => { setChromeCollapsed(false); setShowControls(true) }}
+            className="m3-icon-button absolute bottom-4 left-1/2 -translate-x-1/2 z-30 !w-9 !h-9"
+            style={{ background: 'var(--md-sys-color-surface-container-high)', color: 'var(--md-sys-color-on-surface)', boxShadow: 'var(--md-sys-elevation-1)' }}
+            title={t('展开工具栏')}
+            aria-label={t('展开工具栏')}
+            data-testid="reader-chrome-expand"
+          >
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+            </svg>
+          </button>
+        )}
 
         {/* Page indicator */}
         <div className="absolute bottom-3 right-3 z-10 bg-black/40 backdrop-blur-sm text-white/70 text-xs px-3 py-1.5 rounded-full flex items-center gap-3">
