@@ -242,6 +242,19 @@ export const enSettings: Record<string, string> = {
   'Base URL': 'Base URL',
   '模型': 'Model',
   '超时（秒）': 'Timeout (seconds)',
+  // 高级设置仅剩的四项（2026-10-28）：可读标签 + 说明
+  '每日阅读目标（分钟）': 'Daily reading goal (minutes)',
+  '每周阅读目标（分钟）': 'Weekly reading goal (minutes)',
+  '封面缓存上限（本）': 'Cover cache limit (books)',
+  '翻译请求超时（秒）': 'Translation request timeout (seconds)',
+  '阅读统计页「今日目标」进度条的目标值；0 表示不设目标（进度条恒为 0）':
+    'Target for the Today goal bar on the statistics page; 0 means no goal (the bar stays empty).',
+  '阅读统计页「本周目标」进度条的目标值；0 表示不设目标（进度条恒为 0）':
+    'Target for the This week goal bar on the statistics page; 0 means no goal (the bar stays empty).',
+  '书架最多缓存多少本书的封面，超出按「最近最少使用」淘汰；调大更占内存，调小滚动时会重新读封面':
+    'How many book covers the library keeps cached; the least recently used are evicted first. Larger uses more memory, smaller reloads covers while scrolling.',
+  '单次 AI 翻译请求最长等待时间；超时按「超时」错误处理':
+    'Longest wait for one AI translation request; a timeout is reported as a timeout error.',
   '启用词典': 'Enable dictionary',
   '词典来源': 'Dictionary source',
   '自动查词': 'Auto lookup',

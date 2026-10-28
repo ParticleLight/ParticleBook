@@ -60,7 +60,12 @@ const KEY_LABELS: Record<string, string> = {
   'translation.baseUrl': 'Base URL',
   'translation.model': '模型',
   'translation.targetLanguage': '目标语言',
-  'translation.timeoutSeconds': '超时（秒）',
+  'translation.timeoutSeconds': '翻译请求超时（秒）',
+  // 高级设置里仅剩的四项（2026-10-28）：没写标签时行标题会直接显示 schema key，
+  // 用户看不懂（反馈原话「现在高级设置里有的这些是干嘛的」）。
+  'reading.dailyGoalMinutes': '每日阅读目标（分钟）',
+  'reading.weeklyGoalMinutes': '每周阅读目标（分钟）',
+  'library.coverCacheSize': '封面缓存上限（本）',
   'dictionary.enabled': '启用词典',
   'dictionary.provider': '词典来源',
   'dictionary.autoLookup': '自动查词',
@@ -86,7 +91,10 @@ const KEY_DESCS: Record<string, string> = {
   'tts.voice': 'SAPI 音色 token id；留空用系统默认音色',
   'tts.rate': '-10 最慢，10 最快，0 为正常语速',
   'translation.baseUrl': 'OpenAI 兼容接口地址，例如 https://api.deepseek.com/v1',
-  'translation.timeoutSeconds': '单次请求超时时间',
+  'translation.timeoutSeconds': '单次 AI 翻译请求最长等待时间；超时按「超时」错误处理',
+  'reading.dailyGoalMinutes': '阅读统计页「今日目标」进度条的目标值；0 表示不设目标（进度条恒为 0）',
+  'reading.weeklyGoalMinutes': '阅读统计页「本周目标」进度条的目标值；0 表示不设目标（进度条恒为 0）',
+  'library.coverCacheSize': '书架最多缓存多少本书的封面，超出按「最近最少使用」淘汰；调大更占内存，调小滚动时会重新读封面',
   'backup.path': '备份文件存放目录，留空用默认位置',
 }
 
