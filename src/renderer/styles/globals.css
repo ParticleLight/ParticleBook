@@ -1029,6 +1029,10 @@ input[type="range"]::-webkit-slider-thumb:active {
 }
 .m3-icon-button:hover { background: var(--md-sys-state-hover); color: var(--md-sys-color-on-surface); }
 .m3-icon-button:active { transform: scale(0.94); }
+/* 悬浮在阅读区上的圆形按钮（两侧翻页箭头 / 展开工具栏小圆钮）：
+   按下去不做缩放 —— 它们靠 inline style 绝对定位，任何 transform 都会让纽心
+   位移（2026-10-29 用户反馈「翻页键一点就上下跳」）。改用背景色反馈。 */
+.reader-edge-arrow:active { transform: none; background: var(--md-sys-state-pressed, rgba(255,255,255,0.16)); }
 .m3-icon-button.is-active { background: var(--md-sys-color-primary-container); color: var(--md-sys-color-primary); }
 .m3-icon-button:disabled { opacity: 0.38; cursor: default; }
 

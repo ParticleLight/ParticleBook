@@ -635,8 +635,8 @@ export function ReaderView({ bookId, onClose, onOpenSplit }: ReaderViewProps) {
             onClick={(e) => { e.stopPropagation(); paging.prev() }}
             onMouseEnter={() => setArrowHovered(true)}
             onMouseLeave={() => setArrowHovered(false)}
-            className={`m3-icon-button absolute left-2 top-1/2 -translate-y-1/2 z-20 !w-12 !h-12 transition-opacity duration-200 ${arrowsVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
-            style={{ background: 'var(--md-sys-color-surface-container-high)', color: 'var(--md-sys-color-on-surface)', boxShadow: 'var(--md-sys-elevation-1)' }}
+            className={`m3-icon-button reader-edge-arrow absolute left-2 z-20 !w-12 !h-12 transition-opacity duration-200 ${arrowsVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+            style={{ top: 'calc(50% - 24px)', background: 'var(--md-sys-color-surface-container-high)', color: 'var(--md-sys-color-on-surface)', boxShadow: 'var(--md-sys-elevation-1)' }}
             title={t('上一页')}
             data-testid="reader-prev-page"
           >
@@ -648,8 +648,8 @@ export function ReaderView({ bookId, onClose, onOpenSplit }: ReaderViewProps) {
             onClick={(e) => { e.stopPropagation(); paging.next() }}
             onMouseEnter={() => setArrowHovered(true)}
             onMouseLeave={() => setArrowHovered(false)}
-            className={`m3-icon-button absolute right-2 top-1/2 -translate-y-1/2 z-20 !w-12 !h-12 transition-opacity duration-200 ${arrowsVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
-            style={{ background: 'var(--md-sys-color-surface-container-high)', color: 'var(--md-sys-color-on-surface)', boxShadow: 'var(--md-sys-elevation-1)' }}
+            className={`m3-icon-button reader-edge-arrow absolute right-2 z-20 !w-12 !h-12 transition-opacity duration-200 ${arrowsVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+            style={{ top: 'calc(50% - 24px)', background: 'var(--md-sys-color-surface-container-high)', color: 'var(--md-sys-color-on-surface)', boxShadow: 'var(--md-sys-elevation-1)' }}
             title={t('下一页')}
             data-testid="reader-next-page"
           >
@@ -697,8 +697,8 @@ export function ReaderView({ bookId, onClose, onOpenSplit }: ReaderViewProps) {
         {chromeCollapsed && (
           <button
             onClick={() => { setChromeCollapsed(false); setShowControls(true) }}
-            className="m3-icon-button absolute bottom-4 left-1/2 -translate-x-1/2 z-30 !w-9 !h-9"
-            style={{ background: 'var(--md-sys-color-surface-container-high)', color: 'var(--md-sys-color-on-surface)', boxShadow: 'var(--md-sys-elevation-1)' }}
+            className="m3-icon-button reader-edge-arrow absolute bottom-4 z-30 !w-9 !h-9"
+            style={{ left: 'calc(50% - 18px)', background: 'var(--md-sys-color-surface-container-high)', color: 'var(--md-sys-color-on-surface)', boxShadow: 'var(--md-sys-elevation-1)' }}
             title={t('展开工具栏')}
             aria-label={t('展开工具栏')}
             data-testid="reader-chrome-expand"
