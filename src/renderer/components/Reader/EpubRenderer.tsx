@@ -86,13 +86,35 @@ export function EpubRenderer({ book, content, bookId, spread = 'single', vertica
     clearNavigateTarget()
   }, [navigateTarget])
 
-  // Handle page turn from arrows
+  // Handle page turn from arrows / 点击两侧区域
+  // 队列化：epub.js 在上一页还在渲染时再调 next() 可能被丢掉，用户连点几下只看
+  // 到翻一页（"前几次没反应"）。这里累积意图、逐页 await 执行。
+  const pendingTurnsRef = useRef(0)
+  const turningRef = useRef(false)
   useEffect(() => {
-    if (!turnPageDelta || !renditionRef.current) return
-    if (turnPageDelta > 0) renditionRef.current.next()
-    else renditionRef.current.prev()
+    if (!turnPageDelta) return
+    pendingTurnsRef.current += turnPageDelta > 0 ? 1 : -1
     clearTurnPage()
-  }, [turnPageDelta])
+    const drain = async () => {
+      if (turningRef.current) return
+      turningRef.current = true
+      try {
+        while (pendingTurnsRef.current !== 0) {
+          const rendition = renditionRef.current
+          if (!rendition) break
+          const dir = pendingTurnsRef.current > 0 ? 1 : -1
+          pendingTurnsRef.current -= dir
+          try {
+            if (dir > 0) await rendition.next()
+            else await rendition.prev()
+          } catch { /* epub.js 在边界处会 reject，忽略 */ }
+        }
+      } finally {
+        turningRef.current = false
+      }
+    }
+    void drain()
+  }, [turnPageDelta, clearTurnPage])
 
   // Handle seek from progress bar
   useEffect(() => {
@@ -232,6 +254,28 @@ export function EpubRenderer({ book, content, bookId, spread = 'single', vertica
       }
 
       const onMousemove = () => window.dispatchEvent(new MouseEvent('mousemove'))
+      // EPUB 正文在 iframe 里：点击**不会冒泡到父文档**，所以父层的「点左侧 30%
+      // 上一页 / 右侧 30% 下一页」对正文点击一直没生效，用户只能瞄准那两个小小的
+      // 圆形箭头（“点翻页键前几次没反应”）。这里把 iframe 内的点击翻译成翻页，
+      // 并排除拖选文字 / 点到链接的情况。
+      let downX = 0
+      let downY = 0
+      const onMouseDown = (e: MouseEvent) => { downX = e.clientX; downY = e.clientY }
+      const onClick = (e: MouseEvent) => {
+        const target = e.target as HTMLElement | null
+        if (target && typeof target.closest === 'function' && target.closest('a')) return
+        // 拖选文字（含双击选词）时不要翻页
+        if (Math.hypot(e.clientX - downX, e.clientY - downY) > 6) return
+        const sel = doc.getSelection()
+        if (sel && !sel.isCollapsed) return
+        const frame = viewerRef.current?.querySelector('iframe')
+        if (!frame) return
+        const bounds = frame.getBoundingClientRect()
+        const x = bounds.left + e.clientX
+        const w = window.innerWidth || document.documentElement.clientWidth
+        if (x < w * 0.3) goPrevRef.current()
+        else if (x > w * 0.7) goNextRef.current()
+      }
       const onWheel = (e: WheelEvent) => {
         window.dispatchEvent(new WheelEvent('wheel', {
           deltaY: e.deltaY, deltaX: e.deltaX,
@@ -239,9 +283,13 @@ export function EpubRenderer({ book, content, bookId, spread = 'single', vertica
         }))
       }
       doc.addEventListener('mousemove', onMousemove)
+      doc.addEventListener('mousedown', onMouseDown)
+      doc.addEventListener('click', onClick)
       doc.addEventListener('wheel', onWheel)
       contentCleanupFns.push(() => {
         doc.removeEventListener('mousemove', onMousemove)
+        doc.removeEventListener('mousedown', onMouseDown)
+        doc.removeEventListener('click', onClick)
         doc.removeEventListener('wheel', onWheel)
       })
 
@@ -439,6 +487,13 @@ export function EpubRenderer({ book, content, bookId, spread = 'single', vertica
 
   const goNext = useCallback(() => renditionRef.current?.next(), [])
   const goPrev = useCallback(() => renditionRef.current?.prev(), [])
+  // iframe 内的点击转发要用到这两个回调；hook 注册早于它们被定义，用 ref 桥接。
+  const goNextRef = useRef<() => void>(() => {})
+  const goPrevRef = useRef<() => void>(() => {})
+  useEffect(() => {
+    goNextRef.current = () => { void renditionRef.current?.next() }
+    goPrevRef.current = () => { void renditionRef.current?.prev() }
+  }, [])
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
