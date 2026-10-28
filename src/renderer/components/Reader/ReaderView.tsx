@@ -56,6 +56,9 @@ export function ReaderView({ bookId, onClose, onOpenSplit }: ReaderViewProps) {
   const [chromeCollapsed, setChromeCollapsed] = useState(false)
   // 鼠标贴左右边缘 → 唤出翻页箭头（否则箭头只跟随工具栏，想点时它已经没了）。
   const [nearEdge, setNearEdge] = useState(false)
+  // 指针在 chrome（工具栏 / 顶部按钮 / 箭头）上时锁定可见，避免「手刚伸过去它就没了」。
+  const [chromeHovered, setChromeHovered] = useState(false)
+  const [arrowHovered, setArrowHovered] = useState(false)
   const sessionActiveRef = useRef(false)
   const settingsOpenRef = useRef(false)
   // PB-001-B：Esc 需要知道朗读条是否开着（事件处理器里不能读闭包里的旧 state）
@@ -202,8 +205,8 @@ export function ReaderView({ bookId, onClose, onOpenSplit }: ReaderViewProps) {
   //   · 自动模式：鼠标在上下热区 / 工具栏被锁定 / 朗读条打开时出现；
   //   · 手动收起后（chromeCollapsed）不再自动出现，只留底部中间的小圆钮重新唤出；
   //   · 两侧箭头额外支持「贴边悬停唤出」——鼠标移到左右边缘就出现，否则点不到。
-  const chromeVisible = !chromeCollapsed && (showControls || controlsLocked || showTts)
-  const arrowsVisible = chromeVisible || nearEdge
+  const chromeVisible = !chromeCollapsed && (showControls || controlsLocked || showTts || chromeHovered)
+  const arrowsVisible = chromeVisible || nearEdge || arrowHovered
   const { shouldRender: renderSidebar, isClosing: sidebarClosing } = useAnimatedMount(showSidebar, 200)
   const { shouldRender: renderSettings, isClosing: settingsClosing } = useAnimatedMount(showSettings, 200)
   const { shouldRender: renderAnnotations, isClosing: annotationsClosing } = useAnimatedMount(showAnnotations, 200)
@@ -443,19 +446,25 @@ export function ReaderView({ bookId, onClose, onOpenSplit }: ReaderViewProps) {
 
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
-      // 贴边唤出翻页箭头（左右 96px）；指针移开就收。
-      const edge = 96
-      setNearEdge(e.clientX <= edge || e.clientX >= window.innerWidth - edge)
-      if (controlsLocked || chromeCollapsed) return
+      // 贴边唤出翻页箭头（进入 96px 内出现，退出 150px 外才收 —— 中间留滞回带，
+      // 否则手在边界上来回几像素，箭头就一闪一闪「乱动」）。
+      const x = e.clientX
+      const w = window.innerWidth
+      if (x <= 96 || x >= w - 96) setNearEdge(true)
+      else if (x > 150 && x < w - 150) setNearEdge(false)
+
+      if (controlsLocked || chromeCollapsed || chromeHovered) return
       const y = e.clientY
       const h = window.innerHeight
-      setShowControls(y > h - 120 || y < 60)
+      // 进入上下热区就显示；只有离开「扩大的」热区才收起（同样是为了不抖）。
+      if (y > h - 120 || y < 60) setShowControls(true)
+      else if (y < h - 220 && y > 130) setShowControls(false)
     }
     window.addEventListener('mousemove', handleMouseMove)
     return () => {
       window.removeEventListener('mousemove', handleMouseMove)
     }
-  }, [controlsLocked, chromeCollapsed])
+  }, [controlsLocked, chromeCollapsed, chromeHovered])
 
   // 打开失败时给一个能看懂、能操作的界面（PB-024-C：整页已抽到 ReaderStatusView）
   if (loadError) {
@@ -569,6 +578,8 @@ export function ReaderView({ bookId, onClose, onOpenSplit }: ReaderViewProps) {
               title={t('返回')}
               aria-label={t('返回')}
               data-testid="reader-back"
+              onMouseEnter={() => setChromeHovered(true)}
+              onMouseLeave={() => setChromeHovered(false)}
             >
               <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
@@ -584,6 +595,8 @@ export function ReaderView({ bookId, onClose, onOpenSplit }: ReaderViewProps) {
               title={t('标注')}
               aria-label={t('标注')}
               data-testid="annotation-toggle"
+              onMouseEnter={() => setChromeHovered(true)}
+              onMouseLeave={() => setChromeHovered(false)}
             >
               <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
@@ -618,6 +631,8 @@ export function ReaderView({ bookId, onClose, onOpenSplit }: ReaderViewProps) {
           <>
             <button
               onClick={(e) => { e.stopPropagation(); paging.prev() }}
+              onMouseEnter={() => setArrowHovered(true)}
+              onMouseLeave={() => setArrowHovered(false)}
               className="m3-icon-button absolute left-2 top-1/2 -translate-y-1/2 z-20 !w-12 !h-12"
               style={{ background: 'var(--md-sys-color-surface-container-high)', color: 'var(--md-sys-color-on-surface)', boxShadow: 'var(--md-sys-elevation-1)' }}
               title={t('上一页')}
@@ -629,6 +644,8 @@ export function ReaderView({ bookId, onClose, onOpenSplit }: ReaderViewProps) {
             </button>
             <button
               onClick={(e) => { e.stopPropagation(); paging.next() }}
+              onMouseEnter={() => setArrowHovered(true)}
+              onMouseLeave={() => setArrowHovered(false)}
               className="m3-icon-button absolute right-2 top-1/2 -translate-y-1/2 z-20 !w-12 !h-12"
               style={{ background: 'var(--md-sys-color-surface-container-high)', color: 'var(--md-sys-color-on-surface)', boxShadow: 'var(--md-sys-elevation-1)' }}
               title={t('下一页')}
@@ -642,7 +659,11 @@ export function ReaderView({ bookId, onClose, onOpenSplit }: ReaderViewProps) {
         )}
 
         {/* TTS 朗读条 + Controls（PB-001-B） */}
-        <div className={`absolute bottom-0 left-0 right-0 transition-opacity duration-300 ${(!chromeCollapsed && (showControls || showSearch || showTts || dictionaryVisible)) ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
+        <div
+          className={`absolute bottom-0 left-0 right-0 transition-opacity duration-300 ${(!chromeCollapsed && (showControls || showSearch || showTts || dictionaryVisible || chromeHovered)) ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+          onMouseEnter={() => setChromeHovered(true)}
+          onMouseLeave={() => setChromeHovered(false)}
+        >
           {showTts && book && (
             <TtsBar
               bookId={bookId}
