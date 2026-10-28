@@ -989,8 +989,13 @@ export const contract = [
   },
   // ── Settings schema (PB-023) ──
   {
+    // 2026-10-28：schema 驱动的「高级设置」页已拆掉（四项设置各自归位到阅读 /
+    // 书架 / 翻译页），本成员暂无渲染层消费者；保留是因为它仍是 schema 的
+    // 唯一可视化入口（诊断、以及将来新增无专门页面的设置项时直接用）。
     member: "getSettingsSchema", method: "settings:schema",
-    kind: "invoke", group: "Settings", params: [],
+    kind: "invoke",
+    reserved: true,
+    group: "Settings", params: [],
     returns: "Promise<Array<{ key: string; type: string; default: unknown; bookScoped: boolean; min?: number; max?: number; maxLength?: number; format?: string; allowed?: string[] }>>"
   },
   // ── Full-text search (PB-006) ──

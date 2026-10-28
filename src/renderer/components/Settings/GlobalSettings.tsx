@@ -12,7 +12,6 @@ import {
   LibraryPage,
   ZLibraryPage,
   AboutPage,
-  AdvancedSettingsPage,
   BookSourcesPage,
   type GlobalSettingsProps,
   type NavKey,
@@ -60,7 +59,6 @@ export function GlobalSettings({ onBack }: GlobalSettingsProps) {
       case 'library': return <LibraryPage />
       case 'zlibrary': return <ZLibraryPage />
       case 'about': return <AboutPage />
-      case 'advanced': return <AdvancedSettingsPage />
       case 'booksources': return <BookSourcesPage />
     }
   }

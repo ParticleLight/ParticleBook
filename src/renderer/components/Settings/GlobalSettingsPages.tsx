@@ -10,7 +10,6 @@ import i18n from '../../i18n'
 import { useSettingsStore, type AccentColor } from '../../stores/settingsStore'
 import { copyText, downloadText } from '../../utils/download'
 import { TranslationSettings } from './TranslationSettings'
-import { SettingsSchemaForm } from './SettingsSchemaForm'
 import { Switch } from '../UI/Switch'
 import { BookSourceManager } from './BookSourceManager'
 
@@ -25,7 +24,7 @@ interface UpdateInfo {
   sha512?: string
 }
 
-export type NavKey = 'appearance' | 'reading' | 'translation' | 'library' | 'zlibrary' | 'about' | 'advanced' | 'booksources'
+export type NavKey = 'appearance' | 'reading' | 'translation' | 'library' | 'zlibrary' | 'about' | 'booksources'
 
 export const NAV_ITEMS = (t: TFunction): { key: NavKey; label: string; icon: string }[] => [
   { key: 'appearance', label: t('外观'), icon: 'M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01' },
@@ -37,8 +36,6 @@ export const NAV_ITEMS = (t: TFunction): { key: NavKey; label: string; icon: str
   { key: 'about', label: t('关于'), icon: 'M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z' },
   // PB-013-A：书源管理（导入/编辑/测试/启停）
   { key: 'booksources', label: t('书源管理'), icon: 'M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zm0 7a1 1 0 011-1h6a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1v-2zm9 0a1 1 0 011-1h5a1 1 0 011 1v2a1 1 0 01-1 1h-5a1 1 0 01-1-1v-2zM4 18a1 1 0 011-1h14a1 1 0 011 1v1a1 1 0 01-1 1H5a1 1 0 01-1-1v-1z' },
-  // PB-023-B：schema 驱动的「高级设置」（新增页，不动现有手动设置页）
-  { key: 'advanced', label: t('高级设置'), icon: 'M10.5 6h9.75M10.5 6a1.5 1.5 0 11-3 0m3 0a1.5 1.5 0 10-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-9.75 0h9.75' },
 ]
 
 const FONTS = (t: TFunction) => [
@@ -106,6 +103,69 @@ function Segment<T extends string>({ options, value, onChange }: {
 
 function SectionTitle({ children }: { children: React.ReactNode }) {
   return <h3 className="m3-section-title mb-3">{children}</h3>
+}
+
+// 数字型原始设置项（settings 里没有 store setter 的键，例如阅读目标 / 封面缓存 /
+// 翻译超时）。失焦或回车才提交，越界按 C++ schema 的同一区间夹紧；写完刷新
+// settingsStore，其它页面（统计页、书架）立刻拿到新值。
+function NumberSettingRow({ label, desc, settingKey, fallback, min, max }: {
+  label: string
+  desc: string
+  settingKey: string
+  fallback: number
+  min: number
+  max: number
+}) {
+  const { t } = useTranslation()
+  const [value, setValue] = useState<number>(fallback)
+  const [status, setStatus] = useState<'idle' | 'saving' | 'saved'>('idle')
+  useEffect(() => {
+    let alive = true
+    void window.electronAPI.getSettings().then((raw) => {
+      if (!alive) return
+      const num = Number((raw as Record<string, unknown>)[settingKey])
+      setValue(Number.isFinite(num) ? Math.min(max, Math.max(min, num)) : fallback)
+    }).catch(() => {})
+    return () => { alive = false }
+  }, [settingKey, fallback, min, max])
+  const commit = async (raw: number) => {
+    const next = Math.min(max, Math.max(min, Math.round(raw)))
+    setValue(next)
+    setStatus('saving')
+    try {
+      await window.electronAPI.updateSettings({ [settingKey]: next } as never)
+      setStatus('saved')
+      void useSettingsStore.getState().loadSettings()
+    } catch {
+      setStatus('idle')
+    }
+  }
+  return (
+    <div className="settings-row">
+      <div className="pr-4">
+        <div className="settings-row-label">{label}</div>
+        <div className="settings-row-desc">{desc}</div>
+      </div>
+      <div className="flex items-center gap-2 flex-shrink-0">
+        <div className="w-[120px]">
+          <input
+            type="number"
+            inputMode="numeric"
+            min={min}
+            max={max}
+            value={Number.isFinite(value) ? value : fallback}
+            className="m3-text-field is-dense"
+            aria-label={label}
+            data-setting-key={settingKey}
+            onChange={(e) => setValue(Number(e.target.value))}
+            onBlur={(e) => { void commit(Number(e.target.value)) }}
+            onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }}
+          />
+        </div>
+        <span className="m3-label-small w-[3.5rem]">{status === 'saved' ? t('已保存') : status === 'saving' ? t('保存中…') : ''}</span>
+      </div>
+    </div>
+  )
 }
 
 // ─── Settings pages ───
@@ -320,6 +380,26 @@ export function ReadingPage() {
       </div>
 
       <div className="settings-card">
+        <SectionTitle>{t('阅读目标')}</SectionTitle>
+        <NumberSettingRow
+          label={t('每日阅读目标（分钟）')}
+          desc={t('阅读统计页「今日目标」进度条的目标值；0 表示不设目标（进度条恒为 0）')}
+          settingKey="reading.dailyGoalMinutes"
+          fallback={30}
+          min={0}
+          max={1440}
+        />
+        <NumberSettingRow
+          label={t('每周阅读目标（分钟）')}
+          desc={t('阅读统计页「本周目标」进度条的目标值；0 表示不设目标（进度条恒为 0）')}
+          settingKey="reading.weeklyGoalMinutes"
+          fallback={180}
+          min={0}
+          max={10080}
+        />
+      </div>
+
+      <div className="settings-card">
         <SectionTitle>{t('快捷键')}</SectionTitle>
         <div className="grid grid-cols-2 gap-x-8 gap-y-2.5">
           {([
@@ -354,6 +434,17 @@ export function TranslationPage() {
         {t('选中正文即可翻译（也支持整段）。只使用你自己配置的 OpenAI 兼容服务，不内置任何免费源。')}
       </p>
       <TranslationSettings />
+      <div className="settings-card">
+        <SectionTitle>{t('连接')}</SectionTitle>
+        <NumberSettingRow
+          label={t('翻译请求超时（秒）')}
+          desc={t('单次 AI 翻译请求最长等待时间；超时按「超时」错误处理')}
+          settingKey="translation.timeoutSeconds"
+          fallback={60}
+          min={5}
+          max={300}
+        />
+      </div>
     </>
   )
 }
@@ -403,6 +494,18 @@ export function LibraryPage() {
             ))}
           </div>
         </div>
+      </div>
+
+      <div className="settings-card">
+        <SectionTitle>{t('性能')}</SectionTitle>
+        <NumberSettingRow
+          label={t('封面缓存上限（本）')}
+          desc={t('书架最多缓存多少本书的封面，超出按「最近最少使用」淘汰；调大更占内存，调小滚动时会重新读封面')}
+          settingKey="library.coverCacheSize"
+          fallback={300}
+          min={50}
+          max={1000}
+        />
       </div>
 
       <div className="settings-card">
@@ -891,19 +994,6 @@ export function AboutPage() {
 }
 
 // ─── Main ───
-
-export function AdvancedSettingsPage() {
-  const { t } = useTranslation()
-  return (
-    <>
-      <SectionTitle>{t('高级设置')}</SectionTitle>
-      <p className="text-sm mb-4 break-words" style={{ color: 'var(--text-secondary)' }}>
-        {t('这里是自动生成的补位页：只列出没有专门设置页、且已经接线的全局设置。主题 / 语言 / 阅读进度 / 书架默认值 / 翻译服务请到对应页面修改；范围、枚举与 URL 由后端再校验一次。')}
-      </p>
-      <SettingsSchemaForm />
-    </>
-  )
-}
 
 export function BookSourcesPage() {
   return <BookSourceManager />

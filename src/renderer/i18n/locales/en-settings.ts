@@ -196,7 +196,12 @@ export const enSettings: Record<string, string> = {
   '选中正文即可翻译（也支持整段）。只使用你自己配置的 OpenAI 兼容服务，不内置任何免费源。':
     'Select text in the reader to translate it (whole paragraphs work too). Only the OpenAI-compatible service you configure yourself is used; no free source is bundled.',
 
-  // 高级设置 / SettingsSchemaForm（PB-023-B，schema 驱动表单）
+  // 归位后的设置小节（2026-10-28）：阅读目标 / 性能 / 连接
+  '阅读目标': 'Reading goals',
+  '性能': 'Performance',
+  '连接': 'Connection',
+
+  // 高级设置（schema 驱动表单已移除，以下键仍被各项说明复用）
   '高级设置': 'Advanced',
   '这里是自动生成的补位页：只列出没有专门设置页、且已经接线的全局设置。主题 / 语言 / 阅读进度 / 书架默认值 / 翻译服务请到对应页面修改；范围、枚举与 URL 由后端再校验一次。':
     'This page only fills the gaps: it lists global settings that have no dedicated page yet and are actually wired up. Change the theme, language, reading progress, library defaults and translation service on their own pages; ranges, enums and URLs are validated again on the backend.',
