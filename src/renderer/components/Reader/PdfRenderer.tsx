@@ -692,10 +692,9 @@ export function PdfRenderer({ book, content: _content, bookId }: PdfRendererProp
           )
         })}
       </div>
-      {/* U14：页码胶囊走 inverse-surface 语义色，不再硬编码黑白 */}
+      {/* 页码胶囊：统一走 .reader-overlay-chip（暗色主题下 inverse-surface 是白斑） */}
       <div
-        className="fixed bottom-20 left-1/2 -translate-x-1/2 backdrop-blur-sm text-sm px-4 py-2 rounded-full z-10 pointer-events-none"
-        style={{ background: 'var(--md-sys-color-inverse-surface)', color: 'var(--md-sys-color-inverse-on-surface)' }}
+        className="reader-overlay-chip fixed bottom-20 left-1/2 -translate-x-1/2 backdrop-blur-sm text-sm px-4 py-2 rounded-full z-10 pointer-events-none"
       >
         {visiblePage} / {totalPages}
       </div>

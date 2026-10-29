@@ -215,10 +215,9 @@ export function ComicRenderer({ book, content, bookId }: ComicRendererProps) {
         })}
       </div>
 
-      {/* Page indicator（U14：走 inverse-surface 语义色，不硬编码黑白） */}
+      {/* Page indicator：统一走 .reader-overlay-chip（暗色主题下 inverse-surface 是白斑） */}
       <div
-        className="fixed bottom-20 left-1/2 -translate-x-1/2 backdrop-blur-sm text-sm px-4 py-2 rounded-full"
-        style={{ background: 'var(--md-sys-color-inverse-surface)', color: 'var(--md-sys-color-inverse-on-surface)' }}
+        className="reader-overlay-chip fixed bottom-20 left-1/2 -translate-x-1/2 backdrop-blur-sm text-sm px-4 py-2 rounded-full"
       >
         {currentIndex + 1} / {totalPages}
       </div>

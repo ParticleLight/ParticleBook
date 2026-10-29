@@ -1408,6 +1408,18 @@ textarea.m3-text-field.is-dense {
 .m3-menu-item.is-destructive { color: var(--md-sys-color-error); }
 .m3-menu-item.is-destructive:hover { background: var(--md-sys-color-error-container); }
 .m3-divider { height: 1px; background: var(--md-sys-color-outline-variant); border: 0; }
+
+/* 阅读器浮层胶囊（页码 / 进度 + 阅读时长）──────────────────────────────
+   2026-10-29：这里曾改用 --md-sys-color-inverse-surface，但 M3 的 inverse-surface
+   在暗色主题里是**近白色**（#e8e8e8）—— 压在深色正文上就是一块刺眼的白斑
+   （用户反馈「怎么变成纯白色了」）。改用「容器最高层 + on-surface」，
+   三主题下都与正文协调；边框保证亮色主题下压在浅色页面上也看得清。 */
+.reader-overlay-chip {
+  background: var(--md-sys-color-surface-container-highest);
+  color: var(--md-sys-color-on-surface);
+  border: 1px solid var(--md-sys-color-outline-variant);
+  box-shadow: var(--md-sys-elevation-1);
+}
 /* 徽章全仓只有这一处定义（2026-10-29 U10：原先本处一份柔色、文件后段另一处
    实底，同特异性下后者静默覆盖前者）。视觉按"压在书封 / 列表行上的状态徽章"取
    实底 primary —— primary-container 在封面图上看不清；可读性改由 --accent-text

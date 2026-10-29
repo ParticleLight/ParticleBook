@@ -772,10 +772,10 @@ export function ReaderView({ bookId, onClose, onOpenSplit }: ReaderViewProps) {
         )}
 
         {/* Page indicator */}
-        {/* U14：页码胶囊用 inverse-surface 语义色（三主题下都有可读对比），不再硬编码 bg-black/40 */}
+        {/* 页码 / 进度胶囊：统一走 .reader-overlay-chip（容器色 + on-surface）。
+            不要再用 inverse-surface —— 暗色主题下它是近白色，会在正文上变成白斑。 */}
         <div
-          className="absolute bottom-3 right-3 z-10 backdrop-blur-sm text-xs px-3 py-1.5 rounded-full flex items-center gap-3"
-          style={{ background: 'var(--md-sys-color-inverse-surface)', color: 'var(--md-sys-color-inverse-on-surface)' }}
+          className="reader-overlay-chip absolute bottom-3 right-3 z-10 backdrop-blur-sm text-xs px-3 py-1.5 rounded-full flex items-center gap-3"
         >
           <span>{['txt','mobi','azw3','fb2','html','markdown','docx'].includes(book.format) ? `${(progress.progress || 0).toFixed(2)}%` : progress.page != null ? t('第 {{page}} 页', { page: progress.page }) : `${Math.round(progress.progress || 0)}%`}</span>
           <span className="opacity-70">|</span>

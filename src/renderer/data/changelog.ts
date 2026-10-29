@@ -19,6 +19,7 @@ export const changelog: ChangelogEntry[] = [
     unreleased: true,
     changes: [
       // ── 2026-10-29 全面 review 后的修复批次（C++ / 安全 / 阅读器 / UI / 构建）──
+      { type: 'fix', text: '修复阅读器右下角进度胶囊在暗色主题下变成一块纯白：改用「容器最高层 + on-surface」并加描边，不再用 inverse-surface —— M3 的 inverse 色在暗色主题里本来就是近白色，压在深色正文上很刺眼（PDF / 漫画的页码胶囊同步修正）' },
       { type: 'fix', text: '修复书籍详情弹窗里点输入框会直接打开书：弹层 portal 到 body 后 React 事件仍沿组件树冒泡到书卡 onClick，现在所有弹层统一截断 click（弹层内下拉菜单的「点外部关闭」不受影响）' },
       { type: 'fix', text: '修复畸形 / 恶意 EPUB·DOCX 导入可让整个应用崩溃：手写 ZIP 解析器补中央目录边界校验、改用 memcpy 读取，并按文件真实大小夹紧解压缓冲（畸形包头不再触发越界读，也不能让解析器按包内字段申请 4GB）' },
       { type: 'fix', text: '修复书源下载永久卡死：书源 HTTP 补齐连接/发送/接收/解析超时，逐章等待改成带总超时的条件变量（失败或取消都能退出），不再长时间占死工作线程' },
