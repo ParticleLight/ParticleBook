@@ -61,6 +61,8 @@ export const enLibrary: Record<string, string> = {
   '{{h}} 小时 {{m}} 分钟': '{{h}}h {{m}}m',
   '{{m}} 分钟': '{{m}} min',
   '更新日志': 'Changelog',
+  // 更新日志面板（2026-10-29）：按 新功能 / 优化 / 修复 分类整理
+  '按类型筛选': 'Filter by type',
   '全局设置': 'Settings',
   '{{count}} 本书_one': '{{count}} book',
   '{{count}} 本书_other': '{{count}} books',

@@ -1,3 +1,4 @@
+import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
 import { changelog } from '../../data/changelog'
@@ -7,21 +8,53 @@ interface ChangelogPanelProps {
   isClosing: boolean
 }
 
-const typeLabels = (t: TFunction): Record<string, { label: string; style: React.CSSProperties }> => ({
-  feature: { label: t('新功能'), style: { color: 'var(--color-green)', backgroundColor: 'var(--color-green-bg)' } },
-  fix: { label: t('修复'), style: { color: 'var(--color-red)', backgroundColor: 'var(--color-red-bg)' } },
-  improve: { label: t('优化'), style: { color: 'var(--color-indigo)', backgroundColor: 'var(--color-indigo-bg)' } },
+type ChangeType = 'feature' | 'improve' | 'fix'
+
+// 分类顺序：新功能 → 优化 → 修复（发版说明的常规阅读顺序）
+const TYPE_ORDER: ChangeType[] = ['feature', 'improve', 'fix']
+
+const typeMeta = (t: TFunction): Record<ChangeType, { label: string; color: string; bg: string }> => ({
+  feature: { label: t('新功能'), color: 'var(--color-green)', bg: 'var(--color-green-bg)' },
+  improve: { label: t('优化'), color: 'var(--color-indigo)', bg: 'var(--color-indigo-bg)' },
+  fix: { label: t('修复'), color: 'var(--color-red)', bg: 'var(--color-red-bg)' },
 })
 
 export function ChangelogPanel({ onClose, isClosing }: ChangelogPanelProps) {
   const { t } = useTranslation()
-  const labels = typeLabels(t)
+  const meta = typeMeta(t)
+  const [filter, setFilter] = useState<'all' | ChangeType>('all')
+
+  // 按版本分组：每个版本里再按「新功能 / 优化 / 修复」分类；空分类不渲染。
+  const versions = useMemo(() => {
+    return changelog
+      .map((entry) => {
+        const groups = TYPE_ORDER
+          .map((type) => ({ type, items: entry.changes.filter((change) => change.type === type) }))
+          .filter((group) => group.items.length > 0 && (filter === 'all' || group.type === filter))
+        const total = groups.reduce((sum, group) => sum + group.items.length, 0)
+        return { entry, groups, total }
+      })
+      .filter((version) => version.total > 0)
+  }, [filter])
+
+  // 顶部筛选条的数量（按整份日志统计，不随筛选变化）
+  const counts = useMemo(() => {
+    const acc: Record<'all' | ChangeType, number> = { all: 0, feature: 0, improve: 0, fix: 0 }
+    for (const entry of changelog) {
+      for (const change of entry.changes) {
+        acc.all += 1
+        if (change.type === 'feature' || change.type === 'improve' || change.type === 'fix') acc[change.type] += 1
+      }
+    }
+    return acc
+  }, [])
 
   return (
     <div className={`absolute inset-0 z-50 flex items-center justify-center ${isClosing ? 'animate-fade-out' : ''}`}>
       <div className="m3-dialog-backdrop absolute inset-0" onClick={onClose} style={{ transition: 'opacity 0.2s' }} />
       <div
-        className={`m3-dialog relative w-[600px] max-h-[80vh] overflow-hidden ${isClosing ? 'animate-scale-out' : 'animate-scale-in'}`}
+        className={`m3-dialog relative w-[620px] max-h-[80vh] overflow-hidden ${isClosing ? 'animate-scale-out' : 'animate-scale-in'}`}
+        data-testid="changelog-panel"
       >
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4">
@@ -38,11 +71,38 @@ export function ChangelogPanel({ onClose, isClosing }: ChangelogPanelProps) {
           </button>
         </div>
 
+        {/* 分类筛选（2026-10-29）：按类型整理整份日志，默认「全部」 */}
+        <div
+          className="flex flex-wrap items-center gap-2 px-6 py-3"
+          style={{ borderTop: '1px solid var(--md-sys-color-outline-variant)', borderBottom: '1px solid var(--md-sys-color-outline-variant)' }}
+          role="group"
+          aria-label={t('按类型筛选')}
+        >
+          {(['all', ...TYPE_ORDER] as const).map((key) => (
+            <button
+              key={key}
+              type="button"
+              data-testid={`changelog-filter-${key}`}
+              aria-pressed={filter === key}
+              className={`m3-filter-chip ${filter === key ? 'is-selected' : ''}`}
+              onClick={() => setFilter(key)}
+            >
+              {key === 'all' ? t('全部') : meta[key].label}
+              <span className="text-[11px]" style={{ opacity: 0.6 }}>{counts[key]}</span>
+            </button>
+          ))}
+        </div>
+
         {/* Content */}
-        <div className="overflow-y-auto max-h-[calc(80vh-64px)] px-6 py-4">
-          {changelog.map((entry, i) => (
-            <div key={entry.version} className={i < changelog.length - 1 ? 'mb-6 pb-6 border-b' : ''} style={i < changelog.length - 1 ? { borderColor: 'var(--md-sys-color-outline-variant)' } : undefined}>
-              <div className="flex items-center gap-3 mb-3">
+        <div className="overflow-y-auto max-h-[calc(80vh-124px)] px-6 py-4">
+          {versions.map(({ entry, groups }, i) => (
+            <div
+              key={entry.version}
+              className={i < versions.length - 1 ? 'mb-6 pb-6 border-b' : ''}
+              style={i < versions.length - 1 ? { borderColor: 'var(--md-sys-color-outline-variant)' } : undefined}
+              data-testid={`changelog-version-${entry.version}`}
+            >
+              <div className="flex items-center gap-3 mb-2">
                 <span className="m3-title-medium">v{entry.version}</span>
                 {entry.unreleased && (
                   <span
@@ -54,17 +114,29 @@ export function ChangelogPanel({ onClose, isClosing }: ChangelogPanelProps) {
                   </span>
                 )}
                 <span className="text-xs" style={{ color: 'var(--md-sys-color-on-surface)', opacity: 0.4 }}>{entry.date}</span>
+                <span className="ml-auto text-[11px]" style={{ color: 'var(--md-sys-color-on-surface)', opacity: 0.35 }}>
+                  {groups.map((group, gi) => (
+                    <span key={group.type}>{gi > 0 ? ' · ' : ''}{meta[group.type].label} {group.items.length}</span>
+                  ))}
+                </span>
               </div>
-              <div className="space-y-2">
-                {entry.changes.map((change, j) => (
-                  <div key={j} className="flex items-start gap-2">
-                    <span className="flex-shrink-0 mt-0.5 px-1.5 py-0.5 text-[10px] font-medium rounded" style={labels[change.type]?.style || { color: 'var(--md-sys-color-on-surface)', opacity: 0.5 }}>
-                      {labels[change.type]?.label || change.type}
-                    </span>
-                    <span className="text-sm" style={{ color: 'var(--md-sys-color-on-surface)', opacity: 0.8 }}>{t(change.text)}</span>
+              {groups.map((group) => (
+                <div key={group.type} className="mb-3 last:mb-0">
+                  <div className="flex items-center gap-2 mb-1.5 pl-1">
+                    <span className="w-1.5 h-1.5 rounded-full" style={{ background: meta[group.type].color }} aria-hidden="true" />
+                    <span className="m3-label-medium" style={{ color: meta[group.type].color }}>{meta[group.type].label}</span>
+                    <span className="text-[11px]" style={{ color: 'var(--md-sys-color-on-surface)', opacity: 0.35 }}>{group.items.length}</span>
                   </div>
-                ))}
-              </div>
+                  <ul className="space-y-1.5 pl-4">
+                    {group.items.map((change, j) => (
+                      <li key={j} className="flex items-start gap-2 text-sm" style={{ color: 'var(--md-sys-color-on-surface)', opacity: 0.85 }}>
+                        <span aria-hidden="true" style={{ opacity: 0.35, lineHeight: '1.6' }}>•</span>
+                        <span>{t(change.text)}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
             </div>
           ))}
         </div>
