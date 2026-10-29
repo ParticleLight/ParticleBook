@@ -473,6 +473,25 @@ export function ReaderView({ bookId, onClose, onOpenSplit }: ReaderViewProps) {
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [onClose, paging])
 
+  // 浮层自己可滚动时（翻译 / 词典弹层、侧栏列表等），滚轮要滚它们的内容，
+  // 不能被翻页处理器 preventDefault 掉（用户 2026-10-29：翻译弹层滑不动、反而翻页）。
+  // 从事件目标往上找：只要有一层是「真的能滚的容器」（overflow auto/scroll 且
+  // scrollHeight > clientHeight），就把滚轮让给它。
+  const isScrollableOverlayTarget = (target: EventTarget | null): boolean => {
+    let el = target instanceof Element ? target : null
+    while (el && el !== document.body) {
+      if (el instanceof HTMLElement) {
+        const style = window.getComputedStyle(el)
+        const overflowY = style.overflowY
+        if ((overflowY === 'auto' || overflowY === 'scroll') && el.scrollHeight > el.clientHeight + 1) {
+          return true
+        }
+      }
+      el = el.parentElement
+    }
+    return false
+  }
+
   // Mouse wheel page turning for paginated formats
   useEffect(() => {
     if (!book) return
@@ -483,6 +502,9 @@ export function ReaderView({ bookId, onClose, onOpenSplit }: ReaderViewProps) {
     const handleWheel = (e: WheelEvent) => {
       // Don't intercept Ctrl+Wheel (used for zoom in PDF)
       if (e.ctrlKey) return
+
+      // 滚轮在「自己能滚的浮层」里 → 不拦、不翻页（翻译/词典弹层、侧栏列表）
+      if (isScrollableOverlayTarget(e.target)) return
 
       // Don't turn pages when sidebar or settings is open
       const { showSidebar } = useReaderStore.getState()
