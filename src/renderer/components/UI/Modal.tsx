@@ -209,9 +209,15 @@ export function Modal({
       onClick={stopClick}
       onContextMenu={stopClick}
     >
+      {/* 遮罩与面板必须显式分层：遮罩是 absolute（已定位），而 .pb-dialog/.m3-dialog
+          都是**静态定位**，同 z-index 下"已定位元素"会盖在静态元素上面 —— 结果是
+          遮罩盖住整个面板：点哪里都被遮罩吃掉（弹层点不动），并且面板被压暗成一片灰
+          （用户 2026-10-30 反馈：分屏选书弹层「全部都成了灰色、点不动」）。
+          这里把遮罩放 z=0、面板放 z=1，且面板补 position:relative 形成同一层叠上下文。 */}
       <div
         className={backdropClassName}
         aria-hidden="true"
+        style={{ zIndex: 0 }}
         onClick={closeOnBackdrop ? onClose : undefined}
       />
       <div
@@ -223,7 +229,7 @@ export function Modal({
         aria-label={labelledBy ? undefined : ariaLabel}
         tabIndex={-1}
         className={panelClassName}
-        style={panelStyle}
+        style={{ position: 'relative', zIndex: 1, ...panelStyle }}
         onKeyDown={handleKeyDown}
         data-testid={panelTestId}
       >
