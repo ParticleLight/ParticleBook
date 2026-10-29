@@ -1,4 +1,8 @@
 (function(){
+// 同 zlib_toolbar.js：只处理顶层 http(s) 页面 —— 书页的 about:srcdoc iframe 不该弹下载卡片。
+if (window.top !== window) return;
+if (location.protocol !== 'http:' && location.protocol !== 'https:') return;
+if (location.hostname === 'particlebook.app') return;
 var _q=[],_rdy=false,_hideTimer=null;
 function _fmt(b){if(!b||b<0)return '';if(b<1024)return b+' B';
 if(b<1048576)return (b/1024).toFixed(1)+' KB';

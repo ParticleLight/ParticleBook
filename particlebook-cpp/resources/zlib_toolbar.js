@@ -1,4 +1,13 @@
 (function(){
+// 只在【顶层 http(s) 页面】画这条工具条（2026-10-29 用户反馈「打开 EPUB 右下角会冒出线路条」）：
+// 注入走 AddScriptToExecuteOnDocumentCreated，对 iframe 也生效；EPUB/HTML 阅读器把正文放在
+// about:srcdoc 的 iframe 里，那里 location.hostname 是空字符串，下面的 hostname 守卫判定成
+// 「非应用页面」于是把工具条画进了书页。顶帧判断 + 协议判断能一次性挡住所有 srcdoc/blob 帧。
+if (window.top !== window) return;
+if (location.protocol !== 'http:' && location.protocol !== 'https:') return;
+// 应用自身页面（particlebook.app）根本不需要这条工具条：直接不创建，省得留一个
+// display:none 的隐藏节点（此前只是创建后隐藏）。
+if (location.hostname === 'particlebook.app') return;
 var _t=setInterval(function(){var root=document.documentElement||document.body;if(root){clearInterval(_t);
 var s=document.createElement('style');s.textContent='#zlib-bar{position:fixed;bottom:16px;right:16px;z-index:2147483647;display:flex;align-items:center;gap:2px;background:rgba(30,30,30,0.9);backdrop-filter:blur(20px);border-radius:24px;padding:6px 10px;border:1px solid rgba(255,255,255,0.1);box-shadow:0 4px 24px rgba(0,0,0,0.5)}#zlib-bar button{background:transparent;border:none;color:rgba(255,255,255,0.7);padding:8px;border-radius:50%;cursor:pointer;width:36px;height:36px;display:flex;align-items:center;justify-content:center}#zlib-bar button:hover{color:#fff;background:rgba(255,255,255,0.1)}#zlib-bar .sep{width:1px;height:20px;background:rgba(255,255,255,0.1);margin:0 4px}#zlib-bar .u{font-size:11px;color:rgba(255,255,255,0.5);margin:0 6px;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}';
 document.head.appendChild(s);

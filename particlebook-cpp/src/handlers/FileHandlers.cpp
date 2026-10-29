@@ -71,11 +71,13 @@ static json ReadFileForRenderer(ContentCache* cache, const std::string& path)
         for (auto& de : std::filesystem::directory_iterator(rendererDir, ec)) {
             if (!de.is_directory()) entries.push_back(de);
         }
-        if (entries.size() > 64) {
+        // 上限从 64 提到 128：一本 EPUB 的正文/封面/多个渲染器页面图都会各占一个副本，
+        // 64 太容易在「连开几本书」时互相挤掉（表现为 ERR_FILE_NOT_FOUND）。
+        if (entries.size() > 128) {
             std::sort(entries.begin(), entries.end(), [](const auto& a, const auto& b) {
                 return a.last_write_time() < b.last_write_time();
             });
-            for (size_t i = 0; i < entries.size() - 64; i++) {
+            for (size_t i = 0; i < entries.size() - 128; i++) {
                 std::filesystem::remove(entries[i].path(), ec);
             }
         }
@@ -88,6 +90,19 @@ static json ReadFileForRenderer(ContentCache* cache, const std::string& path)
 
         std::wstring dest = rendererDir + L"\\" + pb::Utf8ToWide(fn);
         if (CopyFileW(pb::Utf8ToWide(path).c_str(), dest.c_str(), FALSE)) {
+            // 复制默认继承源文件的 mtime，而清理是按 mtime 的 LRU —— 刚复制出来的副本会
+            // 被当成"最旧"的，下一次 read 触发清理就可能把它删掉，紧接着渲染层 fetch
+            // 这个 URL 就 ERR_FILE_NOT_FOUND（长期被误认为"打开第二本书偶发失败"）。
+            // 复制后把 mtime 改成当前时间，LRU 才真正表示"最近使用"。
+            HANDLE attrHandle = CreateFileW(dest.c_str(), FILE_WRITE_ATTRIBUTES,
+                                            FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
+                                            OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+            if (attrHandle != INVALID_HANDLE_VALUE) {
+                FILETIME now{};
+                GetSystemTimeAsFileTime(&now);
+                SetFileTime(attrHandle, nullptr, nullptr, &now);
+                CloseHandle(attrHandle);
+            }
             // 同一个源路径换了文件（用户替换 / 重新导入同名书）时，文件名不变 →
             // WebView2 的 HTTP 缓存会把旧内容再发一次（实测：PDF 换封面后阅读器仍显示
             // 旧版）。URL 带「修改时间 ^ 大小」做版本号，文件一改就是新 URL。
