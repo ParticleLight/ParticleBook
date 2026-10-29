@@ -192,8 +192,23 @@ export function Modal({
     [onClose, onKeyDown],
   )
 
+  // 关键：portal 到 body 只改变 DOM 位置，React 事件仍然沿组件树冒泡 ——
+  // BookDetailDialog / ConfirmDialog 都挂在 BookCard 的子树里，不拦住的话
+  // 「在详情里点输入框」会冒到书卡 onClick → 直接打开书（用户 2026-10-29 反馈）。
+  // 所以弹层容器统一截断 click（以及 contextmenu）：卡片/列表行只响应弹层之外的点击。
+  // 只拦 click 不拦 mousedown/pointerdown —— 下拉菜单/选区等仍靠 document 上的
+  // mousedown 做"点外部关闭"，拦掉会让弹层内的下拉关不上。
+  const stopClick = (event: React.MouseEvent) => event.stopPropagation()
+
   const content = (
-    <div className={containerClassName} style={containerStyle} data-testid={testId} {...containerData}>
+    <div
+      className={containerClassName}
+      style={containerStyle}
+      data-testid={testId}
+      {...containerData}
+      onClick={stopClick}
+      onContextMenu={stopClick}
+    >
       <div
         className={backdropClassName}
         aria-hidden="true"
