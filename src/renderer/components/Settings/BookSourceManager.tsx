@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { useBookSourceStore, type BookSourceImportSummary } from '../../stores/bookSourceStore'
 import type { BookSourceInfo } from '../../types/bookSource'
 import { Switch } from '../UI/Switch'
+import { Modal } from '../UI/Modal'
 import { M3Select, type M3SelectOption } from '../UI/M3Select'
 
 // ── PB-013-A：设置页「书源管理」────────────────────────────────────
@@ -467,8 +468,9 @@ export function BookSourceManager() {
     }
   }, [t, testKeyword, testSource])
 
-  // 弹层材质沿用 acrylic；内部控件 / 按钮 / 列表统一走 globals.css 的 M3 基元
-  const overlayStyle: React.CSSProperties = { background: 'var(--ui-backdrop)' }
+  // 弹层材质沿用 acrylic；内部控件 / 按钮 / 列表统一走 globals.css 的 M3 基元。
+  // 遮罩浓度改由 UI/Modal 的 .m3-dialog-backdrop（var(--ui-backdrop)）统一提供，
+  // 不再每个弹层各写一份。
   const panelStyle: React.CSSProperties = {
     background: 'var(--acrylic-bg)',
     backdropFilter: 'blur(24px)',
@@ -736,44 +738,58 @@ export function BookSourceManager() {
         )}
       </div>
 
-      {/* 删除确认 */}
+      {/* 删除确认（review U5：弹层行为统一走 UI/Modal —— role="dialog"/aria-modal/
+          Esc/焦点陷阱/关闭回焦；视觉保持原来的 acrylic 面板不变） */}
       {confirmDelete && (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center" style={overlayStyle} onClick={() => setConfirmDelete(null)}>
-          <div className="relative w-[420px] max-w-[90vw] rounded-xl p-5" style={panelStyle} onClick={(e) => e.stopPropagation()}>
-            <p className="m3-title-small mb-3">
-              {t('删除书源「{{name}}」？', { name: asText(sourceRecord(confirmDelete).bookSourceName) || t('未命名') })}
-            </p>
-            <p className="m3-body-small mb-4">{t('删除后不能再用它搜索或下载。')}</p>
-            <div className="flex justify-end gap-2">
-              <button onClick={() => setConfirmDelete(null)} className="m3-text-button is-compact">{t('取消')}</button>
-              <button onClick={() => { void remove(confirmDelete) }} className="m3-filled-button is-compact" data-source-delete-confirm="1">{t('删除')}</button>
-            </div>
+        <Modal
+          onClose={() => setConfirmDelete(null)}
+          labelledBy="book-source-delete-title"
+          containerClassName="fixed inset-0 z-[70] flex items-center justify-center p-4"
+          panelClassName="relative w-[420px] max-w-[90vw] rounded-xl p-5"
+          panelStyle={panelStyle}
+        >
+          <p className="m3-title-small mb-3" id="book-source-delete-title">
+            {t('删除书源「{{name}}」？', { name: asText(sourceRecord(confirmDelete).bookSourceName) || t('未命名') })}
+          </p>
+          <p className="m3-body-small mb-4">{t('删除后不能再用它搜索或下载。')}</p>
+          <div className="flex justify-end gap-2">
+            <button onClick={() => setConfirmDelete(null)} className="m3-text-button is-compact">{t('取消')}</button>
+            <button onClick={() => { void remove(confirmDelete) }} className="m3-filled-button is-compact" data-source-delete-confirm="1">{t('删除')}</button>
           </div>
-        </div>
+        </Modal>
       )}
 
-      {/* 批量删除确认 */}
+      {/* 批量删除确认（同 U5） */}
       {confirmBulkDelete && (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center" style={overlayStyle} onClick={() => setConfirmBulkDelete(false)}>
-          <div className="relative w-[440px] max-w-[90vw] rounded-xl p-5" style={panelStyle} onClick={(e) => e.stopPropagation()}>
-            <p className="m3-title-small mb-3">
-              {t('删除选中的 {{count}} 个书源？', { count: visibleSelectedIds.length })}
-            </p>
-            <p className="m3-body-small mb-4">{t('删除后不能再用它们搜索或下载。')}</p>
-            <div className="flex justify-end gap-2">
-              <button onClick={() => setConfirmBulkDelete(false)} className="m3-text-button is-compact">{t('取消')}</button>
-              <button onClick={() => { void bulkDelete() }} className="m3-filled-button is-compact" data-source-bulk-delete-confirm="1">{t('删除')}</button>
-            </div>
+        <Modal
+          onClose={() => setConfirmBulkDelete(false)}
+          labelledBy="book-source-bulk-delete-title"
+          containerClassName="fixed inset-0 z-[70] flex items-center justify-center p-4"
+          panelClassName="relative w-[440px] max-w-[90vw] rounded-xl p-5"
+          panelStyle={panelStyle}
+        >
+          <p className="m3-title-small mb-3" id="book-source-bulk-delete-title">
+            {t('删除选中的 {{count}} 个书源？', { count: visibleSelectedIds.length })}
+          </p>
+          <p className="m3-body-small mb-4">{t('删除后不能再用它们搜索或下载。')}</p>
+          <div className="flex justify-end gap-2">
+            <button onClick={() => setConfirmBulkDelete(false)} className="m3-text-button is-compact">{t('取消')}</button>
+            <button onClick={() => { void bulkDelete() }} className="m3-filled-button is-compact" data-source-bulk-delete-confirm="1">{t('删除')}</button>
           </div>
-        </div>
+        </Modal>
       )}
 
-      {/* 编辑对话框 */}
+      {/* 编辑对话框（review U5：语义 / Esc / 焦点陷阱 / 关闭回焦走 UI/Modal） */}
       {editSource && form && (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4" style={overlayStyle}>
-          <div className="relative w-[720px] max-w-[94vw] max-h-[88vh] rounded-xl flex flex-col overflow-hidden" style={panelStyle}>
+        <Modal
+          onClose={closeEdit}
+          labelledBy="book-source-edit-title"
+          containerClassName="fixed inset-0 z-[70] flex items-center justify-center p-4"
+          panelClassName="relative w-[720px] max-w-[94vw] max-h-[88vh] rounded-xl flex flex-col overflow-hidden"
+          panelStyle={panelStyle}
+        >
             <div className="flex items-center justify-between px-5 py-3" style={{ borderBottom: '1px solid var(--md-sys-color-outline-variant)' }}>
-              <h3 className="m3-title-small" data-edit-title="1">{t('编辑书源')}</h3>
+              <h3 className="m3-title-small" data-edit-title="1" id="book-source-edit-title">{t('编辑书源')}</h3>
               <button onClick={closeEdit} className="m3-icon-button" aria-label={t('关闭')}>
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
               </button>
@@ -824,17 +840,21 @@ export function BookSourceManager() {
               <button onClick={closeEdit} className="m3-text-button is-compact">{t('取消')}</button>
               <button onClick={() => { void saveEdit() }} disabled={saving} className="m3-filled-button is-compact" data-edit-save="1">{saving ? t('保存中…') : t('保存')}</button>
             </div>
-          </div>
-        </div>
+        </Modal>
       )}
 
-      {/* 单源测试（只读） */}
+      {/* 单源测试（只读，review U5：走 UI/Modal） */}
       {testSource && (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4" style={overlayStyle}>
-          <div className="relative w-[640px] max-w-[94vw] max-h-[80vh] rounded-xl flex flex-col overflow-hidden" style={panelStyle}>
+        <Modal
+          onClose={() => setTestSource(null)}
+          labelledBy="book-source-test-title"
+          containerClassName="fixed inset-0 z-[70] flex items-center justify-center p-4"
+          panelClassName="relative w-[640px] max-w-[94vw] max-h-[80vh] rounded-xl flex flex-col overflow-hidden"
+          panelStyle={panelStyle}
+        >
             <div className="flex items-center justify-between px-5 py-3" style={{ borderBottom: '1px solid var(--md-sys-color-outline-variant)' }}>
               <div>
-                <h3 className="m3-title-small">{t('测试书源')}</h3>
+                <h3 className="m3-title-small" id="book-source-test-title">{t('测试书源')}</h3>
                 <p className="m3-body-small mt-0.5">
                   {asText(sourceRecord(testSource).bookSourceName) || t('未命名')} · {t('该测试只读，不会修改任何书源')}
                 </p>
@@ -884,8 +904,7 @@ export function BookSourceManager() {
             <div className="flex justify-end px-5 py-3" style={{ borderTop: '1px solid var(--md-sys-color-outline-variant)' }}>
               <button onClick={() => setTestSource(null)} className="m3-text-button is-compact">{t('关闭')}</button>
             </div>
-          </div>
-        </div>
+        </Modal>
       )}
     </div>
   )

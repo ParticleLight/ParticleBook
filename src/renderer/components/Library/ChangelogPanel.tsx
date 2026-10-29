@@ -1,7 +1,8 @@
-import { useMemo, useState } from 'react'
+import { useId, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
 import { changelog } from '../../data/changelog'
+import { Modal } from '../UI/Modal'
 
 interface ChangelogPanelProps {
   onClose: () => void
@@ -21,6 +22,7 @@ const typeMeta = (t: TFunction): Record<ChangeType, { label: string; color: stri
 
 export function ChangelogPanel({ onClose, isClosing }: ChangelogPanelProps) {
   const { t } = useTranslation()
+  const titleId = useId()
   const meta = typeMeta(t)
   const [filter, setFilter] = useState<'all' | ChangeType>('all')
 
@@ -49,20 +51,23 @@ export function ChangelogPanel({ onClose, isClosing }: ChangelogPanelProps) {
     return acc
   }, [])
 
+  // review U5：对话框语义 / Esc / 焦点陷阱 / 关闭回焦交给 UI/Modal（原来只有遮罩
+  // 点击关闭，没有 role="dialog"、没有 Esc、Tab 会跑进背后的书库）。
   return (
-    <div className={`absolute inset-0 z-50 flex items-center justify-center ${isClosing ? 'animate-fade-out' : ''}`}>
-      <div className="m3-dialog-backdrop absolute inset-0" onClick={onClose} style={{ transition: 'opacity 0.2s' }} />
-      <div
-        className={`m3-dialog relative w-[620px] max-h-[80vh] overflow-hidden ${isClosing ? 'animate-scale-out' : 'animate-scale-in'}`}
-        data-testid="changelog-panel"
-      >
+    <Modal
+      onClose={onClose}
+      labelledBy={titleId}
+      containerClassName="fixed inset-0 z-50 flex items-center justify-center p-4"
+      panelClassName={`m3-dialog relative !w-[620px] max-h-[80vh] overflow-hidden ${isClosing ? 'animate-scale-out' : 'animate-scale-in'}`}
+      panelTestId="changelog-panel"
+    >
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4">
           <div className="flex items-center gap-2">
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" style={{ color: 'var(--md-sys-color-primary)' }}>
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true" style={{ color: 'var(--md-sys-color-primary)' }}>
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
             </svg>
-            <span className="m3-title-large">{t('更新日志')}</span>
+            <h2 className="m3-title-large" id={titleId}>{t('更新日志')}</h2>
           </div>
           <button onClick={onClose} className="m3-icon-button" aria-label={t('关闭')}>
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -140,7 +145,6 @@ export function ChangelogPanel({ onClose, isClosing }: ChangelogPanelProps) {
             </div>
           ))}
         </div>
-      </div>
-    </div>
+    </Modal>
   )
 }

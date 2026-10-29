@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useReaderAdapter, type DictionaryRequest } from '../../reader'
 import { useReaderStore } from '../../stores/readerStore'
+import { ConfirmDialog } from '../UI/ConfirmDialog'
 
 // ── PB-010-B：本地词典弹层（离线查词）──────────────────────────────
 // 工具栏「词典」打开：输入单词查词 / 从当前选区取词；显示音标、释义、词性、
@@ -74,6 +75,9 @@ export function DictionaryPopup({ open, onClose, request }: DictionaryPopupProps
   const [result, setResult] = useState<LookupResult | null>(null)
   const [busy, setBusy] = useState(false)
   const [importing, setImporting] = useState(false)
+  // review U6：清空词库改用 M3 ConfirmDialog，不再弹原生 window.confirm
+  // （原生弹窗是白底系统样式，不跟暗色/护眼主题，而且会阻塞渲染）。
+  const [confirmClear, setConfirmClear] = useState(false)
   const [progress, setProgress] = useState(0)
   const [message, setMessage] = useState('')
   const inputRef = useRef<HTMLInputElement | null>(null)
@@ -116,9 +120,15 @@ export function DictionaryPopup({ open, onClose, request }: DictionaryPopupProps
     return () => document.removeEventListener('keydown', onKeyDown, true)
   }, [open, onClose])
 
+  // 请求序号（review · F-11）：连续两次「取选区」时，先发出的慢请求回来会覆盖
+  // 新词的释义（显示与输入框不一致）。每次 lookup 递增，回来时序号不等就丢弃；
+  // 与 TranslationPopup 的 requestRef 同一套做法。
+  const seqRef = useRef(0)
+
   const lookup = useCallback(async (raw: string) => {
     const query = raw.trim()
     if (!query) return
+    const seq = ++seqRef.current
     setBusy(true)
     setMessage('')
     try {
@@ -140,12 +150,14 @@ export function DictionaryPopup({ open, onClose, request }: DictionaryPopupProps
           }
         }
       }
+      if (seq !== seqRef.current) return
       setResult(lookupResult)
     } catch (error) {
+      if (seq !== seqRef.current) return
       const code = error instanceof Error ? error.message : String(error)
       setResult({ ok: false, found: false, code, error: code, query, hits: [] })
     } finally {
-      setBusy(false)
+      if (seq === seqRef.current) setBusy(false)
     }
   }, [])
 
@@ -189,7 +201,7 @@ export function DictionaryPopup({ open, onClose, request }: DictionaryPopupProps
   }
 
   const clearDictionary = async () => {
-    if (!window.confirm(t('清空本地词库？'))) return
+    setConfirmClear(false)
     try {
       await window.electronAPI.dictionaryClear()
       setResult(null)
@@ -259,7 +271,7 @@ export function DictionaryPopup({ open, onClose, request }: DictionaryPopupProps
             <button onClick={() => void importDictionary()} disabled={importing} className="m3-outlined-button is-compact">
               {t('导入词库')}
             </button>
-            <button onClick={() => void clearDictionary()} disabled={importing || !loaded} className="m3-outlined-button is-compact">
+            <button onClick={() => setConfirmClear(true)} disabled={importing || !loaded} className="m3-outlined-button is-compact">
               {t('清空词库')}
             </button>
             {loaded && (
@@ -329,6 +341,17 @@ export function DictionaryPopup({ open, onClose, request }: DictionaryPopupProps
           )}
         </div>
       </div>
+      {/* review U6：清空词库确认（M3 弹层，替代原生 window.confirm） */}
+      {confirmClear && (
+        <ConfirmDialog
+          title={t('清空词库')}
+          message={t('清空本地词库？')}
+          confirmText={t('清空词库')}
+          danger
+          onConfirm={() => void clearDictionary()}
+          onCancel={() => setConfirmClear(false)}
+        />
+      )}
     </div>
   )
 }

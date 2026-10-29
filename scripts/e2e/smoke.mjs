@@ -65,6 +65,11 @@ Options:
                         zlib-real-download | translation-context-ui | azw3-import)
   --verbose             Print extra detail
   -h, --help            Show this help
+
+Environment:
+  PB_E2E_ZLIB_PORT      Port for the local ZLib download mock (default: 80).
+                        The app's WinHTTP URL parser ignores ":port", so any
+                        non-80 value makes the zlib-real-download step SKIP.
 `
 
 function parseArgs(argv) {
@@ -149,6 +154,21 @@ const state = {
 const log = (...args) => console.log('[e2e]', ...args)
 const verbose = (...args) => { if (options.verbose) console.log('[e2e]', ...args) }
 
+// zlib 真实下载 mock 的监听端口。默认 80：产品侧 ZLibraryService 的下载线程手写
+// URL 解析、WinHTTP 固定用协议默认端口（会忽略 URL 里的 :port），所以只有 80 能
+// 真正验证「下载 → 导入」。可用 PB_E2E_ZLIB_PORT 覆盖（CI/本机 80 被占时），但
+// 非 80 端口跑不通上面那条链路 —— 对应步骤会显式 SKIP 而不是 FAIL。
+const zlibMockPort = (() => {
+  const raw = process.env.PB_E2E_ZLIB_PORT
+  if (!raw) return 80
+  const parsed = Number(raw)
+  if (!Number.isInteger(parsed) || parsed < 1 || parsed > 65535) {
+    console.warn('[e2e] ignoring invalid PB_E2E_ZLIB_PORT=' + raw + ' (using 80)')
+    return 80
+  }
+  return parsed
+})()
+
 function assert(condition, message) {
   if (!condition) throw new Error(message)
 }
@@ -174,14 +194,18 @@ async function assertFile(filePath, description) {
 
 async function step(name, fn) {
   state.currentStep = name
+  state.skipReason = null
   const started = Date.now()
   try {
     if (options.failAt === name) throw new Error(`--fail-at ${name}: forced failure`)
     await fn()
     const ms = Date.now() - started
-    state.steps.push({ name, ok: true, ms })
-    log(`PASS ${name} (${ms}ms)`)
+    const reason = state.skipReason
+    state.skipReason = null
+    state.steps.push({ name, ok: true, skipped: !!reason, reason: reason || undefined, ms })
+    log(reason ? `SKIP ${name} (${reason})` : `PASS ${name} (${ms}ms)`)
   } catch (error) {
+    state.skipReason = null
     const ms = Date.now() - started
     state.steps.push({ name, ok: false, ms, error: error.message })
     throw error
@@ -1280,9 +1304,25 @@ async function smokeZlibRealDownload() {
     chapter2: 'downloaded chapter two text',
     paddingBytes: 700 * 1024,
   })
-  // 端口必须是 80：ZLibraryService 下载线程手写 URL 解析，WinHTTP 固定用协议默认端口
+  // 端口默认 80：ZLibraryService 下载线程手写 URL 解析，WinHTTP 固定用协议默认端口
   // （http=80），会忽略 URL 里显式的 :port（产品既有实现限制，已记录在 docs/E2E.md）。
-  const mock = await startMockZlibServer({ epubBuffer, fileName: 'pb-zlib-download.epub', port: 80 })
+  // 可用 PB_E2E_ZLIB_PORT 覆盖，但非 80 时上面那条链路验证不了 → 显式 SKIP。
+  if (zlibMockPort !== 80) {
+    state.skipReason = 'PB_E2E_ZLIB_PORT=' + zlibMockPort +
+      '：产品侧 WinHTTP 忽略 :port，zlib 真实下载只能在 80 端口验证'
+    return
+  }
+  let mock
+  try {
+    mock = await startMockZlibServer({ epubBuffer, fileName: 'pb-zlib-download.epub', port: zlibMockPort })
+  } catch (error) {
+    if (error && error.code === 'EADDRINUSE') {
+      state.skipReason = '端口 80 已被占用（' + (error.address || 'localhost') +
+        '），跳过 zlib 真实下载步骤；可关掉占用进程或设 PB_E2E_ZLIB_PORT（该步会 SKIP）'
+      return
+    }
+    throw error
+  }
   state.mockZlib = mock
   const downloadDir = path.join(state.sandbox.files, 'zlib-downloads')
   await appLib.ensureDir(downloadDir)
@@ -1642,13 +1682,15 @@ async function finalize(fatal) {
     }
   }
 
-  // 汇总
-  const passed = state.steps.filter((entry) => entry.ok).length
+  // 汇总（SKIP 不计入 PASS 分子，单独报数，避免"看起来全过"）
+  const skippedSteps = state.steps.filter((entry) => entry.ok && entry.skipped)
+  const passed = state.steps.filter((entry) => entry.ok && !entry.skipped).length
   const total = state.steps.length
+  const skipNote = skippedSteps.length ? `, ${skippedSteps.length} skipped` : ''
   if (state.ok) {
-    log(`RESULT: PASS (${passed}/${total} smoke, ${(durationMs / 1000).toFixed(1)}s)`)
+    log(`RESULT: PASS (${passed}/${total} smoke${skipNote}, ${(durationMs / 1000).toFixed(1)}s)`)
   } else {
-    log(`RESULT: FAIL after ${passed}/${total} smoke (${(durationMs / 1000).toFixed(1)}s)`)
+    log(`RESULT: FAIL after ${passed}/${total} smoke${skipNote} (${(durationMs / 1000).toFixed(1)}s)`)
   }
   if (state.artifacts) log(`artifacts: ${state.artifacts}`)
   if (!state.ok && state.sandbox) log(`sandbox: ${state.sandbox.root}`)

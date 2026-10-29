@@ -13,6 +13,11 @@ interface TextRendererProps {
   bookId: number
 }
 
+/** 全文搜索一次性最多标记多少处（review F-02：无上限会让大 TXT 搜常用字时假死）。 */
+const MAX_SEARCH_MATCHES = 500
+/** 单条高亮（存的是纯文本、要靠 indexOf 找位置）最多标多少处，避免常见词铺满全文。 */
+const MAX_HIGHLIGHT_OCCURRENCES = 200
+
 export function TextRenderer({ book, content, bookId }: TextRendererProps) {
   const { t } = useTranslation()
   const containerRef = useRef<HTMLDivElement>(null)
@@ -79,21 +84,30 @@ export function TextRenderer({ book, content, bookId }: TextRendererProps) {
     setTableOfContents(toc)
   }, [text, setTableOfContents])
 
+  // review F-02：TXT 全文搜索必须**限上限**。旧实现把全文所有命中都塞进 store，
+  // 渲染时又给每个命中建一个 <mark> —— 搜「的」这种字能构造数万 DOM 节点，界面
+  // 假死数秒到十几秒。这里扫到第 MAX_SEARCH_MATCHES+1 个就停（扫描成本也因此有界），
+  // 并给用户一条可见提示。
+  const [searchTruncated, setSearchTruncated] = useState(false)
   useEffect(() => {
     if (!searchQuery || searchQuery.trim().length === 0) {
       if (searchMatches.length > 0) setSearchMatches([])
+      setSearchTruncated(false)
       return
     }
     const q = searchQuery.trim()
-    let escaped = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
     const matches: number[] = []
     let re: RegExp
     try { re = new RegExp(escaped, 'gi') } catch { return }
+    let truncated = false
     let m: RegExpExecArray | null
     while ((m = re.exec(text)) !== null) {
+      if (matches.length >= MAX_SEARCH_MATCHES) { truncated = true; break }
       matches.push(m.index)
     }
     setSearchMatches(matches)
+    setSearchTruncated(truncated)
   }, [searchQuery, text])
 
   const fontSize = useSettingsStore((s) => s.fontSize)
@@ -196,12 +210,17 @@ export function TextRenderer({ book, content, bookId }: TextRendererProps) {
           }
         }
       } else {
+        // 没有位置信息的旧高亮只能按文本找：常见词可能命中成千上万次，
+        // 这里限次（review F-02），否则同样会把正文撑成数万个 <mark>。
+        if (!hl.text) continue
         let pos = 0
-        while (pos < text.length) {
+        let occurrences = 0
+        while (pos < text.length && occurrences < MAX_HIGHLIGHT_OCCURRENCES) {
           const idx = text.indexOf(hl.text, pos)
           if (idx === -1) break
           ranges.push({ start: idx, end: idx + hl.text.length, color: hl.color, type: 'highlight' })
           pos = idx + hl.text.length
+          occurrences += 1
         }
       }
     }
@@ -382,6 +401,16 @@ export function TextRenderer({ book, content, bookId }: TextRendererProps) {
         className="h-full overflow-auto bg-[var(--reader-bg)] text-[var(--reader-text)]"
         style={{ padding: `0 ${margin}px` }}
       >
+        {searchTruncated && (
+          <div
+            role="status"
+            className="sticky top-0 z-10 mb-2 px-3 py-1.5 text-xs rounded-md"
+            style={{ background: 'var(--md-sys-color-error-container)', color: 'var(--md-sys-color-on-error-container)' }}
+            data-text-search-truncated="1"
+          >
+            {t('命中过多：只标记前 {{n}} 处，请用更长的关键词缩小范围', { n: MAX_SEARCH_MATCHES })}
+          </div>
+        )}
         <div
           className="reader-content select-text"
           style={{

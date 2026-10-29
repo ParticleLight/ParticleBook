@@ -39,11 +39,23 @@ jobs:
       - name: Verify i18n key coverage
         run: npm run i18n:check
 
+      # F3（2026-10-29 review）：与 build.yml 对齐，发布路径也跑 changelog 护栏。
+      - name: Verify changelog translations
+        run: npm run check:changelog
+
       - name: Verify C++ bridge ↔ TS contract
         run: node scripts/check-bridge-contract.js
 
+      # F4（2026-10-29 review）：tag 发布不经过 build.yml（后者只监听 main push），
+      # 这里补齐 build.yml 的关键护栏，保证「tag 指向的 commit 真的过过检查」。
+      - name: Verify every contract invoke method has a C++ handler
+        run: npm run check:bridge-handlers
+
       - name: Verify generated electron.d.ts is in sync
         run: node scripts/gen-bridge-dts.mjs --check
+
+      - name: Verify version sync (package.json / CMakeLists / installer.nsi)
+        run: node scripts/check-version-sync.js
 
       - name: Set MSVC environment
         uses: ilammy/msvc-dev-cmd@v1
@@ -53,6 +65,15 @@ jobs:
 
       - name: Build C++ backend
         run: cmake --build particlebook-cpp/build2
+
+      # F4：发布前必须跑单测（tag 路径原本完全没有测试门）。
+      - name: Run C++ unit tests
+        run: ctest --test-dir particlebook-cpp/build2 --output-on-failure
+
+      # F1/F2 的守卫：makensis 之前先确认 installer.nsi 的清单与 build2 产物对齐
+      # （mobitool.exe / WebView2Loader.dll / renderer+resources 按目录规则）。
+      - name: Verify installer manifest (mobitool / renderer / resources)
+        run: npm run check:installer
 
       - name: Sync renderer into build output
         run: Copy-Item -Path out/renderer/* -Destination particlebook-cpp/build2/renderer/ -Recurse -Force
@@ -81,7 +102,10 @@ jobs:
       - name: Package installer
         run: |
           Set-Location particlebook-cpp/scripts
-          makensis /DPRODUCT_VERSION=$env:VERSION installer.nsi
+          # installer.nsi 是 UTF-8（含中文弹窗/文件关联文案）。makensis 默认按系统
+          # ACP 读脚本：中文 Windows 会直接报 "Bad text encoding" 打包失败，
+          # en-US runner 上则会把这些中文字符串编译成乱码。必须显式声明 UTF-8。
+          makensis /INPUTCHARSET UTF8 /DPRODUCT_VERSION=$env:VERSION installer.nsi
 
       - name: Compute SHA512 + write latest.yml
         shell: pwsh

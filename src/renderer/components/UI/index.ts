@@ -16,6 +16,10 @@ export { Popover } from './Popover'
 export type { PopoverProps, PopoverPlacement } from './Popover'
 export { Dialog } from './Dialog'
 export type { DialogProps } from './Dialog'
+// review U2/U5：弹层的「行为基座」（role/aria-modal/Esc/焦点陷阱/关闭回焦/逐层 Esc）。
+// Dialog 内部也是它；新弹层请直接用 Modal，视觉类名由调用方传。
+export { Modal } from './Modal'
+export type { ModalProps } from './Modal'
 export { List } from './List'
 export type { ListProps, ListState } from './List'
 export { M3Select } from './M3Select'

@@ -16,10 +16,20 @@ export function clampPercent(value: number): number {
   return Math.min(100, Math.max(0, value))
 }
 
-/** 码点数（Locator.offset 的口径；JS 字符串 length 是 UTF-16 单元数）。 */
+/** 码点数（Locator.offset 的口径；JS 字符串 length 是 UTF-16 单元数）。
+ *  用手写循环而不是 `for (const _ of text)`：后者每个码点都要走一次迭代器协议，
+ *  几 MB 正文下每次选区同步要几十毫秒（review F-01）。 */
 export function countCodepoints(text: string): number {
   let count = 0
-  for (const _ of text) count += 1
+  for (let i = 0; i < text.length; i++) {
+    const code = text.charCodeAt(i)
+    // 代理对 = 1 个码点：跳过低位代理，只计一次
+    if (code >= 0xd800 && code <= 0xdbff && i + 1 < text.length) {
+      const next = text.charCodeAt(i + 1)
+      if (next >= 0xdc00 && next <= 0xdfff) i++
+    }
+    count += 1
+  }
   return count
 }
 
@@ -146,9 +156,26 @@ export function findScrollContainer(node: Node | null): HTMLElement | null {
   return null
 }
 
-/** 从 root 开头到 range.start 的码点数（选区绝对偏移）。 */
+/** 从 root 开头到 range.start 的码点数（选区绝对偏移）。
+ *
+ *  快路径：用 TreeWalker 逐文本节点累加，**不**把整本书拼成一个字符串。
+ *  旧实现 `range.cloneRange().selectNodeContents(root).toString()` 在几 MB 正文下
+ *  每次选区变化要 30-100ms（大 TXT 拖选直接卡顿，review F-01）。
+ *  起点落在元素边界（不是文本节点）时仍走旧实现兜底 —— 那种情况少见且要在
+ *  子节点之间插眼，逐节点累加容易数错。 */
 export function codepointsBefore(root: Node, range: Range): number {
   try {
+    const startContainer = range.startContainer
+    const doc = root.ownerDocument ?? (root as Document)
+    if (startContainer.nodeType === Node.TEXT_NODE && root.contains(startContainer)) {
+      const walker = doc.createTreeWalker(root, NodeFilter.SHOW_TEXT)
+      let count = 0
+      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+        const data = (node as Text).data || ''
+        if (node === startContainer) return count + countCodepoints(data.slice(0, range.startOffset))
+        if (data) count += countCodepoints(data)
+      }
+    }
     const before = range.cloneRange()
     before.selectNodeContents(root)
     before.setEnd(range.startContainer, range.startOffset)
@@ -256,6 +283,14 @@ export function selectionContext(raw: RawSelection): string {
   } catch {
     return ''
   }
+}
+
+/** 只取选区文本，不做 locator / rect / context 这些昂贵计算。
+ *  高频事件（selectionchange / mousemove 轮询）用它做「选区变了吗」的判定，
+ *  变了才去算完整选区（review F-01）。 */
+export function currentSelectionText(): string | null {
+  const raw = mainDocumentSelection() ?? iframeDocumentSelection()
+  return raw ? raw.text : null
 }
 
 /** 当前选区（主文档优先，其次 EPUB iframe），带 text / locator / rect / context。 */

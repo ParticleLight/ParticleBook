@@ -1,5 +1,6 @@
 #include "BridgeServer.h"
 #include "WebViewHost.h"
+#include "services/ZLibraryMirror.h"   // SEC-01/02：zlib 主机判据（与镜像过滤、证书放行同源）
 #include <mutex>
 #include <condition_variable>
 #include <thread>
@@ -9,6 +10,14 @@
 #include <filesystem>
 #include <ctime>
 #include <unordered_set>
+
+BridgeServer::~BridgeServer()
+{
+    // B-09：先让令牌失效，再让成员销毁 —— 排队中的投递 lambda 看到 false 就直接返回，
+    // 不会去解引用已经析构的 this（App::Shutdown 的顺序是 StopDispatcher → reset bridge，
+    // 队列里仍可能压着未执行的 EmitEvent/SendResponse 回调）。
+    if (m_alive) m_alive->store(false, std::memory_order_release);
+}
 
 void BridgeServer::RegisterMethod(const std::string& name, MethodHandler handler)
 {
@@ -29,13 +38,14 @@ namespace {
     // checks, any such page could call privileged methods (file:read, db:*,
     // app:downloadUpdate + quitAndInstall → arbitrary code execution).
     //
-    // Z-Library mirror URLs drift dynamically (they redirect to unlabeled transit
-    // domains), so we must NOT lock navigation or certificates to a domain list.
-    // Instead we only gate the *message layer*: external pages get a small
-    // allowlist of toolbar methods (back/forward/reload/switch mirror), which is
-    // all the injected floating toolbar needs. Downloads & auto-import never use
-    // this layer (they run via WebView2 download events + C++-side InvokeMethod),
-    // so they are unaffected.
+    // 2026-10-29 review 之后的规则（SEC-02）：来源分三档 ——
+    //   App      应用页（虚拟主机 http://particlebook.app）；
+    //   External 其它 http(s) 页面，递归再分「host 属于 Z-Library 域名族」与否
+    //            （pb::zlib::IsTrustedHost，与镜像过滤/证书放行同一份判据）；
+    //   Unknown  blob:/data:/about:/file:（EPUB iframe 等）→ 一律拒绝。
+    // 只有 App 与「可信 External」能调用工具栏白名单方法、以及 raw 消息
+    // （zlibNavigate/Close/Logout/SwitchTo）。下载与自动导入不走这一层
+    // （WebView2 下载事件 + C++ 侧 InvokeMethod），不受影响。
     enum class MsgOrigin { App, External, Unknown };
 
     MsgOrigin ClassifyOrigin(const std::string& source) {
@@ -69,6 +79,68 @@ namespace {
     bool IsAllowedForExternal(const std::string& method) {
         return ExternalAllowedMethods().count(method) > 0;
     }
+
+    // ── SEC-02 / SEC-03 共用的「文档是否可信」判据 ─────────────────────
+    // 只有两种文档可信：应用页（虚拟主机）与 Z-Library 域名族（镜像/中转页）。
+    bool IsTrustedZlibSource(const std::string& source) {
+        return pb::zlib::IsTrustedHost(pb::zlib::HostFromUrl(source));
+    }
+
+    // 只带本地信息、或只对应用有意义的事件：外部页面（镜像/任意站点）都不该收到。
+    const std::unordered_set<std::string>& AppOnlyEvents() {
+        static const std::unordered_set<std::string> s = {
+            "app:openFiles",              // 本地绝对路径列表
+            "app:updateChecked",
+            "app:updateDownloaded",       // 安装包落地路径
+            "app:updateError",
+            "app:downloadProgress",
+            "book:importProgress",        // 导入进度 / 文件名
+            "bookSource:downloadProgress",
+        };
+        return s;
+    }
+
+    bool IsAppOnlyEvent(const std::string& event) {
+        return AppOnlyEvents().count(event) > 0;
+    }
+
+    // 投给外部页面时把「本地路径」字段剥掉（例：zlib:downloadComplete 的 path）。
+    // 注入的下载卡片只用 fileName，剥掉 path 不影响它的显示。
+    void StripLocalPathFields(json& value) {
+        static const char* const kLocalPathKeys[] = {
+            "path", "filePath", "file_path", "dir", "directory", "folder",
+            "sourcePath", "downloadPath",
+        };
+        if (value.is_object()) {
+            for (const char* key : kLocalPathKeys) value.erase(key);
+            for (auto it = value.begin(); it != value.end(); ++it) StripLocalPathFields(it.value());
+        } else if (value.is_array()) {
+            for (auto& element : value) StripLocalPathFields(element);
+        }
+    }
+
+    // 应用页 URI 判定（宽字符，事件投递时不必再转 UTF-8）。口径与 ClassifyOrigin 一致。
+    bool IsAppDocumentUri(const std::wstring& uri) {
+        static const wchar_t kPrefix[] = L"http://particlebook.app";
+        const std::size_t prefixLen = (sizeof(kPrefix) / sizeof(kPrefix[0])) - 1;
+        if (uri.size() < prefixLen) return false;
+        if (uri.compare(0, prefixLen, kPrefix) != 0) return false;
+        return uri.size() == prefixLen || uri[prefixLen] == L'/';
+    }
+
+    // 主 WebView 当前顶层文档 URI（必须在 UI 线程调用）；取不到返回空串。
+    std::wstring CurrentDocumentUri(WebViewHost* host) {
+        if (!host) return std::wstring();
+        ICoreWebView2* webview = host->GetWebView();
+        if (!webview) return std::wstring();
+        LPWSTR raw = nullptr;
+        std::wstring uri;
+        if (SUCCEEDED(webview->get_Source(&raw)) && raw) {
+            uri.assign(raw);
+            CoTaskMemFree(raw);
+        }
+        return uri;
+    }
 }
 
 void BridgeServer::HandleMessage(const std::string& rawJson, const std::string& source)
@@ -77,16 +149,30 @@ void BridgeServer::HandleMessage(const std::string& rawJson, const std::string& 
         auto msg = json::parse(rawJson);
         std::string type = msg.value("type", "");
         MsgOrigin origin = ClassifyOrigin(source);
+        // SEC-02：能操作 Z-Library 会话的文档只有两种 —— 应用页，或 host 命中
+        // Z-Library 域名族的页面。旧行为只挡 Unknown，于是任何被加载的 http(s)
+        // 页面（镜像里的第三方 iframe、被劫持的跳转页）都能 zlibSwitchTo / zlibLogout。
+        const bool appOrigin = (origin == MsgOrigin::App);
+        const bool zlibOrigin = (origin == MsgOrigin::External) && IsTrustedZlibSource(source);
+        const bool mayControlZlib = appOrigin || zlibOrigin;
 
         if (type == "invoke") {
             int id = msg.value("id", 0);
             std::string method = msg.value("method", "");
             json params = msg.value("params", json::object());
 
-            // Unknown-scheme sources (untrusted iframes) get nothing.
-            if (origin == MsgOrigin::Unknown) return;
-            // External pages may only call the toolbar allowlist.
-            if (origin == MsgOrigin::External && !IsAllowedForExternal(method)) return;
+            // Unknown-scheme sources (untrusted iframes) get nothing —— 但要回一个
+            // 错误包：静默丢弃会让注入脚本的 invoke() promise 永久挂起（渲染层每次
+            // 被拒都留一条永不回收的 pending 记录），"被拒"与"方法不存在"也无法区分。
+            if (origin == MsgOrigin::Unknown) {
+                SendResponse(id, json(nullptr), "forbidden_origin");
+                return;
+            }
+            // 外部页面只能调工具栏白名单，且其 host 必须属于 Z-Library 域名族。
+            if (origin == MsgOrigin::External && !(zlibOrigin && IsAllowedForExternal(method))) {
+                SendResponse(id, json(nullptr), "forbidden_origin");
+                return;
+            }
 
             ProcessInvoke(id, method, params);
         } else if (type == "reload") {
@@ -96,7 +182,7 @@ void BridgeServer::HandleMessage(const std::string& rawJson, const std::string& 
                 m_webview->GetWebView()->ExecuteScript(L"location.reload()", nullptr);
             }
         } else if (type == "zlibNavigate") {
-            if (origin == MsgOrigin::Unknown) return;
+            if (!mayControlZlib) return;   // SEC-02
             std::string action = msg.value("action", "");
             if (action == "back" && m_webview && m_webview->GetWebView()) {
                 BOOL can = FALSE; m_webview->GetWebView()->get_CanGoBack(&can);
@@ -108,19 +194,19 @@ void BridgeServer::HandleMessage(const std::string& rawJson, const std::string& 
                 m_webview->GetWebView()->Reload();
             }
         } else if (type == "zlibClose") {
-            if (origin == MsgOrigin::Unknown) return;
+            if (!mayControlZlib) return;   // SEC-02
             auto it = m_methods.find("zlib:hide");
             if (it != m_methods.end()) {
                 try { it->second(json::object()); } catch (...) {}
             }
         } else if (type == "zlibLogout") {
-            if (origin == MsgOrigin::Unknown) return;
+            if (!mayControlZlib) return;   // SEC-02
             auto it = m_methods.find("zlib:logout");
             if (it != m_methods.end()) {
                 try { it->second(json::object()); } catch (...) {}
             }
         } else if (type == "zlibSwitchTo") {
-            if (origin == MsgOrigin::Unknown) return;
+            if (!mayControlZlib) return;   // SEC-02
             auto it = m_methods.find("zlib:switchMirror");
             if (it != m_methods.end()) {
                 int idx = msg.value("index", 0);
@@ -144,14 +230,31 @@ void BridgeServer::EmitEvent(const std::string& event, const json& data)
 {
     if (!m_webview) return;
 
-    json msg = {
-        {"type", "event"},
-        {"event", event},
-        {"data", data}
-    };
-    const std::string payload = msg.dump();
-    m_webview->PostToUiThread([this, payload]() {
-        if (m_webview) m_webview->PostMessageToRenderer(payload);
+    // SEC-03：事件不再无条件投给「当前文档」。Z-Library 会话期间当前文档是外部
+    // 镜像页，旧实现会把 app:openFiles（本地绝对路径）、zlib:downloadComplete 的
+    // 落地 path 一起送给它。现在：
+    //   * AppOnlyEvents → 只投应用页；
+    //   * 其余（注入的下载卡片要用的 zlib:* 等）→ 外部页面也投，但剥掉本地路径字段。
+    // "当前文档是不是应用页"只能读主 WebView 的 Source，必须在 UI 线程问，
+    // 所以判断放进 PostToUiThread 的 lambda 里（不再预先 dump 成字符串）。
+    // B-09：lambda 里不要裸用 this —— 捕获活体令牌 + 当下的 host 指针，令牌失效即丢弃。
+    const std::shared_ptr<std::atomic<bool>> alive = m_alive;
+    WebViewHost* const host = m_webview;
+    if (!alive) return;
+    host->PostToUiThread([alive, host, event, data]() {
+        if (!alive->load(std::memory_order_acquire) || host == nullptr) return;
+        const std::wstring uri = CurrentDocumentUri(host);
+        // 读不到 URI（WebView 已销毁/尚未创建）时保持旧行为，避免启动早期丢事件。
+        const bool appDocument = uri.empty() || IsAppDocumentUri(uri);
+        if (!appDocument && IsAppOnlyEvent(event)) return;
+        json payload = data;
+        if (!appDocument) StripLocalPathFields(payload);
+        json msg = {
+            {"type", "event"},
+            {"event", event},
+            {"data", payload}
+        };
+        host->PostMessageToRenderer(msg.dump());
     });
 }
 
@@ -213,8 +316,16 @@ void BridgeServer::ProcessInvoke(int id, const std::string& method, const json& 
 
     auto asyncIt = m_asyncMethods.find(method);
     if (asyncIt != m_asyncMethods.end()) {
-        auto respond = [this, id](json result) { SendResponse(id, result, ""); };
-        auto reject  = [this, id](std::string error) { SendResponse(id, json(nullptr), error); };
+        // B-09：异步 handler 的 respond/reject 可能在被 JobService 延迟调用时对象已经析构
+        const std::shared_ptr<std::atomic<bool>> alive = m_alive;
+        auto respond = [this, alive, id](json result) {
+            if (!alive || !alive->load(std::memory_order_acquire)) return;
+            SendResponse(id, result, "");
+        };
+        auto reject = [this, alive, id](std::string error) {
+            if (!alive || !alive->load(std::memory_order_acquire)) return;
+            SendResponse(id, json(nullptr), error);
+        };
         try { asyncIt->second(params, respond, reject); }
         catch (const std::exception& e) { reject(e.what()); }
         catch (...) { reject("unknown error"); }
@@ -249,8 +360,13 @@ void BridgeServer::SendResponse(int id, const json& result, const std::string& e
     if (error.empty()) response["result"] = result;
     else response["error"] = error;
     const std::string payload = response.dump();
-    m_webview->PostToUiThread([this, payload]() {
-        if (m_webview) m_webview->PostMessageToRenderer(payload);
+    // B-09：同 EmitEvent —— 令牌 + host 快照，令牌失效就不投递。
+    const std::shared_ptr<std::atomic<bool>> alive = m_alive;
+    WebViewHost* const host = m_webview;
+    if (!alive) return;
+    host->PostToUiThread([alive, host, payload]() {
+        if (!alive->load(std::memory_order_acquire) || host == nullptr) return;
+        host->PostMessageToRenderer(payload);
     });
 }
 

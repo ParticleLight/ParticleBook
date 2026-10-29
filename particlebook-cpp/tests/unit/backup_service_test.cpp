@@ -15,14 +15,16 @@
 //   * 入口参数：库文件不存在 / 空文件 / 非 JSON 对象 / 空路径
 //   * 文件名工具：DefaultBackupFileName / PreRestoreNameFor / NowUtcIso8601
 //   * SHA-256 已知向量（BCrypt 实现正确性）
-//   * PB-011-B：封面随包（covers[] + 每张 sha256）、恢复到原路径 / 回落到
-//     coverDir 并回填 books[].cover_path、旧 v1 包（无 covers）兼容、封面缺失 /
+//   * PB-011-B：封面随包（covers[] + 每张 sha256）、默认只落 coverDir 并回填
+//     books[].cover_path（写回原路径需显式开启，且路径必须在应用数据目录内，
+//     目录外一律拒绝并记 cover_path_not_allowed）、旧 v1 包（无 covers）兼容、封面缺失 /
 //     校验不符只记 issue、zip 内路径穿越整包拒绝、进度回调、取消、
 //     includeCovers / restoreCovers 开关
 //
 // 每个用例用自己的临时目录，绝不碰真实的 %APPDATA% 数据库。
 
 #include "services/BackupService.h"
+#include "utils/ZipReader.h"
 #include "utils/test_assert.h"
 
 #include <cstdint>
@@ -681,7 +683,8 @@ int main()
                        "particlebook-backup-") == 0);
     }
 
-    // ── 15. 带封面创建 / 恢复（原路径可写，数据库逐字节不变）──────────
+    // ── 15. 带封面创建 / 恢复（默认不写回原路径；显式开启且路径在数据目录内
+    //        才写回；目录外一律拒绝）────────────────────────────────
     {
         const fs::path dir = MakeScratch("covers-basic");
         const fs::path bookDir = dir / "book";
@@ -730,6 +733,9 @@ int main()
         fs::remove(coverPath, makeError);
         WriteText(dbPath, MakeDatabase(2, 3));
 
+        // (a) 默认 RestoreOptions：restoreCoversToOriginalPath = false。
+        //     备份包本身能决定「往哪个绝对路径写文件」，所以默认只落到 coverDir；
+        //     原路径不该被写，books[].cover_path 回填成新位置。
         std::vector<std::string> restoreStages;
         const pb::RestoreResult restored = BackupService::RestoreBackup(
             U8(zipPath), U8(dbPath), RestoreOptions(),
@@ -738,14 +744,78 @@ int main()
             });
         CHECK_TRUE(restored.ok);
         CHECK_EQ(restored.coversRestored, 1);
-        CHECK_EQ(restored.coversRelocated, 0);
+        CHECK_EQ(restored.coversRelocated, 1);
         CHECK_TRUE(restored.issues.empty());
         CHECK_TRUE(SeenStage(restoreStages, "restoring_covers"));
         CHECK_TRUE(SeenStage(restoreStages, "done"));
-        CHECK_EQ(ReadText(dbPath), dbText);  // 原路径可写 → 回填 0 处，逐字节一致
+        CHECK_TRUE(!fs::exists(coverPath));            // 原路径一个字节都没写
+        CHECK_TRUE(!restored.preRestoreBackupPath.empty());
+        {
+            const nlohmann::json restoredDb =
+                nlohmann::json::parse(ReadText(dbPath), nullptr, false);
+            CHECK_TRUE(!restoredDb.is_discarded());
+            CHECK_TRUE(restoredDb["books"].is_array());
+            if (restoredDb["books"].is_array() && !restoredDb["books"].empty()) {
+                const std::string movedPath =
+                    restoredDb["books"][0].value("cover_path", std::string());
+                CHECK_TRUE(movedPath.rfind(U8(dir / "covers"), 0) == 0);
+                CHECK_EQ(ReadText(fs::path(movedPath)), coverBytes);
+            }
+        }
+
+        // (b) 显式打开「写回原路径」，且目标就在应用数据目录内（数据库同级目录）
+        //     → 按原路径写回，数据库逐字节不变（老行为，现在是 opt-in）。
+        RestoreOptions inPlace;
+        inPlace.restoreCoversToOriginalPath = true;
+        const pb::RestoreResult restoredInPlace =
+            BackupService::RestoreBackup(U8(zipPath), U8(dbPath), inPlace);
+        CHECK_TRUE(restoredInPlace.ok);
+        CHECK_EQ(restoredInPlace.coversRestored, 1);
+        CHECK_EQ(restoredInPlace.coversRelocated, 0);
+        CHECK_TRUE(restoredInPlace.issues.empty());
+        CHECK_EQ(ReadText(dbPath), dbText);            // 没搬动 → 逐字节一致
         CHECK_TRUE(fs::exists(coverPath));
         CHECK_EQ(ReadText(coverPath), coverBytes);
-        CHECK_TRUE(!restored.preRestoreBackupPath.empty());
+
+        // (c) 显式打开但清单里的 sourcePath 在应用数据目录之外（伪造备份的典型
+        //     手法：往 Startup 之类的地方丢文件）→ 拒绝写、记 issue、回落 coverDir。
+        {
+            const std::string escapePayload = MakeDatabase(2, 1);
+            const std::string evilBytes = "outside-cover-bytes";
+            const fs::path outsideDir = fs::temp_directory_path() / "pb_backup_escape";
+            const fs::path outsideCover = outsideDir / "evil.png";
+            std::error_code cleanupEc;
+            fs::remove_all(outsideDir, cleanupEc);
+            std::error_code mkdirEc;
+            fs::create_directories(outsideDir, mkdirEc);
+
+            nlohmann::json manifest = MakeCraftedManifest(escapePayload, 2).ToJson();
+            nlohmann::json cover;
+            cover["entry"] = "covers/evil.png";
+            cover["sourcePath"] = U8(outsideCover);
+            cover["sha256"] = BackupService::Sha256Hex(evilBytes);
+            cover["bytes"] = evilBytes.size();
+            manifest["covers"] = nlohmann::json::array({cover});
+
+            const fs::path escapeZip = dir / "escape.zip";
+            WriteText(escapeZip, BuildStoredZip({{"manifest.json", manifest.dump(2)},
+                                                 {"reader.json", escapePayload},
+                                                 {"covers/evil.png", evilBytes}}));
+            const fs::path escapeDb = dir / "escape-reader.json";
+            WriteText(escapeDb, R"({"schema_version":2,"books":[]})");
+
+            RestoreOptions escapeOptions;
+            escapeOptions.restoreCoversToOriginalPath = true;
+            const pb::RestoreResult escaped =
+                BackupService::RestoreBackup(U8(escapeZip), U8(escapeDb), escapeOptions);
+            CHECK_TRUE(escaped.ok);                     // 恢复本身成功
+            CHECK_EQ(escaped.coversRestored, 1);        // 封面仍恢复（落到 coverDir）
+            CHECK_EQ(escaped.coversRelocated, 1);
+            CHECK_TRUE(ContainsIssue(escaped.issues, "cover_path_not_allowed"));
+            CHECK_TRUE(!fs::exists(outsideCover));      // 目录外路径没被写
+            CHECK_EQ(ReadText(escapeDb), escapePayload);
+            fs::remove_all(outsideDir, cleanupEc);
+        }
     }
 
     // ── 16. 原路径不可写 → 落到 coverDir 并回填 books[].cover_path ─────
@@ -1000,6 +1070,37 @@ int main()
         CHECK_EQ(restored.coversRestored, 0);
         CHECK_TRUE(!fs::exists(coverPath));
         CHECK_EQ(ReadText(dbPath), dbText);
+    }
+
+    // ── 23. 畸形 zip：中央目录被截断 → ReadZipEntry 安全失败，不越界读 ──
+    // B-01 回归：旧实现遍历中央目录时只判 pos < cdBuf.size()，随后把
+    // cdBuf.data() + pos 当 46 字节结构体读、并按 nameLen 从越界地址构造
+    // std::string。这里把 EOCD 的 centralDirSize 改小到「第一条记录 + 10 字节」，
+    // 第二条记录只剩半截 —— 遍历必须在读结构体之前就退出。
+    {
+        const fs::path dir = MakeScratch("zip-corrupt-cd");
+        std::string zip = BuildStoredZip({{"aaaa.txt", "x"}, {"target.txt", "yy"}});
+        // EOCD 是文件末尾 22 字节，centralDirSize 位于其中偏移 12。
+        const std::size_t eocdOffset = zip.size() - 22;
+        const std::uint32_t firstRecordBytes = 46 + 8;   // 定长结构体 + "aaaa.txt"
+        const std::uint32_t fakeCentralSize = firstRecordBytes + 10;
+        for (std::size_t i = 0; i < 4; ++i) {
+            zip[eocdOffset + 12 + i] =
+                static_cast<char>((fakeCentralSize >> (8 * i)) & 0xFF);
+        }
+        const fs::path zipPath = dir / "corrupt.zip";
+        WriteText(zipPath, zip);
+
+        std::string output = "sentinel";
+        CHECK_TRUE(!ReadZipEntry(U8(zipPath), "target.txt", output));
+        CHECK_EQ(output, std::string("sentinel"));   // 失败时不改动出参
+
+        // 正常包仍然能读出来（避免把边界修成「一律失败」）。
+        const fs::path goodZip = dir / "good.zip";
+        WriteText(goodZip, BuildStoredZip({{"aaaa.txt", "x"}, {"target.txt", "yy"}}));
+        std::string good;
+        CHECK_TRUE(ReadZipEntry(U8(goodZip), "target.txt", good));
+        CHECK_EQ(good, std::string("yy"));
     }
 
     std::error_code ec;

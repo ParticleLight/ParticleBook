@@ -12,10 +12,20 @@
   --bg-secondary: #242424;
   --bg-tertiary: #2e2e2e;
 
-  /* === 文字 === */
+  /* === 文字 ===
+     次级 / 三级文字按 WCAG AA（4.5:1，12px 正文也不豁免）标定。基准面取各主题
+     最不利的一档 surface-container-highest（暗 #333333 / 亮 #e2e2e2 / 护眼
+     #352c22），用相对亮度公式实算（非像素采样）：
+       暗   secondary α=0.74 → 6.44:1    tertiary α=0.64 → 5.25:1
+       亮   secondary α=0.74 → 6.42:1    tertiary α=0.66 → 5.01:1
+       护眼 secondary α=0.80 → 5.72:1    tertiary α=0.70 → 4.73:1
+     （同一 token 在更暗的表面更高：暗色 secondary 8.21:1 on #1a1a1a / 7.57:1 on
+     #242424，tertiary 6.50:1 / 6.01:1。）
+     改前 tertiary 只有 2.99 / 2.28 / 2.43:1，组件再叠 opacity-40 后更低。
+     → 需要更弱的次要文字直接用 --text-tertiary，不要再叠 opacity-*。 */
   --text-primary: #e8e8e8;
-  --text-secondary: rgba(232, 232, 232, 0.65);
-  --text-tertiary: rgba(232, 232, 232, 0.40);
+  --text-secondary: rgba(232, 232, 232, 0.74);
+  --text-tertiary: rgba(232, 232, 232, 0.64);
 
   /* === 强调色 (Win11 blue) === */
   --accent: #60cdff;
@@ -100,8 +110,8 @@
   --bg-secondary: #f7f7f7;
   --bg-tertiary: #eaeaea;
   --text-primary: #1a1a1a;
-  --text-secondary: rgba(26, 26, 26, 0.60);
-  --text-tertiary: rgba(26, 26, 26, 0.38);
+  --text-secondary: rgba(26, 26, 26, 0.74);   /* AA：7.34:1 on #fff / 6.42:1 on #e2e2e2 */
+  --text-tertiary: rgba(26, 26, 26, 0.66);    /* AA：5.57:1 on #fff / 5.01:1 on #e2e2e2 */
   --accent: #4f46e5;
   --accent-hover: #6366f1;
   --accent-text: #ffffff;
@@ -165,11 +175,14 @@
   --bg-secondary: #231e18;
   --bg-tertiary: #2d261e;
   --text-primary: #d4c4a8;
-  --text-secondary: rgba(212, 196, 168, 0.60);
-  --text-tertiary: rgba(212, 196, 168, 0.38);
+  --text-secondary: rgba(212, 196, 168, 0.80);  /* AA：6.68:1 on #231e18 / 5.72:1 on #352c22 */
+  --text-tertiary: rgba(212, 196, 168, 0.70);   /* AA：5.42:1 on #231e18 / 4.73:1 on #352c22 */
   --accent: #b8860b;
   --accent-hover: #d4a574;
-  --accent-text: #ffffff;
+  /* 金色 #b8860b 上白字只有 3.25:1（AA 需 4.5:1）→ 改暖黑 #1a1510，实算 5.57:1。
+     填充按钮 / 段控选中 / 徽章文字都走 --accent-text，三主题现已全部 ≥4.5:1
+     （暗 10.80:1、亮 6.29:1、护眼 5.57:1）。 */
+  --accent-text: #1a1510;
   --surface: rgba(212, 196, 168, 0.04);
   --surface-hover: rgba(212, 196, 168, 0.08);
   --surface-active: rgba(212, 196, 168, 0.06);
@@ -859,16 +872,6 @@ input[type="range"]::-webkit-slider-thumb:active {
   to { opacity: 1; transform: none; }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .pb-popover,
-  .pb-switch,
-  .pb-switch::after {
-    animation: none;
-    transition: none;
-  }
-}
-
-
 /* ═══════════════════════════════════════════════════════════════
    Material Design 3 semantic layer (2026-10-27)
    Token hierarchy: reference/system roles → component tokens.
@@ -1331,13 +1334,6 @@ textarea.m3-text-field.is-dense {
   font: var(--md-sys-typescale-label-medium);
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .m3-text-field, .m3-select.is-field, .pb-switch, .pb-switch::after,
-  .pb-list-item {
-    transition: none;
-  }
-}
-
 /* ── Search ── */
 .m3-search {
   min-height: 48px;
@@ -1412,24 +1408,44 @@ textarea.m3-text-field.is-dense {
 .m3-menu-item.is-destructive { color: var(--md-sys-color-error); }
 .m3-menu-item.is-destructive:hover { background: var(--md-sys-color-error-container); }
 .m3-divider { height: 1px; background: var(--md-sys-color-outline-variant); border: 0; }
+/* 徽章全仓只有这一处定义（2026-10-29 U10：原先本处一份柔色、文件后段另一处
+   实底，同特异性下后者静默覆盖前者）。视觉按"压在书封 / 列表行上的状态徽章"取
+   实底 primary —— primary-container 在封面图上看不清；可读性改由 --accent-text
+   保证（护眼主题已改深色，见 .sepia）。需要落在卡片表面上的柔色 chip 时用
+   background: var(--md-sys-color-primary-container)，不要再新定义 .m3-badge。 */
 .m3-badge {
   display: inline-flex;
   align-items: center;
   min-height: 20px;
   padding: 0 8px;
   border-radius: var(--md-sys-shape-full);
-  background: var(--md-sys-color-primary-container);
-  color: var(--md-sys-color-on-primary-container);
+  background: var(--md-sys-color-primary);
+  color: var(--md-sys-color-on-primary);
   font: var(--md-sys-typescale-label-small);
+  font-weight: 600;
+  box-shadow: var(--md-sys-elevation-1);
 }
 
 /* ── Feedback & overlays ── */
 .m3-linear-progress { height: 4px; border-radius: var(--md-sys-shape-full); background: var(--md-sys-color-surface-container-highest); overflow: hidden; }
 .m3-linear-progress > span { display: block; height: 100%; border-radius: inherit; background: var(--md-sys-color-primary); transition: width var(--md-sys-motion-medium); }
+/* 遮罩浓度只有这一个 token：暗 0.55 / 亮 0.35 / 护眼 0.55（见三个主题块），
+   .pb-dialog-backdrop 与 .m3-dialog-backdrop 共用。弹层里不要再写死
+   bg-black/40 之类（2026-10-29 U14：SettingsPanel / ReaderView 四处硬编码）。 */
 .m3-dialog-backdrop { background: var(--ui-backdrop); }
-.m3-dialog {
+/* 几何尺寸降到 :where()（特异性 0）：@tailwind utilities 在本文件顶部，同特异性
+   下后写的规则会盖掉调用点传进来的工具类（2026-10-29 U1：书源 900 / 搜索 760 /
+   更新日志 620 / 书库 500 / 新建书柜 320 全部被压成 560）。
+   降为 0 之后：调用点写了宽度就用调用点的，没写才落 560px 默认值；
+   PdfRenderer 的 !w-[420px] 仍是 !important，语义不变。
+   max-width:92vw 只是给"只写 w-[900px]、没写 max-w-*"的调用点在窄窗口兜底，
+   调用点自己的 max-w-* 工具类照样优先。 */
+:where(.m3-dialog) {
   width: min(560px, 92vw);
+  max-width: 92vw;
   max-height: 86vh;
+}
+.m3-dialog {
   border-radius: var(--md-sys-shape-xl);
   background: var(--md-sys-color-surface-container-high);
   color: var(--md-sys-color-on-surface);
@@ -1481,13 +1497,6 @@ textarea.m3-text-field.is-dense {
   outline: 2px solid var(--md-sys-state-focus-ring);
   outline-offset: 2px;
 }
-@media (prefers-reduced-motion: reduce) {
-  .m3-icon-button, .m3-filled-button, .m3-tonal-button, .m3-outlined-button,
-  .m3-text-button, .m3-nav-item, .m3-card, .m3-filter-chip, .m3-segmented-btn {
-    transition: none;
-  }
-}
-
 /* ── Existing class compatibility: map Fluent helpers to M3 semantics ── */
 .btn-primary {
   min-height: 40px;
@@ -1647,21 +1656,8 @@ input[type="range"]::-webkit-slider-thumb {
 @media (max-width: 1080px) {
   .library-top-bar .m3-select { display: none; }
 }
-/* Format badge needs solid on-primary contrast over covers */
-.m3-badge {
-  background: var(--md-sys-color-primary);
-  color: var(--md-sys-color-on-primary);
-  font-weight: 600;
-  box-shadow: var(--md-sys-elevation-1);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .animate-fade-in, .animate-scale-in, .animate-slide-in, .animate-slide-in-right,
-  .animate-fade-out, .animate-scale-out, .animate-slide-out, .animate-slide-out-right {
-    animation: none !important;
-  }
-  .m3-reader-toolbar, .m3-dialog, .m3-menu, .m3-card { transition: none !important; }
-}
+/* 说明：这里的 .m3-badge 实底覆盖已并入上方 Feedback & overlays 处的唯一
+   定义（2026-10-29 U10 去重），不要在这里重新定义。 */
 
 /* ── M3Select（task-5）：原生 select 的 M3 替身 ──────────────────────
    触发器沿用 .m3-select / .m3-select.is-field 的边框、圆角、字阶与右侧双渐变
@@ -1767,9 +1763,6 @@ input[type="range"]::-webkit-slider-thumb {
   from { opacity: 0; transform: translateY(-4px); }
   to { opacity: 1; transform: none; }
 }
-@media (prefers-reduced-motion: reduce) {
-  .m3-select-menu { animation: none; }
-}
 
 /* ── 统计页热力图（2026-10-28）────────────────────────────────────
    5 档格子：0 = 无记录（surface-container-highest），1–4 由浅到深。
@@ -1784,4 +1777,26 @@ input[type="range"]::-webkit-slider-thumb {
 .m3-heatmap-cell[data-level="2"] { background: color-mix(in srgb, var(--md-sys-color-primary) 42%, var(--md-sys-color-surface-container-high)); }
 .m3-heatmap-cell[data-level="3"] { background: color-mix(in srgb, var(--md-sys-color-primary) 66%, var(--md-sys-color-surface-container-high)); }
 .m3-heatmap-cell[data-level="4"] { background: var(--md-sys-color-primary); }
+/* ===============================================================
+   减少动效 / prefers-reduced-motion（2026-10-29 U13）
+   ===============================================================
+   全仓唯一一处兜底，放在文件最末：`*` + !important 一次性覆盖
+     (1) 所有组件类的 animation / transition；
+     (2) 组件内联 style 的 transition（内联声明不是 !important，会被这里压掉）——
+         ChangelogPanel / SettingsPanel / ReaderView 的 transition:'opacity 0.2s'
+         与 .m3-linear-progress 的宽度动画原先都漏在覆盖之外；
+     (3) ::before / ::after 伪元素。
+   原先散在 5 处、按类名逐个关的小块（.pb-popover / .pb-switch / .m3-text-field /
+   .m3-select.is-field / .pb-list-item / m3 按钮族 / .animate-* / .m3-dialog 表面 /
+   .m3-select-menu）已全部合并到这里，语义不变、覆盖面更全。
+   关闭动画不会卡住收场逻辑：弹层卸载由 useAnimatedMount 的定时器驱动，全仓没有
+   animationend / transitionend 监听。 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}
 

@@ -1,5 +1,6 @@
 #include "BookSourceService.h"
 #include "utils/encoding.h"
+#include "utils/fnv1a.h"
 #include "services/DatabaseService.h"
 #include "BridgeServer.h"
 #include "App.h"
@@ -10,6 +11,7 @@
 #include <winhttp.h>
 #include <algorithm>
 #include <cctype>
+#include <chrono>
 #include <sstream>
 #include <filesystem>
 #include <memory>
@@ -155,41 +157,86 @@ int BookSourceService::DownloadBook(int sourceId, const std::string& bookUrl,
 
     if (chapters.empty()) return fail("no_chapters", 0, 0);
 
-    // Download chapters with progress
-    int totalChapters = static_cast<int>(chapters.size());
-    std::vector<std::string> chapterContents(totalChapters);
-    std::atomic<int> completed{0};
-    std::atomic<bool> cancelled{false};
+    // ── 章节并发下载 ───────────────────────────────────────────────────
+    // 共享状态放堆上（shared_ptr）：下载有总超时，超时后本函数会提前返回，而后台
+    // 任务可能还在跑 —— 若继续用「栈上变量 + 引用捕获」，那些任务就会写进已销毁的
+    // 栈帧（UAF）。contents/names 按下标写，互不重叠。
+    struct ChapterFetchState {
+        std::mutex mutex;
+        std::condition_variable cv;
+        std::vector<std::string> contents;
+        std::vector<std::string> names;
+        int completed = 0;
+        bool cancelled = false;
+    };
+    const int totalChapters = static_cast<int>(chapters.size());
+    auto state = std::make_shared<ChapterFetchState>();
+    state->contents.resize(static_cast<size_t>(totalChapters));
+    state->names.resize(static_cast<size_t>(totalChapters));
 
-    auto downloadChapter = [&](int idx, const std::string& url) {
-        if (cancelled) return;
-        std::string chHtml = FetchUrl(url);
-        auto contentRule = source.value("ruleContent", json::object());
-        std::string contentSelector = contentRule.value("content", "body");
-        chapterContents[idx] = ExtractText(chHtml, contentSelector);
+    // 规则只取一次（原来每个章节都从 json 里重取一遍 ruleContent）。
+    const std::string contentSelector =
+        source.value("ruleContent", json::object()).value("content", "body");
 
-        int done = ++completed;
+    const auto fetchChapter = [this, state, contentSelector, totalChapters](
+                                  int idx, const std::string& url) {
+        {
+            std::lock_guard<std::mutex> lock(state->mutex);
+            if (state->cancelled) return;
+        }
+        const std::string chapterHtml = FetchUrl(url);
+        const std::string chapterText = ExtractText(chapterHtml, contentSelector);
+
+        int done = 0;
+        std::string chapterName;
+        {
+            std::lock_guard<std::mutex> lock(state->mutex);
+            if (state->cancelled) return;
+            state->contents[static_cast<size_t>(idx)] = chapterText;
+            done = ++state->completed;
+            chapterName = state->names[static_cast<size_t>(idx)];
+        }
+        state->cv.notify_all();
+
         json progress;
         progress["status"] = "downloading";
         progress["current"] = done;
         progress["total"] = totalChapters;
-        progress["chapterName"] = chapters[idx].value("name", "Unknown");
+        progress["chapterName"] = chapterName.empty() ? std::string("Unknown") : chapterName;
         m_bridge->EmitEvent("bookSource:downloadProgress", progress);
     };
 
     // Submit download jobs to thread pool
     for (int i = 0; i < totalChapters; i++) {
-        std::string url = chapters[i].value("url", "");
+        const std::string url = chapters[i].value("url", "");
+        state->names[static_cast<size_t>(i)] = chapters[i].value("name", "Unknown");
         {
             std::lock_guard<std::mutex> lock(m_jobMutex);
-            m_jobs.push({[i, url, downloadChapter]() { downloadChapter(i, url); }});
+            m_jobs.push({[fetchChapter, i, url]() { fetchChapter(i, url); }});
         }
         m_jobCV.notify_one();
     }
 
-    // Wait for completion
-    while (completed < totalChapters) {
-        Sleep(100);
+    // ── 等待完成：有总超时，绝不无限忙等 ─────────────────────────────
+    // 原来 `while (completed < totalChapters) Sleep(100);`：一条章节的请求卡住
+    // （书源侧 HTTP 以前还没有超时）就永远退出不了，还会把线程池的 2~4 个 worker
+    // 全占死 —— 此后再也下载不了任何书。预算 = 30s 基础 + 每章 15s，上限 10 分钟。
+    const long long budgetMs = std::min<long long>(
+        600000, 30000 + static_cast<long long>(totalChapters) * 15000);
+    bool timedOut = false;
+    {
+        std::unique_lock<std::mutex> lock(state->mutex);
+        timedOut = !state->cv.wait_for(
+            lock, std::chrono::milliseconds(budgetMs),
+            [&state, totalChapters] { return state->completed >= totalChapters; });
+        if (timedOut) state->cancelled = true;   // 让还在跑的章节尽早退出
+    }
+    if (timedOut) {
+        pb::LogError("booksource", "download timed out after " + std::to_string(budgetMs) +
+                                       "ms (" + std::to_string(state->completed) + "/" +
+                                       std::to_string(totalChapters) + " chapters): " +
+                                       bookName);
+        return fail("network_error", state->completed, totalChapters);
     }
 
     // ── Assemble into a text file & import to the bookshelf ─────────
@@ -204,7 +251,7 @@ int BookSourceService::DownloadBook(int sourceId, const std::string& bookUrl,
             ? "Chapter " + std::to_string(i + 1)
             : "第" + std::to_string(i + 1) + "章";
         std::string name = chapters[i].value("name", fallbackName);
-        text += "# " + name + "\n\n" + chapterContents[i] + "\n\n";
+        text += "# " + name + "\n\n" + state->contents[static_cast<size_t>(i)] + "\n\n";
     }
     if (text.empty()) return fail("empty_content", totalChapters, totalChapters);
 
@@ -216,7 +263,11 @@ int BookSourceService::DownloadBook(int sourceId, const std::string& bookUrl,
         safeName += c;
     }
     if (safeName.empty()) safeName = "book";
-    safeName += ".txt";
+    // 同名不同书（不同书源/不同站点）会互相覆盖：库里 A 书的 file_path 内容
+    // 被 B 书替换（review · B-12）。文件名拼上 bookUrl 的 FNV-1a 短哈希，
+    // 与 _pb_files / docx 缓存同一套做法，保证「同源同名稳定、不同源不撞」。
+    if (safeName.size() > 100) safeName.resize(100);
+    safeName += "_" + std::to_string(pb::Fnv1a64(bookUrl.data(), bookUrl.size())) + ".txt";
 
     std::string dir = App::Instance().UserDataPath() + "/booksource";
     std::filesystem::create_directories(pb::Utf8ToWide(dir));

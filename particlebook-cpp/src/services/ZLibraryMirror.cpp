@@ -1,4 +1,5 @@
 #include "ZLibraryService.h"
+#include "ZLibraryMirror.h"   // SEC-01：候选过滤 / 证书放行 / 桥接来源共用的 host 判据
 #include "BridgeServer.h"
 #include "WebViewHost.h"
 #include "services/DatabaseService.h"
@@ -18,6 +19,7 @@
 #include <chrono>
 #include <atomic>
 #include <climits>
+#include <mutex>
 #include <fstream>
 #include <sstream>
 
@@ -60,6 +62,139 @@ static bool HostIsOrSubdomainOf(const std::string& host, const std::string& doma
     return host.compare(host.size() - domain.size() - 1, domain.size() + 1, "." + domain) == 0;
 }
 
+// ── 主机信任判据（SEC-01）────────────────────────────────────────────
+// 声明在 ZLibraryMirror.h，实现放这里：候选过滤（本文件）、证书错误放行
+// （WebViewHostWebView.cpp）、raw 桥接消息来源（BridgeServer.cpp）三处共用一份，
+// 避免任何一处被单独放宽而漂移。
+
+namespace pb {
+namespace zlib {
+
+std::string HostFromUrl(const std::string& url)
+{
+    std::string host, path;
+    bool https = false;
+    if (!SplitUrl(url, host, path, https)) return std::string();
+    host = LowerAscii(host);
+    // userinfo（https://user:pass@host/…）只取 @ 之后
+    const std::size_t at = host.rfind('@');
+    if (at != std::string::npos) host = host.substr(at + 1);
+    // IPv6 字面量（[::1]:443）原样保留 —— 它永远不该命中线路白名单
+    if (!host.empty() && host[0] == '[') {
+        const std::size_t close = host.find(']');
+        return close == std::string::npos ? host : host.substr(0, close + 1);
+    }
+    const std::size_t colon = host.rfind(':');
+    if (colon != std::string::npos) host = host.substr(0, colon);
+    return host;
+}
+
+namespace {
+
+// 已归一小写后再比
+bool LabelStartsWith(const std::string& label, const char* prefix)
+{
+    const std::size_t n = std::strlen(prefix);
+    return label.size() >= n && label.compare(0, n, prefix) == 0;
+}
+
+bool LabelContains(const std::string& label, const char* needle)
+{
+    return label.find(needle) != std::string::npos;
+}
+
+} // namespace
+
+bool IsTrustedHost(const std::string& host)
+{
+    if (host.empty()) return false;
+    std::string h = LowerAscii(host);
+    if (!h.empty() && h[0] == '[') return false;          // IPv6 不是线路
+    const std::size_t colon = h.find(':');
+    if (colon != std::string::npos) h = h.substr(0, colon);
+    if (h.empty() || h.find(' ') != std::string::npos) return false;
+
+    // 前缀命中：镜像真实用法 zh.z-lib.gd / zh.z-library.sk / zlib.re / zh.zlib0.ru / zh.1lib.sk
+    static const char* const kPrefixTokens[] = { "z-lib", "z-library", "zlibrary", "zlib", "1lib" };
+    // 包含命中：zh.singlelogin.rs / zh.101fbiwarning.ru / zh.dfj101.ru / zh.zzz101.ru
+    static const char* const kFullTokens[] = { "singlelogin", "bookfi", "fbiwarning", "dfj101", "zzz101" };
+
+    std::size_t begin = 0;
+    while (begin <= h.size()) {
+        std::size_t end = h.find('.', begin);
+        if (end == std::string::npos) end = h.size();
+        const std::string label = h.substr(begin, end - begin);
+        if (!label.empty()) {
+            for (const char* token : kPrefixTokens) if (LabelStartsWith(label, token)) return true;
+            for (const char* token : kFullTokens) if (LabelContains(label, token)) return true;
+        }
+        if (end == h.size()) break;
+        begin = end + 1;
+    }
+    return false;
+}
+
+// ── 会话级临时放行主机（只给证书错误用，理由见 ZLibraryMirror.h）─────────
+// 用 vector + 线性查表：一次会话只会有个位数到十几个 host，比 unordered_set 更省事
+// 且有天然上限保护（超上限直接不再记录，避免异常情况无限增长）。
+namespace {
+
+std::mutex& SessionHostsMutex()
+{
+    static std::mutex mutex;
+    return mutex;
+}
+
+std::vector<std::string>& SessionHosts()
+{
+    static std::vector<std::string> hosts;
+    return hosts;
+}
+
+constexpr std::size_t kMaxSessionHosts = 64;
+
+std::string NormalizeHost(const std::string& host)
+{
+    std::string h = LowerAscii(host);
+    if (!h.empty() && h[0] == '[') {
+        const std::size_t close = h.find(']');
+        return close == std::string::npos ? h : h.substr(0, close + 1);
+    }
+    const std::size_t colon = h.find(':');
+    if (colon != std::string::npos) h = h.substr(0, colon);
+    return h;
+}
+
+} // namespace
+
+void ClearSessionHosts()
+{
+    std::lock_guard<std::mutex> lk(SessionHostsMutex());
+    SessionHosts().clear();
+}
+
+void AddSessionHostFromUrl(const std::string& url)
+{
+    const std::string host = HostFromUrl(url);
+    if (host.empty()) return;
+    std::lock_guard<std::mutex> lk(SessionHostsMutex());
+    std::vector<std::string>& hosts = SessionHosts();
+    if (hosts.size() >= kMaxSessionHosts) return;
+    if (std::find(hosts.begin(), hosts.end(), host) == hosts.end()) hosts.push_back(host);
+}
+
+bool IsSessionHost(const std::string& host)
+{
+    const std::string h = NormalizeHost(host);
+    if (h.empty()) return false;
+    std::lock_guard<std::mutex> lk(SessionHostsMutex());
+    const std::vector<std::string>& hosts = SessionHosts();
+    return std::find(hosts.begin(), hosts.end(), h) != hosts.end();
+}
+
+} // namespace zlib
+} // namespace pb
+
 // 第三方域名：CDN / 统计 / 文档 / 社交。出现在导航页的 href 里很正常，但绝不是线路。
 static bool IsThirdPartyHost(const std::string& hostRaw) {
     std::string host = LowerAscii(hostRaw);
@@ -79,6 +214,21 @@ static bool IsThirdPartyHost(const std::string& hostRaw) {
     return false;
 }
 
+// 「能不能直接导航过去」的形态检查（不含 host 白名单）。
+// 只用于「后台探测已经跟到重定向尽头」的最终地址：那个地址是我们自己探出来的，
+// 不是导航页塞的，所以不套 IsTrustedHost；它的 host 会在导航前记进会话放行表
+// （pb::zlib::AddSessionHostFromUrl），证书错误才不会被误杀。
+static bool IsNavigableHttpRoot(const std::string& rawUrl) {
+    std::string u = TrimAscii(rawUrl);
+    if (u.empty()) return false;
+    if (u.find('#') != std::string::npos || u.find('?') != std::string::npos) return false;
+    std::string host, path; bool https = false;
+    if (!SplitUrl(u, host, path, https)) return false;
+    if (LowerAscii(host).find(' ') != std::string::npos) return false;
+    if (path != "/" && !path.empty()) return false;
+    return host.find('.') != std::string::npos;
+}
+
 // 线路候选：http(s)、无 query/fragment、路径就是根、非第三方域名。实测样板：
 //   olib.pages.dev/ ✔
 //   cdnjs.cloudflare.com/ajax/libs/font-awesome/…/all.min.css ✘（路径不是根）
@@ -93,6 +243,8 @@ static bool IsMirrorCandidate(const std::string& rawUrl) {
     if (LowerAscii(host).find(' ') != std::string::npos) return false;
     if (path != "/" && !path.empty()) return false;
     if (host.find('.') == std::string::npos) return false;
+    // SEC-01：host 必须属于 Z-Library 域名族，否则「导航页塞进来的任意地址」也能当线路
+    if (!pb::zlib::IsTrustedHost(LowerAscii(host))) return false;
     return !IsThirdPartyHost(host);
 }
 
@@ -331,7 +483,13 @@ json ZLibraryService::FetchMirrors() {
     std::vector<std::string> found;
     auto add = [&](const std::string& raw) {
         std::string u = TrimAscii(raw);
-        if (!IsMirrorCandidate(u)) return;
+        if (!IsMirrorCandidate(u)) {
+            // SEC-01：导航页给的地址必须过 host 白名单，不合格直接丢弃（旧行为是"先探再说"，
+            // 于是一个被投毒的导航页就能把任意站点排进第一顺位）。留一条 DEBUG 便于排障。
+            const std::string host = pb::zlib::HostFromUrl(u);
+            if (!host.empty()) pb::LogDebug("zlib", "mirror candidate dropped (untrusted host): " + host);
+            return;
+        }
         if (u.back() != '/') u += '/';
         if (std::find(found.begin(), found.end(), u) == found.end()) found.push_back(u);
     };
@@ -421,6 +579,10 @@ json ZLibraryService::SwitchMirror(int index) {
         m_lastDocStatus = 0;
         m_entryNav = true;
         m_challengeWaits = 0;
+        // 证书错误只对「可信域名族 或 本次会话自己导航过的 host」放行：
+        // 名单里的线路 + 探测到的重定向终点都要先登记（见 ZLibraryMirror.h）。
+        pb::zlib::AddSessionHostFromUrl(pending);
+        pb::zlib::AddSessionHostFromUrl(url);
         if (m_host && m_host->GetWebView())
             m_host->GetWebView()->Navigate(ToWide(url).c_str());
         m_bridge->EmitEvent("zlib:mirrorChanged", GetMirrorInfo());
@@ -483,11 +645,14 @@ void ZLibraryService::SelectDefaultMirrorLocked() {
 
 // 导航用哪个地址：探测已经跟到重定向尽头就直接用最终地址（省掉入口域名那一跳的
 // DNS+TCP+TLS，实测 1.5~2 秒），否则用名单里的原地址。
+// 注意：这里【不】套 IsMirrorCandidate 的 host 白名单 —— finalUrl 是我们自己探测
+// 出来的重定向终点（常常是无法预先枚举的中转域），导航前会由调用方记进
+// pb::zlib::AddSessionHostFromUrl 的会话放行表。
 std::string ZLibraryService::MirrorNavigateUrlLocked(int index) {
     if (index < 0 || index >= (int)m_mirrors.size()) return "";
     if (index < (int)m_mirrorStats.size()) {
         const std::string& f = m_mirrorStats[index].finalUrl;
-        if (!f.empty() && IsMirrorCandidate(f)) return f;
+        if (!f.empty() && IsNavigableHttpRoot(f)) return f;
     }
     return m_mirrors[index];
 }
@@ -658,6 +823,8 @@ void ZLibraryService::AdvanceMirrorOnFailure() {
         m_lastDocStatus = 0;
         m_entryNav = true;
         m_challengeWaits = 0;
+        pb::zlib::AddSessionHostFromUrl(pending);
+        pb::zlib::AddSessionHostFromUrl(nextUrl);
         wv->Navigate(ToWide(nextUrl).c_str());
         // 这里【不】发 mirrorChanged：遮罩要留到这条线路真的出结果，否则又是一次白屏干等
         return;

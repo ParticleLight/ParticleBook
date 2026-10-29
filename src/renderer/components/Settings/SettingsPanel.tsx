@@ -29,7 +29,13 @@ export function SettingsPanel({ onClose, format, isClosing }: SettingsPanelProps
   return (
     <div className={`absolute inset-0 z-40 flex justify-end ${isClosing ? 'animate-fade-out' : ''}`}>
       {/* Backdrop */}
-      <div className={`absolute inset-0 bg-black/40 ${isClosing ? 'opacity-0' : ''}`} style={{ transition: 'opacity 0.2s' }} onClick={onClose} />
+      {/* review U14：遮罩改用统一 token（原来写死 bg-black/40，亮色主题下比其它弹层更暗） */}
+      <div
+        className={`absolute inset-0 ${isClosing ? 'opacity-0' : ''}`}
+        style={{ background: 'var(--ui-backdrop)', transition: 'opacity 0.2s' }}
+        onClick={onClose}
+        aria-hidden="true"
+      />
       {/* Panel —— 这是阅读器内的「阅读设置」右侧滑出面板，本身没有导航，
           因此 M3 三档导航改造（expanded 抽屉 / medium rail / compact 模态抽屉）
           只落在 GlobalSettings。这里仅把固定 320px 宽度加上视口上限：窗口比
@@ -39,8 +45,9 @@ export function SettingsPanel({ onClose, format, isClosing }: SettingsPanelProps
         {/* Header */}
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-semibold text-[var(--reader-text)]">{t('阅读设置')}</h2>
-          <button onClick={onClose} className="p-1 text-[var(--reader-text)] opacity-50 hover:opacity-80">
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          {/* review U8：纯图标关闭按钮补可访问名 */}
+          <button onClick={onClose} className="p-1 text-[var(--reader-text)] opacity-50 hover:opacity-80" aria-label={t('关闭')} title={t('关闭')}>
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
           </button>

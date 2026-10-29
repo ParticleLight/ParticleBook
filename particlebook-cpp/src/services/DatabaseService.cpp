@@ -698,7 +698,9 @@ json DatabaseService::UpdateBookMetadata(int id, const json& patch)
         json candidate = book;
 
         // 文本字段：允许 string 或 null（null 与空串等价，沿用 books 行的既有表示）。
-        const char* textKeys[] = { "title", "author", "language", "publisher", "description" };
+        // cover_path 也走文本白名单：封面按需生成后（book:cover）需要把它写回，
+        // 否则每次进书架都会重新抽封面/起 mutool（2026-10-29 review · B-04）。
+        const char* textKeys[] = { "title", "author", "language", "publisher", "description", "cover_path" };
         for (const char* key : textKeys) {
             if (!patch.contains(key)) continue;
             if (!patch[key].is_string() && !patch[key].is_null()) return nullptr;

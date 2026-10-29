@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
+import { memo, useEffect, useMemo, useRef, useState, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useReaderStore } from '../../stores/readerStore'
 import { usePaging } from '../../reader'
@@ -37,6 +37,36 @@ interface PdfNoteEditor {
   client?: { left: number; top: number }
 }
 
+// review F-05：一页文本层有数千个绝对定位 span。抽成 memo 组件后，拖框选择
+// （父组件原来每次 mousemove 都 setState）不会再把这几千个节点重新创建一遍。
+const PdfTextLayerView = memo(function PdfTextLayerView({
+  pageNum, layer, pageHeight,
+}: { pageNum: number; layer: PdfTextLayer | undefined; pageHeight: number }) {
+  if (!layer || layer.chars.length === 0) return null
+  return (
+    <div className="absolute inset-0 select-text" style={{ zIndex: 2 }} data-pdf-text-layer={pageNum}>
+      {layer.chars.map((ch, idx) => (
+        <span
+          key={idx}
+          style={{
+            position: 'absolute',
+            left: `${(ch.x / layer.width) * 100}%`,
+            top: `${(ch.y / layer.height) * 100}%`,
+            width: `${(ch.w / layer.width) * 100}%`,
+            height: `${(ch.h / layer.height) * 100}%`,
+            fontSize: `${(ch.h / layer.height) * pageHeight}px`,
+            lineHeight: 1,
+            color: 'transparent',
+            whiteSpace: 'pre',
+            userSelect: 'text',
+            cursor: 'text',
+          }}
+        >{ch.c}</span>
+      ))}
+    </div>
+  )
+})
+
 const PDF_HIGHLIGHT_COLORS = ['#ffd54f', '#a5d6a7', '#90caf9', '#f48fb1'] as const
 
 function clampNumber(value: number, min: number, max: number): number {
@@ -49,7 +79,6 @@ export function PdfRenderer({ book, content: _content, bookId }: PdfRendererProp
   const [visiblePage, setVisiblePage] = useState(1)
   const [pageBounds, setPageBounds] = useState<Array<{ width: number; height: number }>>([])
   const [pageImages, setPageImages] = useState<Map<number, string>>(new Map())
-  const [dragRect, setDragRect] = useState<{ page: number; x0: number; y0: number; x1: number; y1: number } | null>(null)
   // PB-003：文本层选区 + 笔记编辑浮层
   const [selection, setSelection] = useState<PdfSelection | null>(null)
   const [noteEditor, setNoteEditor] = useState<PdfNoteEditor | null>(null)
@@ -70,6 +99,18 @@ export function PdfRenderer({ book, content: _content, bookId }: PdfRendererProp
   const visiblePageRef = useRef(1)
   visiblePageRef.current = visiblePage
   const initialScrollDone = useRef(false)
+  // review F-03：连点翻页的目标页必须自己递推。旧实现读闭包里的 visiblePage，
+  // 而它要等 IntersectionObserver 回调才更新、scrollIntoView 又是同步返回 ——
+  // paging 的串行队列对 PDF 等于没有，快速点两下只前进一页。
+  const pageTargetRef = useRef(1)
+  // 程序发起滚动期间，IO 报上来的中间页不要回头改写目标页（否则仍会丢步）
+  const programmaticScrollUntilRef = useRef(0)
+  // review F-05：拖框选择的实时几何只放 ref，并由 rAF 直接写内联样式。
+  // 旧实现每次 mousemove 都 setState，导致整页列表（含上万字符 span）重渲染。
+  const dragStateRef = useRef<{ page: number; x0: number; y0: number; x1: number; y1: number } | null>(null)
+  const dragBoxRef = useRef<HTMLDivElement | null>(null)
+  const dragRafRef = useRef(0)
+  const [dragPage, setDragPage] = useState<number | null>(null)
 
   const progress = useReaderStore((s) => s.progress)
   const setProgress = useReaderStore((s) => s.setProgress)
@@ -127,6 +168,42 @@ export function PdfRenderer({ book, content: _content, bookId }: PdfRendererProp
       color: '#ffd54f',
     }).catch((error) => console.error('Failed to add PDF highlight:', error))
   }, [addAnnotation, bookId])
+
+  // 统一的「滚到第 N 页」：记住目标页 + 标记程序滚动窗口（F-03）
+  const scrollToPage = useCallback((pageNum: number) => {
+    const target = Math.max(1, Math.min(pageNum, totalPages || pageNum))
+    pageTargetRef.current = target
+    programmaticScrollUntilRef.current = performance.now() + 600
+    const el = containerRef.current?.querySelector(`[data-page="${target}"]`)
+    if (el) el.scrollIntoView({ block: 'start', behavior: 'smooth' })
+  }, [totalPages])
+
+  // 拖框的实时绘制（F-05）：只碰一个元素的样式，不进 React 状态
+  const paintDragBox = useCallback(() => {
+    dragRafRef.current = 0
+    const box = dragBoxRef.current
+    const drag = dragStateRef.current
+    if (!box || !drag) return
+    const left = Math.min(drag.x0, drag.x1) * 100
+    const top = Math.min(drag.y0, drag.y1) * 100
+    box.style.left = left + '%'
+    box.style.top = top + '%'
+    box.style.width = Math.abs(drag.x1 - drag.x0) * 100 + '%'
+    box.style.height = Math.abs(drag.y1 - drag.y0) * 100 + '%'
+  }, [])
+
+  // 兜底：在页面外松开鼠标时页自己的 onMouseUp 不会触发，别留下一个粘住的框。
+  // 页面内的 mouseup 先跑完 finishDrag 并把 ref 清空，所以这里只会处理「没接住」的情况。
+  useEffect(() => {
+    const onWindowMouseUp = () => {
+      if (!dragStateRef.current) return
+      dragStateRef.current = null
+      if (dragRafRef.current) { window.cancelAnimationFrame(dragRafRef.current); dragRafRef.current = 0 }
+      setDragPage(null)
+    }
+    window.addEventListener('mouseup', onWindowMouseUp)
+    return () => window.removeEventListener('mouseup', onWindowMouseUp)
+  }, [])
 
   const pdfPageMatchesRef = useRef<number[]>([])
 
@@ -246,30 +323,38 @@ export function PdfRenderer({ book, content: _content, bookId }: PdfRendererProp
   // Navigation
   useEffect(() => {
     if (!navigateTarget || !containerRef.current) return
-    const el = containerRef.current.querySelector(`[data-page="${navigateTarget.page}"]`)
-    if (el) el.scrollIntoView({ behavior: 'smooth' })
+    if (typeof navigateTarget.page === 'number') scrollToPage(navigateTarget.page)
     clearNavigateTarget()
-  }, [navigateTarget, clearNavigateTarget])
+  }, [navigateTarget, clearNavigateTarget, scrollToPage])
 
   // 统一翻页：注册「±1 页并滚动到该页」的翻页器（边界自己夹紧，单页 PDF 不会越界）。
+  // review F-03：目标页从 pageTargetRef 递推，不依赖 visiblePage —— 这样连点 N 次
+  // 就是 N 页，哪怕 IO 还没把可见页更新过来。
   useEffect(() => {
     if (!paging) return
     const goByPage = (dir: 1 | -1) => {
-      const target = Math.max(1, Math.min(visiblePage + dir, totalPages))
-      const el = containerRef.current?.querySelector(`[data-page="${target}"]`)
-      if (el) el.scrollIntoView({ behavior: 'smooth' })
+      if (totalPages <= 0) return
+      const base = Math.max(1, Math.min(pageTargetRef.current || visiblePageRef.current, totalPages))
+      const target = Math.max(1, Math.min(base + dir, totalPages))
+      if (target === base) return
+      scrollToPage(target)
     }
     paging.register({ next: () => goByPage(1), prev: () => goByPage(-1) })
     return () => paging.register(null)
-  }, [paging, visiblePage, totalPages])
+  }, [paging, totalPages, scrollToPage])
+
+  // 用户自己滚动时，目标页跟随实际可见页；程序滚动期间不覆盖（F-03）
+  useEffect(() => {
+    if (performance.now() < programmaticScrollUntilRef.current) return
+    pageTargetRef.current = visiblePage
+  }, [visiblePage])
 
   useEffect(() => {
     if (seekTarget === null || totalPages === 0 || !containerRef.current) return
     const tp = Math.max(1, Math.round((seekTarget / 100) * totalPages))
-    const el = containerRef.current.querySelector(`[data-page="${tp}"]`)
-    if (el) el.scrollIntoView({ behavior: 'smooth' })
+    scrollToPage(tp)
     clearSeekTarget()
-  }, [seekTarget, totalPages, clearSeekTarget])
+  }, [seekTarget, totalPages, clearSeekTarget, scrollToPage])
 
   // Restore to the last-read page once the document is open. Reads the latest
   // store value at restore time (not a stale closure) and clamps to a valid page.
@@ -280,6 +365,9 @@ export function PdfRenderer({ book, content: _content, bookId }: PdfRendererProp
       const targetPage = Math.max(1, Math.min(savedPage || 1, totalPages))
       const el = containerRef.current?.querySelector(`[data-page="${targetPage}"]`)
       if (el) {
+        pageTargetRef.current = targetPage
+        // 恢复位置要立即到位（不要平滑滚动，否则 IO 会把中间页当成当前页写进进度）
+        programmaticScrollUntilRef.current = performance.now() + 600
         el.scrollIntoView({ block: 'start' })
         setTimeout(() => { initialScrollDone.current = true }, 500)
       }
@@ -333,11 +421,8 @@ export function PdfRenderer({ book, content: _content, bookId }: PdfRendererProp
     const matches = pdfPageMatchesRef.current
     if (matches.length === 0 || currentSearchIndex < 0 || currentSearchIndex >= matches.length) return
     const targetPage = matches[currentSearchIndex] + 1
-    const el = containerRef.current?.querySelector(`[data-page="${targetPage}"]`)
-    if (el) {
-      el.scrollIntoView({ behavior: 'smooth', block: 'center' })
-    }
-  }, [currentSearchIndex])
+    scrollToPage(targetPage)
+  }, [currentSearchIndex, scrollToPage])
 
   const filterStyle = theme === 'dark' ? 'invert(1) hue-rotate(180deg) brightness(0.9)' : theme === 'sepia' ? 'invert(1) hue-rotate(180deg) sepia(0.4) brightness(0.7)' : 'none'
 
@@ -499,15 +584,23 @@ export function PdfRenderer({ book, content: _content, bookId }: PdfRendererProp
                 if (e.button !== 0) return
                 // 文本层上的按下是"选文字"，不能当成拖拽画框
                 const target = e.target as Element
-                if (target.closest('[data-pdf-text-layer]')) { setDragRect(null); return }
+                if (target.closest('[data-pdf-text-layer]')) { dragStateRef.current = null; setDragPage(null); return }
                 setSelection(null)
                 const r = e.currentTarget.getBoundingClientRect()
-                setDragRect({ page: pageNum, x0: (e.clientX - r.left) / r.width, y0: (e.clientY - r.top) / r.height, x1: (e.clientX - r.left) / r.width, y1: (e.clientY - r.top) / r.height })
+                const x = (e.clientX - r.left) / r.width
+                const y = (e.clientY - r.top) / r.height
+                dragStateRef.current = { page: pageNum, x0: x, y0: y, x1: x, y1: y }
+                setDragPage(pageNum)   // 只切一次「哪个页面在画框」，几何交给 rAF
               }}
               onMouseMove={(e) => {
-                if (!dragRect || dragRect.page !== pageNum) return
+                const drag = dragStateRef.current
+                if (!drag || drag.page !== pageNum) return
                 const r = e.currentTarget.getBoundingClientRect()
-                setDragRect({ ...dragRect, x1: (e.clientX - r.left) / r.width, y1: (e.clientY - r.top) / r.height })
+                drag.x1 = (e.clientX - r.left) / r.width
+                drag.y1 = (e.clientY - r.top) / r.height
+                // review F-05：每帧只改一个 box 的样式，不进 React 状态（原来这里
+                // setState 会让整份页列表 + 每页上千个字符 span 全部重渲染）
+                if (!dragRafRef.current) dragRafRef.current = window.requestAnimationFrame(paintDragBox)
               }}
               onMouseUp={(e) => {
                 const target = e.target as Element
@@ -516,11 +609,14 @@ export function PdfRenderer({ book, content: _content, bookId }: PdfRendererProp
                   captureSelection(pageNum, e.currentTarget)
                   return
                 }
-                if (!dragRect || dragRect.page !== pageNum) return
-                if (window.getSelection()?.toString().trim()) { setDragRect(null); return }
+                const drag = dragStateRef.current
+                dragStateRef.current = null
+                if (dragRafRef.current) { window.cancelAnimationFrame(dragRafRef.current); dragRafRef.current = 0 }
+                setDragPage(null)
+                if (!drag || drag.page !== pageNum) return
+                if (window.getSelection()?.toString().trim()) return
                 const r = e.currentTarget.getBoundingClientRect()
-                finishDrag(pageNum, dragRect.x0, dragRect.y0, (e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height)
-                setDragRect(null)
+                finishDrag(pageNum, drag.x0, drag.y0, (e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height)
               }}
             >
               {img ? (
@@ -584,39 +680,23 @@ export function PdfRenderer({ book, content: _content, bookId }: PdfRendererProp
                   </div>
                 )
               })}
-              {(() => {
-                const layer = textLayers.get(pageNum)
-                if (!layer || layer.chars.length === 0) return null
-                return (
-                  <div className="absolute inset-0 select-text" style={{ zIndex: 2 }} data-pdf-text-layer={pageNum}>
-                    {layer.chars.map((ch, idx) => (
-                      <span key={idx}
-                        style={{
-                          position: 'absolute',
-                          left: `${(ch.x / layer.width) * 100}%`,
-                          top: `${(ch.y / layer.height) * 100}%`,
-                          width: `${(ch.w / layer.width) * 100}%`,
-                          height: `${(ch.h / layer.height) * 100}%`,
-                          fontSize: `${(ch.h / layer.height) * height}px`,
-                          lineHeight: 1,
-                          color: 'transparent',
-                          whiteSpace: 'pre',
-                          userSelect: 'text',
-                          cursor: 'text',
-                        }}
-                      >{ch.c}</span>
-                    ))}
-                  </div>
-                )
-              })()}
-              {dragRect && dragRect.page === pageNum && (
-                <div className="absolute pointer-events-none rounded-sm" style={{ left: `${Math.min(dragRect.x0, dragRect.x1) * 100}%`, top: `${Math.min(dragRect.y0, dragRect.y1) * 100}%`, width: `${Math.abs(dragRect.x1 - dragRect.x0) * 100}%`, height: `${Math.abs(dragRect.y1 - dragRect.y0) * 100}%`, background: 'rgba(96,205,255,0.35)', border: '1px solid rgba(96,205,255,0.9)' }} />
+              <PdfTextLayerView pageNum={pageNum} layer={textLayers.get(pageNum)} pageHeight={height} />
+              {dragPage === pageNum && (
+                <div
+                  ref={dragBoxRef}
+                  className="absolute pointer-events-none rounded-sm"
+                  style={{ left: 0, top: 0, width: 0, height: 0, background: 'rgba(96,205,255,0.35)', border: '1px solid rgba(96,205,255,0.9)' }}
+                />
               )}
             </div>
           )
         })}
       </div>
-      <div className="fixed bottom-20 left-1/2 -translate-x-1/2 bg-black/60 backdrop-blur-sm text-white text-sm px-4 py-2 rounded-full z-10 pointer-events-none">
+      {/* U14：页码胶囊走 inverse-surface 语义色，不再硬编码黑白 */}
+      <div
+        className="fixed bottom-20 left-1/2 -translate-x-1/2 backdrop-blur-sm text-sm px-4 py-2 rounded-full z-10 pointer-events-none"
+        style={{ background: 'var(--md-sys-color-inverse-surface)', color: 'var(--md-sys-color-inverse-on-surface)' }}
+      >
         {visiblePage} / {totalPages}
       </div>
 

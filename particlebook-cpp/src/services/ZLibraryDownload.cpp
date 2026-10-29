@@ -2,6 +2,7 @@
 #include "BridgeServer.h"
 #include "WebViewHost.h"
 #include "services/DatabaseService.h"
+#include "services/ZLibraryMirror.h"
 #include "App.h"
 #include "platform/LogService.h"
 #define WIN32_LEAN_AND_MEAN
@@ -163,6 +164,10 @@ void ZLibraryService::SetupDownloadHandler()
                     LPWSTR uriRaw = nullptr;
                     if (FAILED(args->get_Uri(&uriRaw)) || !uriRaw) return S_OK;
                     args->put_Handled(TRUE); // cancel popup
+                    // 弹窗地址转到主窗口之前登记到会话放行表：证书错误策略只对
+                    // 「可信域名族 ‖ 应用自己导航过的 host」放行（SEC-01），
+                    // 不登记的话中转域会在证书错误处被 Cancel，下载链整条断掉。
+                    pb::zlib::AddSessionHostFromUrl(ToNarrow(uriRaw));
                     // Navigate main window — DownloadStarting will intercept
                     if (m_host && m_host->GetWebView())
                         m_host->GetWebView()->Navigate(uriRaw);

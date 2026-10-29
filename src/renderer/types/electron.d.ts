@@ -301,11 +301,11 @@ interface PbUpdateError {
 interface ElectronAPI {
   // Files
   openFile: () => Promise<string | null>
-  readFile: (filePath: string) => Promise<PbFileContent>
-  importBooks: (filePaths: string[]) => Promise<PbBook[]>
+  readFile: (path: string) => Promise<PbFileContent>
+  importBooks: (paths: string[]) => Promise<PbBook[]>
   onImportProgress: (callback: (progress: PbImportProgress) => void) => () => void
-  writeDroppedFile: (name: string, dataB64: string) => Promise<{ path: string; size: number } | null>
-  getCoverImage: (bookId: number) => Promise<string | null>
+  writeDroppedFile: (name: string, data: string) => Promise<{ path: string; size: number } | null>
+  getCoverImage: (id: number) => Promise<string | null>
 
   // PDF
   pdfOpen: (filePath: string) => Promise<{ id: number; pageCount: number; pageBounds: { width: number; height: number }[] } | null>
@@ -326,13 +326,13 @@ interface ElectronAPI {
 
   // Bookmarks
   getBookmarks: (bookId: number) => Promise<PbBookmark[]>
-  addBookmark: (bookmark: PbBookmarkInput) => Promise<void>
+  addBookmark: (bm: PbBookmarkInput) => Promise<void>
   deleteBookmark: (id: number) => Promise<void>
   updateBookmarkTitle: (id: number, title: string) => Promise<void>
 
   // Highlights
   getHighlights: (bookId: number) => Promise<PbHighlight[]>
-  addHighlight: (highlight: PbHighlightInput) => Promise<void>
+  addHighlight: (hl: PbHighlightInput) => Promise<void>
   deleteHighlight: (id: number) => Promise<void>
 
   // Notes
@@ -397,7 +397,7 @@ interface ElectronAPI {
   // Reading Sessions
   startReadingSession: (bookId: number) => Promise<number>
   endReadingSession: (sessionId: number) => Promise<void>
-  updateReadingSessionDuration: (sessionId: number, durationSeconds: number) => Promise<void>
+  updateReadingSessionDuration: (sessionId: number, duration: number) => Promise<void>
   getAllReadingTime: () => Promise<Record<number, number>>
   getAllReadingProgress: () => Promise<Record<number, { progress: number; page?: number; updated_at: string }>>
 

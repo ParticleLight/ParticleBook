@@ -28,13 +28,16 @@
 using namespace Microsoft::WRL;
 
 #include "ZLibraryInternal.h"
+#include "ZLibraryMirror.h"   // SEC-01：会话放行主机表（证书错误只对这些 host 放行）
 
 // ── Navigate main WebView2 + inject floating toolbar ───────────────────────
 
 json ZLibraryService::Show() {
     m_zlibActive = true;
-    // 证书错误的放行只在 Z-Library 会话期间开启（镜像会重定向到无法预先枚举的
-    // 中转域，其证书自签/链不受信任）；退出会话即关闭，应用自身页面不再忽略证书。
+    // 证书错误的放行只在 Z-Library 会话期间开启，且只对「可信域名族 + 本次会话
+    // 自己导航过的 host」生效（见 ZLibraryMirror.h 的 IsTrustedHost/IsSessionHost）。
+    // 每次会话开始先清空上次残留的放行 host。
+    pb::zlib::ClearSessionHosts();
     if (m_host) m_host->SetAllowUntrustedCerts(true);
     m_zlibDlInProgress = false;
     // （m_pendingDownloadUri 已随"一次性放行"一并移除）
@@ -114,6 +117,9 @@ void ZLibraryService::NavigateToCurrentMirror() {
     m_entryNav = true;
     m_challengeWaits = 0;
     m_probePause = true;    // 进站期间暂停探测（ClassifyLoadedDocument 里恢复）
+    // 镜像表里的线路 + 探测到的重定向终点：登记成「本次会话允许忽略证书错误」的 host
+    pb::zlib::AddSessionHostFromUrl(pending);
+    pb::zlib::AddSessionHostFromUrl(url);
     // 注意：这里【不】发 mirrorChanged —— 那条事件会让前端撤掉"正在连接线路…"
     // 遮罩，而线路要好几秒才出结果，屏幕就变成白屏干等。改为等导航结果判定之后
     // 再发（见 ClassifyLoadedDocument）。
@@ -150,6 +156,7 @@ json ZLibraryService::Hide() {
     m_entryNavPending = false;
     m_probePause = false;
     m_entryNav = false;
+    pb::zlib::ClearSessionHosts();   // 会话结束，放行 host 不跨会话保留
     if (m_host) {
         m_host->SetAllowUntrustedCerts(false);
         m_host->ReloadPage();
@@ -196,7 +203,10 @@ json ZLibraryService::Logout() {
 void RegisterZlibHandlers(BridgeServer* bridge, ZLibraryService* zlib) {
     bridge->RegisterMethod("zlib:getMirrorInfo", [zlib](const json&)    { return zlib->GetMirrorInfo(); });
     bridge->RegisterMethod("zlib:switchMirror",   [zlib](const json& p) { return zlib->SwitchMirror(p["index"].get<int>()); });
-    bridge->RegisterMethod("zlib:fetchMirrors",   [zlib](const json&)   { return zlib->FetchMirrors(); });
+    // zlib:fetchMirrors 的注册已移除（2026-10-29 review · B-05）：它是同步网络请求，
+    // 跑在 WebView2 UI 线程上，DNS/网络一慢整个窗口就未响应；该成员不在桥接契约里、
+    // 渲染层也没有消费者（镜像探测由后台线程自己跑并推事件），因此直接不暴露。
+    // 需要重新暴露时必须走 RegisterAsyncMethod + JobService，不能恢复同步注册。
     bridge->RegisterMethod("zlib:show",           [zlib](const json&)   { return zlib->Show(); });
     bridge->RegisterMethod("zlib:hide",           [zlib](const json&)   { return zlib->Hide(); });
     bridge->RegisterMethod("zlib:navigate",       [zlib](const json& p) { return zlib->Navigate(p.value("action","")); });

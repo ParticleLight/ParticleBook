@@ -33,6 +33,11 @@ export function EpubRenderer({ book, content, bookId, spread = 'single', vertica
   const bookRef = useRef<Book | null>(null)
   const renditionRef = useRef<Rendition | null>(null)
   const [isReady, setIsReady] = useState(false)
+  // review F-10：渲染失败要有失败态（旧实现失败时永远停在转圈）
+  const [renderError, setRenderError] = useState('')
+  // review F-04：记住「正文里当前画着哪些 CFI 的高亮」，删除时才能把覆盖层摘掉。
+  // 旧实现只按最新列表 remove，被删掉的那条永远不会被处理 → 正文残留到重开书。
+  const renderedHighlightCfisRef = useRef<Set<string>>(new Set())
   const [highlightPopup, setHighlightPopup] = useState<{ x: number; y: number; cfiRange: string; text: string } | null>(null)
   // 选区结束时只记下候选（位置 / CFI / 文本），等工具条点「高亮」才弹出取色板；
   // 以前一选中就自己弹，会和 SelectionToolbar 叠在一起。
@@ -55,7 +60,7 @@ export function EpubRenderer({ book, content, bookId, spread = 'single', vertica
   const currentSearchIndex = useReaderStore((s) => s.currentSearchIndex)
   const setSearchMatches = useReaderStore((s) => s.setSearchMatches)
   // PB-024-C：搜索 / 高亮逻辑已抽到 EpubSearch（纯搬移）
-  const { extractFullText, applySearchHighlights } = useEpubSearch({
+  const { extractFullText, applySearchHighlights, indexReady } = useEpubSearch({
     viewerRef,
     bookRef,
     renditionRef,
@@ -113,6 +118,13 @@ export function EpubRenderer({ book, content, bookId, spread = 'single', vertica
 
   useEffect(() => {
     if (!viewerRef.current) return
+    // 换书/重开：上一本的 isReady 不能延续（否则新书加载期间没有 loading 态，
+    // 搜索索引的「正在建立」提示也不会重置）
+    setIsReady(false)
+    // review F-10：ready 回调可能在本组件卸载/换书之后才 resolve。旧实现没有取消标记、
+    // 也没有 .catch —— 会对已 destroy 的 rendition 调 display()（未处理 rejection），
+    // 并往已卸载组件 setIsReady。渲染失败时也没有任何失败态（一直转圈）。
+    let disposed = false
 
     const epubBook = ePub(content.buffer as ArrayBuffer)
     bookRef.current = epubBook
@@ -128,6 +140,7 @@ export function EpubRenderer({ book, content, bookId, spread = 'single', vertica
     renditionRef.current = rendition
 
     epubBook.ready.then(() => {
+      if (disposed) return
       const toc = epubBook.navigation?.toc || []
       setTableOfContents(toc)
 
@@ -146,12 +159,19 @@ export function EpubRenderer({ book, content, bookId, spread = 'single', vertica
       // Pre-load full text for search
       extractFullText()
 
-      if (progress.cfi) {
-        rendition.display(progress.cfi)
-      } else {
-        rendition.display()
-      }
-      setIsReady(true)
+      // display() 返回 Promise：章节本身坏掉时要走 .catch，不能让 isReady 半途而废
+      const displayed = progress.cfi ? rendition.display(progress.cfi) : rendition.display()
+      Promise.resolve(displayed)
+        .then(() => { if (!disposed) setIsReady(true) })
+        .catch((error) => {
+          if (disposed) return
+          console.error('EpubRenderer: display failed', error)
+          setRenderError(t('无法打开 EPUB 文件'))
+        })
+    }).catch((error) => {
+      if (disposed) return
+      console.error('EpubRenderer: book ready failed', error)
+      setRenderError(t('无法打开 EPUB 文件'))
     })
 
     rendition.on('relocated', (location: any) => {
@@ -333,6 +353,7 @@ export function EpubRenderer({ book, content, bookId, spread = 'single', vertica
     })
 
     return () => {
+      disposed = true
       contentCleanupFns.forEach(fn => fn())
       // Remove injected search styles from all iframes
       document.querySelectorAll('iframe').forEach(iframe => {
@@ -345,6 +366,9 @@ export function EpubRenderer({ book, content, bookId, spread = 'single', vertica
       epubBook.destroy()
       bookRef.current = null
       renditionRef.current = null
+      // 换书/重开：已渲染的高亮集合随 rendition 一起作废（review F-04）
+      renderedHighlightCfisRef.current = new Set()
+      setRenderError('')
     }
   }, [content])
 
@@ -353,28 +377,33 @@ export function EpubRenderer({ book, content, bookId, spread = 'single', vertica
     const rendition = renditionRef.current
     if (!rendition || !isReady) return
 
-    // Clear all existing highlights first to avoid duplicates
-    for (const hl of highlights) {
-      if (hl.cfi) {
-        try {
-          rendition.annotations.remove(hl.cfi, 'highlight')
-        } catch {}
-      }
+    const nextCfis = new Set<string>()
+    for (const hl of highlights) if (hl.cfi) nextCfis.add(hl.cfi)
+
+    // 先摘掉「已经不在列表里」的（删除高亮后正文必须立刻消失）
+    const previous = renderedHighlightCfisRef.current
+    for (const cfi of previous) {
+      if (nextCfis.has(cfi)) continue
+      try { rendition.annotations.remove(cfi, 'highlight') } catch {}
     }
 
+    // 剩下的全部重画（先 remove 再 add：避免重复，也让改色立即生效）
     for (const hl of highlights) {
-      if (hl.cfi) {
-        try {
-          rendition.annotations.add('highlight', hl.cfi, {}, undefined, 'epub-highlight', {
-            'fill': hl.color || '#fbbf24',
-            'fill-opacity': '0.3',
-            'mix-blend-mode': 'multiply',
-          })
-        } catch (e) {
-          // ignore invalid CFIs
-        }
+      if (!hl.cfi) continue
+      try {
+        rendition.annotations.remove(hl.cfi, 'highlight')
+      } catch {}
+      try {
+        rendition.annotations.add('highlight', hl.cfi, {}, undefined, 'epub-highlight', {
+          'fill': hl.color || '#fbbf24',
+          'fill-opacity': '0.3',
+          'mix-blend-mode': 'multiply',
+        })
+      } catch (e) {
+        // ignore invalid CFIs
       }
     }
+    renderedHighlightCfisRef.current = nextCfis
   }, [highlights, isReady])
 
   // PB-006-D：搜索命中「章节内定位」——paginated flow 下 iframe 不可滚动，
@@ -611,7 +640,25 @@ export function EpubRenderer({ book, content, bookId, spread = 'single', vertica
       <div ref={viewerRef} className="h-full" />
       {!isReady && (
         <div className="absolute inset-0 flex items-center justify-center bg-[var(--reader-bg)]">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[var(--md-sys-color-primary)]"></div>
+          {renderError ? (
+            <p className="m3-body-medium px-6 text-center" style={{ color: 'var(--md-sys-color-error)' }} role="alert">
+              {renderError}
+            </p>
+          ) : (
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[var(--md-sys-color-primary)]"></div>
+          )}
+        </div>
+      )}
+      {/* review F-08：全文索引还没建好时，搜索结果必然为空 —— 要说清是在建索引，
+          而不是让用户以为「这本书里没有这个词」 */}
+      {isReady && !indexReady && searchQuery.trim() !== '' && (
+        <div
+          className="absolute top-2 left-1/2 -translate-x-1/2 z-20 px-3 py-1.5 rounded-full text-xs"
+          style={{ background: 'var(--md-sys-color-surface-container-high)', color: 'var(--md-sys-color-on-surface-variant)' }}
+          role="status"
+          data-epub-search-indexing="1"
+        >
+          {t('正在建立搜索索引…')}
         </div>
       )}
 

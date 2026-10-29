@@ -43,6 +43,15 @@ void RegisterDbHandlers(BridgeServer* bridge, DatabaseService* db)
             if (inDropped) {
                 DeleteFileW(pb::Utf8ToWide(fp).c_str());
             }
+            // 书源下载产物落在 UserDataPath()/booksource/：以前删书只清 /dropped，
+            // 这里的 txt 会永远残留（review · B-12）。
+            std::string sourcePrefix = App::Instance().UserDataPath() + "/booksource";
+            bool inBookSource = fp.rfind(sourcePrefix, 0) == 0 &&
+                                fp.size() > sourcePrefix.size() &&
+                                (fp[sourcePrefix.size()] == '/' || fp[sourcePrefix.size()] == '\\');
+            if (inBookSource) {
+                DeleteFileW(pb::Utf8ToWide(fp).c_str());
+            }
         }
         return json::object();
     });

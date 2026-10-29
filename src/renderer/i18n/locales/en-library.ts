@@ -188,4 +188,15 @@ export const enLibrary: Record<string, string> = {
   '无阅读记录': 'No reading',
   '这天没有阅读记录': 'No reading recorded on this day',
   '还有 {{n}} 本…': 'and {{n}} more…',
+
+  // 2026-10-29 review U2：书籍详情「未保存修改」二次确认
+  '放弃未保存的修改？': 'Discard unsaved changes?',
+  '编辑内容尚未保存，关闭后会丢失。': 'Your edits have not been saved and will be lost if you close now.',
+  '放弃修改': 'Discard',
+  '继续编辑': 'Keep editing',
+
+  // 2026-10-29 review U6/U8：书源弹层（BookSourcePanel）
+  '删除书源': 'Delete book source',
+  '清空后需要重新导入 JSON 才能搜索和下载。':
+    'After clearing you will need to import a JSON file again to search and download.',
 }

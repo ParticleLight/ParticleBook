@@ -135,20 +135,35 @@ Section "Install"
     File "..\build2\ParticleBook.exe"
     File "..\build2\mutool.exe"
     File "..\build2\WebView2Loader.dll"
+    ; PB-008-D: AZW3/KF8 → EPUB 依赖 mobitool.exe。FileFormatService 只会找
+    ; <exe 同目录>\mobitool.exe（GetModuleFileNameW），所以必须放在 $INSTDIR。
+    ; 之前 CMake install() 里有、NSIS 里漏了 → 安装版 AZW3 转换静默失效。
+    File "..\build2\mobitool.exe"
+
+    ; LGPL-3.0-or-later 合规：mobitool.exe 随包分发时必须附带许可证与
+    ; 对应源码（与 CMake install() 的 third_party/mobitool 保持一致）。
+    SetOutPath "$INSTDIR\third_party\mobitool"
+    File "..\third_party\mobitool\COPYING"
+    File "..\third_party\mobitool\NOTICE.md"
+    File "..\third_party\mobitool\README.md"
+    File "..\third_party\mobitool\libmobi-0.12-9062742-src.tar.gz"
+    SetOutPath "$INSTDIR"
 
     ; PB-024-A/B: Z-Library 注入脚本（App.cpp 启动时从 <exe>/resources/*.js 读取；
-    ; 缺失会回退到内置最小脚本并打 WARN，所以这里必须随包分发）
+    ; 缺失会回退到内置最小脚本并打 WARN，所以这里必须随包分发）。
+    ; 整目录递归打包：以后新增 .js/.json 等脚本不用再改安装器。
     SetOutPath "$INSTDIR\resources"
-    File "..\build2\resources\*.js"
+    File /r "..\build2\resources\*.*"
 
-    ; Renderer
+    ; Renderer：整目录递归打包（NSIS 的 /r 会保留相对子目录结构）。
+    ; 旧实现是手写白名单（index.html / pdf.worker.min.mjs / assets/*.js|css），
+    ; 漏过 renderer/app-icon.png（「关于」页图标 404），且未来 Vite 产出任何
+    ; png/woff/svg 都会静默漏包 —— 改为按目录拷贝，并先清掉上一版带 hash 的
+    ; assets，避免升级时旧文件无限累积（正文/PDF 缓存在 _pb_files、_pb_pdf，
+    ; 不在这里，不受影响）。
+    RMDir /r "$INSTDIR\renderer\assets"
     SetOutPath "$INSTDIR\renderer"
-    File "..\build2\renderer\index.html"
-    File /nonfatal "..\build2\renderer\pdf.worker.min.mjs"
-
-    SetOutPath "$INSTDIR\renderer\assets"
-    File "..\build2\renderer\assets\*.js"
-    File "..\build2\renderer\assets\*.css"
+    File /r "..\build2\renderer\*.*"
 
     SetOutPath "$INSTDIR"
 
@@ -219,15 +234,13 @@ Section "Uninstall"
 
     Delete "$INSTDIR\ParticleBook.exe"
     Delete "$INSTDIR\mutool.exe"
+    Delete "$INSTDIR\mobitool.exe"
     Delete "$INSTDIR\WebView2Loader.dll"
-    Delete "$INSTDIR\renderer\index.html"
-    Delete "$INSTDIR\renderer\pdf.worker.min.mjs"
-    Delete "$INSTDIR\renderer\assets\*.js"
-    Delete "$INSTDIR\renderer\assets\*.css"
-    RMDir "$INSTDIR\renderer\assets"
-    RMDir "$INSTDIR\renderer"
-    Delete "$INSTDIR\resources\*.js"
-    RMDir "$INSTDIR\resources"
+    ; renderer / resources / third_party 现在都是整目录打包，卸载也整目录删。
+    ; （renderer 里可能还有 _pb_files / _pb_pdf 正文缓存；卸载本身就要清干净。）
+    RMDir /r "$INSTDIR\renderer"
+    RMDir /r "$INSTDIR\resources"
+    RMDir /r "$INSTDIR\third_party"
     Delete "$INSTDIR\uninstall.exe"
     RMDir "$INSTDIR"
 

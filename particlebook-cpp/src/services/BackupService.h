@@ -189,11 +189,12 @@ struct RestoreOptions {
     bool validatePayload = true;
     // PB-011-B：是否恢复封面（默认开）。关掉只恢复数据库。
     bool restoreCovers = true;
-    // 先尝试写回封面原来的绝对路径（默认开）；路径不安全或不可写时落到
-    // coverDir。关掉则一律落到 coverDir。
-    // 安全边界：备份包能决定「往哪个绝对路径写一张图片」，所以**只应恢复
-    // 自己生成的备份**；恢复来路不明的包时设成 false（全部落 coverDir）。
-    bool restoreCoversToOriginalPath = true;
+    // 是否尝试写回封面原来的绝对路径（默认**关闭**）：关掉时一律落到 coverDir。
+    // 安全边界：备份包本身能决定「往哪个绝对路径写一张图片」，所以默认不写回；
+    // 即使调用方显式打开，也只允许落在应用数据目录内（数据库所在目录、其上一级
+    // = <UserData>、以及 coverDir），其余路径仍回落到 coverDir 并记 issue。
+    // 见 BackupService.cpp 的 IsAllowedCoverRestorePath()。
+    bool restoreCoversToOriginalPath = false;
     // 封面落盘目录（仅用于原路径不可写时）。空 = <数据库目录>\covers。
     std::string coverDir;
     // 封面被搬走时回填 books[].cover_path（默认开；关掉则数据库仍指向原路径）。

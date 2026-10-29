@@ -8,10 +8,6 @@
   ],
   "allow": [
     {
-      "method": "zlib:fetchMirrors",
-      "reason": "C++ 内部镜像巡检（同步网络请求，跑在 WebView2 UI 线程）。BridgeServer.cpp 的 ExternalAllowedMethods 注释明确排除它（页面循环 invoke 会让窗口未响应）；无 electronAPI 成员，当前无调用方（保留注册）。"
-    },
-    {
       "method": "zlib:getURL",
       "reason": "返回当前 Z-Library 页面 URL；BridgeServer.cpp 明确把它排除在外部页面白名单外（会泄露当前 URL），渲染层无消费者；无 electronAPI 成员，当前无调用方（保留注册）。"
     },

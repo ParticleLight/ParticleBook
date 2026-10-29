@@ -1,4 +1,5 @@
 #include "PdfService.h"
+#include "platform/LogService.h"
 #include "utils/encoding.h"
 #include "utils/fnv1a.h"
 #include "utils/mobi_patch.h"
@@ -19,12 +20,63 @@
 
 // ── Helpers ─────────────────────────────────────────────────────────
 
+// ── 页面缓存目录：<exe>/renderer/_pb_pdf ──────────────────────────────
+// 渲染出来的 PNG 文件名带 doc id + 版本号，跨会话不会再命中 —— 只增不减。
+// 启动时按 mtime 只留最新的 kPageCacheMaxFiles 个（约 100~150MB 上限），
+// 否则读过的每一页都会永久堆在安装目录里。
+namespace {
+
+constexpr std::size_t kPageCacheMaxFiles = 512;
+
+std::filesystem::path PageCacheDir()
+{
+    wchar_t exePath[MAX_PATH] = {};
+    if (GetModuleFileNameW(nullptr, exePath, MAX_PATH) == 0) return std::filesystem::path();
+    return std::filesystem::path(exePath).parent_path() / "renderer" / "_pb_pdf";
+}
+
+// 只做「太多就删最旧」，全部走 error_code 重载（不抛异常）。
+void PrunePageCache(const std::filesystem::path& dir)
+{
+    if (dir.empty()) return;
+    std::error_code ec;
+    std::vector<std::filesystem::directory_entry> entries;
+    for (std::filesystem::directory_iterator it(dir, ec), end; !ec && it != end; it.increment(ec)) {
+        std::error_code fileEc;
+        if (it->is_regular_file(fileEc) && !fileEc) entries.push_back(*it);
+    }
+    if (entries.size() <= kPageCacheMaxFiles) return;
+
+    std::sort(entries.begin(), entries.end(),
+              [](const std::filesystem::directory_entry& left,
+                 const std::filesystem::directory_entry& right) {
+                  std::error_code leftEc;
+                  std::error_code rightEc;
+                  const auto leftTime = left.last_write_time(leftEc);
+                  const auto rightTime = right.last_write_time(rightEc);
+                  if (leftEc || rightEc) return false;
+                  return leftTime > rightTime;   // 新的排前面
+              });
+
+    for (std::size_t i = kPageCacheMaxFiles; i < entries.size(); ++i) {
+        std::error_code removeEc;
+        std::filesystem::remove(entries[i].path(), removeEc);
+    }
+}
+
+} // namespace
+
 // ── Constructor / Destructor ─────────────────────────────────────────
 
 PdfService::PdfService() : m_nextId(static_cast<int>(GetTickCount() & 0x7FFFFFFF))
 {
     // Randomize the per-session document-id base so rendered PNG files
     // (doc_<id>_page_<n>.png) never collide with a previous run's cache.
+    try {
+        PrunePageCache(PageCacheDir());
+    } catch (...) {
+        // 清理失败不能影响正常使用（只影响磁盘占用）
+    }
 }
 PdfService::~PdfService()
 {
@@ -186,20 +238,9 @@ PdfOpenResult PdfService::Open(const std::string& filePath)
     std::string actualPath = PatchMobiEncoding(filePath);
     if (actualPath != filePath) m_tempFiles.push_back(actualPath);
 
-    // Debug log
-    wchar_t exePath[MAX_PATH];
-    GetModuleFileNameW(nullptr, exePath, MAX_PATH);
-    auto logPath = std::filesystem::path(exePath).parent_path() / "debug.log";
-    auto logMsg = [&](const char* msg) {
-        FILE* lf = _wfopen(logPath.c_str(), L"a");
-        if (lf) {
-            time_t now = time(nullptr);
-            char timeBuf[32];
-            tm localTm; localtime_s(&localTm, &now);
-            strftime(timeBuf, sizeof(timeBuf), "%H:%M:%S", &localTm);
-            fprintf(lf, "[%s] PdfService::Open: %s\n", timeBuf, msg);
-            fclose(lf);
-        }
+    // 日志统一走 LogService（review · B-13）：不再往 exe 目录追加 debug.log。
+    auto logMsg = [](const char* msg) {
+        pb::LogDebug("pdf", std::string("PdfService::Open: ") + (msg ? msg : ""));
     };
 
     logMsg(("opening " + actualPath).c_str());
@@ -288,9 +329,8 @@ std::string PdfService::RenderPage(int id, uint32_t pageIndex, int pixelWidth, i
     if (!entry || pageIndex >= entry->pageCount) return "";
 
     // Get renderer directory (mapped to particlebook.app virtual host)
-    wchar_t exePathBuf[MAX_PATH];
-    GetModuleFileNameW(nullptr, exePathBuf, MAX_PATH);
-    auto rendererDir = (std::filesystem::path(exePathBuf).parent_path() / "renderer" / "_pb_pdf").string();
+    const std::string rendererDir = PageCacheDir().string();
+    if (rendererDir.empty()) return "";
     std::filesystem::create_directories(pb::Utf8ToWide(rendererDir));
 
     const std::string version = entry->version.empty() ? "0" : entry->version;

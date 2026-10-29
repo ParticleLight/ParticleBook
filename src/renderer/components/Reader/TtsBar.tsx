@@ -279,6 +279,10 @@ export function TtsBar({ bookId, filePath, format, onClose }: TtsBarProps) {
   // PB-001-C 睡眠定时
   const [sleepMode, setSleepMode] = useState<SleepMode>('off')
   const [sleepLeft, setSleepLeft] = useState('')
+  // review U12：窄窗口下「语速」「睡眠定时」原本整块 display:none，功能直接不可达
+  // （应用已正式支持 compact 档）。现在这两个控件在窄档收进「更多」折叠面板。
+  const [moreOpen, setMoreOpen] = useState(false)
+  const moreRef = useRef<HTMLDivElement | null>(null)
 
   const activeRef = useRef(false)
   // 用户「想暂停」的意图。SapiTts（PB-001-A）在句子开始事件里会清 paused 标志，
@@ -633,6 +637,22 @@ export function TtsBar({ bookId, filePath, format, onClose }: TtsBarProps) {
     { value: 'chapter', label: t('到本章结束') },
   ], [t])
 
+  useEffect(() => {
+    if (!moreOpen) return
+    const onDown = (e: MouseEvent) => {
+      const el = moreRef.current
+      if (el && e.target instanceof Node && el.contains(e.target)) return
+      setMoreOpen(false)
+    }
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setMoreOpen(false) }
+    document.addEventListener('mousedown', onDown)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [moreOpen])
+
   const voiceOptions = useMemo<M3SelectOption[]>(() => (
     voices.length === 0
       ? [{ value: '', label: t('无可用音色') }]
@@ -696,7 +716,7 @@ export function TtsBar({ bookId, filePath, format, onClose }: TtsBarProps) {
         )}
       </div>
 
-      {/* 语速 */}
+      {/* 语速（≥sm 内联；更窄收进「更多」） */}
       <div className="hidden sm:flex items-center gap-1 shrink-0" title={t('语速')}>
         <span className="text-xs opacity-60">{t('语速')}</span>
         <input
@@ -712,7 +732,7 @@ export function TtsBar({ bookId, filePath, format, onClose }: TtsBarProps) {
         <span className="text-xs w-6 text-center tabular-nums">{rate > 0 ? '+' + rate : rate}</span>
       </div>
 
-      {/* 睡眠定时（PB-001-C） */}
+      {/* 睡眠定时（PB-001-C）：≥md 内联；更窄收进「更多」 */}
       <div className="hidden md:flex items-center gap-1 shrink-0" title={t('睡眠定时')}>
         <svg className="w-4 h-4 opacity-60" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -728,6 +748,67 @@ export function TtsBar({ bookId, filePath, format, onClose }: TtsBarProps) {
         />
         {sleepLeft && (
           <span className="text-xs tabular-nums opacity-70 min-w-[2.6rem] text-center" data-tts-sleep-left="1">{sleepLeft}</span>
+        )}
+      </div>
+
+      {/* review U12：窄档（<md）把上面两个控件收进这个折叠面板，保证任何宽度都可达。
+          面板里的每一项只在「内联版被隐藏的断点」显示，避免同一控件出现两次。 */}
+      <div className="relative md:hidden shrink-0" ref={moreRef}>
+        <button
+          type="button"
+          onClick={() => setMoreOpen((v) => !v)}
+          className="m3-icon-button"
+          title={t('更多朗读选项')}
+          aria-label={t('更多朗读选项')}
+          aria-expanded={moreOpen}
+          aria-haspopup="dialog"
+          data-tts-more-toggle="1"
+        >
+          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h.01M12 12h.01M19 12h.01M6 12a1 1 0 11-2 0 1 1 0 012 0zm7 0a1 1 0 11-2 0 1 1 0 012 0zm7 0a1 1 0 11-2 0 1 1 0 012 0z" />
+          </svg>
+        </button>
+        {moreOpen && (
+          <div
+            className="m3-menu absolute bottom-full right-0 mb-2 z-50 p-3 flex flex-col gap-3"
+            role="group"
+            aria-label={t('更多朗读选项')}
+            data-tts-more-panel="1"
+          >
+            {/* 语速：<640 才在面板里出现 */}
+            <div className="sm:hidden flex items-center gap-2" data-tts-more-rate="1">
+              <span className="text-xs opacity-60">{t('语速')}</span>
+              <input
+                type="range"
+                min={-10}
+                max={10}
+                step={1}
+                value={rate}
+                onChange={(e) => handleRateChange(Number(e.target.value))}
+                className="m3-slider w-24 cursor-pointer"
+                aria-label={t('语速')}
+              />
+              <span className="text-xs w-6 text-center tabular-nums">{rate > 0 ? '+' + rate : rate}</span>
+            </div>
+            {/* 睡眠定时：<768 才在面板里出现 */}
+            <div className="md:hidden flex items-center gap-2" data-tts-more-sleep="1">
+              <svg className="w-4 h-4 opacity-60" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <M3Select
+                value={sleepMode}
+                options={sleepOptions}
+                onChange={(next) => { setHint(''); setSleepMode(next as SleepMode) }}
+                className="shrink-0"
+                title={t('睡眠定时')}
+                aria-label={t('睡眠定时')}
+                data-tts-sleep-compact="1"
+              />
+              {sleepLeft && (
+                <span className="text-xs tabular-nums opacity-70 min-w-[2.6rem] text-center" data-tts-sleep-left-compact="1">{sleepLeft}</span>
+              )}
+            </div>
+          </div>
         )}
       </div>
 

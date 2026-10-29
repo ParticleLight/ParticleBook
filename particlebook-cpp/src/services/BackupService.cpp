@@ -328,6 +328,17 @@ bool EqualsPathNoCase(const std::string& left, const std::string& right)
     return true;
 }
 
+// 忽略大小写的前缀判定（Windows 路径比较口径；只用于「是否在某个目录下」这类
+// 快速裁决，不做完整规范化）。
+bool StartsWithNoCase(const std::string& text, const std::string& prefix)
+{
+    if (prefix.size() > text.size()) return false;
+    for (std::size_t i = 0; i < prefix.size(); ++i) {
+        if (LowerAsciiChar(text[i]) != LowerAsciiChar(prefix[i])) return false;
+    }
+    return true;
+}
+
 std::string ParentDirectoryOf(const std::string& path)
 {
     const std::size_t slash = path.find_last_of("\\/");
@@ -416,6 +427,45 @@ bool IsSafeAbsoluteCoverPath(const std::string& path)
         position = slash + 1;
     }
     return true;
+}
+
+// path 是否严格位于 directory 之内（同级或更浅都不算）。两边都做「斜杠归一 + 忽略
+// 大小写」的 Windows 口径比较；不解析 . 与符号链接 —— 这里要的是「明显不是外部
+// 路径」的快速判定，不是完整的安全沙箱。
+bool IsWithinDirectory(const std::string& path, const std::string& directory)
+{
+    if (path.empty() || directory.empty()) return false;
+    std::string candidate = path;
+    std::string root = directory;
+    for (char& ch : candidate) {
+        if (ch == '/') ch = '\\';
+    }
+    for (char& ch : root) {
+        if (ch == '/') ch = '\\';
+    }
+    while (root.size() > 2 && root.back() == '\\') root.pop_back();   // "C:\\" → "C:"
+    if (root.size() + 1 >= candidate.size()) return false;   // 必须还有一段子路径
+    if (!StartsWithNoCase(candidate, root)) return false;
+    return candidate[root.size()] == '\\';
+}
+
+// 恢复封面的目标路径裁决。备份包能决定 sourcePath 这个绝对路径，所以只允许写进
+// **应用自己的数据目录**：
+//   * coverDir（默认 <数据库目录>\covers）
+//   * 目标数据库所在目录（<UserData>\data）
+//   * 目标数据库目录的上一级（<UserData>，兼容封面直接放在数据根下的旧包）
+// 其余一律回落到 coverDir —— 否则一个伪造的「备份」就能往 Startup 目录丢文件。
+bool IsAllowedCoverRestorePath(const std::string& path, const std::string& targetDbPath,
+                               const std::string& coverDirectory)
+{
+    if (!IsSafeAbsoluteCoverPath(path)) return false;
+    if (!coverDirectory.empty() && IsWithinDirectory(path, coverDirectory)) return true;
+    const std::string dbDirectory = ParentDirectoryOf(targetDbPath);
+    if (dbDirectory.empty()) return false;
+    if (IsWithinDirectory(path, dbDirectory)) return true;
+    const std::string dataRoot = ParentDirectoryOf(dbDirectory);
+    if (!dataRoot.empty() && IsWithinDirectory(path, dataRoot)) return true;
+    return false;
 }
 
 // books[].cover_path 去重后的绝对路径列表（book 里可能是 null / 非字符串）。
@@ -1256,14 +1306,21 @@ RestoreResult BackupService::RestoreBackup(const std::string& zipPath,
 
             bool placed = false;
             std::string finalPath;
-            if (options.restoreCoversToOriginalPath &&
-                IsSafeAbsoluteCoverPath(cover.sourcePath)) {
+            // 写回原路径默认关闭；即使调用方打开，也只允许落在应用数据目录内
+            // （见 IsAllowedCoverRestorePath）。备份包能决定 sourcePath 这个绝对
+            // 路径，不能让它往任意目录写文件。
+            const bool wantsOriginalPath = options.restoreCoversToOriginalPath;
+            if (wantsOriginalPath &&
+                IsAllowedCoverRestorePath(cover.sourcePath, targetDbPath, coverDirectory)) {
                 std::string coverWriteCode;
                 if (WriteFileAtomicallyUtf8(cover.sourcePath, coverBytes, coverWriteCode,
                                             backup_codes::kIoError)) {
                     placed = true;
                     finalPath = cover.sourcePath;
                 }
+            } else if (wantsOriginalPath && !cover.sourcePath.empty()) {
+                // 记录一次（不阻塞恢复）：调用方能看到「这张封面为什么被搬走了」。
+                result.issues.push_back("cover_path_not_allowed: " + cover.sourcePath);
             }
             if (!placed) {
                 if (!coverDirectoryChecked) {

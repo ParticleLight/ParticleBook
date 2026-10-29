@@ -18,6 +18,70 @@ interface HtmlRendererProps {
 
 const md = new MarkdownIt({ html: false, linkify: true, typographer: true })
 
+// ── review F-07：HTML/Markdown/FB2/DOCX 的高亮渲染 ────────────────────
+// 这四种格式走 HtmlRenderer，而它以前完全不画 user highlights（点了「高亮」只有
+// DB 里多一条，正文毫无变化）。这里用 **CSS Custom Highlight API** 渲染：
+// 不改 DOM（正文是 React 的 dangerouslySetInnerHTML，改 DOM 会和重渲染打架），
+// 只注册 ::highlight() 伪元素；样式由注入的一个 <style> 提供。
+//   * 按颜色分组，每组一个 registry 名字（一个 Highlight 只能有一种样式）；
+//   * 同一段文字可能有多条高亮，全部按文本查找后叠加，最多 MAX_ANNOTATION_RANGES 段，
+//     避免「常见词高亮」把主线程拖死（与 F-02 同一个道理）。
+const ANNOTATION_HIGHLIGHT_PREFIX = 'pb-annotation-'
+const ANNOTATION_STYLE_ID = 'pb-annotation-styles'
+const MAX_ANNOTATION_RANGES = 500
+const MAX_RANGES_PER_HIGHLIGHT = 50
+
+/** #rrggbb / #rgb → rgba(...)，alpha 默认 0.35（保证正文仍可读）。 */
+function hexToRgba(hex: string, alpha: number): string {
+  const raw = hex.replace('#', '')
+  const full = raw.length === 3
+    ? raw.split('').map((c) => c + c).join('')
+    : raw
+  if (full.length !== 6) return hex
+  const num = Number.parseInt(full, 16)
+  if (Number.isNaN(num)) return hex
+  const r = (num >> 16) & 0xff
+  const g = (num >> 8) & 0xff
+  const b = num & 0xff
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`
+}
+
+/** 高亮行的 color → 可用的 ::highlight() background-color。 */
+function highlightPaint(color: string | undefined): string {
+  const value = (color || '').trim()
+  if (!value) return 'rgba(251, 191, 36, 0.35)'
+  if (value.startsWith('#')) return hexToRgba(value, 0.35)
+  // 已经是 rgba()/命名色（TXT 渲染器存的就是 rgba）→ 原样使用
+  return value
+}
+
+/** 在 root 里找 needle 的所有出现位置（跨文本节点不支持，与 TXT 渲染器口径一致）。 */
+function findTextRanges(root: HTMLElement, needle: string, budget: number): Range[] {
+  const out: Range[] = []
+  if (!needle) return out
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
+  let node = walker.nextNode() as Text | null
+  while (node && out.length < budget) {
+    const data = node.data || ''
+    let from = 0
+    while (out.length < budget) {
+      const at = data.indexOf(needle, from)
+      if (at < 0) break
+      try {
+        const range = document.createRange()
+        range.setStart(node, at)
+        range.setEnd(node, at + needle.length)
+        out.push(range)
+      } catch {
+        break
+      }
+      from = at + needle.length
+    }
+    node = walker.nextNode() as Text | null
+  }
+  return out
+}
+
 export function HtmlRenderer({ book, content, bookId }: HtmlRendererProps) {
   const { t } = useTranslation()
   const [htmlContent, setHtmlContent] = useState('')
@@ -38,6 +102,9 @@ export function HtmlRenderer({ book, content, bookId }: HtmlRendererProps) {
   const searchMatches = useReaderStore((s) => s.searchMatches)
   const currentSearchIndex = useReaderStore((s) => s.currentSearchIndex)
   const setSearchMatches = useReaderStore((s) => s.setSearchMatches)
+  // review F-07：正文高亮（EPUB/TXT 各自渲染，这四种格式此前完全没有）
+  const highlights = useReaderStore((s) => s.highlights)
+  const annotationNamesRef = useRef<string[]>([])
 
   const fontSize = useSettingsStore((s) => s.fontSize)
   const fontFamily = useSettingsStore((s) => s.fontFamily)
@@ -145,6 +212,80 @@ export function HtmlRenderer({ book, content, bookId }: HtmlRendererProps) {
       h.id = `heading-${i}`
     })
   }, [htmlContent])
+
+  // review F-07：把 readerStore.highlights 画到正文上（CSS Custom Highlight API，
+  // 不改 DOM）。htmlContent 变了（换书/换内容）或高亮列表变了就重建一次。
+  useEffect(() => {
+    const root = contentRef.current
+    const registry = typeof CSS !== 'undefined' ? (CSS as unknown as { highlights?: Map<string, unknown> }).highlights : undefined
+    const HighlightCtor = (window as unknown as { Highlight?: new (...ranges: Range[]) => unknown }).Highlight
+
+    const cleanup = () => {
+      if (registry) {
+        for (const name of annotationNamesRef.current) {
+          try { registry.delete(name) } catch { /* ignore */ }
+        }
+      }
+      annotationNamesRef.current = []
+      document.getElementById(ANNOTATION_STYLE_ID)?.remove()
+    }
+
+    cleanup()
+    if (!root || !registry || typeof HighlightCtor !== 'function' || highlights.length === 0) return cleanup
+
+    // 延迟一个宏任务再算 Range：搜索用的 effect 会在 rAF 里把命中的文本节点换成
+    // <mark>（节点被替换后旧 Range 会失效），我们的 Range 必须在它之后重新算。
+    let timer = 0
+    timer = window.setTimeout(() => {
+    const liveRoot = contentRef.current
+    if (!liveRoot) return
+    const byPaint = new Map<string, Range[]>()
+    let budget = MAX_ANNOTATION_RANGES
+    for (const hl of highlights) {
+      if (budget <= 0) break
+      const text = (hl.text || '').trim()
+      if (!text) continue
+      const ranges = findTextRanges(
+        liveRoot,
+        text,
+        Math.min(budget, MAX_RANGES_PER_HIGHLIGHT),
+      )
+      if (ranges.length === 0) continue
+      budget -= ranges.length
+      const paint = highlightPaint(hl.color)
+      const bucket = byPaint.get(paint)
+      if (bucket) bucket.push(...ranges)
+      else byPaint.set(paint, ranges)
+    }
+    if (byPaint.size === 0) return
+
+    const names: string[] = []
+    const rules: string[] = []
+    let index = 0
+    for (const [paint, ranges] of byPaint) {
+      const name = ANNOTATION_HIGHLIGHT_PREFIX + index
+      index += 1
+      try {
+        registry.set(name, new HighlightCtor(...ranges))
+        names.push(name)
+        rules.push('::highlight(' + name + '){background-color:' + paint + ';color:inherit;}')
+      } catch { /* 该组注册失败不影响其它组 */ }
+    }
+    annotationNamesRef.current = names
+    if (rules.length > 0) {
+      const style = document.createElement('style')
+      style.id = ANNOTATION_STYLE_ID
+      style.textContent = rules.join('')
+      document.head.appendChild(style)
+    }
+    }, 0)
+
+    return () => {
+      window.clearTimeout(timer)
+      cleanup()
+    }
+    // searchQuery 变化也要重算：搜索高亮会替换文本节点，旧 Range 会失效
+  }, [htmlContent, highlights, searchQuery])
 
   // Search highlighting — apply after DOM is rendered
   useEffect(() => {

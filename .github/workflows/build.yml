@@ -33,6 +33,11 @@ jobs:
       - name: Verify i18n key coverage
         run: npm run i18n:check
 
+      # F3（2026-10-29 review）：changelog 的译文/版本顺序护栏从来不在 CI 跑 →
+      # 漏翻会静默回落到中文。这里与 i18n 一起检查。
+      - name: Verify changelog translations
+        run: npm run check:changelog
+
       - name: Verify C++ bridge ↔ TS contract
         run: node scripts/check-bridge-contract.js
 
@@ -59,6 +64,12 @@ jobs:
 
       - name: Run C++ unit tests
         run: ctest --test-dir particlebook-cpp/build2 --output-on-failure
+
+      # 新增（2026-10-29 review）：安装包清单守卫 —— 校验 installer.nsi 含
+      # mobitool.exe / WebView2Loader.dll / renderer 与 resources 的按目录规则，
+      # 并核对 build2 里的构建产物（含 renderer/app-icon.png）。
+      - name: Verify installer manifest (mobitool / renderer / resources)
+        run: npm run check:installer
 
       - name: Smoke test — binaries exist
         run: |

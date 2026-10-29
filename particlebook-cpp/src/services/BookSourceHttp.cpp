@@ -62,6 +62,10 @@ std::string BookSourceService::FetchUrl(const std::string& url, const std::strin
         pb::LogWarn("booksource", "fetch: WinHttpOpen failed: " + LogUrl(url));
         return "";
     }
+    // 必须显式设超时：WinHTTP 的 resolve 超时默认是 0 = 无限等待。书源是用户自己
+    // 配的第三方站点（死域名、黑洞 IP 很常见），没有超时就是「这条章节能把下载线程
+    // 永久挂住」—— 参数与 Z-Library 下载侧一致（ZLibraryDownload.cpp）。
+    WinHttpSetTimeouts(hSession, 10000, 10000, 10000, 30000);
 
     HINTERNET hConnect = WinHttpConnect(hSession, whost.c_str(),
         https ? INTERNET_DEFAULT_HTTPS_PORT : INTERNET_DEFAULT_HTTP_PORT, 0);

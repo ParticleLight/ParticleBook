@@ -11,6 +11,7 @@ import { useSettingsStore, type AccentColor } from '../../stores/settingsStore'
 import { copyText, downloadText } from '../../utils/download'
 import { TranslationSettings } from './TranslationSettings'
 import { Switch } from '../UI/Switch'
+import { ConfirmDialog } from '../UI/ConfirmDialog'
 import { BookSourceManager } from './BookSourceManager'
 
 export interface GlobalSettingsProps {
@@ -633,6 +634,8 @@ export function AboutPage() {
   const [backupMsg, setBackupMsg] = useState('')
   const [backupFailure, setBackupFailure] = useState<BackupFailure | null>(null)
   const [backupProgress, setBackupProgress] = useState(0)
+  // 恢复备份的二次确认（review U6：替代 window.confirm）
+  const [confirmRestore, setConfirmRestore] = useState<{ path?: string } | null>(null)
   const [exportAllBusy, setExportAllBusy] = useState(false)
   const [exportAllMsg, setExportAllMsg] = useState('')
   const [backupBusy, setBackupBusy] = useState<'create' | 'restore' | ''>('')
@@ -760,21 +763,22 @@ export function AboutPage() {
 
   const handleCreateBackup = () => runCreateBackup()
 
+  // review U6：恢复备份的确认从原生 window.confirm（白底系统弹窗、阻塞渲染）改成
+  // M3 ConfirmDialog。确认后真正执行 restore；重试按钮复用同一段确认流程。
   const handleRestoreBackup = () => {
-    if (!window.confirm(t('恢复会覆盖当前书库、进度与笔记。继续？'))) return
-    runRestoreBackup()
+    if (backupBusy) return
+    setConfirmRestore({})
   }
 
   // 只重放上一次失败的操作与参数；不会自动重试（必须用户点击）。
   const handleRetryBackup = () => {
     const attempt = planBackupRetry(backupFailure, !!backupBusy)
     if (!attempt) return
-    if (attempt.action === 'restore' &&
-        !window.confirm(t('恢复会覆盖当前书库、进度与笔记。继续？'))) {
+    if (attempt.action === 'restore') {
+      setConfirmRestore({ path: attempt.path })
       return
     }
-    if (attempt.action === 'create') runCreateBackup()
-    else runRestoreBackup(attempt.path)
+    runCreateBackup()
   }
 
   const handleExportDiagnostics = () => {
@@ -995,6 +999,18 @@ export function AboutPage() {
           <p>{t('许可证：')}MIT</p>
         </div>
       </div>
+
+      {/* review U6：恢复备份确认（M3 ConfirmDialog，替代原生 window.confirm） */}
+      {confirmRestore && (
+        <ConfirmDialog
+          title={t('恢复备份')}
+          message={t('恢复会覆盖当前书库、进度与笔记。继续？')}
+          confirmText={t('确认')}
+          danger
+          onConfirm={() => { const path = confirmRestore.path; setConfirmRestore(null); runRestoreBackup(path) }}
+          onCancel={() => setConfirmRestore(null)}
+        />
+      )}
     </div>
   )
 }

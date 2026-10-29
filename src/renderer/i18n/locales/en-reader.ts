@@ -212,4 +212,21 @@ export const enReader: Record<string, string> = {
   '正在加载文本…': 'Loading text…',
   '导出预览': 'Export preview',
 
+  // 2026-10-29 review 修复（F-02 / F-07 / F-08 / U4 / U12）
+  // F-02：TXT 搜索命中上限
+  '命中过多：只标记前 {{n}} 处，请用更长的关键词缩小范围': 'Too many matches: only the first {{n}} are marked — use a longer keyword to narrow it down',
+  // F-08：EPUB 全文索引还没建好
+  '正在建立搜索索引…': 'Building the search index…',
+  // U4：删除确认（书签/高亮/笔记/标注）
+  '删除书签': 'Delete bookmark',
+  '删除高亮': 'Delete highlight',
+  '删除笔记': 'Delete note',
+  '删除{{type}}': 'Delete {{type}}',
+  '确定删除这个书签吗？': 'Delete this bookmark?',
+  '确定删除这条高亮吗？删除后正文里的标记也会消失。': 'Delete this highlight? The markup will disappear from the page too.',
+  '确定删除这条笔记吗？手写内容删除后无法恢复。': 'Delete this note? Your text cannot be recovered.',
+  '确定删除这条标注吗？删除后无法恢复。': 'Delete this annotation? It cannot be recovered.',
+  // U12：窄窗口 TTS 折叠面板
+  '更多朗读选项': 'More speech options',
+
 }

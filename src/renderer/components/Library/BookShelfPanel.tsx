@@ -1,8 +1,9 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useLibraryStore } from '../../stores/libraryStore'
 import { useTranslation } from 'react-i18next'
 import { ConfirmDialog } from '../UI/ConfirmDialog'
+import { Modal } from '../UI/Modal'
 
 interface BookShelfPanelProps {
   onOpenBookSource?: () => void
@@ -29,6 +30,7 @@ export function BookShelfPanel({ onOpenBookSource, onOpenZLibrary, onAddFromAll,
   // "重命名"下方极易误点 —— 同应用删书都有确认，这里此前没有。
   const [pendingDeleteId, setPendingDeleteId] = useState<number | null>(null)
   const { t } = useTranslation()
+  const createTitleId = useId()
   const contextMenuRef = useRef<HTMLDivElement | null>(null)
   // 触发右键菜单的那个书柜项：Esc 关闭后把焦点还回去（WAI-ARIA 的菜单模式）
   const contextMenuTriggerRef = useRef<HTMLElement | null>(null)
@@ -72,6 +74,7 @@ export function BookShelfPanel({ onOpenBookSource, onOpenZLibrary, onAddFromAll,
     return () => document.removeEventListener('keydown', onKeyDown, true)
   }, [contextMenuOpen])
 
+  const closeCreateDialog = () => { setShowDialog(false); setNewName('') }
   const handleCreate = () => { if (newName.trim()) { createBookshelf(newName.trim()); setNewName(''); setShowDialog(false) } }
   const handleRename = () => { if (editingId !== null && editName.trim()) { renameBookshelf(editingId, editName.trim()); setEditingId(null); setEditName('') } }
 
@@ -186,22 +189,25 @@ export function BookShelfPanel({ onOpenBookSource, onOpenZLibrary, onAddFromAll,
         document.body
       )}
 
-      {/* Create dialog —— 同上，必须 portal，否则 320px 宽的弹窗会被挤进 256px 的侧栏里 */}
-      {showDialog && createPortal(
-        <div className="fixed inset-0 z-50 flex items-center justify-center animate-fade-in" onClick={() => { setShowDialog(false); setNewName('') }}>
-          <div className="m3-dialog-backdrop absolute inset-0" />
-          <div className="m3-dialog relative w-80 p-6 animate-scale-in">
-            <h3 className="m3-title-large mb-4">{t('新建书柜')}</h3>
-            <input autoFocus value={newName} onChange={(e) => setNewName(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') handleCreate(); if (e.key === 'Escape') { setShowDialog(false); setNewName('') } }}
-              placeholder={t('请输入书柜名称...')} className="w-full input mb-4" />
-            <div className="flex justify-end gap-2">
-              <button onClick={() => { setShowDialog(false); setNewName('') }} className="m3-text-button">{t('取消')}</button>
-              <button onClick={handleCreate} className="m3-filled-button">{t('创建')}</button>
-            </div>
+      {/* Create dialog —— 走 UI/Modal：它 portal 到 body（否则 320px 宽的弹窗会被
+          256px 的侧栏挤扁），并补齐 role="dialog"/aria-modal/Esc/焦点陷阱/关闭回焦。
+          review U1：宽度写 !w-80 兜底，别让 .m3-dialog 的默认 560px 压掉设计宽度。 */}
+      {showDialog && (
+        <Modal
+          onClose={closeCreateDialog}
+          labelledBy={createTitleId}
+          containerClassName="fixed inset-0 z-50 flex items-center justify-center animate-fade-in p-4"
+          panelClassName="m3-dialog relative !w-80 p-6 animate-scale-in"
+        >
+          <h3 className="m3-title-large mb-4" id={createTitleId}>{t('新建书柜')}</h3>
+          <input autoFocus value={newName} onChange={(e) => setNewName(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') handleCreate() }}
+            placeholder={t('请输入书柜名称...')} className="w-full input mb-4" />
+          <div className="flex justify-end gap-2">
+            <button onClick={closeCreateDialog} className="m3-text-button">{t('取消')}</button>
+            <button onClick={handleCreate} className="m3-filled-button">{t('创建')}</button>
           </div>
-        </div>,
-        document.body
+        </Modal>
       )}
 
       {/* 删除书柜确认 */}

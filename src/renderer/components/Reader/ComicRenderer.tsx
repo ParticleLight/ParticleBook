@@ -79,11 +79,18 @@ export function ComicRenderer({ book, content, bookId }: ComicRendererProps) {
     }
   }, [content])
 
+  // 每轮缓存的序号（review F-09）：updateCache 里有 await（解压 blob），快速翻页时
+  // 两次调用会交错 —— 先发起的那次会按自己的 needed 把后一次刚建好的 URL
+  // revokeObjectURL 掉，表现为「某页一直转圈/空白」。只有最新一轮可以 revoke / 提交。
+  const cacheSeqRef = useRef(0)
+
   // Load nearby pages and release distant ones
   const updateCache = useCallback(async (center: number) => {
     const entries = entriesRef.current
     const cache = cacheRef.current
     if (entries.length === 0) return
+
+    const seq = ++cacheSeqRef.current
 
     const needed = new Set<number>()
     for (let i = Math.max(0, center - CACHE_RANGE); i <= Math.min(entries.length - 1, center + CACHE_RANGE); i++) {
@@ -95,13 +102,19 @@ export function ComicRenderer({ book, content, bookId }: ComicRendererProps) {
       if (!cache.has(idx)) {
         try {
           const blob = await entries[idx].getData()
+          // 期间又翻页了：本轮作废（已建好的 URL 留在 cache 里，由最新一轮决定去留）
+          if (seq !== cacheSeqRef.current) return
           const url = URL.createObjectURL(blob)
           cache.set(idx, url)
-        } catch {}
+        } catch {
+          if (seq !== cacheSeqRef.current) return
+        }
       }
     }
 
-    // Release distant pages
+    if (seq !== cacheSeqRef.current) return
+
+    // Release distant pages（只有最新一轮才会走到这里，不会撤掉别人刚建的 URL）
     for (const [idx, url] of cache) {
       if (!needed.has(idx)) {
         URL.revokeObjectURL(url)
@@ -202,8 +215,11 @@ export function ComicRenderer({ book, content, bookId }: ComicRendererProps) {
         })}
       </div>
 
-      {/* Page indicator */}
-      <div className="fixed bottom-20 left-1/2 -translate-x-1/2 bg-black/60 backdrop-blur-sm text-white text-sm px-4 py-2 rounded-full">
+      {/* Page indicator（U14：走 inverse-surface 语义色，不硬编码黑白） */}
+      <div
+        className="fixed bottom-20 left-1/2 -translate-x-1/2 backdrop-blur-sm text-sm px-4 py-2 rounded-full"
+        style={{ background: 'var(--md-sys-color-inverse-surface)', color: 'var(--md-sys-color-inverse-on-surface)' }}
+      >
         {currentIndex + 1} / {totalPages}
       </div>
     </div>

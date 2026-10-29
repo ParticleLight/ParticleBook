@@ -25,6 +25,7 @@ import { useTranslation } from 'react-i18next'
 import i18n from '../../i18n'
 import { useAnnotationStore } from '../../stores/annotationStore'
 import { M3Select, type M3SelectOption } from '../UI/M3Select'
+import { ConfirmDialog } from '../UI/ConfirmDialog'
 import { useReaderStore, type ReadingProgress } from '../../stores/readerStore'
 import {
   annotationText,
@@ -111,6 +112,8 @@ export function AnnotationPanel({ bookId, format, onClose }: AnnotationPanelProp
   const [newNote, setNewNote] = useState('')
   const [busy, setBusy] = useState(false)
   const [feedback, setFeedback] = useState<string | null>(null)
+  // review U4：删除标注（含用户手写的笔记）先确认，不再点一下就落库
+  const [confirmAnnotation, setConfirmAnnotation] = useState<Annotation | null>(null)
   const feedbackTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
@@ -380,8 +383,18 @@ export function AnnotationPanel({ bookId, format, onClose }: AnnotationPanelProp
             return (
               <div
                 key={annotation.id}
+                role="button"
+                tabIndex={0}
+                aria-label={mainText}
                 className="group p-2 rounded-lg hover:bg-[var(--reader-border)] cursor-pointer"
                 onClick={() => jumpTo(annotation)}
+                // review U3：行要能用键盘跳转（Enter/Space）；行内有删除按钮时不抢键
+                onKeyDown={(e) => {
+                  if (e.target !== e.currentTarget) return
+                  if (e.key !== 'Enter' && e.key !== ' ') return
+                  e.preventDefault()
+                  jumpTo(annotation)
+                }}
                 data-testid="annotation-row"
                 data-annotation-type={annotation.type}
               >
@@ -418,10 +431,12 @@ export function AnnotationPanel({ bookId, format, onClose }: AnnotationPanelProp
                     </div>
                   </div>
                   <button
-                    onClick={(e) => { e.stopPropagation(); void handleRemove(annotation) }}
+                    onClick={(e) => { e.stopPropagation(); setConfirmAnnotation(annotation) }}
                     className="opacity-0 group-hover:opacity-100 p-1 opacity-40 hover:opacity-80 flex-shrink-0"
                     title={t('删除')}
-                    aria-label={t('删除')}
+                    aria-label={t('删除{{type}}', {
+                      type: annotation.type === 'note' ? t('笔记') : annotation.type === 'highlight' ? t('高亮') : t('书签'),
+                    })}
                     data-testid="annotation-delete"
                   >
                     <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -480,6 +495,27 @@ export function AnnotationPanel({ bookId, format, onClose }: AnnotationPanelProp
           {t('高亮请在正文中选中文字后添加（沿用现有高亮按钮）')}
         </p>
       </div>
+
+      {/* review U4：删除标注的二次确认 */}
+      {confirmAnnotation && (
+        <ConfirmDialog
+          title={t('删除{{type}}', {
+            type: confirmAnnotation.type === 'note' ? t('笔记') : confirmAnnotation.type === 'highlight' ? t('高亮') : t('书签'),
+          })}
+          message={confirmAnnotation.type === 'note'
+            ? t('确定删除这条笔记吗？手写内容删除后无法恢复。')
+            : t('确定删除这条标注吗？删除后无法恢复。')}
+          confirmText={t('删除')}
+          cancelText={t('取消')}
+          danger
+          onCancel={() => setConfirmAnnotation(null)}
+          onConfirm={() => {
+            const target = confirmAnnotation
+            setConfirmAnnotation(null)
+            if (target) void handleRemove(target)
+          }}
+        />
+      )}
     </div>
   )
 }

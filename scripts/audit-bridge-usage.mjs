@@ -10,7 +10,7 @@
 //
 // 表中标了 reserved: true 的条目是为将来功能预留的，单独归类，不计入待处理。
 
-import { readFileSync, readdirSync } from "fs"
+import { readFileSync, readdirSync, existsSync } from "fs"
 import { fileURLToPath, pathToFileURL } from "url"
 import { dirname, join } from "path"
 
@@ -18,6 +18,11 @@ const here = dirname(fileURLToPath(import.meta.url))
 const ROOT = join(here, "..")
 const { contract } = await import(pathToFileURL(join(ROOT, "bridge/contract.mjs")).href)
 
+// 路径比较一律先归一成 "/"：本仓库在 Windows 上开发、CI 也在 Windows，但审计
+// 脚本必须跨平台成立 —— 用 endsWith("types\\electron.d.ts") 这种带反斜杠的写法
+// 在 Linux/macOS 上永远 false，生成的 d.ts（含全部成员名）会被当成消费者，
+// 审计变成"全绿假象"（正是本文件头注释第 1 条要防的坑）。
+const norm = (p) => p.split("\\").join("/")
 const files = []
 const walk = (d) => {
   for (const e of readdirSync(d, { withFileTypes: true })) {
@@ -28,9 +33,14 @@ const walk = (d) => {
 }
 walk(join(ROOT, "src/renderer"))
 walk(join(ROOT, "particlebook-cpp/src"))
-const consumers = files.filter((f) =>
-  !f.endsWith("types\\electron.d.ts") && !f.endsWith("BridgeServer.cpp")
-);
+// 注入脚本的真源在 particlebook-cpp/resources/*.js（App.cpp 里只剩内置回退），
+// 它们是"原始消息通道"上 zlib 事件的主要消费者，必须一起扫。
+const RESOURCES_DIR = join(ROOT, "particlebook-cpp/resources")
+if (existsSync(RESOURCES_DIR)) walk(RESOURCES_DIR)
+const consumers = files.filter((f) => {
+  const n = norm(f)
+  return !n.endsWith("types/electron.d.ts") && !n.endsWith("BridgeServer.cpp")
+});
 const text = consumers.map((f) => readFileSync(f, "utf8")).join("\n");
 
 const dead = [];

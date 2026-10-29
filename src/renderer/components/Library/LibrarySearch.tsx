@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useReaderStore } from '../../stores/readerStore'
+import { Modal } from '../UI/Modal'
 
 // ── PB-006-B：书库「全局全文搜索」面板 ───────────────────────────────
 //
@@ -128,6 +129,7 @@ function searchErrorKey(code: string): string {
 
 export function LibrarySearch({ onClose, onOpenBook }: LibrarySearchProps) {
   const { t } = useTranslation()
+  const titleId = useId()
   const [status, setStatus] = useState<SearchStatus>({ books: 0, terms: 0, chars: 0 })
   const [statusLoaded, setStatusLoaded] = useState(false)
   const [building, setBuilding] = useState(false)
@@ -160,20 +162,12 @@ export function LibrarySearch({ onClose, onOpenBook }: LibrarySearchProps) {
   }, [])
 
   useEffect(() => { void loadStatus() }, [loadStatus])
+  // 打开即聚焦搜索框：Modal 的自动聚焦拿到的是面板里第一个可聚焦元素（重建索引
+  // 按钮），这里显式把焦点放到输入框，行为与改造前一致。
   useEffect(() => { inputRef.current?.focus() }, [])
 
-  // Esc 关闭：用窗口级捕获监听，而不是只绑面板的 onKeyDown ——
-  // 焦点万一不在面板里（例如用户点了滚动条/空白）也要能关。
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return
-      e.preventDefault()
-      e.stopPropagation()
-      onClose()
-    }
-    window.addEventListener('keydown', onKeyDown, true)
-    return () => window.removeEventListener('keydown', onKeyDown, true)
-  }, [onClose])
+  // review U5：Esc / 焦点陷阱 / 关闭回焦都交给 UI/Modal（原来的窗口级 Esc 监听
+  // 已移除，避免一次 Esc 触发两次关闭，也让叠在下层的弹层先关）。
 
   const pendingTerms = useMemo(() => buildTerms(debounced), [debounced])
 
@@ -335,20 +329,17 @@ export function LibrarySearch({ onClose, onOpenBook }: LibrarySearchProps) {
   const indexEmpty = statusLoaded && status.books === 0 && !building
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-start justify-center pt-[7vh] animate-fade-in"
-      onClick={onClose}
+    <Modal
+      onClose={onClose}
+      labelledBy={titleId}
       onKeyDown={handleKeyDown}
-      data-global-search="1"
+      containerClassName="fixed inset-0 z-50 flex items-start justify-center pt-[7vh] animate-fade-in"
+      panelClassName="m3-dialog relative !w-[760px] max-w-[94vw] max-h-[82vh] flex flex-col overflow-hidden animate-scale-in"
+      containerData={{ 'data-global-search': '1' }}
     >
-      <div className="m3-dialog-backdrop absolute inset-0" />
-      <div
-        className="m3-dialog relative w-[760px] max-w-[94vw] max-h-[82vh] flex flex-col overflow-hidden animate-scale-in"
-        onClick={(e) => e.stopPropagation()}
-      >
         <div className="flex items-start justify-between px-6 py-5 gap-3">
           <div className="min-w-0">
-            <h3 className="m3-title-large">{t('全文搜索')}</h3>
+            <h3 className="m3-title-large" id={titleId}>{t('全文搜索')}</h3>
             <p className="m3-body-small mt-1">{statusText}</p>
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
@@ -476,8 +467,7 @@ export function LibrarySearch({ onClose, onOpenBook }: LibrarySearchProps) {
           <span>{t('目前会打开命中的书；正文里的精确定位还在做')}</span>
           <span>{t('↑↓ 选择 · Enter 打开 · Esc 关闭')}</span>
         </div>
-      </div>
-    </div>
+    </Modal>
   )
 }
 

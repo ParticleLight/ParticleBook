@@ -164,18 +164,32 @@ endif()
 # resources/zlib_toolbar.js + download_card.js are read from
 # <exe dir>/resources at startup; missing files fall back to built-in minimal
 # scripts (App.cpp logs a WARN).
-add_custom_command(TARGET ParticleBook POST_BUILD
-    COMMAND "${CMAKE_COMMAND}" -E copy_directory
-        "${CMAKE_SOURCE_DIR}/resources"
-        "$<TARGET_FILE_DIR:ParticleBook>/resources"
-)
+# 守卫：copy_directory 在源目录不存在时会让 POST_BUILD 直接失败（2026-10-29
+# 的 mobitool 全红就是同型问题），这里在配置期判断后再决定是否注册这条命令。
+if(EXISTS "${CMAKE_SOURCE_DIR}/resources")
+    add_custom_command(TARGET ParticleBook POST_BUILD
+        COMMAND "${CMAKE_COMMAND}" -E copy_directory
+            "${CMAKE_SOURCE_DIR}/resources"
+            "$<TARGET_FILE_DIR:ParticleBook>/resources"
+    )
+else()
+    message(WARNING "resources/ not found — the exe will fall back to its built-in injected scripts")
+endif()
 
 # ── Copy frontend to build output ────────────────────────────────
-add_custom_command(TARGET ParticleBook POST_BUILD
-    COMMAND "${CMAKE_COMMAND}" -E copy_directory
-        "${CMAKE_SOURCE_DIR}/../out/renderer"
-        "$<TARGET_FILE_DIR:ParticleBook>/renderer"
-)
+# out/renderer 是 npm run build 的产物（gitignored）。缺它时不要让 POST_BUILD
+# 把整个 C++ 构建搞红：明确 WARNING 并跳过拷贝；CI 的 "binaries exist" 步骤
+# 仍会校验 build2/renderer/index.html，所以发布前不会漏。
+if(EXISTS "${CMAKE_SOURCE_DIR}/../out/renderer/index.html")
+    add_custom_command(TARGET ParticleBook POST_BUILD
+        COMMAND "${CMAKE_COMMAND}" -E copy_directory
+            "${CMAKE_SOURCE_DIR}/../out/renderer"
+            "$<TARGET_FILE_DIR:ParticleBook>/renderer"
+    )
+else()
+    message(WARNING "out/renderer not found — run 'npm run build' first; "
+                    "ParticleBook.exe will be built without a UI")
+endif()
 
 # ── Install ─────────────────────────────────────────────────────
 install(TARGETS ParticleBook RUNTIME DESTINATION .)

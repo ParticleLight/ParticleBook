@@ -4,7 +4,9 @@
 #include <filesystem>
 #include <cstdio>
 #include <cstring>
+#include <memory>
 #include <thread>
+#include <utility>
 
 #include "WebViewHostInternal.h"
 #include "platform/LogService.h"
@@ -310,45 +312,51 @@ LRESULT CALLBACK WebViewHost::WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
         if (self->m_moveCb) self->m_moveCb();
         return 0;
 
-    case WM_ZLIB_DOWNLOAD_DONE:
-        if (wp == 1 && self->m_dlCb) {
-            auto* data = reinterpret_cast<std::pair<std::string, std::string>*>(lp);
+    // ── 跨线程消息的堆载荷 ───────────────────────────────────────────
+    // 后台线程 new 一个结构/字符串再 PostMessage 过来，所有权随消息转移。这里一律
+    // 先用 unique_ptr 接管 LPARAM：回调没装（例如 SetupDownloadHandler 之前）或
+    // 分支不匹配时也一定会释放，不会因为「只在回调存在时 delete」而泄漏。
+    case WM_ZLIB_DOWNLOAD_DONE: {
+        std::unique_ptr<std::pair<std::string, std::string>> data(
+            reinterpret_cast<std::pair<std::string, std::string>*>(lp));
+        if (wp == 1 && self->m_dlCb && data) {
             self->m_dlCb(data->first, data->second);
-            delete data;
         }
         return 0;
+    }
 
-    case WM_ZLIB_DOWNLOAD_PROGRESS:
-        if (self->m_dlProgressCb) {
-            auto* data = reinterpret_cast<DLProgressData*>(lp);
+    case WM_ZLIB_DOWNLOAD_PROGRESS: {
+        std::unique_ptr<DLProgressData> data(reinterpret_cast<DLProgressData*>(lp));
+        if (self->m_dlProgressCb && data) {
             self->m_dlProgressCb(data->fileName, data->received, data->total);
-            delete data;
         }
         return 0;
+    }
 
-    case WM_ZLIB_DO_IMPORT:
-        if (self->m_importCb) {
-            auto* data = reinterpret_cast<std::pair<std::string, std::string>*>(lp);
+    case WM_ZLIB_DO_IMPORT: {
+        std::unique_ptr<std::pair<std::string, std::string>> data(
+            reinterpret_cast<std::pair<std::string, std::string>*>(lp));
+        if (self->m_importCb && data) {
             self->m_importCb(data->first, data->second);
-            delete data;
         }
         return 0;
+    }
 
-    case WM_ZLIB_IMPORT_DONE:
-        if (self->m_importResultCb) {
-            auto* data = reinterpret_cast<ImportResultData*>(lp);
+    case WM_ZLIB_IMPORT_DONE: {
+        std::unique_ptr<ImportResultData> data(reinterpret_cast<ImportResultData*>(lp));
+        if (self->m_importResultCb && data) {
             self->m_importResultCb(data->fileName, data->success, data->error);
-            delete data;
         }
         return 0;
+    }
 
-    case WM_ZLIB_DOWNLOAD_FAILED:
-        if (self->m_dlFailCb) {
-            auto* data = reinterpret_cast<DLFailData*>(lp);
+    case WM_ZLIB_DOWNLOAD_FAILED: {
+        std::unique_ptr<DLFailData> data(reinterpret_cast<DLFailData*>(lp));
+        if (self->m_dlFailCb && data) {
             self->m_dlFailCb(data->fileName, data->reason);
-            delete data;
         }
         return 0;
+    }
 
     case WM_ZLIB_ENTRY_NAVIGATE:
         if (self->m_zlibEntryNavCb) self->m_zlibEntryNavCb();
@@ -360,29 +368,24 @@ LRESULT CALLBACK WebViewHost::WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
         }
         return 0;
 
-    case WM_UPDATE_DOWNLOAD_DONE:
+    case WM_UPDATE_DOWNLOAD_DONE: {
+        std::unique_ptr<std::string> data(reinterpret_cast<std::string*>(lp));
         if (self->m_updateDoneCb) {
-            auto* str = reinterpret_cast<std::string*>(lp);
-            if (wp != 0) {
-                std::string path = str ? std::move(*str) : "";
-                delete str;
-                self->m_updateDoneCb(true, path);
-            } else {
-                std::string err = str ? std::move(*str) : "unknown";
-                delete str;
-                self->m_updateDoneCb(false, err);
-            }
+            const std::string text = data ? std::move(*data) : std::string();
+            if (wp != 0) self->m_updateDoneCb(true, text);
+            else self->m_updateDoneCb(false, data ? text : std::string("unknown"));
         }
         return 0;
+    }
 
-    case WM_UPDATE_CHECK_DONE:
+    case WM_UPDATE_CHECK_DONE: {
+        std::unique_ptr<std::string> data(reinterpret_cast<std::string*>(lp));
         if (self->m_updateCheckCb) {
-            auto* str = reinterpret_cast<std::string*>(lp);
-            std::string result = str ? std::move(*str) : "{}";
-            delete str;
+            const std::string result = data ? std::move(*data) : std::string("{}");
             self->m_updateCheckCb(result);
         }
         return 0;
+    }
 
     case WM_UPDATE_DOWNLOAD_PROGRESS:
         if (self->m_updateDownloadProgressCb) {

@@ -1,4 +1,5 @@
 #include "LibraryService.h"
+#include "platform/LogService.h"
 #include "utils/ZipReader.h"
 #include "utils/encoding.h"
 #define WIN32_LEAN_AND_MEAN
@@ -209,20 +210,10 @@ bool LibraryService::ExtractEpubMetadata(const std::string& filePath, ExtractedM
 
     bool result = ParseOpfXml(opfXml, opfDir, meta);
 
-    // Debug log
-    wchar_t exePath[MAX_PATH];
-    GetModuleFileNameW(nullptr, exePath, MAX_PATH);
-    auto logPath = std::filesystem::path(exePath).parent_path() / "debug.log";
-    FILE* lf = _wfopen(logPath.c_str(), L"a");
-    if (lf) {
-        time_t now = time(nullptr);
-        char timeBuf[32];
-        tm localTm; localtime_s(&localTm, &now);
-        strftime(timeBuf, sizeof(timeBuf), "%H:%M:%S", &localTm);
-        fprintf(lf, "[%s] ExtractEpubMetadata: opfPath=%s coverFile=%s\n",
-                timeBuf, opfPath.c_str(), meta.coverFile.c_str());
-        fclose(lf);
-    }
+    // 统一走 LogService（有滚动/脱敏），不再往 exe 目录追加 debug.log：
+    // 那边既无上限增长、又会把本地书路径写到一个随手可读的文件里（review · B-13）。
+    pb::LogDebug("epub", "ExtractEpubMetadata: opfPath=" + opfPath +
+                             " coverFile=" + meta.coverFile);
 
     return result;
 }
@@ -261,6 +252,18 @@ std::string LibraryService::ExtractPdfCover(const std::string& filePath)
     // Render first page with mutool as cover thumbnail
     std::string outPath = filePath + ".cover.png";
 
+    // 已经生成过就直接复用：book:cover 每次进书架都会问一次，每次都起 mutool
+    // 等于「书架上无封面的 PDF 数量 × 每次渲染」。封面比源文件旧 → 说明书被换过，
+    // 重新渲染（与 _pb_files 的 mtime+size 版本化同一思路）。
+    WIN32_FILE_ATTRIBUTE_DATA coverInfo = {};
+    WIN32_FILE_ATTRIBUTE_DATA bookInfo = {};
+    if (GetFileAttributesExW(pb::Utf8ToWide(outPath).c_str(), GetFileExInfoStandard, &coverInfo) &&
+        coverInfo.nFileSizeHigh == 0 && coverInfo.nFileSizeLow > 0 &&
+        GetFileAttributesExW(pb::Utf8ToWide(filePath).c_str(), GetFileExInfoStandard, &bookInfo) &&
+        CompareFileTime(&coverInfo.ftLastWriteTime, &bookInfo.ftLastWriteTime) >= 0) {
+        return outPath;
+    }
+
     // Run mutool draw to render page 1
     std::string mutoolPath;
     wchar_t exePath[MAX_PATH];
@@ -276,14 +279,22 @@ std::string LibraryService::ExtractPdfCover(const std::string& filePath)
     if (CreateProcessW(nullptr, wCmdLine.data(), nullptr, nullptr, FALSE,
                        CREATE_NO_WINDOW | NORMAL_PRIORITY_CLASS,
                        nullptr, nullptr, &si, &pi)) {
-        WaitForSingleObject(pi.hProcess, 30000);
+        // 超时后必须 TerminateProcess 并等它退出：否则卡住的 mutool 会一直挂在后台
+        // （每次调用泄漏一个进程），而且调用方照样得等到超时才拿得到返回。
+        if (WaitForSingleObject(pi.hProcess, 30000) == WAIT_TIMEOUT) {
+            TerminateProcess(pi.hProcess, 1);
+            WaitForSingleObject(pi.hProcess, INFINITE);
+        }
         CloseHandle(pi.hProcess);
         CloseHandle(pi.hThread);
     }
 
-    // Check if the output file was created
-    DWORD attr = GetFileAttributesW(pb::Utf8ToWide(outPath).c_str());
-    if (attr == INVALID_FILE_ATTRIBUTES) return "";
+    // 输出必须是「存在且非空」的文件：被 kill 掉的 mutool 会留下 0 字节 PNG，
+    // 直接返回它只会让前端拿到一张坏图。
+    if (!GetFileAttributesExW(pb::Utf8ToWide(outPath).c_str(), GetFileExInfoStandard, &coverInfo) ||
+        (coverInfo.nFileSizeHigh == 0 && coverInfo.nFileSizeLow == 0)) {
+        return "";
+    }
 
     return outPath;
 }

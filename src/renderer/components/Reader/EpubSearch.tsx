@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { MutableRefObject } from 'react'
 import type { Book, Rendition } from 'epubjs'
 import { spineEntries } from './EpubRendererTheme'
@@ -16,6 +16,9 @@ interface UseEpubSearchArgs {
   isReady: boolean
 }
 
+/** EPUB 全文搜索命中上限（review F-02/F-08：常见词可能几万条命中）。 */
+const MAX_EPUB_SEARCH_MATCHES = 2000
+
 export function useEpubSearch({
   viewerRef,
   bookRef,
@@ -28,6 +31,20 @@ export function useEpubSearch({
   const searchRangesRef = useRef<{ href: string; occurrenceIndex: number }[]>([])
   const searchHrefMapRef = useRef<Map<string, { text: string; matchCount: number }>>(new Map())
   const navRef = useRef(false)
+  // review F-08：命中表来自异步的全文抽取；抽取完成前搜索只能算出 0 命中，
+  // 而旧实现的 search effect 只依赖 [searchQuery, isReady]，抽取完成后不会再算一次，
+  // 于是「打开书就搜」会一直显示 0/0。indexVersion 用来在抽取完成后重算，
+  // indexReady 用来在界面上区分「还在建索引」和「真的没有命中」。
+  const [indexVersion, setIndexVersion] = useState(0)
+  const [indexReady, setIndexReady] = useState(false)
+
+  // 换书/重开（isReady 回落到 false）时，上一本的命中表与「索引就绪」标记
+  // 必须一起作废，否则新书会用旧书的文本算命中（review F-08）
+  useEffect(() => {
+    if (isReady) return
+    setIndexReady(false)
+    searchHrefMapRef.current = new Map()
+  }, [isReady])
 
   // ── Full-book text extraction: count matches per section ──────────────
   const extractFullText = useCallback(async () => {
@@ -47,6 +64,9 @@ export function useEpubSearch({
       }
       searchHrefMapRef.current = map
     } catch {}
+    // 无论成功失败都标记一次「抽取结束」：搜索框要能给出确定的结论
+    setIndexReady(true)
+    setIndexVersion((v) => v + 1)
   }, [bookRef])
 
   // ── Apply CSS Highlight API to current iframe ────────────────────────
@@ -112,15 +132,19 @@ export function useEpubSearch({
       let idx = lowerText.indexOf(q)
       while (idx !== -1) {
         results.push({ href, occurrenceIndex: occIdx++ })
+        // 上限兜底：和 TXT 搜索同一个道理（review F-02），避免常见词把命中表撑到几万条
+        if (results.length >= MAX_EPUB_SEARCH_MATCHES) break
         idx = lowerText.indexOf(q, idx + q.length)
       }
+      if (results.length >= MAX_EPUB_SEARCH_MATCHES) break
     }
 
     searchRangesRef.current = results
     setSearchMatches(Array.from({ length: results.length }, (_, i) => i))
 
     setTimeout(() => applySearchHighlights(), 300)
-  }, [searchQuery, isReady, viewerRef, setSearchMatches, applySearchHighlights])
+    // indexVersion：全文抽取完成后重算一次（review F-08）
+  }, [searchQuery, isReady, indexVersion, viewerRef, setSearchMatches, applySearchHighlights])
 
   // ── Navigate to search match across sections ──────────────────────────
   useEffect(() => {
@@ -190,5 +214,7 @@ export function useEpubSearch({
     }).catch(() => { navRef.current = false })
   }, [currentSearchIndex, searchQuery, renditionRef, applySearchHighlights])
 
-  return { extractFullText, applySearchHighlights }
+  // indexBuilding：搜索已发起、但全文还没抽取完 → 界面应显示「正在建立索引…」
+  // 而不是「没有找到」（review F-08）
+  return { extractFullText, applySearchHighlights, indexReady }
 }

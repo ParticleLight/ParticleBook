@@ -9,12 +9,13 @@
 // 只读的文件信息（路径 / 大小 / 时间）保留在弹窗底部，不影响编辑。
 
 import { useState } from 'react'
-import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import i18n from '../../i18n'
 import type { Book } from '../../stores/libraryStore'
 import { useLibraryStore } from '../../stores/libraryStore'
 import { safeText } from '../../utils/safeText'
+import { Modal } from '../UI/Modal'
+import { ConfirmDialog } from '../UI/ConfirmDialog'
 
 interface BookDetailDialogProps {
   book: Book
@@ -66,6 +67,30 @@ export function BookDetailDialog({ book, onClose }: BookDetailDialogProps) {
   const [rating, setRating] = useState(typeof book.rating === 'number' ? book.rating : 0)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // review U2：遮罩不再直接关闭；有未保存修改时先二次确认，避免手滑丢输入
+  const [confirmDiscard, setConfirmDiscard] = useState(false)
+
+  // 与初始值逐项比对（不做 trim，避免"多敲一个空格"就被判成有改动）
+  const initialTags = Array.isArray(book.tags) ? book.tags : []
+  const initialSeriesIndex = typeof book.series_index === 'number' ? String(book.series_index) : '0'
+  const initialRating = typeof book.rating === 'number' ? book.rating : 0
+  const dirty =
+    title !== safeText(book.title) ||
+    author !== (book.author ?? '') ||
+    language !== (book.language ?? '') ||
+    publisher !== (book.publisher ?? '') ||
+    description !== (book.description ?? '') ||
+    tags.join('\u0000') !== initialTags.join('\u0000') ||
+    seriesName !== (book.series_name ?? '') ||
+    seriesIndex !== initialSeriesIndex ||
+    rating !== initialRating
+
+  // 关闭请求：保存中忽略；有改动先确认；否则直接关
+  const requestClose = () => {
+    if (saving) return
+    if (dirty) setConfirmDiscard(true)
+    else onClose()
+  }
 
   const addTag = (raw: string) => {
     const text = raw.trim().replace(/,$/, '').replace(/，$/, '').trim()
@@ -114,22 +139,19 @@ export function BookDetailDialog({ book, onClose }: BookDetailDialogProps) {
     onClose()
   }
 
-  return createPortal(
-    <div
-      className="fixed inset-0 z-[9999] flex items-center justify-center animate-fade-in"
-      onClick={onClose}
-      role="dialog"
-      aria-modal="true"
-      data-testid="book-detail-dialog"
-    >
-      <div className="m3-dialog-backdrop absolute inset-0" />
-      <div
-        className="m3-dialog relative p-6 max-w-2xl w-full mx-4 animate-scale-in max-h-[88vh] flex flex-col"
-        onClick={(e) => e.stopPropagation()}
+  return (
+    <>
+      <Modal
+        onClose={requestClose}
+        labelledBy="book-detail-title"
+        closeOnBackdrop={false}
+        containerClassName="fixed inset-0 z-[80] flex items-center justify-center animate-fade-in p-4"
+        panelClassName="m3-dialog relative p-6 max-w-2xl w-full mx-4 animate-scale-in !max-h-[88vh] flex flex-col"
+        testId="book-detail-dialog"
       >
         <div className="flex items-center justify-between mb-4">
-          <h3 className="m3-title-large">{t('编辑书籍信息')}</h3>
-          <button onClick={onClose} aria-label={t('关闭')} data-testid="metadata-cancel"
+          <h3 className="m3-title-large" id="book-detail-title">{t('编辑书籍信息')}</h3>
+          <button onClick={requestClose} aria-label={t('关闭')} data-testid="metadata-cancel"
             className="m3-icon-button">
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
           </button>
@@ -250,13 +272,24 @@ export function BookDetailDialog({ book, onClose }: BookDetailDialogProps) {
         )}
 
         <div className="mt-4 pt-3 border-t flex justify-end gap-2" style={{ borderColor: 'var(--acrylic-border)' }}>
-          <button onClick={onClose} className="m3-outlined-button" disabled={saving}>{t('取消')}</button>
+          <button onClick={requestClose} className="m3-outlined-button" disabled={saving}>{t('取消')}</button>
           <button onClick={() => void handleSave()} className="m3-filled-button" disabled={saving} data-testid="metadata-save">
             {saving ? t('保存中…') : t('保存')}
           </button>
         </div>
-      </div>
-    </div>,
-    document.body,
+      </Modal>
+
+      {confirmDiscard && (
+        <ConfirmDialog
+          title={t('放弃未保存的修改？')}
+          message={t('编辑内容尚未保存，关闭后会丢失。')}
+          confirmText={t('放弃修改')}
+          cancelText={t('继续编辑')}
+          danger
+          onConfirm={() => { setConfirmDiscard(false); onClose() }}
+          onCancel={() => setConfirmDiscard(false)}
+        />
+      )}
+    </>
   )
 }

@@ -26,6 +26,8 @@
 #include <shellapi.h>
 #include <bcrypt.h>
 #include <cstring>
+#include <cctype>
+#include <cstdint>
 #include <cstdio>
 #include <atomic>
 #include <thread>
@@ -46,6 +48,57 @@ using filefmt::GetFileSizeSafe;
 
 // ── Base64 decode — for drag & drop file transfer ────────────────────────
 // (moved to utils/base64.h: pb::Base64Decode)
+
+// file:read 的上限：单本书 2GiB 封顶（正常电子书远小于此）；走 JSON 字节数组的
+// 兜底路径更严格（512MiB），否则一次序列化就是 GB 级字符串。
+constexpr std::uint64_t kMaxReadFileBytes = 2ull * 1024ull * 1024ull * 1024ull;
+constexpr std::size_t kMaxJsonReadBytes = 512ull * 1024ull * 1024ull;
+
+// file:read 的入参校验（fail-closed）。渲染层只该读「书库里那本书」的本地文件；
+// UNC / 设备命名空间 / 相对路径一律拒绝 —— 桥接脚本对每个文档都会注入，书页 iframe
+// 与外部页面都拿得到 window.electronAPI，不能让它变成一个任意文件读取器。
+static bool ValidateReadablePath(const std::string& path, std::string& error)
+{
+    if (path.empty()) { error = "empty_path"; return false; }
+    if (path.find('\0') != std::string::npos) { error = "invalid_path"; return false; }
+    if (path.size() > 32767) { error = "invalid_path"; return false; }
+
+    // 网络路径（\\server\share\...）放行 —— 书库可能放在 NAS 上；
+    // 但设备命名空间（\\.\、\\?\、\??\）一律拒绝：那是绕过文件系统语义的后门。
+    const bool isNetworkPath = path.size() >= 2 &&
+        (path[0] == '\\' || path[0] == '/') &&
+        (path[1] == '\\' || path[1] == '/');
+    if (isNetworkPath) {
+        char third = path.size() >= 3 ? path[2] : '\0';
+        if (third == '.' || third == '?') {
+            error = "device_path_not_allowed";
+            return false;
+        }
+    } else {
+        // 其余必须是「盘符:绝对路径」
+        const bool hasDriveLetter = path.size() >= 3 &&
+            std::isalpha(static_cast<unsigned char>(path[0])) != 0 &&
+            path[1] == ':' && (path[2] == '\\' || path[2] == '/');
+        if (!hasDriveLetter) { error = "path_not_absolute"; return false; }
+    }
+
+    const std::wstring wide = pb::Utf8ToWide(path);
+    if (wide.empty()) { error = "invalid_path"; return false; }
+
+    WIN32_FILE_ATTRIBUTE_DATA info = {};
+    if (!GetFileAttributesExW(wide.c_str(), GetFileExInfoStandard, &info)) {
+        error = "file_not_found";
+        return false;
+    }
+    if ((info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0) {
+        error = "not_a_file";
+        return false;
+    }
+    const std::uint64_t size = (static_cast<std::uint64_t>(info.nFileSizeHigh) << 32)
+                             | static_cast<std::uint64_t>(info.nFileSizeLow);
+    if (size > kMaxReadFileBytes) { error = "file_too_large"; return false; }
+    return true;
+}
 
 static json ReadFileForRenderer(ContentCache* cache, const std::string& path)
 {
@@ -161,6 +214,15 @@ static json ReadFileForRenderer(ContentCache* cache, const std::string& path)
     GetFileSizeEx(hFile, &liSize);
     size_t size = static_cast<size_t>(liSize.QuadPart);
 
+    // 兜底路径：整本读进内存再以 JSON 字节数组过桥（体积 4 倍以上膨胀）。
+    // 超大文件宁可失败也不能把主进程/渲染进程一起打爆（正常书都走虚拟主机 URL）。
+    if (size > kMaxJsonReadBytes) {
+        CloseHandle(hFile);
+        pb::LogWarn("file", "file:read JSON fallback refused (too large: " +
+                                std::to_string(size) + " bytes): " + GetFileName(path));
+        return json(nullptr);
+    }
+
     std::vector<uint8_t> data(size);
     DWORD bytesRead = 0;
     ReadFile(hFile, data.data(), static_cast<DWORD>(size), &bytesRead, nullptr);
@@ -171,6 +233,186 @@ static json ReadFileForRenderer(ContentCache* cache, const std::string& path)
     return json(data);
 }
 
+
+// ── 封面：book:cover 的实现（跑在 JobService worker 上）────────────────
+// 为什么不用同步 handler：EPUB 抽封面是 zip 读 + 写盘，PDF 现场生成要起 mutool
+// 子进程（最长 30 秒）—— 同步 handler 会把这些全压到 WebView2 的 UI 线程上。
+
+static std::string Base64EncodeBytes(const std::vector<unsigned char>& data)
+{
+    static const char* b64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    std::string out;
+    out.reserve((data.size() + 2) / 3 * 4);
+    int val = 0;
+    int valb = -6;
+    for (unsigned char c : data) {
+        val = (val << 8) + c;
+        valb += 8;
+        while (valb >= 0) { out.push_back(b64[(val >> valb) & 0x3F]); valb -= 6; }
+    }
+    if (valb > -6) out.push_back(b64[((val << 8) >> (valb + 8)) & 0x3F]);
+    while (out.size() % 4) out.push_back('=');
+    return out;
+}
+
+// 读一个小文件（封面）：32MiB 封顶，避免被超大/伪造的 cover_path 拉爆内存。
+static bool ReadSmallFileBytes(const std::string& path, std::vector<unsigned char>& out)
+{
+    out.clear();
+    const std::wstring wide = pb::Utf8ToWide(path);
+    if (wide.empty()) return false;
+    HANDLE hFile = CreateFileW(wide.c_str(), GENERIC_READ, FILE_SHARE_READ,
+                               nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (hFile == INVALID_HANDLE_VALUE) return false;
+    LARGE_INTEGER liSize = {};
+    if (!GetFileSizeEx(hFile, &liSize) || liSize.QuadPart <= 0 ||
+        liSize.QuadPart > 32ll * 1024 * 1024) {
+        CloseHandle(hFile);
+        return false;
+    }
+    out.assign(static_cast<size_t>(liSize.QuadPart), 0);
+    DWORD read = 0;
+    const BOOL ok = ReadFile(hFile, out.data(), static_cast<DWORD>(out.size()), &read, nullptr);
+    CloseHandle(hFile);
+    if (!ok) { out.clear(); return false; }
+    out.resize(read);
+    return !out.empty();
+}
+
+static std::string CoverMimeOf(const std::string& path)
+{
+    std::string ext;
+    const size_t dot = path.rfind('.');
+    if (dot != std::string::npos) {
+        ext = path.substr(dot);
+        for (auto& c : ext) c = static_cast<char>(tolower(static_cast<unsigned char>(c)));
+    }
+    // 按扩展名给出正确的图片 MIME（2026-10-29 review · B-10）：
+    // 以前只区分 png 与"其它一律 jpeg"，EPUB 里的 gif/webp/svg 封面会被标成
+    // image/jpeg —— data URL 的 MIME 不会被浏览器嗅探纠正，卡片就变破图。
+    if (ext == ".png") return "png";
+    if (ext == ".gif") return "gif";
+    if (ext == ".webp") return "webp";
+    if (ext == ".svg") return "svg+xml";
+    if (ext == ".jpg" || ext == ".jpeg" || ext == ".bmp") return "jpeg";
+    return "jpeg";
+}
+
+// ── 拖放导入落盘（跑在 JobService worker 上，review · B-11）─────────────
+// 以前是同步 handler：在 UI 线程上 Base64Decode 整本书再一次性 WriteFile，
+// 拖一本 500MB 的 CBZ 会让窗口直接未响应（还因为 DWORD 截断在 4GiB 处静默截短）。
+static json WriteDroppedFile(const std::string& name, const std::string& b64)
+{
+    // Sanitize to a plain file name (no separators / reserved chars)
+    std::string safeName;
+    for (char c : name) {
+        if (c == '\\' || c == '/' || c == ':' || c == '*' || c == '?' ||
+            c == '"' || c == '<' || c == '>' || c == '|') continue;
+        safeName += c;
+    }
+    if (safeName.empty()) safeName = "dropped-book";
+    if (safeName.size() > 120) safeName.resize(120);
+
+    std::vector<uint8_t> bytes = pb::Base64Decode(b64);
+    if (bytes.empty()) return json(nullptr);
+    const std::uint64_t total = static_cast<std::uint64_t>(bytes.size());
+
+    std::string dir = App::Instance().UserDataPath() + "/dropped";
+    std::filesystem::create_directories(pb::Utf8ToWide(dir));
+
+    std::string filePath = dir + "\\" + safeName;
+    // Avoid silently overwriting a previously-dropped file with the same
+    // name: append a numeric suffix so two different books that happen to
+    // share a filename each get their own file.
+    if (GetFileAttributesW(pb::Utf8ToWide(filePath).c_str()) != INVALID_FILE_ATTRIBUTES) {
+        size_t dot = safeName.rfind('.');
+        std::string stem = (dot != std::string::npos) ? safeName.substr(0, dot) : safeName;
+        std::string ext = (dot != std::string::npos) ? safeName.substr(dot) : "";
+        for (int i = 1; i < 1000; i++) {
+            std::string cand = dir + "\\" + stem + " (" + std::to_string(i) + ")" + ext;
+            if (GetFileAttributesW(pb::Utf8ToWide(cand).c_str()) == INVALID_FILE_ATTRIBUTES) {
+                filePath = cand;
+                break;
+            }
+        }
+    }
+
+    HANDLE hFile = CreateFileW(pb::Utf8ToWide(filePath).c_str(), GENERIC_WRITE, 0, nullptr,
+                               CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (hFile == INVALID_HANDLE_VALUE) return json(nullptr);
+    // 分块写，单次 WriteFile 仍在 DWORD 范围内；用 uint64 累计判断完整性。
+    std::uint64_t writtenTotal = 0;
+    bool ok = true;
+    const std::size_t kChunk = 8ull * 1024ull * 1024ull;
+    for (std::size_t offset = 0; offset < bytes.size(); offset += kChunk) {
+        const DWORD chunk = static_cast<DWORD>(
+            std::min<std::size_t>(kChunk, bytes.size() - offset));
+        DWORD written = 0;
+        if (!WriteFile(hFile, bytes.data() + offset, chunk, &written, nullptr) ||
+            written != chunk) {
+            ok = false;
+            break;
+        }
+        writtenTotal += written;
+    }
+    CloseHandle(hFile);
+    if (!ok || writtenTotal != total) {
+        DeleteFileW(pb::Utf8ToWide(filePath).c_str());
+        return json(nullptr);
+    }
+
+    json result;
+    result["path"] = filePath;
+    result["size"] = total;
+    return result;
+}
+
+static json BuildCoverDataUrl(DatabaseService* db, int id)
+{
+    if (!db) return json(nullptr);
+    const json book = db->GetBook(id);
+    if (book.is_null()) return json(nullptr);
+
+    // 1) 库里记着的封面文件
+    const std::string coverPath = book.value("cover_path", "");
+    if (!coverPath.empty()) {
+        std::vector<unsigned char> data;
+        if (ReadSmallFileBytes(coverPath, data)) {
+            return json("data:image/" + CoverMimeOf(coverPath) + ";base64," +
+                        Base64EncodeBytes(data));
+        }
+    }
+
+    // 2) 现场生成：EPUB 从 zip 里抽封面，PDF 用 mutool 渲染首页。
+    //    ExtractPdfCover 自己会先查「已生成且不旧于源文件」就直接复用，因此这里
+    //    不会每次进书架都重起子进程（cover_path 仍为空时尤其重要）。
+    const std::string filePath = book.value("file_path", "");
+    const std::string format = book.value("format", "");
+    if (filePath.empty()) return json(nullptr);
+
+    LibraryService lib;
+    ExtractedMetadata em;
+    std::string generated;
+    if (format == "epub") {
+        lib.ExtractEpubMetadata(filePath, em);
+        if (!em.coverFile.empty()) generated = lib.ExtractEpubCover(filePath, em.coverFile);
+    } else if (format == "pdf") {
+        generated = lib.ExtractPdfCover(filePath);
+    }
+    if (generated.empty()) return json(nullptr);
+
+    // 生成成功后把 cover_path 写回：下次进书架直接命中第 1 步，
+    // 不再为这本无封面书重跑抽封面（EPUB）或起 mutool（PDF）。
+    if (db) {
+        json patch = json::object();
+        patch["cover_path"] = generated;
+        db->UpdateBookMetadata(id, patch);
+    }
+
+    std::vector<unsigned char> data;
+    if (!ReadSmallFileBytes(generated, data)) return json(nullptr);
+    return json("data:image/jpeg;base64," + Base64EncodeBytes(data));
+}
 
 // PB-008-A：DOCX 转换产物的落盘 / 路径小工具（UTF-8 进出，内部走 W API）。
 void RegisterFileHandlers(BridgeServer* bridge, DatabaseService* db, ContentCache* cache, pb::JobService* jobs)
@@ -198,6 +440,15 @@ void RegisterFileHandlers(BridgeServer* bridge, DatabaseService* db, ContentCach
         [cache, jobs](const json& p, std::function<void(json)> respond, std::function<void(std::string)> reject) {
             const std::string path = p.value("path", "");
             if (path.empty() || !jobs) { reject("invalid_params"); return; }
+            // 入参校验放在提交 job 之前（只查文件属性，两次 syscall）：非法路径
+            // 立刻回错误码，前端能区分「没这本书 / 太大 / 是目录」。
+            std::string pathError;
+            if (!ValidateReadablePath(path, pathError)) {
+                pb::LogWarn("file", "file:read rejected (" + pathError + "): " +
+                                        GetFileName(path));
+                reject(pathError);
+                return;
+            }
             auto out = std::make_shared<json>(nullptr);
             const pb::JobId id = jobs->Submit("file:read",
                 [cache, path, out](pb::JobContext&) { *out = ReadFileForRenderer(cache, path); },
@@ -227,82 +478,25 @@ void RegisterFileHandlers(BridgeServer* bridge, DatabaseService* db, ContentCach
         });
 
     // ── book:cover ─────────────────────────────────────────────
-    bridge->RegisterMethod("book:cover", [db](const json& p) -> json {
-        int id = p["id"].get<int>();
-        auto book = db->GetBook(id);
-        if (book.is_null()) return json(nullptr);
-
-        std::string coverPath = book.value("cover_path", "");
-
-        // Try cached cover first
-        if (!coverPath.empty()) {
-            int wlen = MultiByteToWideChar(CP_UTF8, 0, coverPath.c_str(), (int)coverPath.size(), nullptr, 0);
-            if (wlen > 0) {
-                std::wstring wpath(wlen, L'\0');
-                MultiByteToWideChar(CP_UTF8, 0, coverPath.c_str(), (int)coverPath.size(), &wpath[0], wlen);
-                HANDLE hFile = CreateFileW(wpath.c_str(), GENERIC_READ, FILE_SHARE_READ,
-                                           nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
-                if (hFile != INVALID_HANDLE_VALUE) {
-                    LARGE_INTEGER liSize;
-                    GetFileSizeEx(hFile, &liSize);
-                    size_t size = static_cast<size_t>(liSize.QuadPart);
-                    std::vector<unsigned char> data(size);
-                    DWORD bytesRead = 0;
-                    ReadFile(hFile, data.data(), static_cast<DWORD>(size), &bytesRead, nullptr);
-                    CloseHandle(hFile);
-                    data.resize(bytesRead);
-                    static const char* b64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-                    std::string ext;
-                    size_t dot = coverPath.rfind('.');
-                    if (dot != std::string::npos) { ext = coverPath.substr(dot); for (auto& c : ext) c = (char)tolower((unsigned char)c); }
-                    std::string prefix = "data:image/" + std::string(ext == ".png" ? "png" : "jpeg") + ";base64,";
-                    std::string b64data;
-                    int val = 0, valb = -6;
-                    for (unsigned char c : data) { val = (val << 8) + c; valb += 8; while (valb >= 0) { b64data.push_back(b64[(val >> valb) & 0x3F]); valb -= 6; } }
-                    if (valb > -6) b64data.push_back(b64[((val << 8) >> (valb + 8)) & 0x3F]);
-                    while (b64data.size() % 4) b64data.push_back('=');
-                    return json(prefix + b64data);
-                }
-            }
-        }
-
-        // On-demand cover generation
-        std::string filePath = book.value("file_path", "");
-        std::string format = book.value("format", "");
-        if (!filePath.empty()) {
-            LibraryService lib;
-            ExtractedMetadata em;
-            std::string newCover;
-            if (format == "epub") {
-                lib.ExtractEpubMetadata(filePath, em);
-                if (!em.coverFile.empty()) newCover = lib.ExtractEpubCover(filePath, em.coverFile);
-            } else if (format == "pdf") {
-                newCover = lib.ExtractPdfCover(filePath);
-            }
-            if (!newCover.empty()) {
-                int wl = MultiByteToWideChar(CP_UTF8, 0, newCover.c_str(), (int)newCover.size(), nullptr, 0);
-                if (wl > 0) {
-                    std::wstring wp(wl, L'\0');
-                    MultiByteToWideChar(CP_UTF8, 0, newCover.c_str(), (int)newCover.size(), &wp[0], wl);
-                    HANDLE hf = CreateFileW(wp.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
-                    if (hf != INVALID_HANDLE_VALUE) {
-                        LARGE_INTEGER sz; GetFileSizeEx(hf, &sz);
-                        std::vector<unsigned char> d((size_t)sz.QuadPart);
-                        DWORD br; ReadFile(hf, d.data(), (DWORD)sz.QuadPart, &br, nullptr); CloseHandle(hf);
-                        d.resize(br);
-                        static const char* b64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-                        std::string pfx = "data:image/jpeg;base64,", bd;
-                        int v = 0, vb = -6;
-                        for (unsigned char c : d) { v = (v << 8) + c; vb += 8; while (vb >= 0) { bd.push_back(b64[(v >> vb) & 0x3F]); vb -= 6; } }
-                        if (vb > -6) bd.push_back(b64[((v << 8) >> (vb + 8)) & 0x3F]);
-                        while (bd.size() % 4) bd.push_back('=');
-                        return json(pfx + bd);
-                    }
-                }
-            }
-        }
-        return json(nullptr);
-    });
+    // PB-020：改成异步。封面可能得「现场生成」—— PDF/CBZ 要走 mutool 子进程
+    // （最长 30 秒），而同步 handler 跑在 WebView2 UI 线程上：书架每张无封面的
+    // 卡片都会把窗口卡住一次。
+    bridge->RegisterAsyncMethod("book:cover",
+        [db, jobs](const json& p, std::function<void(json)> respond,
+                   std::function<void(std::string)> reject) {
+            if (!jobs) { reject("job_service_unavailable"); return; }
+            const int id = p.value("id", 0);
+            if (id <= 0) { reject("invalid_params"); return; }
+            auto out = std::make_shared<json>(nullptr);
+            const pb::JobId jobId = jobs->Submit("book:cover",
+                [db, id, out](pb::JobContext&) { *out = BuildCoverDataUrl(db, id); },
+                nullptr,
+                [out, respond, reject](const pb::JobResult& r) {
+                    if (!r.ok) { reject(r.cancelled ? "cancelled" : r.error); return; }
+                    respond(*out);
+                });
+            if (jobId == pb::kInvalidJobId) reject("job_service_unavailable");
+        });
 
     // ── Update checker ─────────────────────────────────────────
     bridge->RegisterMethod("app:getVersion", [](const json&) -> json { return json(PB_VERSION_STRING); });
@@ -342,6 +536,15 @@ void RegisterFileHandlers(BridgeServer* bridge, DatabaseService* db, ContentCach
         const char* kOfficialPrefix = "https://github.com/ParticleLight/ParticleBook/releases/download/";
         if (downloadUrl.rfind(kOfficialPrefix, 0) != 0) {
             pb::LogWarn("update", "downloadUpdate: rejected non-official url");
+            return json(nullptr);
+        }
+
+        // Integrity: sha512 必须由调用方给出且是完整哈希（128 位 hex）。
+        // 旧实现在 sha512 为空 / "dummy" 时**跳过**校验 —— 而这个值完全由渲染层
+        // 传入，等于把「下载并执行一个 exe」的能力留给任何能在应用页面里执行脚本的
+        // 东西（旧版 latest.yml 不带哈希时也一样）。缺哈希就拒绝。
+        if (sha512.size() != 128 || sha512 == "dummy") {
+            pb::LogWarn("update", "downloadUpdate: rejected update without a usable sha512");
             return json(nullptr);
         }
 
@@ -465,11 +668,9 @@ void RegisterFileHandlers(BridgeServer* bridge, DatabaseService* db, ContentCach
                 return;
             }
 
-            // Integrity check: verify SHA-512 against the value published in
-            // latest.yml. Skip when the published value is missing or still the
-            // placeholder "dummy" (legacy releases); real values are added from
-            // the next release onward.
-            if (!sha512.empty() && sha512 != "dummy") {
+            // Integrity check: SHA-512 一律校验（入口已拒绝空值 / "dummy" /
+            // 长度不对的哈希，所以这里不存在「跳过校验」的分支）。
+            {
                 std::string actual;
                 if (!ComputeFileSha512(exePath, actual) || _stricmp(actual.c_str(), sha512.c_str()) != 0) {
                     DeleteFileW(exePath.c_str());
@@ -631,58 +832,23 @@ void RegisterFileHandlers(BridgeServer* bridge, DatabaseService* db, ContentCach
     // WebView2 File objects carry no filesystem path, so the renderer reads the
     // file bytes and hands them over as base64. We persist to a user-data folder
     // and return the path; the frontend then runs the normal import flow.
-    bridge->RegisterMethod("book:writeDroppedFile", [](const json& p) -> json {
-        std::string name = p.value("name", "");
-        std::string b64 = p.value("data", "");
-        if (name.empty() || b64.empty()) return json(nullptr);
-
-        // Sanitize to a plain file name (no separators / reserved chars)
-        std::string safeName;
-        for (char c : name) {
-            if (c == '\\' || c == '/' || c == ':' || c == '*' || c == '?' ||
-                c == '"' || c == '<' || c == '>' || c == '|') continue;
-            safeName += c;
-        }
-        if (safeName.empty()) safeName = "dropped-book";
-        if (safeName.size() > 120) safeName.resize(120);
-
-        std::vector<uint8_t> bytes = pb::Base64Decode(b64);
-        if (bytes.empty()) return json(nullptr);
-
-        std::string dir = App::Instance().UserDataPath() + "/dropped";
-        std::filesystem::create_directories(pb::Utf8ToWide(dir));
-
-        std::string filePath = dir + "\\" + safeName;
-        // Avoid silently overwriting a previously-dropped file with the same
-        // name: append a numeric suffix so two different books that happen to
-        // share a filename each get their own file.
-        if (GetFileAttributesW(pb::Utf8ToWide(filePath).c_str()) != INVALID_FILE_ATTRIBUTES) {
-            size_t dot = safeName.rfind('.');
-            std::string stem = (dot != std::string::npos) ? safeName.substr(0, dot) : safeName;
-            std::string ext = (dot != std::string::npos) ? safeName.substr(dot) : "";
-            for (int i = 1; i < 1000; i++) {
-                std::string cand = dir + "\\" + stem + " (" + std::to_string(i) + ")" + ext;
-                if (GetFileAttributesW(pb::Utf8ToWide(cand).c_str()) == INVALID_FILE_ATTRIBUTES) {
-                    filePath = cand;
-                    break;
-                }
-            }
-        }
-
-        HANDLE hFile = CreateFileW(pb::Utf8ToWide(filePath).c_str(), GENERIC_WRITE, 0, nullptr,
-                                   CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
-        if (hFile == INVALID_HANDLE_VALUE) return json(nullptr);
-        DWORD written = 0;
-        WriteFile(hFile, bytes.data(), (DWORD)bytes.size(), &written, nullptr);
-        CloseHandle(hFile);
-        if (written != bytes.size()) {
-            DeleteFileW(pb::Utf8ToWide(filePath).c_str());
-            return json(nullptr);
-        }
-
-        json result;
-        result["path"] = filePath;
-        result["size"] = bytes.size();
-        return result;
-    });
+    bridge->RegisterAsyncMethod("book:writeDroppedFile",
+        [jobs](const json& p, std::function<void(json)> respond, std::function<void(std::string)> reject) {
+            const std::string name = p.value("name", "");
+            const std::string b64 = p.value("data", "");
+            if (name.empty() || b64.empty()) { reject("invalid_params"); return; }
+            if (!jobs) { reject("job_service_unavailable"); return; }
+            // 500MiB 的 base64 上限：拖一本超大书进来时在 UI 线程之外直接拒绝，
+            // 不要先解码出一份 600MB+ 的缓冲再失败（review · B-11）。
+            if (b64.size() > 700ull * 1024ull * 1024ull) { reject("file_too_large"); return; }
+            auto out = std::make_shared<json>(nullptr);
+            const pb::JobId jobId = jobs->Submit("book:writeDroppedFile",
+                [name, b64, out](pb::JobContext&) { *out = WriteDroppedFile(name, b64); },
+                nullptr,
+                [out, respond, reject](const pb::JobResult& r) {
+                    if (!r.ok) { reject(r.cancelled ? "cancelled" : r.error); return; }
+                    respond(*out);
+                });
+            if (jobId == pb::kInvalidJobId) reject("job_service_unavailable");
+        });
 }

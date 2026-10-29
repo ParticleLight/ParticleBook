@@ -336,7 +336,9 @@ export const contract = [
     member: "readFile", method: "file:read",
     kind: "invoke",
     group: "Files",
-    params: [{ n: "filePath", t: "string" }],
+    // 运行时键名是 path（BridgeServer.cpp 存根发送 {path}，FileHandlers.cpp
+    // 也按 p.value("path") 读取）；此处曾写成 filePath，与实际键名漂移。
+    params: [{ n: "path", t: "string" }],
     // C++ 在文件不可读时返回 json(nullptr)（FileHandlers.cpp 的 wlen<=0 与
     // INVALID_HANDLE_VALUE 两条路径）—— 类型必须包含 null，否则调用方会把
     // null 当成"空文件"而不是失败。
@@ -346,7 +348,8 @@ export const contract = [
     member: "importBooks", method: "book:import",
     kind: "invoke",
     group: "Files",
-    params: [{ n: "filePaths", t: "string[]" }],
+    // 运行时键名是 paths（存根 {paths}；FileHandlers.cpp 读 p.value("paths")）。
+    params: [{ n: "paths", t: "string[]" }],
     // 逐文件进度走 book:importProgress 事件（onImportProgress）；返回值仍是
     // 成功导入/已存在的书籍数组，失败文件不进来（错误在事件的 errors 里）。
     returns: "Promise<PbBook[]>"
@@ -362,14 +365,16 @@ export const contract = [
     member: "writeDroppedFile", method: "book:writeDroppedFile",
     kind: "invoke",
     group: "Files",
-    params: [{ n: "name", t: "string" }, { n: "dataB64", t: "string" }],
+    // 运行时键名是 {name, data}（base64 字符串）；FileHandlers.cpp 读 p.value("data")。
+    params: [{ n: "name", t: "string" }, { n: "data", t: "string" }],
     returns: "Promise<{ path: string; size: number } | null>"
   },
   {
     member: "getCoverImage", method: "book:cover",
     kind: "invoke",
     group: "Files",
-    params: [{ n: "bookId", t: "number" }],
+    // 运行时键名是 id（存根 {id}；FileHandlers.cpp 读 p["id"]）。
+    params: [{ n: "id", t: "number" }],
     returns: "Promise<string | null>"
   },
   // ── PDF ──
@@ -476,7 +481,8 @@ export const contract = [
     member: "addBookmark", method: "db:addBookmark",
     kind: "invoke",
     group: "Bookmarks",
-    params: [{ n: "bookmark", t: "PbBookmarkInput" }],
+    // 运行时键名是 bm（存根 {bm}；DbHandlers.cpp 读 p["bm"]）。
+    params: [{ n: "bm", t: "PbBookmarkInput" }],
     returns: "Promise<void>"
   },
   {
@@ -505,7 +511,8 @@ export const contract = [
     member: "addHighlight", method: "db:addHighlight",
     kind: "invoke",
     group: "Highlights",
-    params: [{ n: "highlight", t: "PbHighlightInput" }],
+    // 运行时键名是 hl（存根 {hl}；DbHandlers.cpp 读 p["hl"]）。
+    params: [{ n: "hl", t: "PbHighlightInput" }],
     returns: "Promise<void>"
   },
   {
@@ -859,7 +866,8 @@ export const contract = [
     member: "updateReadingSessionDuration", method: "db:updateReadingSessionDuration",
     kind: "invoke",
     group: "Reading Sessions",
-    params: [{ n: "sessionId", t: "number" }, { n: "durationSeconds", t: "number" }],
+    // 运行时键名是 {sessionId, duration}（DbHandlers.cpp 读 p["duration"]）。
+    params: [{ n: "sessionId", t: "number" }, { n: "duration", t: "number" }],
     returns: "Promise<void>"
   },
   {

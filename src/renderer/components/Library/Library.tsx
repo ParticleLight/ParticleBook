@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef, useMemo, lazy, Suspense } from 'react'
+import { useState, useCallback, useEffect, useId, useRef, useMemo, lazy, Suspense } from 'react'
 import { useLibraryStore } from '../../stores/libraryStore'
 import { useSettingsStore } from '../../stores/settingsStore'
 import type { Book } from '../../stores/libraryStore'
@@ -6,6 +6,7 @@ import { BookGrid } from './BookGrid'
 import { BookList } from './BookList'
 import { BookShelfPanel } from './BookShelfPanel'
 import { NavRail, ModalNavDrawer, type NavRailItem } from '../UI/NavRail'
+import { Modal } from '../UI/Modal'
 import { M3Select, type M3SelectOption } from '../UI/M3Select'
 import { useWindowSizeClass } from '../../hooks/useWindowSizeClass'
 import { safeText } from '../../utils/safeText'
@@ -47,6 +48,7 @@ function BookPickerDialog({ books, shelfName, shelfBookIds, onAdd, onClose }: { 
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const [search, setSearch] = useState('')
   const { t } = useTranslation()
+  const titleId = useId()
 
   const filtered = books.filter((b) => {
     if (!search) return true
@@ -60,14 +62,18 @@ function BookPickerDialog({ books, shelfName, shelfBookIds, onAdd, onClose }: { 
     setSelected(next)
   }
 
+  // review U5：对话框语义 / Esc / 焦点陷阱 / 关闭回焦都交给 UI/Modal；
+  // review U1：宽度写 !w-[500px] 兜底（.m3-dialog 的默认宽度不得再压掉调用点）。
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center animate-fade-in" onClick={onClose}>
-      <div className="m3-dialog-backdrop absolute inset-0" />
-      <div className="m3-dialog relative w-[500px] max-h-[70vh] flex flex-col animate-scale-in"
-        onClick={(e) => e.stopPropagation()}>
+    <Modal
+      onClose={onClose}
+      labelledBy={titleId}
+      containerClassName="fixed inset-0 z-50 flex items-center justify-center animate-fade-in p-4"
+      panelClassName="m3-dialog relative !w-[500px] max-h-[70vh] flex flex-col animate-scale-in"
+    >
         <div className="flex items-center justify-between px-5 py-3.5" style={{ borderBottom: '1px solid var(--border)' }}>
           <div>
-            <h3 className="m3-title-large">{t('添加到「{{shelfName}}」', { shelfName })}</h3>
+            <h3 className="m3-title-large" id={titleId}>{t('添加到「{{shelfName}}」', { shelfName })}</h3>
             <p className="m3-body-small mt-1">{t('从全部书籍中选择，已选 {{count}} 本', { count: selected.size })}</p>
           </div>
           <button onClick={onClose} className="m3-icon-button" aria-label={t('关闭')}>
@@ -84,7 +90,18 @@ function BookPickerDialog({ books, shelfName, shelfBookIds, onAdd, onClose }: { 
           ) : filtered.map((book) => {
             const alreadyIn = shelfBookIds.includes(book.id)
             return (
-            <div key={book.id} onClick={alreadyIn ? undefined : () => toggle(book.id)}
+            // review U3：这一行是「多选书籍」的主入口，改造前是 div+onClick，
+            // 键盘完全够不到；照 BookCard.tsx 的写法补 role/tabIndex/Enter·Space。
+            <div key={book.id}
+              role="button"
+              tabIndex={alreadyIn ? -1 : 0}
+              aria-pressed={selected.has(book.id)}
+              aria-disabled={alreadyIn || undefined}
+              aria-label={safeText(book.title) + (book.author ? ' — ' + safeText(book.author) : '') + (alreadyIn ? t(' · 已添加') : '')}
+              onClick={alreadyIn ? undefined : () => toggle(book.id)}
+              onKeyDown={alreadyIn ? undefined : (e) => {
+                if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(book.id) }
+              }}
               className="flex items-center gap-3 px-3 py-2 rounded-md transition-colors"
               style={{ background: selected.has(book.id) ? 'var(--color-indigo-bg)' : 'transparent', cursor: alreadyIn ? 'default' : 'pointer' }}
               onMouseEnter={(e) => { if (!selected.has(book.id) && !alreadyIn) e.currentTarget.style.background = 'var(--surface-hover)' }}
@@ -111,8 +128,7 @@ function BookPickerDialog({ books, shelfName, shelfBookIds, onAdd, onClose }: { 
           <button onClick={onClose} className="m3-text-button">{t('取消')}</button>
           <button onClick={() => onAdd(Array.from(selected))} disabled={selected.size === 0} className="m3-filled-button">{t('添加')} {selected.size > 0 ? `(${selected.size})` : ''}</button>
         </div>
-      </div>
-    </div>
+    </Modal>
   )
 }
 
@@ -158,6 +174,9 @@ export function Library({ onOpenBook, onOpenSettings, onOpenZLibrary, onOpenStat
   const importErrors = useLibraryStore((s) => s.importErrors)
   const clearImportErrors = useLibraryStore((s) => s.clearImportErrors)
   const [isDragOver, setIsDragOver] = useState(false)
+  // review U6：拖放超限此前用原生 alert()（白底系统弹窗，不跟主题、阻塞渲染）。
+  // 改成页面内 banner：逐条列出被拒绝的文件，可一键关闭。
+  const [dropNotices, setDropNotices] = useState<string[]>([])
   const [showChangelog, setShowChangelog] = useState(false)
   const [showBookSource, setShowBookSource] = useState(false)
   const [showMore, setShowMore] = useState(false)
@@ -304,7 +323,7 @@ export function Library({ onOpenBook, onOpenSettings, onOpenZLibrary, onOpenStat
         const p = window.electronAPI.getFilePath(file)
         if (p) { filePaths.push(p); continue }
         if (file.size > 50 * 1024 * 1024) {
-          alert(t('「{{name}}」超过 50MB，拖放导入不支持超大文件，请改用「导入」按钮', { name: file.name }))
+          setDropNotices((prev) => [...prev, t('「{{name}}」超过 50MB，拖放导入不支持超大文件，请改用「导入」按钮', { name: file.name })])
           continue
         }
         const buf = await file.arrayBuffer()
@@ -316,7 +335,7 @@ export function Library({ onOpenBook, onOpenSettings, onOpenZLibrary, onOpenStat
       }
     }
     if (filePaths.length > 0) await importBooks(filePaths)
-  }, [importBooks])
+  }, [importBooks, t])
 
   useEffect(() => {
     const handleClick = (e: MouseEvent) => { if (moreBtnRef.current && !moreBtnRef.current.contains(e.target as Node)) setShowMore(false) }
@@ -603,6 +622,19 @@ export function Library({ onOpenBook, onOpenSettings, onOpenZLibrary, onOpenStat
               </div>
               <div className="m3-linear-progress mt-2" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={importPercent}>
                 <span style={{ width: `${importPercent}%` }} />
+              </div>
+            </div>
+          )}
+          {/* review U6：拖放被拒绝的文件用页面内 banner 提示（原本是 alert） */}
+          {dropNotices.length > 0 && (
+            <div data-testid="drop-notices" className="m3-card p-3 mb-4" style={{ background: 'var(--md-sys-color-error-container)', borderColor: 'transparent' }}>
+              <div className="flex items-start justify-between gap-2">
+                <ul className="min-w-0 max-h-24 overflow-y-auto text-xs space-y-0.5" style={{ color: 'var(--md-sys-color-on-error-container)' }}>
+                  {dropNotices.map((notice, index) => (
+                    <li key={index} className="truncate" title={notice}>{notice}</li>
+                  ))}
+                </ul>
+                <button onClick={() => setDropNotices([])} className="m3-text-button" aria-label={t('关闭')}>{t('关闭')}</button>
               </div>
             </div>
           )}

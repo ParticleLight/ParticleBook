@@ -22,6 +22,8 @@ import {
   type ReaderSelection,
   type TranslationRequest,
 } from '../../reader'
+import { currentSelectionText } from '../../reader/locator'
+import { motionTransition, usePrefersReducedMotion } from './useReducedMotion'
 import { formatReadingTime } from '../../utils/format'
 import { readBookFile } from '../../utils/fileReader'
 import { Dialog } from '../UI/Dialog'
@@ -205,19 +207,31 @@ export function ReaderView({ bookId, onClose, onOpenSplit }: ReaderViewProps) {
   //   · 自动模式：鼠标在上下热区 / 工具栏被锁定 / 朗读条打开时出现；
   //   · 手动收起后（chromeCollapsed）不再自动出现，只留底部中间的小圆钮重新唤出；
   //   · 两侧箭头额外支持「贴边悬停唤出」——鼠标移到左右边缘就出现，否则点不到。
+  // U13：内联 transition 也要尊重「减少动效」（globals.css 覆盖不到内联样式）
+  const reducedMotion = usePrefersReducedMotion()
   const chromeVisible = !chromeCollapsed && (showControls || controlsLocked || showTts || chromeHovered)
   const arrowsVisible = chromeVisible || nearEdge || arrowHovered
   const { shouldRender: renderSidebar, isClosing: sidebarClosing } = useAnimatedMount(showSidebar, 200)
   const { shouldRender: renderSettings, isClosing: settingsClosing } = useAnimatedMount(showSettings, 200)
   const { shouldRender: renderAnnotations, isClosing: annotationsClosing } = useAnimatedMount(showAnnotations, 200)
 
+  // 换书（同一个 ReaderView 实例换 bookId，例如「打开方式」转发新文件）：
+  // 先清掉上一本的正文，避免继续用旧 content 渲染新 bookId 的工具栏/书签；
+  // 并给加载流程一个 cancelled 标记 —— 旧请求的 setBook/setBookContent 必须早退，
+  // 否则两次加载交错时会把 A 书塞给 B（review F-06）。
   useEffect(() => {
     bookIdRef.current = bookId
     setBookId(bookId)
+    setBook(null)
+    setBookContent(null)
+    setTranslationRequest(null)
+    setDictionaryRequest(null)
+    let cancelled = false
     const loadBook = async () => {
       setLoadError(null)
       try {
         const bookData = await window.electronAPI.getBook(bookId)
+        if (cancelled) return
         if (!bookData) {
           // db:getBook returns null when the id no longer exists (e.g. the book
           // was deleted from another view while the reader was opening).
@@ -229,12 +243,18 @@ export function ReaderView({ bookId, onClose, onOpenSplit }: ReaderViewProps) {
 
         // Load progress BEFORE content so renderer has correct position on mount
         await loadProgress(bookId)
+        if (cancelled) return
         await loadBookmarks(bookId)
+        if (cancelled) return
         await loadHighlights(bookId)
+        if (cancelled) return
         await loadNotes(bookId)
+        if (cancelled) return
         await loadBookSettings(bookId)
+        if (cancelled) return
 
         const content = await readBookFile(bookData.file_path)
+        if (cancelled) return
         if (!content) {
           // readBookFile returns null on virtual-host fetch failure — recover
           // instead of leaving the reader on an infinite spinner.
@@ -249,6 +269,7 @@ export function ReaderView({ bookId, onClose, onOpenSplit }: ReaderViewProps) {
         }
         setBookContent(content)
       } catch (e) {
+        if (cancelled) return
         console.error('Failed to load book:', e)
         clearBookSettings()
         setLoadError({ kind: 'unknown', detail: e instanceof Error ? e.message : String(e) })
@@ -256,7 +277,10 @@ export function ReaderView({ bookId, onClose, onOpenSplit }: ReaderViewProps) {
     }
     loadBook()
 
-    return () => { setBookId(null) }
+    return () => {
+      cancelled = true
+      setBookId(null)
+    }
   }, [bookId])
 
   // Sync settings panel open state to ref for wheel handler
@@ -271,20 +295,30 @@ export function ReaderView({ bookId, onClose, onOpenSplit }: ReaderViewProps) {
 
   // PB-021-E：把 adapter 暴露出去（上下文 + window 调试钩子），并把当前选区同步到
   // readerStore.selection。主文档用 selectionchange；EPUB iframe 的选区事件不会冒泡
-  // 到主文档，所以再补一个 500ms 轮询（只在文本变化时写 store，避免无谓重渲染）。
+  // 到主文档，所以再补一个 500ms 轮询。
+  //
+  // review F-01（2026-10-29）：旧实现对每个事件都调 adapter.getSelection()，而它内部
+  // 为了算字符偏移会把**整个滚动容器** toString() 再逐码点计数 ——
+  // 几 MB 的 TXT 里拖选一次就是几十毫秒，而 selectionchange 在拖动时每次移动都触发。
+  // 现在两级处理：
+  //   1) currentSelectionText() 只读 Selection 文本，做「选区变了吗」的廉价判定；
+  //   2) 变了才做完整计算（text+locator+rect+context），且两次之间至少隔
+  //      SYNC_MIN_INTERVAL_MS；拖动过程中的中间帧由尾随定时器补最后一次，
+  //      保证松手后的位置/rect 一定是最新的。
   useEffect(() => {
     window.__pbReaderAdapter = readerAdapter
     if (!readerAdapter) return
+    const SYNC_MIN_INTERVAL_MS = 150
     let lastText: string | null = null
-    const sync = () => {
+    let lastRunAt = 0
+    let trailing: number | null = null
+
+    // 昂贵路径：算出 locator / rect / context 并写入 store
+    const commit = () => {
+      lastRunAt = performance.now()
       try {
         const selection = readerAdapter.getSelection()
-        const text = selection?.text ?? null
-        // 文本没变但 store 里的选区被别处清掉（工具条动作/弹层关闭）→ 重新写入，
-        // 否则同一次 DOM 选区再也不会让工具条出现。
-        const storeCleared = useReaderStore.getState().selection === null
-        if (text === lastText && (text === null) === storeCleared) return
-        lastText = text
+        lastText = selection?.text ?? null
         const reader = useReaderStore.getState()
         if (selection) reader.setSelection(selection)
         else reader.clearSelection()
@@ -292,12 +326,37 @@ export function ReaderView({ bookId, onClose, onOpenSplit }: ReaderViewProps) {
         console.debug('ReaderAdapter: selection sync failed', error)
       }
     }
+
+    const sync = () => {
+      let text: string | null = null
+      try {
+        text = currentSelectionText()   // 廉价：不做 locator / rect / context
+      } catch { /* ignore */ }
+      // 文本没变但 store 里的选区被别处清掉（工具条动作/弹层关闭）→ 重新写入，
+      // 否则同一次 DOM 选区再也不会让工具条出现。
+      const storeCleared = useReaderStore.getState().selection === null
+      if (text === lastText && (text === null) === storeCleared) return
+      const wait = lastRunAt + SYNC_MIN_INTERVAL_MS - performance.now()
+      if (wait > 0) {
+        // 节流窗口内：只保留最后一次补算，避免拖动时每个中间帧都全量计算
+        if (trailing === null) {
+          trailing = window.setTimeout(() => {
+            trailing = null
+            commit()
+          }, wait)
+        }
+        return
+      }
+      commit()
+    }
+
     sync()
     const timer = window.setInterval(sync, 500)
     document.addEventListener('selectionchange', sync)
     document.addEventListener('mouseup', sync)
     document.addEventListener('keyup', sync)
     return () => {
+      if (trailing !== null) window.clearTimeout(trailing)
       window.clearInterval(timer)
       document.removeEventListener('selectionchange', sync)
       document.removeEventListener('mouseup', sync)
@@ -528,7 +587,11 @@ export function ReaderView({ bookId, onClose, onOpenSplit }: ReaderViewProps) {
       {renderSidebar && (
         <div className={`absolute inset-0 z-40 flex ${sidebarClosing ? 'animate-fade-out' : ''}`}>
           {/* Backdrop */}
-          <div className={`absolute inset-0 bg-black/40 ${sidebarClosing ? 'opacity-0' : ''}`} style={{ transition: 'opacity 0.2s' }} onClick={() => setShowSidebar(false)} />
+          <div
+            className={`absolute inset-0 ${sidebarClosing ? 'opacity-0' : ''}`}
+            style={{ background: 'var(--ui-backdrop)', transition: motionTransition('opacity 0.2s', reducedMotion) }}
+            onClick={() => setShowSidebar(false)}
+          />
           {/* Panel */}
           <div className={`relative w-80 h-full border-r border-[var(--reader-border)] shadow-2xl ${sidebarClosing ? 'animate-slide-out' : 'animate-slide-in'}`} style={{ backgroundColor: 'var(--reader-sidebar)', opacity: 0.9 }}>
             <Sidebar bookId={bookId} onClose={onClose} />
@@ -545,8 +608,8 @@ export function ReaderView({ bookId, onClose, onOpenSplit }: ReaderViewProps) {
           }
         >
           <div
-            className={'absolute inset-0 bg-black/40 ' + (annotationsClosing ? 'opacity-0' : '')}
-            style={{ transition: 'opacity 0.2s' }}
+            className={'absolute inset-0 ' + (annotationsClosing ? 'opacity-0' : '')}
+            style={{ background: 'var(--ui-backdrop)', transition: motionTransition('opacity 0.2s', reducedMotion) }}
             onClick={() => setShowAnnotations(false)}
           />
           <div
@@ -709,7 +772,11 @@ export function ReaderView({ bookId, onClose, onOpenSplit }: ReaderViewProps) {
         )}
 
         {/* Page indicator */}
-        <div className="absolute bottom-3 right-3 z-10 bg-black/40 backdrop-blur-sm text-white/70 text-xs px-3 py-1.5 rounded-full flex items-center gap-3">
+        {/* U14：页码胶囊用 inverse-surface 语义色（三主题下都有可读对比），不再硬编码 bg-black/40 */}
+        <div
+          className="absolute bottom-3 right-3 z-10 backdrop-blur-sm text-xs px-3 py-1.5 rounded-full flex items-center gap-3"
+          style={{ background: 'var(--md-sys-color-inverse-surface)', color: 'var(--md-sys-color-inverse-on-surface)' }}
+        >
           <span>{['txt','mobi','azw3','fb2','html','markdown','docx'].includes(book.format) ? `${(progress.progress || 0).toFixed(2)}%` : progress.page != null ? t('第 {{page}} 页', { page: progress.page }) : `${Math.round(progress.progress || 0)}%`}</span>
           <span className="opacity-70">|</span>
           <ReadingTimeDisplay />

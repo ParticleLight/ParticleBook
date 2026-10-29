@@ -79,6 +79,68 @@ bool IsHttpUrl(const std::string& url)
     return StartsWith(lower, "http://") || StartsWith(lower, "https://");
 }
 
+// scheme / host 拆分（只给 HTTPS 校验用；host 为小写、已去 userinfo/端口/方括号）。
+bool SplitSchemeHost(const std::string& url, std::string& scheme, std::string& host)
+{
+    const std::size_t sep = url.find("://");
+    if (sep == std::string::npos) return false;
+    scheme = Lower(url.substr(0, sep));
+    const std::size_t begin = sep + 3;
+    const std::size_t end = url.find_first_of("/?#", begin);
+    std::string authority = url.substr(begin, end == std::string::npos ? std::string::npos : end - begin);
+    const std::size_t at = authority.rfind('@');
+    if (at != std::string::npos) authority = authority.substr(at + 1);
+    if (!authority.empty() && authority[0] == '[') {
+        const std::size_t close = authority.find(']');
+        host = Lower(close == std::string::npos ? authority : authority.substr(0, close + 1));
+        return true;
+    }
+    const std::size_t colon = authority.rfind(':');
+    host = Lower(Trim(colon == std::string::npos ? authority : authority.substr(0, colon)));
+    return true;
+}
+
+// 回环地址：只有这些才允许明文 http（本地 ollama / LM Studio / E2E mock 之类）。
+// 三件套：localhost、IPv6 ::1（[::1] 是 SplitSchemeHost 保留方括号的形式）、
+// 以及 127.0.0.0/8 的【IPv4 字面量】。
+bool IsLoopbackHost(const std::string& host)
+{
+    if (host == "localhost" || host == "::1" || host == "[::1]") return true;
+    // 必须正好 4 段纯数字：127.evil.com / 127.0.0.1.evil.com 这类域名不算
+    bool sawLastOctet = false;
+    int octets = 0;
+    int first = -1;
+    std::size_t begin = 0;
+    while (octets < 4) {
+        const std::size_t dot = host.find('.', begin);
+        const bool last = (dot == std::string::npos);
+        const std::string part = host.substr(begin, last ? std::string::npos : dot - begin);
+        if (part.empty() || part.size() > 3) return false;
+        for (char c : part) {
+            if (!std::isdigit(static_cast<unsigned char>(c))) return false;
+        }
+        const int value = std::stoi(part);
+        if (value < 0 || value > 255) return false;
+        if (octets == 0) first = value;
+        ++octets;
+        if (last) { sawLastOctet = true; break; }
+        begin = dot + 1;
+    }
+    if (octets != 4 || !sawLastOctet) return false;   // 段数不足 / 多于 4 段
+    return first == 127;
+}
+
+// Key 会进 Authorization / x-api-key 头：明文 http 只允许打在回环地址上，
+// 其余必须是 https（否则同网段/运营商就能把 Key 拿走；重定向已另有禁止）。
+bool UrlRequiresHttps(const std::string& url)
+{
+    std::string scheme, host;
+    if (!SplitSchemeHost(url, scheme, host)) return true;   // 解析不了就按不安全处理
+    if (scheme == "https") return false;
+    if (scheme == "http" && IsLoopbackHost(host)) return false;
+    return true;
+}
+
 // baseUrl 里不允许出现凭证（userinfo）或 query / fragment：Key 只能走
 // SecretStore + Authorization 头，绝不写进 URL（否则会进日志 / 备份 / 截图）。
 bool UrlCarriesSecrets(const std::string& url)
@@ -999,6 +1061,11 @@ TranslationResult TranslationService::TranslateBatch(
         return fail(TranslationErrorCode::NotConfigured,
                     "translation base URL must be an http(s) URL");
     }
+    if (UrlRequiresHttps(trimmedBaseUrl)) {
+        return fail(TranslationErrorCode::NotConfigured,
+                    "translation base URL must use https: the API key is sent in a header, "
+                    "so plain http is only allowed for localhost/127.0.0.1");
+    }
     if (UrlCarriesSecrets(trimmedBaseUrl)) {
         return fail(TranslationErrorCode::NotConfigured,
                     "translation base URL must not contain credentials, a query or a fragment; "
@@ -1111,6 +1178,11 @@ TranslationService::TranslationModelList TranslationService::ListModels(
     if (!IsHttpUrl(baseUrl)) {
         return fail(TranslationErrorCode::NotConfigured,
                     "translation base URL must be an http(s) URL");
+    }
+    if (UrlRequiresHttps(baseUrl)) {
+        return fail(TranslationErrorCode::NotConfigured,
+                    "translation base URL must use https: the API key is sent in a header, "
+                    "so plain http is only allowed for localhost/127.0.0.1");
     }
     if (UrlCarriesSecrets(baseUrl)) {
         return fail(TranslationErrorCode::NotConfigured,

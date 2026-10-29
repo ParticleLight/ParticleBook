@@ -4,6 +4,8 @@
 #include <unordered_map>
 #include <set>
 #include <vector>
+#include <atomic>
+#include <memory>
 #include "nlohmann/json.hpp"
 
 using json = nlohmann::json;
@@ -12,6 +14,12 @@ class WebViewHost;
 
 class BridgeServer {
 public:
+    BridgeServer() = default;
+    // B-09：析构时把活体令牌置 false —— 投递队列里可能还压着捕获了 this 的
+    // lambda，它们执行时先看令牌，失效就直接丢弃（否则 App::Shutdown 先
+    // reset 掉 BridgeServer，队列里的回调仍会解引用 this → UAF）。
+    ~BridgeServer();
+
     using MethodHandler = std::function<json(const json& params)>;
     using AsyncMethodHandler = std::function<void(
         const json& params,
@@ -43,4 +51,6 @@ private:
     std::unordered_map<std::string, AsyncMethodHandler> m_asyncMethods;
     std::unordered_map<std::string, std::set<int>> m_subscribers;
     WebViewHost* m_webview = nullptr;
+    // 投递 lambda 捕获它的副本：shared_ptr 保证原子量比对象活得久（见 ~BridgeServer）。
+    std::shared_ptr<std::atomic<bool>> m_alive = std::make_shared<std::atomic<bool>>(true);
 };

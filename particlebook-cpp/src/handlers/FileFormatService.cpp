@@ -1,6 +1,7 @@
 // PB-024-B：从 FileHandlers.cpp 纯搬移的「格式 / 小工具」实现（行为不变）。
 #include "FileFormatService.h"
 
+#include "platform/LogService.h"
 #include "utils/encoding.h"
 #include "utils/win_cmd.h"
 
@@ -268,21 +269,9 @@ int64_t GetFileSizeSafe(const std::string& path)
 void DebugLog(const char* msg)
 {
     OutputDebugStringA(msg);
-    // Also write to a log file in the exe directory
-    static std::mutex logMutex;
-    std::lock_guard<std::mutex> lock(logMutex);
-    wchar_t exePath[MAX_PATH];
-    GetModuleFileNameW(nullptr, exePath, MAX_PATH);
-    auto logPath = std::filesystem::path(exePath).parent_path() / "debug.log";
-    FILE* f = _wfopen(logPath.c_str(), L"a");
-    if (f) {
-        time_t now = time(nullptr);
-        char timeBuf[32];
-        tm localTm; localtime_s(&localTm, &now);
-        strftime(timeBuf, sizeof(timeBuf), "%H:%M:%S", &localTm);
-        fprintf(f, "[%s] %s\n", timeBuf, msg);
-        fclose(f);
-    }
+    // 写 debug.log 的分支已删除（review · B-13）：日志统一走 LogService，
+    // 它有滚动上限和路径脱敏，不会在 exe 目录无限追加。
+    if (msg && *msg) pb::LogDebug("filefmt", msg);
 }
 
 
