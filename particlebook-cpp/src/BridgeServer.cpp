@@ -386,6 +386,7 @@ std::string BridgeServer::GenerateBridgeScript()
     downloadBook: function(sid,u,n,f)         { return invoke('bookSource:download', {sourceId:sid, bookUrl:u, bookName:n, format:f}); },
     onDownloadProgress: function(cb) { return onEvent('bookSource:downloadProgress', cb); },
 
+    zlibHide: function()      { return invoke('zlib:hide'); },
     zlibShow: function()      { return invoke('zlib:show'); },
     zlibGetMirrorInfo: function(){ return invoke('zlib:getMirrorInfo'); },
     zlibGetDownloadPath: function()  { return invoke('zlib:getDownloadPath'); },

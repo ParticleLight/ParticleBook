@@ -434,8 +434,11 @@ export function PdfRenderer({ book, content: _content, bookId }: PdfRendererProp
           const bounds = pageBounds[pageNum - 1]
           const height = bounds ? bounds.height * fitScale : 1000
           const img = pageImages.get(pageNum)
+          // 注意：容器必须用 margin 而不是 padding —— 文本层/高亮层是 absolute inset-0，
+          // 绝对定位的包含块是 padding box；一旦容器有 padding，文字层就会比 <img> 高出
+          // 一个 padding（选中框和可见文字错位，2026-10-29 用户反馈）。
           return (
-            <div key={pageNum} data-page={pageNum} data-pdf-page={pageNum} className="relative py-2 select-none" style={{ contentVisibility: 'auto', containIntrinsicSize: `auto ${height}px` }}
+            <div key={pageNum} data-page={pageNum} data-pdf-page={pageNum} className="relative mb-2 select-none" style={{ contentVisibility: 'auto', containIntrinsicSize: `auto ${height}px` }}
               onMouseDown={(e) => {
                 if (e.button !== 0) return
                 // 文本层上的按下是"选文字"，不能当成拖拽画框

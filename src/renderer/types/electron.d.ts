@@ -382,6 +382,9 @@ interface ElectronAPI {
   downloadBook: (sourceId: number, bookUrl: string, bookName: string, format: string) => Promise<string>
   onDownloadProgress: (callback: (progress: PbDownloadProgress) => void) => () => void
 
+  // Utilities
+  zlibHide: () => Promise<null>
+
   // Z-Library
   zlibShow: () => Promise<void>
   zlibGetMirrorInfo: () => Promise<{ index: number; url: string; mirrors: string[] }>

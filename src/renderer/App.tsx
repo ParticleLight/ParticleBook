@@ -25,12 +25,17 @@ const PageLoader = () => (
   </div>
 )
 
-const ZlibLoadingOverlay = () => {
+// Z-Library 进站遮罩（2026-10-29）：
+//  * 从顶部工具栏（.m3-top-app-bar，64px）下面开始铺，工具栏保持可见可点 —— 用户
+//    连接期间还能切页面 / 取消，不会卡在一个全屏转圈里；
+//  * 提供「取消」：撤掉遮罩并让 C++ 放弃这次进站（zlibHide 会 ReloadPage 回到书架）。
+const ZlibLoadingOverlay = ({ onCancel }: { onCancel: () => void }) => {
   const { t } = useTranslation()
   return (
-    <div className="fixed inset-0 z-50 flex flex-col items-center justify-center animate-fade-in" style={{ background: 'var(--md-sys-color-surface)' }} role="status" aria-live="polite">
+    <div className="fixed left-0 right-0 bottom-0 top-16 z-50 flex flex-col items-center justify-center animate-fade-in" style={{ background: 'var(--md-sys-color-surface)' }} role="status" aria-live="polite">
       <div className="w-10 h-10 rounded-full border-2 animate-spin mb-4" style={{ borderColor: 'var(--md-sys-color-surface-container-highest)', borderTopColor: 'var(--md-sys-color-primary)' }} />
-      <p className="m3-body-medium" style={{ color: 'var(--md-sys-color-on-surface-variant)' }}>{t('正在连接 Z-Library...')}</p>
+      <p className="m3-body-medium mb-4" style={{ color: 'var(--md-sys-color-on-surface-variant)' }}>{t('正在连接 Z-Library...')}</p>
+      <button type="button" onClick={onCancel} className="m3-outlined-button" data-testid="zlib-loading-cancel">{t('取消')}</button>
     </div>
   )
 }
@@ -164,10 +169,21 @@ export default function App() {
     return () => { unsub1(); unsub2(); unsub3() }
   }, [])
 
+  // 取消进站：撤遮罩 + 让 C++ 退出 Z-Library 会话（zlib:hide → ReloadPage 回到书架）。
+  const cancelZLibrary = useCallback(() => {
+    if (zlibTimer.current) { clearTimeout(zlibTimer.current); zlibTimer.current = undefined }
+    setZlibLoading(false)
+    setZlibAllFailed(false)
+    window.electronAPI.zlibHide().catch(() => {})
+  }, [])
+
   const navigateTo = useCallback((p: Page) => {
+    // 进站途中切页面 = 放弃这次进站：撤遮罩并让 C++ 退出 Z-Library 会话，
+    // 否则遮罩会一直挂着、后端也可能在你已经回到书架后才把页面导航走。
+    if (zlibLoading) cancelZLibrary()
     setPage(p)
     setPageKey(k => k + 1)
-  }, [])
+  }, [zlibLoading, cancelZLibrary])
 
   const openBook = useCallback((bookId: number) => {
     setCurrentBookId(bookId)
@@ -228,6 +244,7 @@ export default function App() {
     zlibTimer.current = setTimeout(() => setZlibLoading(false), 25000)
     window.electronAPI.zlibShow()
   }, [])
+
 
   // PB-019: import paths forwarded by a second process (or the first-launch
   // command line), then jump into the book when exactly one was opened.
@@ -310,7 +327,7 @@ export default function App() {
       {zlibDownloadError && (
         <ZlibDownloadFailedBanner code={zlibDownloadError} onDismiss={() => setZlibDownloadError(null)} />
       )}
-      {zlibLoading && <ZlibLoadingOverlay />}
+      {zlibLoading && <ZlibLoadingOverlay onCancel={cancelZLibrary} />}
       <Library
         onOpenBook={openBook}
         onOpenSettings={() => navigateTo('settings')}

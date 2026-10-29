@@ -785,6 +785,11 @@ export const contract = [
   },
   // ── Z-Library ──
   {
+    member: "zlibHide", method: "zlib:hide",
+    kind: "invoke", group: "Utilities", params: [],
+    returns: "Promise<null>"
+  },
+  {
     member: "zlibShow", method: "zlib:show",
     kind: "invoke",
     group: "Z-Library",
