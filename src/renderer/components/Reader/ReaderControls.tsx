@@ -208,24 +208,27 @@ export function ReaderControls({
         </div>
       )}
 
+      {/* 导出条：条目比一行多，允许换行而不是把中文标签挤成一字一行
+          （用户 2026-10-29：「导出本书标注 / 书签 / 高亮 / 笔记」被压成竖排）。
+          所有标签与按钮都 nowrap + shrink-0。 */}
       {showExport && (
-        <div className="max-w-2xl mx-auto mb-3 flex items-center gap-2">
-          <span className="text-xs" style={{ color: 'var(--reader-text)', opacity: 0.6 }}>{t('导出本书标注')}</span>
+        <div className="max-w-2xl mx-auto mb-3 flex flex-wrap items-center justify-center gap-2">
+          <span className="text-xs whitespace-nowrap shrink-0" style={{ color: 'var(--reader-text)', opacity: 0.6 }}>{t('导出本书标注')}</span>
           {([['bookmarks', t('书签')], ['highlights', t('高亮')], ['notes', t('笔记')]] as const).map(([key, label]) => (
-            <label key={key} className="flex items-center gap-1 text-xs" style={{ color: 'var(--reader-text)', opacity: 0.75 }}>
+            <label key={key} className="flex items-center gap-1 text-xs whitespace-nowrap shrink-0" style={{ color: 'var(--reader-text)', opacity: 0.75 }}>
               <input type="checkbox" className="m3-checkbox" checked={exportRange[key]} onChange={(e) => setExportRange({ ...exportRange, [key]: e.target.checked })} />
               {label}
             </label>
           ))}
           {(['markdown', 'csv', 'json'] as const).map((fmt) => (
             <button key={fmt} onClick={() => handleExport(fmt)} disabled={exportBusy}
-              className={ctrlClasses.dialogBtn}>
+              className={`${ctrlClasses.dialogBtn} shrink-0 whitespace-nowrap`}>
               {fmt === 'markdown' ? 'Markdown' : fmt.toUpperCase()}
             </button>
           ))}
-          <button onClick={handlePreview} disabled={exportBusy} className={ctrlClasses.dialogBtn}>{t('预览')}</button>
-          <button onClick={handleCopyExport} disabled={exportBusy} className={ctrlClasses.dialogBtn}>{t('复制 Markdown')}</button>
-          <button onClick={() => setShowExport(false)} className={ctrlClasses.dialogBtn}>{t('取消')}</button>
+          <button onClick={handlePreview} disabled={exportBusy} className={`${ctrlClasses.dialogBtn} shrink-0 whitespace-nowrap`}>{t('预览')}</button>
+          <button onClick={handleCopyExport} disabled={exportBusy} className={`${ctrlClasses.dialogBtn} shrink-0 whitespace-nowrap`}>{t('复制 Markdown')}</button>
+          <button onClick={() => setShowExport(false)} className={`${ctrlClasses.dialogBtn} shrink-0 whitespace-nowrap`}>{t('取消')}</button>
         </div>
       )}
 
