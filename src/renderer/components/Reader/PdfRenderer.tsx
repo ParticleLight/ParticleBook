@@ -55,6 +55,13 @@ export function PdfRenderer({ book, content: _content, bookId }: PdfRendererProp
   const [noteEditor, setNoteEditor] = useState<PdfNoteEditor | null>(null)
   const [noteSaving, setNoteSaving] = useState(false)
   const [textLayers, setTextLayers] = useState<Map<number, PdfTextLayer>>(new Map())
+  // 取色板（2026-10-29）：共享 SelectionToolbar 的「高亮」发 pb:openHighlightPalette，
+  // PDF 由这里认领 —— 只有 PdfRenderer 知道选区的 page + 归一化 rect（adapter 拿不到），
+  // 之前那个请求没人接，于是退回「默认色 + 无 rect 的标注」，画不出来又不收选区，
+  // 用户看到的就是菜单闪一下还在。
+  const [palette, setPalette] = useState<{ left: number; top: number } | null>(null)
+  const selectionRef = useRef<PdfSelection | null>(null)
+  selectionRef.current = selection
   const [fitScale, setFitScale] = useState(1)
   const [zoom, _setZoom] = useState(savedZoom)
   const docIdRef = useRef<number | null>(null)
@@ -375,6 +382,55 @@ export function PdfRenderer({ book, content: _content, bookId }: PdfRendererProp
     clearSelection()
   }, [addAnnotation, bookId, clearSelection])
 
+  const closePalette = useCallback((clearSel: boolean) => {
+    setPalette(null)
+    useReaderStore.getState().setHighlightPaletteOpen(false)
+    if (clearSel) {
+      clearSelection()
+      useReaderStore.getState().clearSelection()
+    }
+  }, [clearSelection])
+
+  // 共享工具条点「高亮」→ 认领请求，弹出 PDF 自己的取色板
+  useEffect(() => {
+    const openPalette = () => {
+      const sel = selectionRef.current
+      if (!sel) return
+      // 同步派发「已接管」：ReaderView 的 handleSelectionHighlight 靠这个事件决定
+      // 不再走默认色兜底（它是在 dispatch 返回后同步检查的）。
+      window.dispatchEvent(new CustomEvent('pb:highlightPaletteOpened'))
+      useReaderStore.getState().setHighlightPaletteOpen(true)
+      setPalette({
+        left: clampNumber(sel.client.left, 8, Math.max(8, window.innerWidth - 250)),
+        top: Math.max(8, sel.client.top - 46),
+      })
+    }
+    window.addEventListener('pb:openHighlightPalette', openPalette as EventListener)
+    return () => window.removeEventListener('pb:openHighlightPalette', openPalette as EventListener)
+  }, [])
+
+  // 取色板打开期间：点外部 / Esc 关闭（保持已应用的标注，收掉选区）
+  useEffect(() => {
+    if (!palette) return
+    const onDown = (e: PointerEvent) => {
+      const target = e.target as Element | null
+      if (target && target.closest('[data-pdf-highlight-palette]')) return
+      closePalette(true)
+    }
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') closePalette(true) }
+    document.addEventListener('pointerdown', onDown, true)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('pointerdown', onDown, true)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [palette, closePalette])
+
+  // 选区没了（翻页 / 滚动 / 手动取消）就收起取色板
+  useEffect(() => {
+    if (palette && !selection) closePalette(false)
+  }, [palette, selection, closePalette])
+
   const openNoteEditorForSelection = useCallback((sel: PdfSelection) => {
     setNoteEditor({
       mode: 'create',
@@ -564,19 +620,20 @@ export function PdfRenderer({ book, content: _content, bookId }: PdfRendererProp
         {visiblePage} / {totalPages}
       </div>
 
-      {/* PB-003：文本层选区工具条（高亮多色 / 下划线 / 笔记） */}
-      {selection && !noteEditor && (
+      {/* 取色板（2026-10-29）：由共享工具条的「高亮」触发；颜色 / 下划线 / 笔记都在这里 */}
+      {palette && selection && !noteEditor && (
         <div
-          data-pdf-selection-toolbar
-          className="fixed z-[55] flex items-center gap-1.5 px-2 py-1.5 rounded-lg shadow-xl border"
+          data-pdf-highlight-palette
+          className="fixed z-[58] flex items-center gap-1.5 px-2 py-1.5 rounded-lg shadow-xl border"
           style={{
-            left: clampNumber(selection.client.left, 8, Math.max(8, window.innerWidth - 300)),
-            top: Math.max(8, selection.client.top - 42),
+            left: palette.left,
+            top: palette.top,
             background: 'var(--reader-sidebar)',
             borderColor: 'var(--reader-border)',
             color: 'var(--reader-text)',
           }}
-          onMouseDown={(e) => e.stopPropagation()}
+          onMouseDown={(e) => { e.preventDefault(); e.stopPropagation() }}
+          onClick={(e) => e.stopPropagation()}
         >
           {PDF_HIGHLIGHT_COLORS.map((color) => (
             <button
@@ -587,7 +644,12 @@ export function PdfRenderer({ book, content: _content, bookId }: PdfRendererProp
               style={{ background: color }}
               title={t('高亮')}
               aria-label={t('高亮')}
-              onClick={() => { void applyPdfHighlight(selection, 'highlight', color) }}
+              onClick={() => {
+                const sel = selection
+                if (!sel) return
+                void applyPdfHighlight(sel, 'highlight', color)
+                closePalette(true)
+              }}
             />
           ))}
           <span className="w-px h-4 mx-0.5" style={{ background: 'var(--reader-border)' }} />
@@ -598,7 +660,12 @@ export function PdfRenderer({ book, content: _content, bookId }: PdfRendererProp
             style={{ color: 'var(--reader-text)' }}
             title={t('下划线')}
             aria-label={t('下划线')}
-            onClick={() => { void applyPdfHighlight(selection, 'underline', '#f59e0b') }}
+            onClick={() => {
+              const sel = selection
+              if (!sel) return
+              void applyPdfHighlight(sel, 'underline', '#f59e0b')
+              closePalette(true)
+            }}
           >
             U
           </button>
@@ -609,7 +676,12 @@ export function PdfRenderer({ book, content: _content, bookId }: PdfRendererProp
             style={{ color: 'var(--reader-text)' }}
             title={t('笔记')}
             aria-label={t('笔记')}
-            onClick={() => openNoteEditorForSelection(selection)}
+            onClick={() => {
+              const sel = selection
+              if (!sel) return
+              openNoteEditorForSelection(sel)
+              closePalette(false)
+            }}
           >
             <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
