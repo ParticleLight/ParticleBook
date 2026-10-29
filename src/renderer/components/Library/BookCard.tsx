@@ -3,6 +3,10 @@ import { Book, useLibraryStore } from '../../stores/libraryStore'
 import { safeText } from '../../utils/safeText'
 import { formatReadingTime, extractTextPreview, formatColors } from '../../utils/format'
 import { generatePdfPreview, generateCbzPreview } from '../../utils/preview'
+
+// 卡片上做「文字预览」的格式白名单（2026-10-29）：二进制容器（pdf/cbz/cbr/mobi/azw3）
+// 不按文本解码；epub 有封面，也不需要。
+const TEXT_PREVIEW_FORMATS = new Set(['txt', 'markdown', 'html', 'fb2', 'docx'])
 import { ConfirmDialog } from '../UI/ConfirmDialog'
 import { BookDetailDialog } from './BookDetailDialog'
 import { useTranslation } from 'react-i18next'
@@ -96,8 +100,10 @@ function BookCardInner({ book, onOpen, onDelete, onRemoveFromShelf, activeShelfI
       } else if (book.format === 'cbz' || book.format === 'cbr') {
         const preview = await generateCbzPreview(book.file_path)
         if (mounted && preview) { objectUrlRef.current = preview; setCoverUrl(preview) }
-      } else {
-        const preview = await extractTextPreview(book.file_path)
+      } else if (TEXT_PREVIEW_FORMATS.has(book.format)) {
+        // 只对「纯文本 / 可读标记」格式做文字预览：mobi / azw3 是二进制容器，
+        // 直接按 UTF-8 解码会把文件头（"Libmobi test sample … Title: …"）当成正文显示。
+        const preview = await extractTextPreview(book.file_path, book.format)
         if (mounted && preview) setTextPreview(preview)
       }
     }

@@ -32,6 +32,9 @@ private:
     struct DocEntry {
         int id;
         std::string filePath;
+        // 源文件「修改时间 ^ 大小」的版本号（2026-10-29）：页面缓存文件名带上它，
+        // 换掉同名 PDF 后不会命中上一版渲染出来的旧 PNG。
+        std::string version;
         uint32_t pageCount;
         std::vector<PdfPageBounds> pageBounds;
         std::vector<std::string> tempFiles;

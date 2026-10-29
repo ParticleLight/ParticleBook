@@ -48,6 +48,8 @@ export const changelog: ChangelogEntry[] = [
       { type: 'improve', text: '大文件按职责拆分：Z-Library、文件/导入、书源、WebView 外壳、设置页与 EPUB 渲染器各自收敛，注入脚本外置到 resources 目录，改界面不必重编译' },
       { type: 'improve', text: '回归护栏：18 条关键路径 E2E（真实窗口 + WebView2/CDP，用户数据沙箱隔离）与 18 个 C++ 单测，CI 覆盖类型检查、契约、版本一致性与 i18n' },
       { type: 'fix', text: '修复两侧翻页箭头「前几次点了没反应、要多点几次」：箭头淡出后不再关掉点击区域（以前淡出即 pointer-events:none，点击会穿透到下面的正文 iframe），并且光标停在箭头上时不再自动淡出' },
+      { type: 'fix', text: '替换同名书籍文件后阅读器仍显示旧内容：正文缓存 URL 带上源文件「修改时间 ^ 大小」做版本号，PDF 页面缓存也按版本命名（此前换掉 PDF 后仍渲染上一版的页面图）' },
+      { type: 'improve', text: '书库卡片预览更好看：FB2 / HTML / DOCX 先剥掉标记只显示正文（FB2 跳过元数据块），MOBI / AZW3 这类二进制格式不再把文件头当正文显示' },
       { type: 'fix', text: '「关于」页的软件图标改为真正的应用图标（与应用任务栏 / 标题栏 / 安装包同一个 app.ico），此前是一枚通用「书本」线框图标，和软件对不上' },
       { type: 'feature', text: 'AI 翻译支持三种接口格式（Chat Completions / Anthropic Messages / Responses）并在设置里用下拉切换；新增「获取模型」按钮，可按当前配置从服务端拉取模型列表并直接选用（旧的「提供方」文本框已移除）' },
       { type: 'improve', text: '重做下拉框右侧指示箭头：「全部标签 / 全部系列 / 全部评分」等筛选与排序下拉改用细描边 chevron（原来是用两条 5px 渐变斜线拼的三角，高分屏下有锯齿），打开时旋转 180°，颜色跟随文字' },

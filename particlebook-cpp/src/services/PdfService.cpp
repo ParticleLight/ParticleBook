@@ -256,6 +256,18 @@ PdfOpenResult PdfService::Open(const std::string& filePath)
         DocEntry entry;
         entry.id = result.id;
         entry.filePath = actualPath;
+        // 版本号：修改时间 ^ 大小；渲染缓存名与 URL 都带上它。
+        {
+            ULARGE_INTEGER stamp{};
+            WIN32_FILE_ATTRIBUTE_DATA attrs{};
+            if (GetFileAttributesExW(pb::Utf8ToWide(actualPath).c_str(), GetFileExInfoStandard, &attrs)) {
+                stamp.LowPart = attrs.ftLastWriteTime.dwLowDateTime;
+                stamp.HighPart = attrs.ftLastWriteTime.dwHighDateTime;
+                stamp.QuadPart ^= static_cast<unsigned long long>(attrs.nFileSizeLow)
+                    | (static_cast<unsigned long long>(attrs.nFileSizeHigh) << 32);
+            }
+            entry.version = std::to_string(stamp.QuadPart);
+        }
         entry.pageCount = result.pageCount;
         entry.pageBounds = bounds;
         m_docs.push_back(std::move(entry));
@@ -281,7 +293,9 @@ std::string PdfService::RenderPage(int id, uint32_t pageIndex, int pixelWidth, i
     auto rendererDir = (std::filesystem::path(exePathBuf).parent_path() / "renderer" / "_pb_pdf").string();
     std::filesystem::create_directories(pb::Utf8ToWide(rendererDir));
 
-    std::string fileName = "doc_" + std::to_string(id) + "_page_" + std::to_string(pageIndex) + ".png";
+    const std::string version = entry->version.empty() ? "0" : entry->version;
+    std::string fileName = "doc_" + std::to_string(id) + "_v" + version + "_page_"
+        + std::to_string(pageIndex) + ".png";
     std::string outFile = rendererDir + "\\" + fileName;
     std::string url = "http://particlebook.app/_pb_pdf/" + fileName;
 

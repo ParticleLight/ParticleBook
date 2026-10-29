@@ -18,11 +18,41 @@ export function formatReadingTime(seconds: number): string {
   return i18n.t('{{count}} 小时', { count: hours })
 }
 
-export async function extractTextPreview(filePath: string, maxLength = 120): Promise<string | null> {
+// 卡片预览（2026-10-29）：FB2 / HTML / DOCX（导入后落盘成自包含 HTML）都是标记语言，
+// 直接解码文件头会得到一屏 `<?xml …>` / `<html …>`，在书库里非常难看。这类格式先
+// 剥掉标签、head/script/style 与实体再截断；纯文本类（txt / mobi / azw3 / markdown）原样。
+const MARKUP_FORMATS = new Set(['fb2', 'html', 'docx'])
+
+function stripMarkup(text: string): string {
+  return text
+    .replace(/^\uFEFF/, '')
+    .replace(/<\?xml[\s\S]*?\?>/gi, ' ')
+    .replace(/<!DOCTYPE[\s\S]*?>/gi, ' ')
+    .replace(/<head[\s\S]*?<\/head>/gi, ' ')
+    // FB2 的 <description> 是书名/作者/日期的元数据，卡片预览要的是正文
+    .replace(/<description[\s\S]*?<\/description>/gi, ' ')
+    .replace(/<(script|style)[\s\S]*?<\/\1>/gi, ' ')
+    .replace(/<br\s*\/?>/gi, ' ')
+    .replace(/<\/(p|div|h[1-6]|li|tr|section)>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;|&apos;/gi, "'")
+    .replace(/&amp;/gi, '&')
+    .replace(/&#(\d+);/g, (_, dec: string) => {
+      const code = Number(dec)
+      return Number.isFinite(code) && code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : ' '
+    })
+}
+
+export async function extractTextPreview(filePath: string, format = '', maxLength = 120): Promise<string | null> {
   try {
     const content = await readBookFile(filePath)
     if (!content) return null
-    const text = new TextDecoder('utf-8', { fatal: false }).decode(content)
+    const raw = new TextDecoder('utf-8', { fatal: false }).decode(content)
+    const text = MARKUP_FORMATS.has(format) ? stripMarkup(raw) : raw
     const cleaned = text.replace(/\s+/g, ' ').trim()
     return cleaned.slice(0, maxLength) || null
   } catch {

@@ -88,7 +88,19 @@ static json ReadFileForRenderer(ContentCache* cache, const std::string& path)
 
         std::wstring dest = rendererDir + L"\\" + pb::Utf8ToWide(fn);
         if (CopyFileW(pb::Utf8ToWide(path).c_str(), dest.c_str(), FALSE)) {
-            std::string url = "http://particlebook.app/_pb_files/" + fn;
+            // 同一个源路径换了文件（用户替换 / 重新导入同名书）时，文件名不变 →
+            // WebView2 的 HTTP 缓存会把旧内容再发一次（实测：PDF 换封面后阅读器仍显示
+            // 旧版）。URL 带「修改时间 ^ 大小」做版本号，文件一改就是新 URL。
+            ULARGE_INTEGER stamp{};
+            WIN32_FILE_ATTRIBUTE_DATA attrs{};
+            if (GetFileAttributesExW(pb::Utf8ToWide(path).c_str(), GetFileExInfoStandard, &attrs)) {
+                stamp.LowPart = attrs.ftLastWriteTime.dwLowDateTime;
+                stamp.HighPart = attrs.ftLastWriteTime.dwHighDateTime;
+                stamp.QuadPart ^= static_cast<unsigned long long>(attrs.nFileSizeLow)
+                    | (static_cast<unsigned long long>(attrs.nFileSizeHigh) << 32);
+            }
+            std::string url = "http://particlebook.app/_pb_files/" + fn
+                + "?v=" + std::to_string(stamp.QuadPart);
             json r;
             r["_pb_url"] = url;
             return r;
