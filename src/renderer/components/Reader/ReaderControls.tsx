@@ -13,8 +13,8 @@ interface ReaderControlsProps {
   // PB-001-B：打开/收起朗读条（TTS）。状态由 ReaderView 持有。
   onOpenTts: () => void
   ttsActive: boolean
-  // PB-009-A：EPUB 分栏 / 竖排（状态在 settingsStore，ReaderView 透传）
-  epubSpread: 'auto' | 'single' | 'double'
+  // PB-009-A：EPUB 竖排（状态在 settingsStore，ReaderView 透传）；
+  // 分栏只由工具栏按钮切换，按钮的"当前态"取 store 里渲染器实测的栏数。
   verticalText: boolean
   onCycleSpread: () => void
   onToggleVertical: () => void
@@ -33,7 +33,7 @@ interface ReaderControlsProps {
 
 export function ReaderControls({
   bookId, format, onOpenSettings, onOpenTts, ttsActive,
-  epubSpread, verticalText, onCycleSpread, onToggleVertical,
+  verticalText, onCycleSpread, onToggleVertical,
   dictionaryRequest = null, onDictionaryRequestHandled, onDictionaryVisibilityChange,
   searchController: sharedSearchController = null,
   onOpenSplit,
@@ -81,6 +81,9 @@ export function ReaderControls({
   const searchInputRef = useRef<HTMLInputElement>(null)
 
   const theme = useSettingsStore((s) => s.theme)
+  // 当前实际栏数（EpubRenderer 从 epub.js layout.divisor 同步过来）：按钮高亮与
+  // 提示文案都按它算，auto 在宽窗口下就等同双栏，不会出现"点一下没变化"。
+  const spreadEffective = useSettingsStore((s) => s.epubSpreadEffective)
   const setTheme = useSettingsStore((s) => s.setTheme)
 
   const [showNoteInput, setShowNoteInput] = useState(false)
@@ -366,12 +369,12 @@ export function ReaderControls({
           </button>
         )}
 
-        {/* PB-009-A：EPUB 分栏（自动/单栏/双栏循环） */}
+        {/* PB-009-A：EPUB 分栏（单栏 ⇄ 双栏；按渲染器实测栏数切换，不再有"空点击"） */}
         {format === 'epub' && (
           <button
             onClick={onCycleSpread}
-            className={`${ctrlClasses.btn} ${epubSpread !== 'single' ? 'is-active' : ctrlClasses.btnDefault}`}
-            title={t('分栏：{{mode}}（点击切换）', { mode: t(epubSpread === 'auto' ? '自动' : epubSpread === 'double' ? '双栏' : '单栏') })}
+            className={`${ctrlClasses.btn} ${spreadEffective === 'double' ? 'is-active' : ctrlClasses.btnDefault}`}
+            title={t('分栏：{{mode}}（点击切换）', { mode: t(spreadEffective === 'double' ? '双栏' : '单栏') })}
             aria-label={t('分栏')}
             data-spread-button="1"
           >

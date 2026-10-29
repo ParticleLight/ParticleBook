@@ -53,6 +53,10 @@ export interface SettingsState {
   setTtsVoiceId: (id: string) => void
   setTtsRate: (rate: number) => void
   setEpubSpread: (spread: 'auto' | 'single' | 'double') => void
+  /** 渲染器实测出来的「当前看起来是几栏」（epub.js layout.divisor）：
+      工具栏切换按它判断，避免 auto 在宽窗口下"点一下没反应"。 */
+  epubSpreadEffective: 'single' | 'double'
+  setEpubSpreadEffective: (spread: 'single' | 'double') => void
   cycleEpubSpread: () => void
   setVerticalText: (on: boolean) => void
   setLanguage: (lang: Lang) => void
@@ -81,7 +85,6 @@ const BOOK_SETTINGS_KEYS = ['fontSize', 'fontFamily', 'lineHeight', 'margin', 't
 // ── PB-009-A：EPUB 版式的本地持久化（不写 C++ settings）──────────────
 const LS_EPUB_SPREAD = 'pb.reader.epubSpread'
 const LS_VERTICAL_TEXT = 'pb.reader.verticalText'
-const SPREAD_ORDER = ['auto', 'single', 'double'] as const
 
 function readEpubSpread(): 'auto' | 'single' | 'double' {
   try {
@@ -123,6 +126,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   ttsRate: 0,
 
   epubSpread: readEpubSpread(),
+  epubSpreadEffective: 'single',
   verticalText: readVerticalText(),
 
   language: i18n.language === 'en' ? 'en' : 'zh',
@@ -148,12 +152,16 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     set({ epubSpread })
     writeLocal(LS_EPUB_SPREAD, epubSpread)
   },
+  // 只有「单栏 / 双栏」两态（2026-10-29 用户反馈：点一下分栏、点第二下还是分栏、
+  // 第三下才回归）。旧的三态 auto→single→double 里 auto 在宽窗口本来就渲染成双栏，
+  // 于是 double→auto 那一次点击看不出任何变化；现在按渲染器实测的当前栏数切换。
   cycleEpubSpread: () => {
-    const current = get().epubSpread
-    const index = SPREAD_ORDER.indexOf(current)
-    const next = SPREAD_ORDER[(index + 1) % SPREAD_ORDER.length]
+    const next = get().epubSpreadEffective === 'double' ? 'single' : 'double'
     set({ epubSpread: next })
     writeLocal(LS_EPUB_SPREAD, next)
+  },
+  setEpubSpreadEffective: (epubSpreadEffective) => {
+    if (get().epubSpreadEffective !== epubSpreadEffective) set({ epubSpreadEffective })
   },
   setVerticalText: (verticalText) => {
     set({ verticalText })

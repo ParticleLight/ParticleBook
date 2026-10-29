@@ -458,14 +458,45 @@ export function EpubRenderer({ book, content, bookId, spread = 'single', vertica
   useEffect(() => {
     const rendition = renditionRef.current
     if (!rendition || !isReady) return
+    // epub.js 的 layout.divisor：1 = 单栏，2 = 双栏（auto 在宽窗口给 2）。
+    // 工具栏的「分栏」按钮按这个实测值切换，避免 auto→double 的"空点击"。
+    // 注意：divisor 要等 layout.calculate() 在 resize/rendered 之后才算出来，
+    // 所以同时挂在 'rendered' 上，并留两个延迟兜底（首帧 layout 可能还没更新）。
+    const syncEffective = () => {
+      // ⚠ rendition.layout 是【方法】，Layout 实例在 rendition.manager.layout 上
+      //（epub.js 的布局对象才有 divisor / _minSpreadWidth）。
+      const layout = (rendition as any)?.manager?.layout
+      const divisor = layout?.divisor
+      let effective: 'single' | 'double'
+      if (typeof divisor === 'number') {
+        effective = divisor >= 2 ? 'double' : 'single'
+      } else {
+        // 兜底：按 epub.js 的规则自己判断（spread none=单栏，both=双栏，auto 看宽度）
+        const min = typeof layout?._minSpreadWidth === 'number' ? layout._minSpreadWidth : 800
+        const width = viewerRef.current?.clientWidth ?? window.innerWidth
+        effective = spread === 'double' ? 'double'
+          : spread === 'single' ? 'single'
+          : (width >= min ? 'double' : 'single')
+      }
+      useSettingsStore.getState().setEpubSpreadEffective(effective)
+    }
     try {
       ;(rendition as any).spread(epubSpreadValue(spread))
+      try { rendition.on('rendered', syncEffective) } catch { /* ignore */ }
       // epub.js 内部 manager 需要一次 resize 才会按新分栏重排
-      window.setTimeout(() => {
+      const resizeTimer = window.setTimeout(() => {
         const el = viewerRef.current
         if (el) { try { rendition.resize(el.clientWidth, el.clientHeight) } catch { /* ignore */ } }
+        syncEffective()
       }, 60)
+      const lateTimer = window.setTimeout(syncEffective, 600)
+      return () => {
+        window.clearTimeout(resizeTimer)
+        window.clearTimeout(lateTimer)
+        try { rendition.off('rendered', syncEffective) } catch { /* ignore */ }
+      }
     } catch { /* ignore */ }
+    return () => {}
   }, [spread, isReady])
 
   // ── PB-009-A：竖排（writing-mode: vertical-rl）────────────────────────
@@ -556,6 +587,24 @@ export function EpubRenderer({ book, content, bookId, spread = 'single', vertica
 
     closeHighlightPopup()
   }, [highlightPopup, bookId, addHighlight, closeHighlightPopup])
+
+  // 调试 / E2E：当前分栏的真实状态（与 __pbReaderAdapter 同风格），
+  // 单测 / 验收可以据此判断"这一下点击到底有没有改变栏数"。
+  useEffect(() => {
+    ;(window as any).__pbEpubDebug = () => {
+      const rendition = renditionRef.current as any
+      const state = useSettingsStore.getState()
+      const layout = rendition?.manager?.layout
+      return {
+        spread: state.epubSpread,
+        effective: state.epubSpreadEffective,
+        divisor: layout?.divisor ?? null,
+        minSpreadWidth: layout?._minSpreadWidth ?? null,
+        setting: rendition?.settings?.spread ?? null,
+      }
+    }
+    return () => { delete (window as any).__pbEpubDebug }
+  }, [])
 
   return (
     <div className="h-full relative">

@@ -679,7 +679,6 @@ export function ReaderView({ bookId, onClose, onOpenSplit }: ReaderViewProps) {
             onOpenSettings={() => setShowSettings(true)}
             onOpenTts={() => setShowTts((v) => !v)}
             ttsActive={showTts}
-            epubSpread={epubSpread}
             verticalText={verticalText}
             onCycleSpread={cycleEpubSpread}
             onToggleVertical={() => setVerticalText(!verticalText)}
