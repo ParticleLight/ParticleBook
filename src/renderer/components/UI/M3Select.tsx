@@ -340,6 +340,19 @@ export function M3Select({
         onKeyDown={handleTriggerKeyDown}
       >
         <span className="m3-select-label">{selectedLabel}</span>
+        <svg
+          className="m3-select-chevron"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={2}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden="true"
+          focusable="false"
+        >
+          <path d="M6 9.5l6 6 6-6" />
+        </svg>
       </button>
       {open && createPortal(
         <div ref={menuRef} className="m3-menu m3-select-menu" style={menuStyle}>

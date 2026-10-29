@@ -1108,8 +1108,9 @@ input[type="range"]::-webkit-slider-thumb:active {
 
 /* native select used as a compact menu/filter trigger */
 .m3-select {
+  position: relative;
   min-height: 32px;
-  padding: 0 30px 0 12px;
+  padding: 0 34px 0 12px;
   border: 1px solid var(--md-sys-color-outline-variant);
   border-radius: var(--md-sys-shape-sm);
   background-color: transparent;
@@ -1117,11 +1118,24 @@ input[type="range"]::-webkit-slider-thumb:active {
   font: var(--md-sys-typescale-label-medium);
   cursor: pointer;
   appearance: none;
-  background-image: linear-gradient(45deg, transparent 50%, currentColor 50%), linear-gradient(135deg, currentColor 50%, transparent 50%);
-  background-position: calc(100% - 16px) 13px, calc(100% - 11px) 13px;
-  background-size: 5px 5px, 5px 5px;
-  background-repeat: no-repeat;
 }
+/* 下拉指示箭头（2026-10-29 重做）：原来用两条 5px 渐变斜线拼出一个三角，
+   125% DPI 下锯齿明显、和 .m3-menu 的观感也不搭。改成内联 SVG 细描边 chevron，
+   打开时旋转 180°，颜色跟随 currentColor。 */
+.m3-select-chevron {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  width: 18px;
+  height: 18px;
+  transform: translateY(-50%);
+  transition: transform var(--md-sys-motion-short) ease;
+  opacity: 0.72;
+  pointer-events: none;
+}
+.m3-select:hover .m3-select-chevron { opacity: 0.9; }
+.m3-select[aria-expanded='true'] .m3-select-chevron { transform: translateY(-50%) rotate(180deg); opacity: 1; }
+.m3-select.is-selected .m3-select-chevron { opacity: 0.85; }
 .m3-select:hover { background-color: var(--md-sys-state-hover); }
 .m3-select.is-selected { background-color: var(--md-sys-color-primary-container); border-color: transparent; color: var(--md-sys-color-on-primary-container); }
 
@@ -1185,14 +1199,14 @@ textarea.m3-text-field.is-dense {
 .m3-select.is-field {
   box-sizing: border-box;
   min-height: 44px;
-  padding: 0 40px 0 14px;
+  padding: 0 42px 0 14px;
   border: 1px solid var(--md-sys-color-outline-variant);
   border-radius: var(--md-sys-shape-md);
   background-color: var(--md-sys-color-surface-container-high);
-  background-position: calc(100% - 18px) 19px, calc(100% - 13px) 19px;
   color: var(--md-sys-color-on-surface);
   font: var(--md-sys-typescale-body-medium);
 }
+.m3-select.is-field .m3-select-chevron { right: 14px; width: 20px; height: 20px; }
 .m3-select.is-field:hover {
   background-color: var(--md-sys-color-surface-container-high);
   border-color: var(--md-sys-color-outline);
@@ -1207,10 +1221,10 @@ textarea.m3-text-field.is-dense {
 .m3-select.is-field:disabled { opacity: 0.38; cursor: default; }
 .m3-select.is-field.is-dense {
   min-height: 36px;
-  padding: 0 34px 0 10px;
-  background-position: calc(100% - 16px) 15px, calc(100% - 11px) 15px;
+  padding: 0 36px 0 10px;
   font: var(--md-sys-typescale-label-medium);
 }
+.m3-select.is-field.is-dense .m3-select-chevron { right: 10px; width: 18px; height: 18px; }
 
 /* 原生 checkbox 收口：18px / 4px 圆角 / primary 强调色 + 键盘焦点环 */
 .m3-checkbox {
