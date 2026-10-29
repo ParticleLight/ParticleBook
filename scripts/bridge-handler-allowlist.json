@@ -16,10 +16,6 @@
       "reason": "返回当前 Z-Library 页面 URL；BridgeServer.cpp 明确把它排除在外部页面白名单外（会泄露当前 URL），渲染层无消费者；无 electronAPI 成员，当前无调用方（保留注册）。"
     },
     {
-      "method": "zlib:hide",
-      "reason": "工具栏关闭按钮走原生 raw 消息 type=zlibClose，由 BridgeServer::HandleMessage 直接查 m_methods 调用；electronAPI 契约只有 zlibShow、没有 hide。"
-    },
-    {
       "method": "zlib:logout",
       "reason": "工具栏退出登录按钮走原生 raw 消息 type=zlibLogout，由 BridgeServer::HandleMessage 转到该方法；无 electronAPI 成员。"
     },
