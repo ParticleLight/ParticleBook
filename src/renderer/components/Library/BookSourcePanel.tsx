@@ -72,7 +72,11 @@ export function BookSourcePanel({ onClose, isClosing }: BookSourcePanelProps) {
     no_chapters: '未能获取章节目录',
     empty_content: '章节内容为空',
     write_failed: '写入文件失败',
-    import_failed: '导入书架失败'
+    import_failed: '导入书架失败',
+    // 书源 HTTP 补了超时/取消（review · B-02）之后会返回 network_error，
+    // 以前没有映射，用户会看到「未知错误」。
+    network_error: '网络错误或超时',
+    cancelled: '下载已取消'
   }
 
   const getStatusText = (p: DownloadProgress) => {
