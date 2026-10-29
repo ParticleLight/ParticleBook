@@ -199,6 +199,7 @@ export const enLibrary: Record<string, string> = {
   '删除书源': 'Delete book source',
   '清空后需要重新导入 JSON 才能搜索和下载。':
     'After clearing you will need to import a JSON file again to search and download.',
+  '可参与分屏': 'Can split',
   '网络错误或超时': 'Network error or timeout',
   '下载已取消': 'Download cancelled',
 }

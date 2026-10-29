@@ -120,9 +120,12 @@ export function SplitBookPickerDialog({ open, primaryBookId, onCancel, onConfirm
             })}
           </div>
         )}
-        {candidates.length > 0 && supported.length === 0 && (
-          <p className="text-xs mt-2" style={{ color: 'var(--color-orange)' }}>{t('只能选择 EPUB 或 TXT 格式的书')}</p>
-        )}
+        {/* 常驻说明（2026-10-30）：分屏只支持 EPUB / TXT，其余格式在列表里是灰色不可选。
+            以前只在「一本能选的都没有」时才提示，用户看到一片灰会以为功能坏了。 */}
+        <p className="text-xs mt-2" style={{ color: 'var(--md-sys-color-on-surface-variant)' }}>
+          {t('只能选择 EPUB 或 TXT 格式的书')}
+          {supported.length > 0 ? `${t('可参与分屏')}：${supported.length} / ${candidates.length}` : ''}
+        </p>
       </div>
     </Dialog>
   )
