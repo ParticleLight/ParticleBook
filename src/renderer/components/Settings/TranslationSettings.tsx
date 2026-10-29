@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { translationErrorMessageKey } from '../Reader/TranslationPopup'
 import { Switch } from '../UI/Switch'
+import { M3Select, type M3SelectOption } from '../UI/M3Select'
 
 // 「测试连接」的状态：只保存展示用的结果，Key 永远不进 state 之外的任何地方
 // （输入框里的 Key 在测之前写进 SecretStore 并清空）。
@@ -17,7 +18,8 @@ interface TranslationTestState {
 export function TranslationSettings() {
   const { t } = useTranslation()
   const [enabled, setEnabled] = useState(false)
-  const [provider, setProvider] = useState('openai')
+  // 接口格式（2026-10-29）：chat_completion | anthropic | responses
+  const [apiFormat, setApiFormat] = useState('chat_completion')
   const [baseUrl, setBaseUrl] = useState('')
   const [model, setModel] = useState('')
   const [targetLanguage, setTargetLanguage] = useState('zh')
@@ -26,11 +28,15 @@ export function TranslationSettings() {
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
   const [testState, setTestState] = useState<TranslationTestState>({ status: 'idle' })
+  // 「获取模型」：拿到的是 provider 的模型 id 列表；获取失败单独提示，不影响保存配置。
+  const [models, setModels] = useState<string[]>([])
+  const [fetchingModels, setFetchingModels] = useState(false)
+  const [modelsMessage, setModelsMessage] = useState('')
 
   useEffect(() => {
     window.electronAPI.getSettings().then((s: any) => {
       setEnabled(!!s['translation.enabled'])
-      setProvider(s['translation.provider'] || 'openai')
+      setApiFormat(s['translation.apiFormat'] || 'chat_completion')
       setBaseUrl(s['translation.baseUrl'] || '')
       setModel(s['translation.model'] || '')
       setTargetLanguage(s['translation.targetLanguage'] || 'zh')
@@ -38,14 +44,63 @@ export function TranslationSettings() {
     window.electronAPI.translationHasKey().then(setHasKey).catch(() => {})
   }, [])
 
+  const formatOptions = useMemo<M3SelectOption[]>(() => [
+    { value: 'chat_completion', label: t('Chat Completions（OpenAI 兼容）') },
+    { value: 'anthropic', label: t('Anthropic Messages') },
+    { value: 'responses', label: t('Responses（OpenAI）') },
+  ], [t])
+
+  const modelOptions = useMemo<M3SelectOption[]>(
+    () => models.map((id) => ({ value: id, label: id })),
+    [models],
+  )
+
+  // 各格式的 baseUrl 习惯写法（只在输入框为空时作为 placeholder 提示）。
+  const baseUrlHint = apiFormat === 'anthropic'
+    ? 'https://api.anthropic.com/v1'
+    : apiFormat === 'responses' ? 'https://api.openai.com/v1' : 'https://api.deepseek.com/v1'
+
   // 当前表单 → settings 补丁（保存配置和测试连接共用，保证测的就是表单里的值）。
   const settingsPatch = () => ({
     'translation.enabled': enabled,
-    'translation.provider': provider,
+    'translation.apiFormat': apiFormat,
     'translation.baseUrl': baseUrl,
     'translation.model': model,
     'translation.targetLanguage': targetLanguage,
   })
+
+  // PB-002（2026-10-29）：主动拉取 provider 的模型列表（GET <base>/models）。
+  // 先把当前表单（含未保存的 baseUrl / Key）落库，再让 C++ 带着 SecretStore 里的
+  // Key 发一次只读请求 —— 与「测试连接」同样的顺序，保证拉到的是表单里这套配置。
+  const fetchModels = async () => {
+    if (fetchingModels) return
+    setFetchingModels(true)
+    setModelsMessage('')
+    const draftKey = apiKey.trim()
+    try {
+      await window.electronAPI.updateSettings(settingsPatch())
+      if (draftKey) {
+        const saved = await window.electronAPI.translationSetKey(draftKey)
+        if (!saved) throw new Error('key_save_failed')
+        setHasKey(true)
+        setApiKey('')
+      }
+      const result = await window.electronAPI.translationListModels()
+      const list = result && Array.isArray(result.models) ? result.models : []
+      if (result && result.ok && list.length > 0) {
+        setModels(list)
+        setModelsMessage(t('已获取 {{count}} 个模型', { count: list.length }))
+      } else {
+        const code = (result && result.code) || 'translation_failed'
+        setModelsMessage(t('获取模型失败：{{code}}', { code }))
+      }
+    } catch (error) {
+      const code = (error instanceof Error ? error.message : String(error)).trim() || 'translation_failed'
+      setModelsMessage(t('获取模型失败：{{code}}', { code }))
+    } finally {
+      setFetchingModels(false)
+    }
+  }
 
   const saveConfig = () => {
     setBusy(true); setMessage('')
@@ -116,17 +171,65 @@ export function TranslationSettings() {
     <div className="settings-card">
       <h3 className="m3-section-title mb-3">{t('AI 翻译')}</h3>
       <p className="m3-body-medium mb-3" style={{ color: 'var(--md-sys-color-on-surface-variant)' }}>
-        {t('使用你自己的 OpenAI 兼容 API。Key 只保存在本机 DPAPI 加密存储，不进入设置/备份/日志。')}
+        {t('使用你自己的 AI 服务，支持 Chat Completions / Anthropic Messages / Responses 三种接口格式。Key 只保存在本机 DPAPI 加密存储，不进入设置/备份/日志。')}
       </p>
       <label className="flex items-center gap-2 m3-body-medium mb-3 cursor-pointer" htmlFor="translation-enabled">
         <Switch id="translation-enabled" checked={enabled} onChange={setEnabled} />
         {t('启用翻译')}
       </label>
       <div className="grid grid-cols-2 gap-2 mb-2">
-        <input className="m3-text-field" value={provider} onChange={(e) => setProvider(e.target.value)} placeholder={t('提供方（如 deepseek）')} />
-        <input className="m3-text-field" value={model} onChange={(e) => setModel(e.target.value)} placeholder={t('模型（如 deepseek-chat）')} />
+        <div>
+          <label className="m3-label-small block mb-1" htmlFor="translation-api-format">{t('接口格式')}</label>
+          <M3Select
+            aria-label={t('接口格式')}
+            value={apiFormat}
+            options={formatOptions}
+            onChange={(value) => { setApiFormat(value); setModels([]); setModelsMessage('') }}
+            className="w-full"
+            testid="translation-api-format"
+          />
+        </div>
+        <div>
+          <label className="m3-label-small block mb-1" htmlFor="translation-model">{t('模型')}</label>
+          <div className="flex gap-2">
+            <input
+              id="translation-model"
+              className="m3-text-field"
+              value={model}
+              onChange={(e) => setModel(e.target.value)}
+              placeholder={t('模型（如 deepseek-chat）')}
+            />
+            <button
+              type="button"
+              onClick={fetchModels}
+              disabled={busy || fetchingModels}
+              className="m3-outlined-button whitespace-nowrap"
+              title={t('按当前配置从服务端获取模型列表')}
+              data-testid="translation-fetch-models"
+            >
+              {fetchingModels ? t('获取中…') : t('获取模型')}
+            </button>
+          </div>
+        </div>
       </div>
-      <input className="m3-text-field mb-2" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="https://api.deepseek.com/v1" />
+      {models.length > 0 && (
+        <div className="mb-2">
+          <M3Select
+            aria-label={t('从已获取的模型中选择')}
+            value={model}
+            options={modelOptions}
+            onChange={setModel}
+            className="w-full"
+            testid="translation-model-picker"
+          />
+        </div>
+      )}
+      {modelsMessage && (
+        <p className="mb-2 text-xs" style={{ color: 'var(--text-secondary)' }} data-testid="translation-models-message">
+          {modelsMessage}
+        </p>
+      )}
+      <input className="m3-text-field mb-2" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder={baseUrlHint} />
       <div className="flex gap-2 mb-2">
         <input className="m3-text-field" value={targetLanguage} onChange={(e) => setTargetLanguage(e.target.value)} placeholder={t('目标语言')} />
         <button onClick={saveConfig} disabled={busy} className="m3-outlined-button whitespace-nowrap">{t('保存配置')}</button>

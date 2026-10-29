@@ -747,6 +747,8 @@ const std::vector<SettingSpec>& SettingsService::Schema()
         specs.push_back(MakeString("translation.baseUrl", "", 2048,
                                    /*bookScoped=*/false, /*isUrl=*/true));
         specs.push_back(MakeString("translation.model", "", 200));
+        // 接口格式（2026-10-29）：chat_completion | anthropic | responses
+        specs.push_back(MakeString("translation.apiFormat", "chat_completion", 32));
         specs.push_back(MakeString("translation.targetLanguage", "zh", 32));
         specs.push_back(MakeInt("translation.timeoutSeconds", 60, 5, 300));
         specs.push_back(MakeInt("reading.dailyGoalMinutes", 30, 0, 1440));

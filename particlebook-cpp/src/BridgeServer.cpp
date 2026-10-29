@@ -407,6 +407,7 @@ std::string BridgeServer::GenerateBridgeScript()
     searchStatus: function() { return invoke('search:status'); },
     translationSetKey: function(key) { return invoke('translation:setKey', {key:key||''}); },
     translationHasKey: function() { return invoke('translation:hasKey'); },
+    translationListModels: function() { return invoke('translation:listModels'); },
     translationClearKey: function() { return invoke('translation:clearKey'); },
     translationTranslate: function(segments, sourceLang, targetLang, context) {
       return invoke('translation:translate', {segments:segments||[], sourceLang:sourceLang||'auto', targetLang:targetLang||'zh', context:context||''});

@@ -207,6 +207,7 @@ export const types = [
       "  'translation.provider'?: string",
       "  'translation.baseUrl'?: string",
       "  'translation.model'?: string",
+      "  'translation.apiFormat'?: string",
       "  'translation.targetLanguage'?: string",
       "  'translation.timeoutSeconds'?: number"
     ]
@@ -1022,6 +1023,11 @@ export const contract = [
     returns: "Promise<boolean>"
   },
   { member: "translationHasKey", method: "translation:hasKey", kind: "invoke", group: "Utilities", params: [], returns: "Promise<boolean>" },
+  {
+    member: "translationListModels", method: "translation:listModels",
+    kind: "invoke", group: "Utilities", params: [],
+    returns: "Promise<{ ok: boolean; code: string; error: string; models: string[] }>"
+  },
   { member: "translationClearKey", method: "translation:clearKey", kind: "invoke", group: "Utilities", params: [], returns: "Promise<boolean>" },
   {
     member: "translationTranslate", method: "translation:translate",

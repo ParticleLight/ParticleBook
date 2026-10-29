@@ -88,6 +88,15 @@ enum class TranslationErrorCode {
 
 const char* TranslationErrorCodeName(TranslationErrorCode code);
 
+// 接口格式（2026-10-29）：同一份配置可以打三种 wire format ——
+//   ChatCompletions  POST <base>/chat/completions  Authorization: Bearer
+//   Anthropic        POST <base>/messages          x-api-key + anthropic-version
+//   Responses        POST <base>/responses         Authorization: Bearer
+// settings 里存字符串（translation.apiFormat），未知值一律按 ChatCompletions 处理。
+enum class TranslationApiFormat { ChatCompletions = 0, Anthropic, Responses };
+TranslationApiFormat ParseTranslationApiFormat(const std::string& value);
+const char* TranslationApiFormatId(TranslationApiFormat format);
+
 // 协作式取消令牌：拷贝共享同一个原子标志；默认构造的令牌永远不会被取消。
 class TranslationCancelToken {
 public:
@@ -102,6 +111,7 @@ private:
 // 注入用 HTTP 请求 / 响应（transport 不接触 Key 之外的其他凭据）。
 struct TranslationHttpRequest {
     std::string url;
+    std::string method = "POST";  // "GET" 用于拉模型列表；其余一律 POST
     std::string body;
     std::vector<std::pair<std::string, std::string>> headers;
     int timeoutMs = 60000;
@@ -127,6 +137,7 @@ struct TranslationProviderConfig {
     std::string baseUrl;     // 如 https://api.deepseek.com/v1（或带 /chat/completions）
     std::string model;       // 如 deepseek-chat
     std::string apiKey;      // 调用方从 SecretStore 取出传入；绝不落盘/日志
+    std::string apiFormat;   // chat_completion（默认）| anthropic | responses
     int timeoutMs = 60000;   // 单次请求超时；<=0 时按默认 60000
 };
 
@@ -177,6 +188,20 @@ public:
                                      const std::string& context,
                                      const TranslationCancelToken& cancel =
                                          TranslationCancelToken()) const;
+
+    // ── 模型列表（设置页「获取模型」）─────────────────────────────
+    // GET <base>/models；OpenAI / Anthropic / Responses 都是 {data:[{id}]} 形状，
+    // 也在兜底上接受 {models:[...]} 与裸数组。只返回字符串 id（去重、排序）。
+    struct TranslationModelList {
+        bool ok = false;
+        TranslationErrorCode code = TranslationErrorCode::None;
+        std::string error;
+        int httpStatus = 0;
+        std::vector<std::string> models;
+    };
+    TranslationModelList ListModels(
+        const TranslationProviderConfig& config,
+        const TranslationCancelToken& cancel = TranslationCancelToken()) const;
 
     // 只做切块规划（不发送、不涉及 Key）；返回每块在 segments 里的下标。
     // 只含非空段；空段不会出现在结果里。用于测试与 UI 预估请求数。

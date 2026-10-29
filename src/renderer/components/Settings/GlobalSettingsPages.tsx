@@ -431,7 +431,7 @@ export function TranslationPage() {
     <>
       <SectionTitle>{t('翻译')}</SectionTitle>
       <p className="text-sm mb-4 break-words" style={{ color: 'var(--text-secondary)' }}>
-        {t('选中正文即可翻译（也支持整段）。只使用你自己配置的 OpenAI 兼容服务，不内置任何免费源。')}
+        {t('选中正文即可翻译（也支持整段）。支持 Chat Completions / Anthropic Messages / Responses 三种接口格式；只使用你自己配置的服务，不内置任何免费源。')}
       </p>
       <TranslationSettings />
       <div className="settings-card">

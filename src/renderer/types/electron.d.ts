@@ -169,6 +169,7 @@ interface PbSettings {
   'translation.provider'?: string
   'translation.baseUrl'?: string
   'translation.model'?: string
+  'translation.apiFormat'?: string
   'translation.targetLanguage'?: string
   'translation.timeoutSeconds'?: number
 }
@@ -436,6 +437,7 @@ interface ElectronAPI {
   searchStatus: () => Promise<{ books: number; terms: number; chars: number } | null>
   translationSetKey: (key: string) => Promise<boolean>
   translationHasKey: () => Promise<boolean>
+  translationListModels: () => Promise<{ ok: boolean; code: string; error: string; models: string[] }>
   translationClearKey: () => Promise<boolean>
   translationTranslate: (segments: Array<{ id: string; text: string }>, sourceLang: string, targetLang: string, context?: string) => Promise<{ ok: boolean; code: string; error: string; segments: Array<{ id: string; text: string }>; httpStatus: number; requestsSent: number; segmentsTranslated: number; elapsedMs: number }>
   getTtsVoices: () => Promise<Array<{ id: string; name: string; language: string; gender: string; oneCore: boolean }>>

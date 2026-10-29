@@ -30,6 +30,65 @@ json TranslationError(const std::string& code, const std::string& error)
 
 } // namespace
 
+// 设置页「获取模型」：GET <base>/models，只读、不落盘（Key 只在本次请求头里）。
+// 与翻译一样走 JobService：网络调用不能压在 UI 线程上。
+static void RegisterListModelsHandler(BridgeServer* bridge, DatabaseService* db,
+                                      pb::JobService* jobs, SecretStore* secrets,
+                                      pb::TranslationService* translation)
+{
+    bridge->RegisterAsyncMethod("translation:listModels",
+        [db, jobs, secrets, translation](const json&,
+                                         std::function<void(json)> respond,
+                                         std::function<void(std::string)> reject) {
+            if (!jobs || !db || !secrets || !translation) {
+                reject("translation_unavailable");
+                return;
+            }
+            auto config = pb::TranslationService::ConfigFromSettings(
+                pb::SettingsService::Normalize(db->GetSettings()).values);
+            if (config.baseUrl.empty()) {
+                reject("translation_not_configured");
+                return;
+            }
+            if (!secrets->Get(pb::kTranslationApiKeySecretName, config.apiKey)) {
+                reject("missing_api_key");
+                return;
+            }
+
+            auto out = std::make_shared<json>(json{
+                {"ok", false}, {"code", "translation_failed"},
+                {"error", "model list did not finish"}, {"models", json::array()},
+            });
+            const pb::JobId id = jobs->Submit(
+                "translation:listModels",
+                [translation, config, out](pb::JobContext&) {
+                    const auto result = translation->ListModels(config);
+                    if (!result.ok) {
+                        pb::LogError("translation", std::string("model list error: ")
+                            + pb::TranslationErrorCodeName(result.code)
+                            + (result.error.empty() ? "" : ": " + result.error));
+                    }
+                    json reply;
+                    reply["ok"] = result.ok;
+                    reply["code"] = pb::TranslationErrorCodeName(result.code);
+                    reply["error"] = result.error;
+                    reply["models"] = json::array();
+                    for (const std::string& model : result.models) reply["models"].push_back(model);
+                    *out = std::move(reply);
+                },
+                nullptr,
+                [out, respond, reject](const pb::JobResult& job) {
+                    if (!job.ok) { reject(job.cancelled ? "cancelled" : job.error); return; }
+                    if (!out->value("ok", false)) {
+                        reject(out->value("code", std::string("translation_failed")));
+                        return;
+                    }
+                    respond(*out);
+                });
+            if (id == pb::kInvalidJobId) reject("job_service_unavailable");
+        });
+}
+
 void RegisterTranslationHandlers(BridgeServer* bridge, DatabaseService* db,
                                  pb::JobService* jobs, SecretStore* secrets,
                                  pb::TranslationService* translation)
@@ -132,4 +191,6 @@ void RegisterTranslationHandlers(BridgeServer* bridge, DatabaseService* db,
                 });
             if (id == pb::kInvalidJobId) reject("job_service_unavailable");
         });
+
+    RegisterListModelsHandler(bridge, db, jobs, secrets, translation);
 }

@@ -110,6 +110,18 @@ export const enSettings: Record<string, string> = {
   '已导出：{{name}}': 'Exported: {{name}}',
   'AI 翻译': 'AI translation',
   '使用你自己的 OpenAI 兼容 API。Key 只保存在本机 DPAPI 加密存储，不进入设置/备份/日志。': 'Use your own OpenAI-compatible API. The key is stored only in the local DPAPI-encrypted store, never in settings, backups or logs.',
+  '使用你自己的 AI 服务，支持 Chat Completions / Anthropic Messages / Responses 三种接口格式。Key 只保存在本机 DPAPI 加密存储，不进入设置/备份/日志。': 'Use your own AI service with one of three wire formats: Chat Completions, Anthropic Messages or Responses. The key is stored only in the local DPAPI-encrypted store, never in settings, backups or logs.',
+  '接口格式': 'API format',
+  '模型': 'Model',
+  'Chat Completions（OpenAI 兼容）': 'Chat Completions (OpenAI-compatible)',
+  'Anthropic Messages': 'Anthropic Messages',
+  'Responses（OpenAI）': 'Responses (OpenAI)',
+  '获取模型': 'Fetch models',
+  '获取中…': 'Fetching…',
+  '按当前配置从服务端获取模型列表': 'Fetch the model list from the server using the current configuration',
+  '从已获取的模型中选择': 'Pick from the fetched models',
+  '已获取 {{count}} 个模型': 'Fetched {{count}} models',
+  '获取模型失败：{{code}}': 'Could not fetch models: {{code}}',
   '启用翻译': 'Enable translation',
   '提供方（如 deepseek）': 'Provider (e.g. deepseek)',
   '模型（如 deepseek-chat）': 'Model (e.g. deepseek-chat)',
@@ -195,6 +207,8 @@ export const enSettings: Record<string, string> = {
   '翻译': 'Translation',
   '选中正文即可翻译（也支持整段）。只使用你自己配置的 OpenAI 兼容服务，不内置任何免费源。':
     'Select text in the reader to translate it (whole paragraphs work too). Only the OpenAI-compatible service you configure yourself is used; no free source is bundled.',
+  '选中正文即可翻译（也支持整段）。支持 Chat Completions / Anthropic Messages / Responses 三种接口格式；只使用你自己配置的服务，不内置任何免费源。':
+    'Select text in the reader to translate it (whole paragraphs work too). Three wire formats are supported: Chat Completions, Anthropic Messages and Responses. Only the service you configure yourself is used; no free source is bundled.',
 
   // 归位后的设置小节（2026-10-28）：阅读目标 / 性能 / 连接
   '阅读目标': 'Reading goals',
@@ -245,7 +259,6 @@ export const enSettings: Record<string, string> = {
   '启用 AI 翻译': 'Enable AI translation',
   '翻译提供方': 'Translation provider',
   'Base URL': 'Base URL',
-  '模型': 'Model',
   '超时（秒）': 'Timeout (seconds)',
   // 高级设置仅剩的四项（2026-10-28）：可读标签 + 说明
   '每日阅读目标（分钟）': 'Daily reading goal (minutes)',

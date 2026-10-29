@@ -123,12 +123,23 @@ std::string SafeUrl(std::string url)
     return url;
 }
 
-std::string BuildEndpoint(std::string baseUrl)
+std::string BuildEndpoint(TranslationApiFormat format, std::string baseUrl)
 {
     baseUrl = Trim(baseUrl);
     while (!baseUrl.empty() && baseUrl.back() == '/') baseUrl.pop_back();
-    if (EndsWith(Lower(baseUrl), "/chat/completions")) return baseUrl;
-    return baseUrl + "/chat/completions";
+    const std::string lower = Lower(baseUrl);
+    switch (format) {
+    case TranslationApiFormat::Anthropic:
+        if (EndsWith(lower, "/messages")) return baseUrl;
+        return baseUrl + "/messages";
+    case TranslationApiFormat::Responses:
+        if (EndsWith(lower, "/responses")) return baseUrl;
+        return baseUrl + "/responses";
+    case TranslationApiFormat::ChatCompletions:
+    default:
+        if (EndsWith(lower, "/chat/completions")) return baseUrl;
+        return baseUrl + "/chat/completions";
+    }
 }
 
 // ── 脱敏 ──────────────────────────────────────────────────────────
@@ -407,6 +418,7 @@ std::string BuildSystemPrompt(const std::string& sourceLang, const std::string& 
 }
 
 std::string BuildRequestBody(const TranslationProviderConfig& config,
+                             TranslationApiFormat format,
                              const std::string& systemPrompt, const Batch& batch,
                              const std::vector<TranslationSegment>& segments,
                              const std::string& sourceLang, const std::string& targetLang,
@@ -425,16 +437,137 @@ std::string BuildRequestBody(const TranslationProviderConfig& config,
     }
     user["segments"] = std::move(segmentArray);
 
-    nlohmann::json messages = nlohmann::json::array();
-    messages.push_back(nlohmann::json::object({{"role", "system"}, {"content", systemPrompt}}));
-    messages.push_back(nlohmann::json::object({{"role", "user"}, {"content", user.dump()}}));
-
     nlohmann::json request;
     request["model"] = config.model;
-    request["messages"] = std::move(messages);
-    request["temperature"] = 0.2;
-    request["stream"] = false;
+    switch (format) {
+    case TranslationApiFormat::Anthropic:
+        // POST <base>/messages：system 是顶层字段，messages 只放 user/assistant。
+        request["max_tokens"] = 4096;
+        request["temperature"] = 0.2;
+        request["system"] = systemPrompt;
+        request["messages"] = nlohmann::json::array({
+            nlohmann::json::object({{"role", "user"}, {"content", user.dump()}}),
+        });
+        break;
+    case TranslationApiFormat::Responses:
+        // POST <base>/responses：instructions + input（这里 input 用 JSON 字符串）。
+        request["instructions"] = systemPrompt;
+        request["input"] = user.dump();
+        request["temperature"] = 0.2;
+        request["stream"] = false;
+        break;
+    case TranslationApiFormat::ChatCompletions:
+    default: {
+        nlohmann::json messages = nlohmann::json::array();
+        messages.push_back(nlohmann::json::object({{"role", "system"}, {"content", systemPrompt}}));
+        messages.push_back(nlohmann::json::object({{"role", "user"}, {"content", user.dump()}}));
+        request["messages"] = std::move(messages);
+        request["temperature"] = 0.2;
+        request["stream"] = false;
+        break;
+    }
+    }
     return request.dump();
+}
+
+// 解析 Anthropic Messages 外层：content: [{type:"text", text:"..."}]（可能有多个块）。
+bool ParseAnthropicEnvelope(const std::string& body, std::string& content, std::string& detail)
+{
+    nlohmann::json parsed;
+    if (!TryParseJson(body, parsed)) {
+        detail = "response is not valid JSON";
+        return false;
+    }
+    if (!parsed.is_object()) {
+        detail = "response JSON is not an object";
+        return false;
+    }
+    if (parsed.contains("error") && !parsed["error"].is_null()) {
+        detail = "provider error: " + ExtractProviderError(body);
+        return false;
+    }
+    if (!parsed.contains("content") || !parsed["content"].is_array()) {
+        detail = "response has no content";
+        return false;
+    }
+    std::string joined;
+    for (const nlohmann::json& part : parsed["content"]) {
+        if (!part.is_object()) continue;
+        if (part.contains("type") && part["type"].is_string()
+            && part["type"].get<std::string>() != "text") {
+            continue;
+        }
+        if (part.contains("text") && part["text"].is_string()) {
+            joined += part["text"].get<std::string>();
+        }
+    }
+    if (joined.empty()) {
+        detail = "response content is empty";
+        return false;
+    }
+    content = std::move(joined);
+    return true;
+}
+
+// 解析 OpenAI Responses 外层：output_text（SDK 便利字段）或
+// output: [{type:"message", content:[{type:"output_text", text:"..."}]}]。
+bool ParseResponsesEnvelope(const std::string& body, std::string& content, std::string& detail)
+{
+    nlohmann::json parsed;
+    if (!TryParseJson(body, parsed)) {
+        detail = "response is not valid JSON";
+        return false;
+    }
+    if (!parsed.is_object()) {
+        detail = "response JSON is not an object";
+        return false;
+    }
+    if (parsed.contains("error") && !parsed["error"].is_null()) {
+        detail = "provider error: " + ExtractProviderError(body);
+        return false;
+    }
+    if (parsed.contains("output_text") && parsed["output_text"].is_string()) {
+        content = parsed["output_text"].get<std::string>();
+        if (!content.empty()) return true;
+    }
+    if (!parsed.contains("output") || !parsed["output"].is_array()) {
+        detail = "response has no output";
+        return false;
+    }
+    std::string joined;
+    for (const nlohmann::json& item : parsed["output"]) {
+        if (!item.is_object()) continue;
+        if (item.contains("content") && item["content"].is_array()) {
+            for (const nlohmann::json& part : item["content"]) {
+                if (!part.is_object()) continue;
+                if (part.contains("text") && part["text"].is_string()) {
+                    joined += part["text"].get<std::string>();
+                }
+            }
+            continue;
+        }
+        // 少数兼容实现直接给 {type:"output_text", text}
+        if (item.contains("text") && item["text"].is_string()) {
+            joined += item["text"].get<std::string>();
+        }
+    }
+    if (joined.empty()) {
+        detail = "response output is empty";
+        return false;
+    }
+    content = std::move(joined);
+    return true;
+}
+
+bool ParseProviderEnvelope(TranslationApiFormat format, const std::string& body,
+                           std::string& content, std::string& detail)
+{
+    switch (format) {
+    case TranslationApiFormat::Anthropic: return ParseAnthropicEnvelope(body, content, detail);
+    case TranslationApiFormat::Responses: return ParseResponsesEnvelope(body, content, detail);
+    case TranslationApiFormat::ChatCompletions:
+    default: return ParseChatEnvelope(body, content, detail);
+    }
 }
 
 // ── 响应内译文映射 ────────────────────────────────────────────────
@@ -693,8 +826,10 @@ bool WinHttpTransport(const TranslationHttpRequest& request,
     WinHttpHandle connection(WinHttpConnect(session.handle, url.host.c_str(), url.port, 0));
     if (connection.handle == nullptr) return fail("WinHttpConnect", GetLastError());
 
+    const std::string requestMethod = request.method.empty() ? "POST" : request.method;
+    const std::wstring wideMethod = Utf8ToWide(requestMethod);
     WinHttpHandle httpRequest(WinHttpOpenRequest(
-        connection.handle, L"POST", url.path.c_str(), nullptr, WINHTTP_NO_REFERER,
+        connection.handle, wideMethod.c_str(), url.path.c_str(), nullptr, WINHTTP_NO_REFERER,
         WINHTTP_DEFAULT_ACCEPT_TYPES, url.https ? WINHTTP_FLAG_SECURE : 0));
     if (httpRequest.handle == nullptr) return fail("WinHttpOpenRequest", GetLastError());
 
@@ -870,7 +1005,8 @@ TranslationResult TranslationService::TranslateBatch(
                     "keep the API key in SecretStore");
     }
 
-    const std::string endpoint = BuildEndpoint(trimmedBaseUrl);
+    const TranslationApiFormat format = ParseTranslationApiFormat(config.apiFormat);
+    const std::string endpoint = BuildEndpoint(format, trimmedBaseUrl);
     const std::string systemPrompt = BuildSystemPrompt(trimmedSource, trimmedTarget);
     const int timeoutMs = EffectiveTimeoutMs(config);
 
@@ -882,12 +1018,19 @@ TranslationResult TranslationService::TranslateBatch(
         TranslationHttpRequest request;
         request.url = endpoint;
         request.timeoutMs = timeoutMs;
+        request.method = "POST";
         request.headers.push_back({"Content-Type", "application/json"});
         request.headers.push_back({"Accept", "application/json"});
         request.headers.push_back({"Accept-Encoding", "identity"});
-        request.headers.push_back({"Authorization", "Bearer " + apiKey});
-        request.body = BuildRequestBody(config, systemPrompt, batch, segments, trimmedSource,
-                                       trimmedTarget, context, m_options.includeContext);
+        if (format == TranslationApiFormat::Anthropic) {
+            request.headers.push_back({"x-api-key", apiKey});
+            request.headers.push_back({"anthropic-version", "2023-06-01"});
+        } else {
+            request.headers.push_back({"Authorization", "Bearer " + apiKey});
+        }
+        request.body = BuildRequestBody(config, format, systemPrompt, batch, segments,
+                                       trimmedSource, trimmedTarget, context,
+                                       m_options.includeContext);
 
         ++result.requestsSent;
         TranslationHttpResponse response;
@@ -920,7 +1063,7 @@ TranslationResult TranslationService::TranslateBatch(
 
         std::string content;
         std::string parseError;
-        if (!ParseChatEnvelope(response.body, content, parseError)) {
+        if (!ParseProviderEnvelope(format, response.body, content, parseError)) {
             return fail(TranslationErrorCode::Parse, "could not parse the provider response",
                         RedactWithSecret(parseError, apiKey), response.status);
         }
@@ -939,6 +1082,130 @@ TranslationResult TranslationService::TranslateBatch(
 
     result.ok = true;
     return finish();
+}
+
+TranslationService::TranslationModelList TranslationService::ListModels(
+    const TranslationProviderConfig& config, const TranslationCancelToken& cancel) const
+{
+    TranslationModelList result;
+    const auto fail = [&result](TranslationErrorCode code, const std::string& error) {
+        result.ok = false;
+        result.code = code;
+        result.error = error;
+        return result;
+    };
+
+    const std::string baseUrl = Trim(config.baseUrl);
+    const std::string apiKey = Trim(config.apiKey);
+    if (baseUrl.empty() || apiKey.empty()) {
+        return fail(TranslationErrorCode::NotConfigured,
+                    "translation is not configured: base URL and API key are required");
+    }
+    for (char c : apiKey) {
+        const unsigned char byte = static_cast<unsigned char>(c);
+        if (byte < 0x20 || byte == 0x7f) {
+            return fail(TranslationErrorCode::NotConfigured,
+                        "the API key contains invalid characters");
+        }
+    }
+    if (!IsHttpUrl(baseUrl)) {
+        return fail(TranslationErrorCode::NotConfigured,
+                    "translation base URL must be an http(s) URL");
+    }
+    if (UrlCarriesSecrets(baseUrl)) {
+        return fail(TranslationErrorCode::NotConfigured,
+                    "translation base URL must not contain credentials, a query or a fragment; "
+                    "keep the API key in SecretStore");
+    }
+
+    std::string endpoint = baseUrl;
+    while (!endpoint.empty() && endpoint.back() == '/') endpoint.pop_back();
+    if (!EndsWith(Lower(endpoint), "/models")) endpoint += "/models";
+
+    const TranslationApiFormat format = ParseTranslationApiFormat(config.apiFormat);
+
+    TranslationHttpRequest request;
+    request.method = "GET";
+    request.url = endpoint;
+    request.timeoutMs = EffectiveTimeoutMs(config);
+    request.headers.push_back({"Accept", "application/json"});
+    request.headers.push_back({"Accept-Encoding", "identity"});
+    if (format == TranslationApiFormat::Anthropic) {
+        request.headers.push_back({"x-api-key", apiKey});
+        request.headers.push_back({"anthropic-version", "2023-06-01"});
+    } else {
+        request.headers.push_back({"Authorization", "Bearer " + apiKey});
+    }
+
+    if (cancel.IsCancelled()) {
+        return fail(TranslationErrorCode::Cancelled, "translation cancelled");
+    }
+
+    TranslationHttpResponse response;
+    const bool gotResponse = m_transport ? m_transport(request, cancel, response) : false;
+    if (!gotResponse) {
+        if (cancel.IsCancelled() || response.cancelled) {
+            return fail(TranslationErrorCode::Cancelled, "translation cancelled");
+        }
+        const std::string detail = RedactWithSecret(response.error, apiKey);
+        if (response.timedOut) {
+            return fail(TranslationErrorCode::Timeout, "translation request timed out");
+        }
+        return fail(TranslationErrorCode::Network,
+                    detail.empty() ? "network error while contacting the translation provider"
+                                   : detail);
+    }
+    if (response.cancelled) {
+        return fail(TranslationErrorCode::Cancelled, "translation cancelled");
+    }
+
+    result.httpStatus = response.status;
+    if (response.status < 200 || response.status >= 300) {
+        const TranslationErrorCode code = MapHttpStatus(response.status);
+        const std::string detail = RedactWithSecret(ExtractProviderError(response.body), apiKey);
+        const std::string text = DefaultHttpErrorText(response.status, code);
+        result.code = code;
+        result.error = detail.empty() ? text : text + ": " + detail;
+        return result;
+    }
+
+    nlohmann::json parsed;
+    if (!TryParseJson(response.body, parsed)) {
+        return fail(TranslationErrorCode::Parse, "response is not valid JSON");
+    }
+    if (parsed.is_object() && parsed.contains("error") && !parsed["error"].is_null()) {
+        return fail(TranslationErrorCode::Parse,
+                    "provider error: " + RedactSecret(ExtractProviderError(response.body), apiKey));
+    }
+
+    std::vector<std::string> models;
+    const auto collect = [&models](const nlohmann::json& item) {
+        if (item.is_string()) { models.push_back(item.get<std::string>()); return; }
+        if (!item.is_object()) return;
+        if (item.contains("id") && item["id"].is_string()) {
+            models.push_back(item["id"].get<std::string>());
+        } else if (item.contains("name") && item["name"].is_string()) {
+            models.push_back(item["name"].get<std::string>());
+        }
+    };
+    if (parsed.is_array()) {
+        for (const nlohmann::json& item : parsed) collect(item);
+    } else if (parsed.is_object()) {
+        if (parsed.contains("data") && parsed["data"].is_array()) {
+            for (const nlohmann::json& item : parsed["data"]) collect(item);
+        } else if (parsed.contains("models") && parsed["models"].is_array()) {
+            for (const nlohmann::json& item : parsed["models"]) collect(item);
+        }
+    }
+
+    std::sort(models.begin(), models.end());
+    models.erase(std::unique(models.begin(), models.end()), models.end());
+    if (models.empty()) {
+        return fail(TranslationErrorCode::Parse, "the provider returned no models");
+    }
+    result.models = std::move(models);
+    result.ok = true;
+    return result;
 }
 
 std::vector<std::vector<std::size_t>> TranslationService::PlanBatches(
@@ -964,6 +1231,8 @@ TranslationProviderConfig TranslationService::ConfigFromSettings(
     config.providerId = SettingsService::GetString(settings, "translation.provider");
     config.baseUrl = SettingsService::GetString(settings, "translation.baseUrl");
     config.model = SettingsService::GetString(settings, "translation.model");
+    config.apiFormat = TranslationApiFormatId(ParseTranslationApiFormat(
+        SettingsService::GetString(settings, "translation.apiFormat")));
     long long seconds = SettingsService::GetInt(settings, "translation.timeoutSeconds");
     if (seconds < 5 || seconds > 300) seconds = 60;
     config.timeoutMs = static_cast<int>(seconds) * 1000;
@@ -977,7 +1246,8 @@ std::string TranslationService::DescribeConfig(const TranslationProviderConfig& 
     const std::string baseUrl =
         config.baseUrl.empty() ? "(unset)" : SafeUrl(Trim(config.baseUrl));
     const std::string model = config.model.empty() ? "(unset)" : config.model;
-    return "translation provider=" + provider + " baseUrl=" + baseUrl + " model=" + model
+    return "translation provider=" + provider + " format=" + config.apiFormat
+           + " baseUrl=" + baseUrl + " model=" + model
            + " timeoutMs=" + std::to_string(EffectiveTimeoutMs(config))
            + " apiKey=" + (config.apiKey.empty() ? "(unset)" : "(set)");
 }
@@ -986,6 +1256,28 @@ std::string TranslationService::RedactSecret(const std::string& text,
                                              const std::string& secret)
 {
     return Truncate(RedactWithSecret(text, secret), kMaxErrorDetailChars);
+}
+
+TranslationApiFormat ParseTranslationApiFormat(const std::string& value)
+{
+    const std::string v = Lower(Trim(value));
+    if (v == "anthropic" || v == "messages" || v == "claude") {
+        return TranslationApiFormat::Anthropic;
+    }
+    if (v == "responses" || v == "response" || v == "openai_responses") {
+        return TranslationApiFormat::Responses;
+    }
+    return TranslationApiFormat::ChatCompletions;
+}
+
+const char* TranslationApiFormatId(TranslationApiFormat format)
+{
+    switch (format) {
+    case TranslationApiFormat::Anthropic: return "anthropic";
+    case TranslationApiFormat::Responses: return "responses";
+    case TranslationApiFormat::ChatCompletions:
+    default: return "chat_completion";
+    }
 }
 
 const char* TranslationErrorCodeName(TranslationErrorCode code)
