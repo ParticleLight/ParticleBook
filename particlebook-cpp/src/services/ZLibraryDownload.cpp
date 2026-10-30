@@ -195,6 +195,12 @@ void ZLibraryService::SetupDownloadHandler()
                     // 响应从一堆子资源里挑出来（该事件对每个 web 资源都会触发）
                     m_docUri = uri;
                     m_lastDocStatus = 0;
+                    // 每次新导航先清掉下载豁免标记：DownloadStarting 与
+                    // NavigationCompleted 的**先后顺序不确定**（实测两者都会出现），
+                    // 若标记在"导航完成先到"的情况下被置位却没人消费，下一次无关
+                    // 导航失败就会被错误豁免，或反过来漏掉本次下载。清在这里，
+                    // 让标记的生命周期不超过一次导航。
+                    m_navIsDownload = false;
 
                     // Allow http/https (including mirror redirects to transit domains).
                     // Block everything else (file:, javascript:, data:, ...) as a safety net.
@@ -259,7 +265,12 @@ void ZLibraryService::SetupDownloadHandler()
                         // 这不是线路故障 —— 放行的话点一次下载就会触发换线路，用户的
                         // 书籍详情页当场消失、被甩到下一个镜像（2026-10-30 实测）。
                         // 这里只清标记，不动线路、不动遮罩。
-                        if (m_navIsDownload) {
+                        // 判据除了 DownloadStarting 落的标记，还要看 URI 本身：
+                        // 实测点下载时 NavigationCompleted(IsSuccess=FALSE) 可能**早于**
+                        // DownloadStarting 触发，那一刻标记还是 false，只看标记就会
+                        // 把这次下载导航当成线路故障、当场换线路（书籍详情页消失）。
+                        // m_docUri 是本次 NavigationStarting 记下的地址，正指着 /dl/<id>。
+                        if (m_navIsDownload || pb::zlib::IsDownloadUri(m_docUri)) {
                             m_navIsDownload = false;
                             return S_OK;
                         }
@@ -275,8 +286,18 @@ void ZLibraryService::SetupDownloadHandler()
 
                                 return S_OK;
                             }
-                            // 真正的网络层失败（没拿到任何响应）：换下一条线路
-                            AdvanceMirrorOnFailure();
+                            // 真正的网络层失败（没拿到任何响应）：换下一条线路。
+                            // 【只对进站导航换线】站内导航失败（网络抖动、点下载后
+                            // 导航被 WebView2 转成下载再以失败收尾等）换线的代价是把
+                            // 用户正在看的页面整个丢掉。2026-10-30 实测：点一次下载
+                            // 就跳回镜像首页、书籍详情页消失，日志里正是这一行。
+                            // 线索：此刻 m_docUri 是 CDN 下载地址，DownloadStarting
+                            // 要晚十几毫秒才到，任何"等下载标记"的判据都会漏。
+                            if (m_entryNav) {
+                                AdvanceMirrorOnFailure();
+                            } else {
+                                pb::LogInfo("zlib", "navigation failed (not entry, ignored): " + m_docUri);
+                            }
                             return S_OK;
                         }
 
@@ -404,6 +425,7 @@ void ZLibraryService::SetupDownloadHandler()
                     m_dlFileName = fileName;
                     m_dlFinalPath = finalPath;
                     m_bridge->EmitEvent("zlib:downloadStart", {{"fileName", fileName}});
+                    pb::LogInfo("zlib", "download start: " + fileName + " <- " + uri);
 
                     // 只隐藏默认下载 UI，不取消下载（见上面的说明）。
                     args->put_Handled(TRUE);
