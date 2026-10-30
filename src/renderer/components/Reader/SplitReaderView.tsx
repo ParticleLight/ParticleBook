@@ -39,6 +39,7 @@ import {
   useReaderSession,
   type ReaderSession,
 } from '../../stores/readerSession'
+import { applyReaderTheme, applyReaderTypography, type PbRenditionThemeHost } from './EpubRendererTheme'
 import styles from './SplitReaderView.module.css'
 
 export type SplitPaneKey = 'primary' | 'secondary'
@@ -406,6 +407,12 @@ function EpubPane({ book, session, active, registerText }: { book: LoadedBook; s
   const initialCfiRef = useRef(session.store.getState().progress.cfi)
   const fontSize = useSettingsStore((state) => state.fontSize)
   const fontFamily = useSettingsStore((state) => state.fontFamily)
+  // 2026-10-30：分屏 pane 必须自己套阅读主题与排版，否则暗色主题下书页是
+  // 「黑字 + 透明底」—— 整页几乎看不见（用户截图反馈）。
+  const theme = useSettingsStore((state) => state.theme)
+  const lineHeight = useSettingsStore((state) => state.lineHeight)
+  const margin = useSettingsStore((state) => state.margin)
+  const textAlign = useSettingsStore((state) => state.textAlign)
 
   // TTS 用：取当前章节（epub.js 当前 contents 的可见文本）
   useEffect(() => {
@@ -489,13 +496,14 @@ function EpubPane({ book, session, active, registerText }: { book: LoadedBook; s
     }
   }, [book.filePath, session, t])
 
+  // 与单栏阅读器共用同一份主题/排版实现（EpubRendererTheme），避免再次漂移：
+  // 字号 / 字体 / 行距 / 页边距 / 对齐 + 三档主题的前景与背景色。
   useEffect(() => {
     if (!ready) return
-    try {
-      renditionRef.current?.themes.fontSize(String(fontSize) + 'px')
-      renditionRef.current?.themes.font(fontFamily)
-    } catch { /* ignore */ }
-  }, [ready, fontSize, fontFamily])
+    const rendition = renditionRef.current as unknown as PbRenditionThemeHost | null
+    applyReaderTypography(rendition, { fontSize, fontFamily, lineHeight, margin, textAlign })
+    applyReaderTheme(rendition, theme)
+  }, [ready, fontSize, fontFamily, lineHeight, margin, textAlign, theme])
 
   const next = useCallback(() => {
     try { renditionRef.current?.next() } catch { /* ignore */ }

@@ -5,7 +5,14 @@ import { useTranslation } from 'react-i18next'
 import { useReaderStore } from '../../stores/readerStore'
 import { useSettingsStore } from '../../stores/settingsStore'
 import type { Book as BookType } from '../../stores/libraryStore'
-import { VERTICAL_STYLE_ID, epubSpreadValue, setVerticalStyle, spineEntries } from './EpubRendererTheme'
+import {
+  VERTICAL_STYLE_ID,
+  applyReaderTheme,
+  applyReaderTypography,
+  epubSpreadValue,
+  setVerticalStyle,
+  spineEntries,
+} from './EpubRendererTheme'
 import { useEpubSearch } from './EpubSearch'
 import { usePaging } from '../../reader'
 
@@ -448,38 +455,12 @@ export function EpubRenderer({ book, content, bookId, spread = 'single', vertica
   }, [isReady])
 
   useEffect(() => {
-    if (!renditionRef.current) return
-    renditionRef.current.themes.fontSize(`${fontSize}px`)
-    renditionRef.current.themes.font(fontFamily)
-    renditionRef.current.themes.default({
-      'body': {
-        'line-height': `${lineHeight} !important`,
-        'text-align': `${textAlign} !important`,
-        'padding': `${margin}px !important`,
-      },
-      'p': {
-        'line-height': `${lineHeight} !important`,
-      }
-    })
+    applyReaderTypography(renditionRef.current, { fontSize, fontFamily, lineHeight, margin, textAlign })
   }, [fontSize, fontFamily, lineHeight, margin, textAlign])
 
+  // 阅读主题：与分屏共用同一份实现（EpubRendererTheme.applyReaderTheme）
   useEffect(() => {
-    if (!renditionRef.current) return
-    const themes = renditionRef.current.themes
-    switch (theme) {
-      case 'dark':
-        themes.override('color', '#e2e8f0')
-        themes.override('background', '#1a1a1a')
-        break
-      case 'light':
-        themes.override('color', '#1a202c')
-        themes.override('background', '#ffffff')
-        break
-      case 'sepia':
-        themes.override('color', '#c4b494')
-        themes.override('background', '#1a1510')
-        break
-    }
+    applyReaderTheme(renditionRef.current, theme)
   }, [theme])
 
   // ── PB-009-A：分栏模式（epub.js spread: none/auto/both）──────────────
