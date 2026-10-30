@@ -192,6 +192,30 @@ bool IsSessionHost(const std::string& host)
     return std::find(hosts.begin(), hosts.end(), h) != hosts.end();
 }
 
+bool IsDownloadUri(const std::string& uri)
+{
+    if (uri.empty()) return false;
+    // 只取路径部分（丢掉 scheme/host/query/fragment 的干扰）。
+    size_t se = uri.find("://");
+    size_t ps = (se == std::string::npos) ? 0 : uri.find('/', se + 3);
+    if (ps == std::string::npos) return false;   // 没有路径 → 不可能是下载端点
+    std::string path = uri.substr(ps);
+
+    // 实测各镜像的下载前缀：/dl/<id>（主站）、/download/…。
+    // 注意不能只看 "/dl" 子串命中，否则 /downloads/xxx 之外的路径（如 /dle）也会误判，
+    // 因此统一按「段」匹配。
+    static const char* const kSegments[] = { "/dl/", "/download/" };
+    for (const char* seg : kSegments) {
+        size_t at = path.find(seg);
+        while (at != std::string::npos) {
+            // 必须是路径里的完整一段：前面是串首或 '/'
+            if (at == 0 || path[at - 1] == '/') return true;
+            at = path.find(seg, at + 1);
+        }
+    }
+    return false;
+}
+
 } // namespace zlib
 } // namespace pb
 
@@ -777,6 +801,12 @@ void ZLibraryService::ClassifyLoadedDocument() {
                     } catch (...) { /* 拿不到标题就当普通页面处理 */ }
                 }
                 if (LooksLikeChallengeTitle(title)) return S_OK;   // 等挑战自己跑完
+                // 下载文档（URL 命中下载端点）不算"进站页面"：它的 200/404 与线路
+                // 可用性无关，判定它只会把一次下载误当成"线路挂了"。
+                if (m_navIsDownload || pb::zlib::IsDownloadUri(m_docUri)) {
+                    m_navIsDownload = false;
+                    return S_OK;
+                }
                 if (m_entryNav && m_lastDocStatus >= 400) { AdvanceMirrorOnFailure(); return S_OK; }
                 m_entryNav = false;
                 m_challengeWaits = 0;

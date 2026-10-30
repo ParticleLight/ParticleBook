@@ -44,5 +44,14 @@ void ClearSessionHosts();
 void AddSessionHostFromUrl(const std::string& url);
 bool IsSessionHost(const std::string& host);
 
+// 这个 URI 是 Z-Library 的【下载端点】吗？
+//
+// 用途：下载会以导航的形式发生（点击 <a> 指向 /dl/<id>），WebView2 把它变成下载后
+// 主文档并不真的替换，但 NavigationCompleted 仍会报 IsSuccess=FALSE。若把这种导航
+// 当线路故障处理，用户点一次下载就会触发换线路、书籍详情页当场消失。
+// 判据只看路径，不看 host：不同镜像的下载前缀一致，且这里只用于「不要误判线路」，
+// 放宽到任意 host 也不会放松任何安全边界。
+bool IsDownloadUri(const std::string& uri);
+
 } // namespace zlib
 } // namespace pb

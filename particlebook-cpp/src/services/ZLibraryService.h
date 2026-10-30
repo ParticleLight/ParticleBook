@@ -75,9 +75,16 @@ public:
 
 private:
     void SetupDownloadHandler();
-    void StartDownloadThread(const std::string& url, const std::string& fileName = "", const std::string& cookies = "");
+    // 下载交给 WebView2/Chromium 自己跑（见 ZLibraryDownload.cpp 顶部说明）：
+    // 这里只接管落盘位置、进度与收尾。
+    void AttachDownloadOperation(Microsoft::WRL::ComPtr<ICoreWebView2DownloadOperation> op,
+                                 const std::string& fileName, const std::string& finalPath);
+    void FinishDownload(ICoreWebView2DownloadOperation* op,
+                        const std::string& fileName, const std::string& finalPath);
+    void FailDownload(const std::string& fileName, const std::string& reason);
+    static std::string DownloadInterruptReasonToString(int reason);
     std::string GetDownloadPath() const;
-    void OnDownloadDone(const std::string& path, const std::string& fileName);
+
     void DoImport(const std::string& path, const std::string& fileName);
     // 导入在工作线程完成，结果回投到 UI 线程后在这里发事件
     void OnImportDone(const std::string& fileName, bool success, const std::string& error);
@@ -115,6 +122,11 @@ private:
     bool m_zlibActive = false;
     bool m_downloadRegistered = false;
     bool m_zlibDlInProgress = false;
+    // 由下载触发的导航：NavigationCompleted 会报 IsSuccess=FALSE，但那不是线路故障，
+    // 不能拿去换线（否则用户点下载就把书籍页弄丢）。
+    bool m_navIsDownload = false;
+    std::string m_dlFileName;    // 当前下载的文件名 / 最终落盘路径（收尾用）
+    std::string m_dlFinalPath;
     // 下载开始的时刻，用作看门狗：该标志位只在 Show/失败回调/DoImport 复位，
     // 一旦下载线程异常未归就会永久卡住 → 之后所有下载都被静默吞掉。
     std::chrono::steady_clock::time_point m_dlStartedAt{};
