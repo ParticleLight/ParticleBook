@@ -74,11 +74,22 @@ public:
     json PickDownloadFolder();
 
 private:
+    // 下载看门狗的共享状态：UI 线程写 recv / active，看门狗线程只读。
+    // 背景：CDN 掉链子时 Chromium 的下载可以永远挂着 —— 既不推进度也不进终态
+    // （2026-10-30 真机：.part 停在 12,303 字节三分钟，界面一直"准备下载..."，
+    // 而 m_zlibDlInProgress 一直为 true，之后每次点下载都被静默吞掉）。
+    struct DlWatch {
+        std::atomic<bool> active{false};
+        std::atomic<long long> recv{0};
+    };
     void SetupDownloadHandler();
     // 下载交给 WebView2/Chromium 自己跑（见 ZLibraryDownload.cpp 顶部说明）：
     // 这里只接管落盘位置、进度与收尾。
     void AttachDownloadOperation(Microsoft::WRL::ComPtr<ICoreWebView2DownloadOperation> op,
                                  const std::string& fileName, const std::string& finalPath);
+    // 每 2 秒看一眼已接收字节数，连续 STALL 秒不动就取消这次下载（自愈）。
+    void StartDownloadWatchdog(std::shared_ptr<DlWatch> watch, unsigned long long gen,
+                               const std::string& fileName, HWND hwnd);
     void FinishDownload(ICoreWebView2DownloadOperation* op,
                         const std::string& fileName, const std::string& finalPath);
     void FailDownload(const std::string& fileName, const std::string& reason);
@@ -130,6 +141,12 @@ private:
     // 下载开始的时刻，用作看门狗：该标志位只在 Show/失败回调/DoImport 复位，
     // 一旦下载线程异常未归就会永久卡住 → 之后所有下载都被静默吞掉。
     std::chrono::steady_clock::time_point m_dlStartedAt{};
+    // 当前下载的 WebView2 operation（卡死时由看门狗主动 Cancel）与它的世代号：
+    // 世代号用来丢弃"上一次下载留下的"看门狗消息，避免把新下载误杀。
+    Microsoft::WRL::ComPtr<ICoreWebView2DownloadOperation> m_dlOp;
+    std::shared_ptr<DlWatch> m_dlWatch;
+    unsigned long long m_dlGen = 0;
+    bool m_dlStalled = false;   // 这次中断是看门狗取消造成的（收尾走 network_error，不重复报错）
     int m_navRetryCount = 0;
     // 本次导航是否被我们自己的守卫取消（危险协议）。取消也会让 NavigationCompleted
     // 报 IsSuccess=FALSE，但那不是镜像失败，不能拿它去消耗换线路的重试额度。

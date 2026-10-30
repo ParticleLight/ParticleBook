@@ -138,6 +138,18 @@ void ZLibraryService::SetupDownloadHandler()
         OnImportDone(fileName, success, error);
     });
     m_host->SetDownloadFailCallback([this](const std::string& fileName, const std::string& reason) {
+        // 看门狗超时：只把挂住的下载掐掉，收尾交给 StateChanged(INTERRUPTED) —
+        // 由它删半截 .part 并报 network_error；这里再报一次会连弹两个错误。
+        static const std::string kStallTag = "network_stalled#";
+        if (reason.compare(0, kStallTag.size(), kStallTag) == 0) {
+            unsigned long long gen = 0;
+            try { gen = std::stoull(reason.substr(kStallTag.size())); } catch (...) { gen = 0; }
+            // 世代不符 = 这条消息属于已经收尾的旧下载，不能拿去取消新的这一条
+            if (gen != 0 && gen != m_dlGen) return;
+            m_dlStalled = true;
+            if (m_dlOp) m_dlOp->Cancel();
+            return;
+        }
         m_zlibDlInProgress = false;
         pb::LogError("zlib", "download failed: " + fileName + " (" + reason + ")");
         m_bridge->EmitEvent("zlib:downloadError", {{"fileName", fileName}, {"error", reason}});
@@ -341,7 +353,15 @@ void ZLibraryService::SetupDownloadHandler()
                             m_zlibDlInProgress = false;
                         }
                     }
-                    if (m_zlibDlInProgress) { args->put_Handled(TRUE); args->put_Cancel(TRUE); return S_OK; }
+                    // 上一次下载还没收尾时点第二次：直接取消这一次（不弹默认下载框）。
+                    // 两个 DownloadOperation 写同一个 .part 会互相删文件，任意一方
+                    // file_write_failed，还会留下半截文件（2026-10-30 23:41 真机日志）。
+                    if (m_zlibDlInProgress) {
+                        pb::LogInfo("zlib", "download ignored: another download is still in progress");
+                        args->put_Handled(TRUE);
+                        args->put_Cancel(TRUE);
+                        return S_OK;
+                    }
 
                     ComPtr<ICoreWebView2DownloadOperation> op;
                     if (FAILED(args->get_DownloadOperation(&op)) || !op) return S_OK;
@@ -424,6 +444,7 @@ void ZLibraryService::SetupDownloadHandler()
                     m_dlStartedAt = std::chrono::steady_clock::now();
                     m_dlFileName = fileName;
                     m_dlFinalPath = finalPath;
+                    m_dlOp = op;   // 卡死时由看门狗 Cancel 这一个
                     m_bridge->EmitEvent("zlib:downloadStart", {{"fileName", fileName}});
                     pb::LogInfo("zlib", "download start: " + fileName + " <- " + uri);
 
@@ -436,10 +457,53 @@ void ZLibraryService::SetupDownloadHandler()
     }
 }
 
+// 下载看门狗：CDN 掉链子时 Chromium 的下载可以永远挂着 —— 不进终态、不推进度，
+// 用户看到的就是"点了下载没反应"，而且 m_zlibDlInProgress 一直是 true，之后每次
+// 点下载都被"上一次还没收尾"静默吞掉。这里每 2 秒看一眼已接收字节数，连续 45 秒
+// 零增长就把这个 operation Cancel 掉：Cancel 会让 StateChanged 以 INTERRUPTED 收尾，
+// 于是删半截 .part、报 network_error、复位下载标志 —— 用户重试即可。
+void ZLibraryService::StartDownloadWatchdog(std::shared_ptr<DlWatch> watch,
+                                            unsigned long long gen,
+                                            const std::string& fileName, HWND hwnd)
+{
+    if (!watch) return;
+    // 线程是 detached 的，所以只按值捕获 watch/hwnd/fileName/gen，不碰 this：
+    // 即使服务对象先没了，线程醒来也只是读一块共享状态、发一条窗口消息。
+    std::thread([watch, gen, fileName, hwnd]() {
+        constexpr int kTickMs = 2000;
+        constexpr int kStallMs = 45000;
+        long long last = -1;
+        int idle = 0;
+        while (watch->active.load()) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(kTickMs));
+            if (!watch->active.load()) return;
+            const long long recv = watch->recv.load();
+            if (recv != last) { last = recv; idle = 0; continue; }
+            idle += kTickMs;
+            if (idle < kStallMs) continue;
+            watch->active = false;
+            pb::LogWarn("zlib", "download stalled (" + std::to_string(recv) +
+                                " bytes, no progress for 45s): " + fileName);
+            if (hwnd) {
+                auto* d = new DLFail{fileName, "network_stalled#" + std::to_string(gen)};
+                PostMessage(hwnd, WM_ZLIB_DOWNLOAD_FAILED, 0, reinterpret_cast<LPARAM>(d));
+            }
+            return;
+        }
+    }).detach();
+}
+
 void ZLibraryService::AttachDownloadOperation(
     ComPtr<ICoreWebView2DownloadOperation> op, const std::string& fileName, const std::string& finalPath)
 {
     if (!op) return;
+
+    // 看门狗：本世代下载的字节数写进 watch，监测线程据此判断"还有没有在动"。
+    auto watch = std::make_shared<DlWatch>();
+    watch->active = true;
+    m_dlWatch = watch;
+    const unsigned long long gen = ++m_dlGen;
+    StartDownloadWatchdog(watch, gen, fileName, m_hwnd);
 
     // 进度：BytesReceivedChanged 按 256KB 节流（与旧 WinHTTP 实现同口径），避免每
     // 一个数据块都往渲染层发一次事件。
@@ -447,11 +511,12 @@ void ZLibraryService::AttachDownloadOperation(
     EventRegistrationToken progressToken = {};
     op->add_BytesReceivedChanged(
         Callback<ICoreWebView2BytesReceivedChangedEventHandler>(
-            [this, fileName, lastReported](ICoreWebView2DownloadOperation* sender,
+            [this, fileName, lastReported, watch](ICoreWebView2DownloadOperation* sender,
                                            IUnknown*) -> HRESULT {
                 INT64 recv = 0, total = 0;
                 sender->get_BytesReceived(&recv);
                 sender->get_TotalBytesToReceive(&total);
+                watch->recv = recv < 0 ? 0 : (long long)recv;   // 喂看门狗：有新字节就不算卡
                 if (recv - *lastReported >= 262144 || (total > 0 && recv >= total)) {
                     *lastReported = recv;
                     m_bridge->EmitEvent("zlib:downloadProgress",
@@ -466,12 +531,13 @@ void ZLibraryService::AttachDownloadOperation(
     auto doneToken = std::make_shared<EventRegistrationToken>();
     op->add_StateChanged(
         Callback<ICoreWebView2StateChangedEventHandler>(
-            [this, fileName, finalPath, doneToken](ICoreWebView2DownloadOperation* sender,
+            [this, fileName, finalPath, doneToken, watch](ICoreWebView2DownloadOperation* sender,
                                                    IUnknown*) -> HRESULT {
                 COREWEBVIEW2_DOWNLOAD_STATE state = COREWEBVIEW2_DOWNLOAD_STATE_IN_PROGRESS;
                 if (FAILED(sender->get_State(&state))) return S_OK;
 
                 if (state == COREWEBVIEW2_DOWNLOAD_STATE_IN_PROGRESS) return S_OK;
+                watch->active = false;   // 进终态了，看门狗可以收工
 
                 if (doneToken->value != 0) {
                     sender->remove_StateChanged(*doneToken);
@@ -488,7 +554,24 @@ void ZLibraryService::AttachDownloadOperation(
                 COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON reason =
                     COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON_NONE;
                 sender->get_InterruptReason(&reason);
-                FailDownload(fileName, DownloadInterruptReasonToString(reason));
+                // 中断时把半截 .part 删掉：失败不该在用户下载目录里留垃圾文件
+                // （2026-10-30 真机：network_error 后留下 4,220 字节的 .part）。
+                {
+                    LPWSTR rp = nullptr;
+                    if (SUCCEEDED(sender->get_ResultFilePath(&rp)) && rp) {
+                        std::string partial = ToNarrow(rp);
+                        CoTaskMemFree(rp);
+                        if (!partial.empty()) RemovePartialFile(partial);
+                    }
+                }
+                std::string reasonStr = DownloadInterruptReasonToString(reason);
+                if (m_dlStalled) {
+                    // 是我们自己（看门狗）取消的：统一报成网络错误，
+                    // 免得渲染层弹出"已取消"这种跟用户操作无关的文案。
+                    m_dlStalled = false;
+                    reasonStr = "network_error";
+                }
+                FailDownload(fileName, reasonStr);
                 return S_OK;
             }).Get(), doneToken.get());
 }
@@ -508,6 +591,8 @@ void ZLibraryService::FinishDownload(ICoreWebView2DownloadOperation* op,
             if (!actual.empty()) tmpPath = actual;
         }
     }
+
+    if (m_dlWatch) m_dlWatch->active = false;
 
     std::error_code ec;
     auto size = std::filesystem::file_size(ToWide(tmpPath), ec);
@@ -552,6 +637,8 @@ void ZLibraryService::FinishDownload(ICoreWebView2DownloadOperation* op,
 void ZLibraryService::FailDownload(const std::string& fileName, const std::string& reason)
 {
     m_zlibDlInProgress = false;
+    if (m_dlWatch) m_dlWatch->active = false;
+    m_dlStalled = false;
     pb::LogError("zlib", "download failed: " + reason + " (file=" + fileName + ")");
     m_bridge->EmitEvent("zlib:downloadError", {{"fileName", fileName}, {"error", reason}});
 }
