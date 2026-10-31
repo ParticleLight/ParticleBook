@@ -14,6 +14,15 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
   {
+    version: '2.2.2',
+    date: '2026-10-31',
+    unreleased: true,
+    changes: [
+      // ── 2026-10-31：横幅不透明底色 ──
+      { type: 'fix', text: '修复顶部提示横幅（「发现新版本」、Z-Library 线路不可达、下载失败）的背景是半透明的：横幅压在顶栏上时，底下的「ParticleBook」标题会透上来跟横幅文字叠在一起，看着像重影乱码。现在横幅用「主题容器色 + 页面底色」叠出不透明背景，颜色仍跟随主题与主题色' },
+    ],
+  },
+  {
     version: '2.2.1',
     date: '2026-10-31',
     changes: [

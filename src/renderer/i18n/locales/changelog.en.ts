@@ -1,4 +1,7 @@
 export const enChangelog: Record<string, string> = {
+  // v2.2.2（未发布 · 功能落地即追加）
+  // ── 2026-10-31：横幅不透明底色 ──
+  '修复顶部提示横幅（「发现新版本」、Z-Library 线路不可达、下载失败）的背景是半透明的：横幅压在顶栏上时，底下的「ParticleBook」标题会透上来跟横幅文字叠在一起，看着像重影乱码。现在横幅用「主题容器色 + 页面底色」叠出不透明背景，颜色仍跟随主题与主题色': 'Fixed the top notification banners (update available, Z-Library unreachable, download failed) having a translucent background: while a banner covered the top bar, the “ParticleBook” title underneath bled through and overlapped the banner text, looking like doubled, garbled characters. Banners now build an opaque background from the theme container colour over the page background, so the colour still follows your theme and accent.',
   // v2.2.1（未发布 · 功能落地即追加）
   // ── 2026-10-31：下载历史 ──
   '新增「下载历史」页（书库右上角「更多操作」→ 下载历史）：列出从 Z-Library 下载过的每一本书，带文件名、大小与下载时间；已导入书架的书可以直接打开，或跳到所在文件夹；删除时可选只删记录或连同硬盘文件一起删，连同文件删除时书架里的那本也会同步下架': 'Added a Download history page (library “More actions” → Download history): it lists every book downloaded from Z-Library with its file name, size and download time; books already in the library can be opened right away or located on disk; deleting offers to remove just the record or the file as well, and removing the file also takes the book off the shelf.',
