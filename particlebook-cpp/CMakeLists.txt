@@ -118,6 +118,18 @@ target_include_directories(ParticleBook PRIVATE
     "${CMAKE_SOURCE_DIR}/third_party"
 )
 
+# ── 版本号一变就要重编所有目标文件 ──────────────────────────────
+# pb_version.h / ParticleBook.rc 由上面的 configure_file 生成，但 NMake 生成器
+# 不跟踪「生成头」的变化：改版本号（node scripts/bump-version.js 会改本文件的
+# project VERSION）后增量编译会保留旧 .obj —— exe 的资源版本已是新版本，程序
+# 内部（启动日志、更新检查）仍报旧版本，于是刚装上新版本就被提示「发现新版本」。
+# 2026-10-31 本地打包 v2.2.1 时复现过。让每个目标文件都依赖这两个生成文件，
+# 内容一变就整体重编（版本号没变时 configure_file 不写文件，不会触发重编）。
+get_target_property(PB_SOURCES ParticleBook SOURCES)
+list(FILTER PB_SOURCES EXCLUDE REGEX "\\.(rc|h|hpp)$")
+set_source_files_properties(${PB_SOURCES} PROPERTIES OBJECT_DEPENDS
+    "${CMAKE_BINARY_DIR}/src/pb_version.h;${CMAKE_BINARY_DIR}/src/ParticleBook.rc")
+
 target_link_libraries(ParticleBook PRIVATE
     nlohmann_json
     "${WV2_ROOT}/x64/WebView2LoaderStatic.lib"
