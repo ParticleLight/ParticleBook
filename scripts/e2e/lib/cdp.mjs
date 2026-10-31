@@ -4,7 +4,7 @@
 //
 // 为什么不用 puppeteer/playwright：项目没有这些依赖，也不想为 5 条 smoke
 // 引入一个浏览器下载；WebView2 的 CDP 端点和 Chrome 一样，内置 WebSocket
-// 足够（docs/memory/pitfalls.md 里手工验证过同一路径）。
+// 足够（本地手工验证过同一路径）。
 
 export function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))

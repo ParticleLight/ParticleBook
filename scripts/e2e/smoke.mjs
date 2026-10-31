@@ -1305,7 +1305,7 @@ async function smokeZlibRealDownload() {
     paddingBytes: 700 * 1024,
   })
   // 端口默认 80：ZLibraryService 下载线程手写 URL 解析，WinHTTP 固定用协议默认端口
-  // （http=80），会忽略 URL 里显式的 :port（产品既有实现限制，已记录在 docs/E2E.md）。
+  // （http=80），会忽略 URL 里显式的 :port（产品既有实现限制，属已知限制）。
   // 可用 PB_E2E_ZLIB_PORT 覆盖，但非 80 时上面那条链路验证不了 → 显式 SKIP。
   if (zlibMockPort !== 80) {
     state.skipReason = 'PB_E2E_ZLIB_PORT=' + zlibMockPort +

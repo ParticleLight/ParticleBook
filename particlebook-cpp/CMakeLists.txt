@@ -38,7 +38,7 @@ endif()
 # ── Ensure mobitool.exe exists (AZW3/KF8 → EPUB import) ──────────
 # Same convention as mupdf: mobitool.exe is matched by *.exe in .gitignore, so the
 # built binary travels as a small zip (source tarball + build script + licence
-# files live in third_party/mobitool/, see docs/AZW3.md). The POST_BUILD copy
+# files live in third_party/mobitool/, see scripts/azw3/build-mobitool.ps1). The POST_BUILD copy
 # below must never fail when the binary is absent — CI went red for every commit
 # until 2026-10-29 because of exactly that.
 if(NOT EXISTS "${CMAKE_SOURCE_DIR}/third_party/mobitool/mobitool.exe")

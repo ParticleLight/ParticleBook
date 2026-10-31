@@ -21,7 +21,7 @@
 
 .NOTES
   LGPL 合规：分发 mobitool.exe 时需同时提供 libmobi 对应源码（本脚本固定 commit 可拉取）、
-  COPYING 许可证与构建方式；详见 docs/AZW3.md。
+  COPYING 许可证与构建方式（详见 libmobi 源码根目录的 COPYING）。
 #>
 [CmdletBinding()]
 param(

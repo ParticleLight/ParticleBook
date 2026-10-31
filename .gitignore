@@ -8,12 +8,10 @@ dist/
 particlebook-cpp/build2/
 debug.log
 
-# 本地验收截图（ui-verify-*）：只在开发机上留证，体积大且随机器变化，不入库
-docs/ui-verify-*/
-
-# 工作区记忆：本地会话笔记，非产品内容，不入库
+# 开发文档（设计稿 / 评审报告 / 待办清单 / 验收截图 / 工作区记忆）：
+# 只在开发机上维护，属于内部资料而非产品内容，一律不入库
+/docs/
 MEMORY.md
-docs/memory/
 # AI/agent 工作区指令：本地会话文件，非产品内容，不入库
 AGENTS.md
 CLAUDE.md
