@@ -45,9 +45,9 @@ const ZlibFailedBanner = ({ onDismiss }: { onDismiss: () => void }) => {
   const { t } = useTranslation()
   return (
     <div className="fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-4 py-3 animate-fade-in"
-      // 同 UpdateBanner：--md-sys-color-error-container 映射到 --color-red-bg，是 alpha 8%~15% 的 rgba，
-      // 单用它当背景会半透明、让底下的顶栏文字透上来和横幅文字叠在一起；叠一层不透明的页面底色 --bg。
-      style={{ background: 'linear-gradient(var(--md-sys-color-error-container), var(--md-sys-color-error-container)), var(--bg)', color: 'var(--md-sys-color-on-error-container)', borderBottom: '1px solid var(--md-sys-color-error)' }} role="alert">
+      // 同 UpdateBanner：横幅按设计是半透明的（--md-sys-color-error-container 映射到 --color-red-bg，
+      // alpha 8%~15%），不要为了「叠字」改成不透明底。
+      style={{ background: 'var(--md-sys-color-error-container)', color: 'var(--md-sys-color-on-error-container)', borderBottom: '1px solid var(--md-sys-color-error)' }} role="alert">
       <span className="m3-body-medium">{t('所有 Z-Library 镜像暂时不可达，请稍后重试或手动切换线路')}</span>
       <button onClick={onDismiss} className="m3-icon-button" aria-label={t('关闭')} title={t('关闭')}>×</button>
     </div>
@@ -79,9 +79,9 @@ const ZlibDownloadFailedBanner = ({ code, onDismiss }: { code: string; onDismiss
     ?? (/^http_\d+$/.test(code) ? t('服务器返回错误 {{code}}', { code: code.slice(5) }) : '未知错误')
   return (
     <div className="fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-4 py-3 animate-fade-in"
-      // 同 UpdateBanner：--md-sys-color-error-container 映射到 --color-red-bg，是 alpha 8%~15% 的 rgba，
-      // 单用它当背景会半透明、让底下的顶栏文字透上来和横幅文字叠在一起；叠一层不透明的页面底色 --bg。
-      style={{ background: 'linear-gradient(var(--md-sys-color-error-container), var(--md-sys-color-error-container)), var(--bg)', color: 'var(--md-sys-color-on-error-container)', borderBottom: '1px solid var(--md-sys-color-error)' }} role="alert">
+      // 同 UpdateBanner：横幅按设计是半透明的（--md-sys-color-error-container 映射到 --color-red-bg，
+      // alpha 8%~15%），不要为了「叠字」改成不透明底。
+      style={{ background: 'var(--md-sys-color-error-container)', color: 'var(--md-sys-color-on-error-container)', borderBottom: '1px solid var(--md-sys-color-error)' }} role="alert">
       <span className="m3-body-medium">{t('Z-Library 下载失败：{{reason}}', { reason: t(reason) })}</span>
       <button onClick={onDismiss} className="m3-icon-button" aria-label={t('关闭')} title={t('关闭')}>×</button>
     </div>

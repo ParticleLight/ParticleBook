@@ -54,11 +54,10 @@ export function UpdateBanner() {
 
   return (
     <div className="fixed top-0 left-0 right-0 z-[9999] flex items-center justify-between px-5 py-2.5 animate-scale-in"
-      // 横幅是 fixed 覆盖层（会盖住顶栏的应用名）。注意 --md-sys-color-primary-container
-      // 映射到 --color-indigo-bg，是 alpha 只有 8%~15% 的 rgba —— 直接拿它当背景等于半透明，
-      // 底下的 'ParticleBook' 会透上来跟横幅文字叠在一起（v2.1.0 起就有，2026-10-31 真机复现）。
-      // 所以用「同色 gradient 叠一层 + 页面底色」组成不透明背景：颜色仍跟随主题与主题色。
-      style={{ background: 'linear-gradient(var(--md-sys-color-primary-container), var(--md-sys-color-primary-container)), var(--bg)', color: 'var(--md-sys-color-on-primary-container)', borderBottom: '1px solid var(--md-sys-color-outline-variant)' }} role="status">
+      // 横幅压在顶栏上是半透明的（--md-sys-color-primary-container 映射到 --color-indigo-bg，
+      // alpha 8%~15%），底下的 'ParticleBook' 会隐约透上来 —— 这是设计意图，别改成不透明底
+      // （2026-10-31 用户明确：「横幅就是以半透明设计的」）。
+      style={{ background: 'var(--md-sys-color-primary-container)', color: 'var(--md-sys-color-on-primary-container)', borderBottom: '1px solid var(--md-sys-color-outline-variant)' }} role="status">
       <div className="flex items-center gap-3">
         <svg className="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 17l9.2-9.2M17 17V7H7M7 7h5m5 10v-5" /></svg>
         {downloaded ? (
