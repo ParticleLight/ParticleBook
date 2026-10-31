@@ -505,23 +505,36 @@ void ZLibraryService::AttachDownloadOperation(
     const unsigned long long gen = ++m_dlGen;
     StartDownloadWatchdog(watch, gen, fileName, m_hwnd);
 
-    // 进度：BytesReceivedChanged 按 256KB 节流（与旧 WinHTTP 实现同口径），避免每
-    // 一个数据块都往渲染层发一次事件。
-    auto lastReported = std::make_shared<int64_t>(0);
+    // 进度：首字节立刻上报，之后按「每 64KB 或每 300ms」节流，避免每个数据块都往
+    // 渲染层发事件。注意别用「攒满 256KB 才发」：小文件（<256KB）和慢速下载会全程
+    // 收不到任何进度，下载卡片就一直停在「准备下载...」（2026-10-31 真机复现：
+    // 132KB 的书下了 84 秒，卡片一动不动）。
+    auto lastReported = std::make_shared<int64_t>(-1);
+    auto lastEmitAt = std::make_shared<std::chrono::steady_clock::time_point>(
+        std::chrono::steady_clock::now());
     EventRegistrationToken progressToken = {};
     op->add_BytesReceivedChanged(
         Callback<ICoreWebView2BytesReceivedChangedEventHandler>(
-            [this, fileName, lastReported, watch](ICoreWebView2DownloadOperation* sender,
+            [this, fileName, lastReported, lastEmitAt, watch](ICoreWebView2DownloadOperation* sender,
                                            IUnknown*) -> HRESULT {
                 INT64 recv = 0, total = 0;
                 sender->get_BytesReceived(&recv);
                 sender->get_TotalBytesToReceive(&total);
-                watch->recv = recv < 0 ? 0 : (long long)recv;   // 喂看门狗：有新字节就不算卡
-                if (recv - *lastReported >= 262144 || (total > 0 && recv >= total)) {
+                if (recv < 0) recv = 0;
+                watch->recv = (long long)recv;   // 喂看门狗：有新字节就不算卡
+                const auto now = std::chrono::steady_clock::now();
+                const bool first = *lastReported < 0;
+                const bool grown = recv - *lastReported >= 65536;
+                const bool due = first || grown ||
+                                 std::chrono::duration_cast<std::chrono::milliseconds>(
+                                     now - *lastEmitAt).count() >= 300 ||
+                                 (total > 0 && recv >= total);
+                if (due) {
                     *lastReported = recv;
+                    *lastEmitAt = now;
                     m_bridge->EmitEvent("zlib:downloadProgress",
                         {{"fileName", fileName},
-                         {"received", recv < 0 ? 0 : recv},
+                         {"received", recv},
                          {"total", total < 0 ? 0 : total}});
                 }
                 return S_OK;
