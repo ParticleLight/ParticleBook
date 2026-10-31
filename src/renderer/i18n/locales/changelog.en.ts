@@ -1,8 +1,4 @@
 export const enChangelog: Record<string, string> = {
-  // v2.2.2（未发布 · 功能落地即追加）
-  // ── 2026-10-31：打包与构建 ──
-  '安装包不再把历史构建残留的旧前端文件一起打进去：前端产物目录以前只增不删，本机实测累计到 131 MB、1547 个陈旧文件，本地打出的安装包会因此大出一百多 MB。现在打包前先清掉旧的前端资源': 'The installer no longer packs stale front-end files left over from earlier builds: the renderer output directory only ever grew, reaching 131 MB and 1547 obsolete files on this machine, which bloated locally built installers by over a hundred megabytes. Old renderer assets are now cleaned before packaging.',
-  '修复版本号变化后增量编译留下旧目标文件：exe 的版本资源已是新版本、程序内部（启动日志与更新检查）仍报旧版本，于是刚装上新版本却被提示「发现新版本」。现在版本号一变，所有目标文件都会重编': 'Fixed stale object files surviving an incremental build after a version bump: the exe carried the new version resource while the program itself (startup log and update check) still reported the old one, so a freshly installed release was offered an “update” to itself. Every object now rebuilds when the version changes.',
   // v2.2.1（未发布 · 功能落地即追加）
   // ── 2026-10-31：下载历史 ──
   '新增「下载历史」页（书库右上角「更多操作」→ 下载历史）：列出从 Z-Library 下载过的每一本书，带文件名、大小与下载时间；已导入书架的书可以直接打开，或跳到所在文件夹；删除时可选只删记录或连同硬盘文件一起删，连同文件删除时书架里的那本也会同步下架': 'Added a Download history page (library “More actions” → Download history): it lists every book downloaded from Z-Library with its file name, size and download time; books already in the library can be opened right away or located on disk; deleting offers to remove just the record or the file as well, and removing the file also takes the book off the shelf.',

@@ -14,16 +14,6 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
   {
-    version: '2.2.2',
-    date: '2026-10-31',
-    unreleased: true,
-    changes: [
-      // ── 2026-10-31：打包与构建 ──
-      { type: 'improve', text: '安装包不再把历史构建残留的旧前端文件一起打进去：前端产物目录以前只增不删，本机实测累计到 131 MB、1547 个陈旧文件，本地打出的安装包会因此大出一百多 MB。现在打包前先清掉旧的前端资源' },
-      { type: 'fix', text: '修复版本号变化后增量编译留下旧目标文件：exe 的版本资源已是新版本、程序内部（启动日志与更新检查）仍报旧版本，于是刚装上新版本却被提示「发现新版本」。现在版本号一变，所有目标文件都会重编' },
-    ],
-  },
-  {
     version: '2.2.1',
     date: '2026-10-31',
     changes: [
