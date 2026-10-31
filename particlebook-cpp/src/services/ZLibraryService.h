@@ -94,6 +94,10 @@ private:
                         const std::string& fileName, const std::string& finalPath);
     void FailDownload(const std::string& fileName, const std::string& reason);
     static std::string DownloadInterruptReasonToString(int reason);
+    // 下载路径是「设置页随时可读、下载时才用」的两用字段：冷启动后设置页必须显示
+    // 真正生效的路径，所以首次取用时才从 DB 惰性加载（2026-10-31 真机：DB 里是
+    // D:\...\Documents，冷启动设置页却显示默认的 C:/.../Downloads/ParticleBook）。
+    void EnsureDownloadPathLoaded() const;
     std::string GetDownloadPath() const;
 
     void DoImport(const std::string& path, const std::string& fileName);
@@ -128,7 +132,8 @@ private:
     bool m_lastMirrorLoaded = false;
     std::atomic<bool> m_probeRunning{false};
     std::chrono::steady_clock::time_point m_probeFinishedAt{};
-    std::string m_downloadPath;
+    mutable std::string m_downloadPath;   // 见 EnsureDownloadPathLoaded()
+    mutable bool m_downloadPathLoaded = false;
     HWND m_hwnd = nullptr;
     bool m_zlibActive = false;
     bool m_downloadRegistered = false;

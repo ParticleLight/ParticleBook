@@ -30,8 +30,24 @@ using namespace Microsoft::WRL;
 
 #include "ZLibraryInternal.h"
 
+// 惰性加载：设置页/下载都从这里拿路径，保证「显示的就是真正生效的」。
+// 之前只在 Show()（进 Z-Library）里读 DB，所以冷启动后设置页显示默认路径。
+void ZLibraryService::EnsureDownloadPathLoaded() const
+{
+    if (m_downloadPathLoaded) return;
+    m_downloadPathLoaded = true;
+    if (!m_db || !m_downloadPath.empty()) return;
+    json settings = m_db->GetSettings();
+    if (!settings.is_null() && settings.contains("zlibDownloadPath") &&
+        settings["zlibDownloadPath"].is_string()) {
+        std::string saved = settings["zlibDownloadPath"].get<std::string>();
+        if (!saved.empty()) m_downloadPath = saved;
+    }
+}
+
 std::string ZLibraryService::GetDownloadPath() const
 {
+    EnsureDownloadPathLoaded();
     if (!m_downloadPath.empty()) {
         std::string path = m_downloadPath;
         for (auto& c : path) if (c == '/') c = '\\';
@@ -54,6 +70,7 @@ std::string ZLibraryService::GetDownloadPath() const
 
 json ZLibraryService::SetDownloadPath(const std::string& path)
 {
+    m_downloadPathLoaded = true;
     m_downloadPath = path;
     for (auto& c : m_downloadPath) if (c == '/') c = '\\';
     // Persist to database settings
@@ -68,6 +85,7 @@ json ZLibraryService::SetDownloadPath(const std::string& path)
 
 json ZLibraryService::GetDownloadPathStr() const
 {
+    EnsureDownloadPathLoaded();
     std::string path = m_downloadPath;
     // If no custom path set, return default
     if (path.empty()) {
@@ -113,9 +131,11 @@ json ZLibraryService::PickDownloadFolder()
 
     if (!result.empty()) {
         SetDownloadPath(result);
-        return json({{"path", result}});
+        // 回给前端的用显示格式（正斜杠），与 GetDownloadPathStr 一致；
+        // 否则「更改」前后路径分隔符风格会跳（\ ↔ /）。
+        return GetDownloadPathStr();
     }
-    return json({{"path", m_downloadPath}});
+    return GetDownloadPathStr();
 }
 
 void ZLibraryService::SetupDownloadHandler()

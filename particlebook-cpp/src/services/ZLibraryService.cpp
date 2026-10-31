@@ -43,13 +43,9 @@ json ZLibraryService::Show() {
     // （m_pendingDownloadUri 已随"一次性放行"一并移除）
     SetupDownloadHandler();
 
-    // Load saved download path from database settings
-    if (m_db && m_downloadPath.empty()) {
-        json settings = m_db->GetSettings();
-        if (!settings.is_null() && settings.contains("zlibDownloadPath")) {
-            m_downloadPath = settings["zlibDownloadPath"].get<std::string>();
-        }
-    }
+    // 下载路径的读取已改为惰性（见 EnsureDownloadPathLoaded）：设置页在冷启动后
+    // 也要显示真正生效的路径，不能等到进过一次 Z-Library 才加载。
+    EnsureDownloadPathLoaded();
 
     // 上次真的进去过的线路（登录 Cookie 绑在域名上，能不动就不动）
     LoadLastMirrorOnce();
