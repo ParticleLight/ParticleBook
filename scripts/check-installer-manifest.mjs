@@ -149,6 +149,22 @@ if (!existsSync(BUILD2)) {
   }
 }
 
+// D. 本机运行时缓存不能被打进安装包（2026-10-31）
+// installer.nsi 用 File /r 整目录打包 build2/renderer，而应用运行时会把读过的书
+// 复制到 renderer/_pb_files（PDF 在 _pb_pdf）—— 本机打包会把我们自己的测试书带进去。
+// CI 是干净构建（没有这两个目录），所以这里只在它们存在时报错，提示先清缓存。
+// 修法：node scripts/clean-renderer-cache.mjs（npm run package 已内置）。
+const RUNTIME_CACHE_DIRS = ['_pb_files', '_pb_pdf']
+if (existsSync(BUILD2)) {
+  const rendererDir = join(BUILD2, 'renderer')
+  if (existsSync(rendererDir)) {
+    const leaked = RUNTIME_CACHE_DIRS.filter((name) => existsSync(join(rendererDir, name)))
+    if (leaked.length > 0) {
+      problems.push('build2/renderer 里存在运行时缓存 ' + leaked.join(' / ') + ' —— 会被 File /r 打进安装包（里面是本机读过的书，属于个人数据）。先跑 node scripts/clean-renderer-cache.mjs')
+    }
+  }
+}
+
 const recursiveRules = fileDirectives.filter((d) => d.recursive)
   .map((d) => d.paths.join(' ')).join(' + ') || '(none)'
 

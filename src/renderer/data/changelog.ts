@@ -15,8 +15,7 @@ export interface ChangelogEntry {
 export const changelog: ChangelogEntry[] = [
   {
     version: '2.2.1',
-    date: '2026-10-28',
-    unreleased: true,
+    date: '2026-10-31',
     changes: [
       // ── 2026-10-31：下载历史 ──
       { type: 'feature', text: '新增「下载历史」页（书库右上角「更多操作」→ 下载历史）：列出从 Z-Library 下载过的每一本书，带文件名、大小与下载时间；已导入书架的书可以直接打开，或跳到所在文件夹；删除时可选只删记录或连同硬盘文件一起删，连同文件删除时书架里的那本也会同步下架' },

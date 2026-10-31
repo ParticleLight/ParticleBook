@@ -116,6 +116,14 @@ jobs:
           Set-Content -Path particlebook-cpp/build2/latest.yml -Value $yml -Encoding utf8
           Get-Content particlebook-cpp/build2/latest.yml
 
+      # 发布正文 = changelog.ts 里本版本的全部条目（scripts/release-notes.mjs 生成），
+      # 这样 GitHub Release 说明与应用内「更新日志」永远是同一份文案。
+      - name: Generate release notes from changelog
+        shell: pwsh
+        run: |
+          node scripts/release-notes.mjs particlebook-cpp/build2/release-notes.md
+          Get-Content particlebook-cpp/build2/release-notes.md
+
       # 演练模式：把产物留档供下载检查（正式发布时不跑）
       - name: Upload artifacts (dry run)
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
@@ -125,6 +133,7 @@ jobs:
           path: |
             particlebook-cpp/build2/ParticleBook-Setup-v*.exe
             particlebook-cpp/build2/latest.yml
+            particlebook-cpp/build2/release-notes.md
           if-no-files-found: error
 
       # 失败重试会在同一个 tag 上留下多个空 draft（2026-09-13 GitHub 故障期间实测堆了 6 个），
@@ -146,6 +155,7 @@ jobs:
         if: ${{ github.event_name != 'workflow_dispatch' || inputs.dry_run == false }}
         uses: softprops/action-gh-release@v2
         with:
+          body_path: particlebook-cpp/build2/release-notes.md
           files: |
             particlebook-cpp/build2/ParticleBook-Setup-v${{ env.VERSION }}.exe
             particlebook-cpp/build2/latest.yml

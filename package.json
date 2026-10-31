@@ -1,6 +1,6 @@
 {
   "name": "particle-book",
-  "version": "2.2.0",
+  "version": "2.2.1",
   "description": "ParticleBook - 内置 Z-Library 的全功能电子书阅读器（C++ Win32 + WebView2 版，Electron 版已废弃）",
   "author": "ParticleLight",
   "contributors": [
@@ -15,10 +15,12 @@
     "bench:library": "node scripts/bench/library-bench.mjs",
     "check:bridge-handlers": "node scripts/check-bridge-handlers.js",
     "check:installer": "node scripts/check-installer-manifest.mjs",
+    "clean:renderer-cache": "node scripts/clean-renderer-cache.mjs",
+    "release:notes": "node scripts/release-notes.mjs",
     "gen:bridge-dts": "node scripts/gen-bridge-dts.mjs",
     "start:cpp": "particlebook-cpp/build2/ParticleBook.exe",
     "rebuild:cpp": "npm run build && xcopy /E /Y /I out\\renderer particlebook-cpp\\build2\\renderer >nul && cd particlebook-cpp\\build2 && nmake",
-    "package": "npm run build && xcopy /E /Y /I out\\renderer particlebook-cpp\\build2\\renderer >nul && cd particlebook-cpp\\scripts && makensis /INPUTCHARSET UTF8 /DPRODUCT_VERSION=%npm_package_version% installer.nsi"
+    "package": "npm run build && node scripts/clean-renderer-cache.mjs && xcopy /E /Y /I out\\renderer particlebook-cpp\\build2\\renderer >nul && cd particlebook-cpp\\scripts && makensis /INPUTCHARSET UTF8 /DPRODUCT_VERSION=%npm_package_version% installer.nsi"
   },
   "dependencies": {
     "dompurify": "^3.4.13",
