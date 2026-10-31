@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { Book } from '../../stores/libraryStore'
 import { useLibraryStore } from '../../stores/libraryStore'
 import { safeText } from '../../utils/safeText'
-import { formatColors } from '../../utils/format'
+import { formatBadgeLabel, formatColors } from '../../utils/format'
 import { ConfirmDialog } from '../UI/ConfirmDialog'
 import { useTranslation } from 'react-i18next'
 import i18n from '../../i18n'
@@ -103,7 +103,7 @@ export function BookList({ books, onOpenBook }: BookListProps) {
       </div>
       <div className="col-span-2 text-sm truncate flex items-center" style={{ color: 'var(--text-secondary)' }}>{safeText(book.author) || '—'}</div>
       <div className="col-span-1 flex items-center">
-        <span className={`m3-badge ${formatColors[book.format] || ''}`}>{book.format.toUpperCase()}</span>
+        <span className={`m3-badge min-w-0 max-w-full truncate ${formatColors[book.format] || ''}`}>{formatBadgeLabel(book.format)}</span>
       </div>
       <div className="col-span-1 text-sm flex items-center" style={{ color: 'var(--text-tertiary)' }}>{formatFileSize(book.file_size)}</div>
       <div className="col-span-1 text-sm flex items-center" style={{ color: 'var(--text-tertiary)' }}>{new Date(book.added_at).toLocaleDateString(i18n.language)}</div>

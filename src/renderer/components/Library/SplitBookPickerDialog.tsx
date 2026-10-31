@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useLibraryStore } from '../../stores/libraryStore'
 import { isSplitReadable } from '../../stores/readerSession'
+import { formatBadgeLabel } from '../../utils/format'
 import { Dialog } from '../UI/Dialog'
 
 // ── PB-009-D：书库/阅读器的「分屏阅读」选书弹层 ─────────────────────
@@ -110,7 +111,7 @@ export function SplitBookPickerDialog({ open, primaryBookId, onCancel, onConfirm
                   <span className="flex-1 truncate text-sm">{book.title}</span>
                   {book.author && <span className="text-xs truncate max-w-[35%]" style={{ color: 'var(--md-sys-color-on-surface-variant)' }}>{book.author}</span>}
                   <span className="text-[10px] px-1.5 py-0.5 rounded shrink-0" style={{ background: 'var(--md-sys-color-surface-container-highest)', color: 'var(--md-sys-color-on-surface-variant)' }}>
-                    {book.format.toUpperCase()}
+                    {formatBadgeLabel(book.format)}
                   </span>
                   {!bookSupported && (
                     <span className="text-[10px] shrink-0" style={{ color: 'var(--color-orange)' }}>{t('不支持分屏')}</span>

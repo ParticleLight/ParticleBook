@@ -32,6 +32,7 @@ import { useTranslation } from 'react-i18next'
 import ePub, { type Book as EpubBook, type Rendition } from 'epubjs'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { readBookFile } from '../../utils/fileReader'
+import { formatBadgeLabel } from '../../utils/format'
 import {
   createReaderSession,
   isSplitReadable,
@@ -360,7 +361,7 @@ function SplitPane({
     >
       <div className={styles.header}>
         <span className={styles.title} title={book.title} data-split-title={pane}>{book.title}</span>
-        <span className={styles.badge}>{book.format.toUpperCase()}</span>
+        <span className={styles.badge}>{formatBadgeLabel(book.format)}</span>
         <span className={styles.progress} data-split-progress={pane}>{Math.round(progress * 10) / 10}%</span>
         <button
           className={styles.controlButton}

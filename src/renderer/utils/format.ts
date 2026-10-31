@@ -60,6 +60,19 @@ export async function extractTextPreview(filePath: string, format = '', maxLengt
   }
 }
 
+// 格式徽章文案（2026-10-31）：列表视图的「格式」列只有 1/12 宽、卡片徽章又压在封面上，
+// `MARKDOWN` 这种长名字会溢出压到隔壁的「大小」列（实测穿模）。徽章统一用短标签；
+// 详情对话框里仍用完整名字（那里是「格式：MARKDOWN」的散文，不占列宽）。
+const FORMAT_BADGE_LABELS: Record<string, string> = {
+  markdown: 'MD',
+  md: 'MD',
+}
+
+export function formatBadgeLabel(format: string): string {
+  const key = (format || '').toLowerCase()
+  return FORMAT_BADGE_LABELS[key] ?? key.toUpperCase()
+}
+
 export const formatColors: Record<string, string> = {
   epub: 'bg-blue-600',
   pdf: 'bg-red-600',

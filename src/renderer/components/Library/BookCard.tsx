@@ -1,7 +1,7 @@
 import { useState, useEffect, useLayoutEffect, useRef, memo } from 'react'
 import { Book, useLibraryStore } from '../../stores/libraryStore'
 import { safeText } from '../../utils/safeText'
-import { formatReadingTime, extractTextPreview, formatColors } from '../../utils/format'
+import { formatReadingTime, extractTextPreview, formatBadgeLabel, formatColors } from '../../utils/format'
 import { generatePdfPreview, generateCbzPreview } from '../../utils/preview'
 
 // 卡片上做「文字预览」的格式白名单（2026-10-29）：二进制容器（pdf/cbz/cbr/mobi/azw3）
@@ -139,7 +139,7 @@ function BookCardInner({ book, onOpen, onDelete, onRemoveFromShelf, activeShelfI
         )}
 
         {/* Format badge */}
-        <span className={`absolute top-2 right-2 m3-badge !min-h-[22px] ${formatColors[book.format] || ''}`}>{book.format.toUpperCase()}</span>
+        <span className={`absolute top-2 right-2 m3-badge !min-h-[22px] max-w-[calc(100%-16px)] truncate ${formatColors[book.format] || ''}`}>{formatBadgeLabel(book.format)}</span>
 
         {/* Hover overlay */}
         <div className="absolute inset-0 bg-black/0 group-hover:bg-black/25 transition-colors duration-300 flex items-center justify-center">
