@@ -16,7 +16,7 @@ public:
 
     // PB-014: bump when the on-disk shape changes; every bump needs a
     // migration entry in DatabaseService.cpp and a database_test case.
-    static constexpr int kCurrentSchemaVersion = 4;
+    static constexpr int kCurrentSchemaVersion = 5;
 
     void Load(const std::string& path);
     int GetSchemaVersion() const;
@@ -123,6 +123,19 @@ public:
     void DeleteBookSource(int id);
     void ToggleBookSource(int id);
     void ClearAllBookSources();
+
+    // Download history (schema v5)
+    //
+    // rows in m_data["downloads"], newest first:
+    //   { id, fileName, filePath, size, createdAt }
+    // No bookId is stored: the UI joins a row to the shelf by filePath (a moved
+    // or renamed file just stops matching, nothing breaks). AddDownload dedupes
+    // by filePath (a re-download of the same file updates the existing row and
+    // moves it to the front instead of growing the list). DeleteDownload returns
+    // the removed row (or null) so the caller can also delete the file on disk.
+    json GetDownloads() const;
+    json AddDownload(const json& download);
+    json DeleteDownload(int id);
 
     // Reading sessions
     int StartReadingSession(int bookId);

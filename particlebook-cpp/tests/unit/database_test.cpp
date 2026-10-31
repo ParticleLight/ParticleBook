@@ -49,6 +49,8 @@ int main()
             CHECK_TRUE(db.GetSettings().is_object());
             CHECK_EQ((int)db.GetBookshelves().size(), 0);
             CHECK_EQ((int)db.GetBookSources().size(), 0);
+            CHECK_TRUE(db.GetDownloads().is_array());
+            CHECK_EQ((int)db.GetDownloads().size(), 0);
             CHECK_EQ(db.GetSchemaVersion(), DatabaseService::kCurrentSchemaVersion);
         }
         fs::remove_all(dir);
@@ -457,6 +459,207 @@ int main()
             CHECK_EQ(third["id"].get<int>(), 3);
             CHECK_EQ(third["legacyId"].get<int>(), 3);
             db.FlushSync();
+        }
+        fs::remove_all(dir);
+    }
+
+    // ── 13. PB-030 downloads: AddDownload 最新在前 + 行字段原样返回 ────────
+    // downloads[] 行形状 { id, fileName, filePath, size, createdAt }；没有 bookId
+    // （UI 用 filePath 关联书架），数组约定【最新在前】。
+    {
+        auto dir = MakeScratch("downloads-add");
+        auto dbPath = dir / "db.json";
+        {
+            DatabaseService db;
+            db.Load(dbPath.string());
+            CHECK_TRUE(db.GetDownloads().is_array());
+            CHECK_EQ((int)db.GetDownloads().size(), 0);
+
+            const json a = db.AddDownload(json{
+                { "fileName", "A.epub" }, { "filePath", "C:/dl/A.epub" }, { "size", 2048 } });
+            const json b = db.AddDownload(json{
+                { "fileName", "B.epub" }, { "filePath", "C:/dl/B.epub" }, { "size", 4096 } });
+            CHECK_TRUE(!a.is_null());
+            CHECK_TRUE(!b.is_null());
+            CHECK_EQ(a["id"].get<int>(), 1);
+            CHECK_EQ(b["id"].get<int>(), 2);
+            CHECK_EQ(a["fileName"].get<std::string>(), std::string("A.epub"));
+            CHECK_TRUE(!a["createdAt"].get<std::string>().empty());
+            CHECK_TRUE(!b["createdAt"].get<std::string>().empty());
+
+            const json downloads = db.GetDownloads();
+            CHECK_EQ((int)downloads.size(), 2);
+            CHECK_EQ(downloads[0]["id"].get<int>(), 2);  // B 后写 → 排最前
+            CHECK_EQ(downloads[0]["filePath"].get<std::string>(), std::string("C:/dl/B.epub"));
+            CHECK_EQ(downloads[0]["fileName"].get<std::string>(), std::string("B.epub"));
+            CHECK_EQ(downloads[0]["size"].get<int>(), 4096);
+            CHECK_EQ(downloads[1]["id"].get<int>(), 1);
+            CHECK_EQ(downloads[1]["filePath"].get<std::string>(), std::string("C:/dl/A.epub"));
+            CHECK_EQ(downloads[1]["size"].get<int>(), 2048);
+            db.FlushSync();
+        }
+        fs::remove_all(dir);
+    }
+
+    // ── 14. PB-030 downloads: 同一 filePath 去重（原地合并 + 保留 id）─────
+    // 反复下载同一本书不该让历史膨胀：命中旧行 → 合并字段、保留原 id、
+    // 刷新 createdAt、挪到数组最前；新书仍按 nextDownloadId 递增拿号。
+    {
+        auto dir = MakeScratch("downloads-dedupe");
+        auto dbPath = dir / "db.json";
+        {
+            DatabaseService db;
+            db.Load(dbPath.string());
+
+            const json first = db.AddDownload(json{
+                { "fileName", "A.epub" }, { "filePath", "C:/dl/A.epub" }, { "size", 2048 } });
+            CHECK_TRUE(!db.AddDownload(json{
+                { "fileName", "B.epub" }, { "filePath", "C:/dl/B.epub" }, { "size", 4096 } }).is_null());
+            const int idA = first["id"].get<int>();
+
+            const json again = db.AddDownload(json{
+                { "fileName", "A-v2.epub" }, { "filePath", "C:/dl/A.epub" }, { "size", 8192 } });
+            CHECK_TRUE(!again.is_null());
+            CHECK_EQ(again["id"].get<int>(), idA);             // id 复用，不新分配
+            CHECK_EQ(again["size"].get<int>(), 8192);          // 新值覆盖旧值
+            CHECK_EQ(again["fileName"].get<std::string>(), std::string("A-v2.epub"));
+            CHECK_TRUE(!again["createdAt"].get<std::string>().empty());
+
+            const json downloads = db.GetDownloads();
+            CHECK_EQ((int)downloads.size(), 2);                // 没有多出第三行
+            CHECK_EQ(downloads[0]["id"].get<int>(), idA);      // 去重后挪到最前
+            CHECK_EQ(downloads[0]["filePath"].get<std::string>(), std::string("C:/dl/A.epub"));
+            CHECK_EQ(downloads[0]["size"].get<int>(), 8192);
+            CHECK_EQ(downloads[1]["filePath"].get<std::string>(), std::string("C:/dl/B.epub"));
+
+            // 去重不消耗 id：下一本全新的书拿到 3
+            const json c = db.AddDownload(json{
+                { "fileName", "C.epub" }, { "filePath", "C:/dl/C.epub" }, { "size", 1 } });
+            CHECK_EQ(c["id"].get<int>(), 3);
+            db.FlushSync();
+        }
+        fs::remove_all(dir);
+    }
+
+    // ── 15. PB-030 downloads: 非法入参一律 null 且不写库 ─────────────────
+    // 只有 filePath 非空的 object 才算一条下载；其余（缺 filePath / 空路径 /
+    // 非 object）返回 null，且 GetDownloads() 保持空。
+    {
+        auto dir = MakeScratch("downloads-invalid");
+        auto dbPath = dir / "db.json";
+        {
+            DatabaseService db;
+            db.Load(dbPath.string());
+            CHECK_TRUE(db.AddDownload(json::object()).is_null());             // 缺 filePath
+            CHECK_TRUE(db.AddDownload(json{ { "filePath", "" } }).is_null());  // 空 filePath
+            CHECK_TRUE(db.AddDownload(json{ { "fileName", "X.epub" } }).is_null());
+            CHECK_TRUE(db.AddDownload(json::array()).is_null());               // 非 object
+            CHECK_EQ((int)db.GetDownloads().size(), 0);
+            db.FlushSync();
+        }
+        fs::remove_all(dir);
+    }
+
+    // ── 16. PB-030 downloads: DeleteDownload 返回被删行 ──────────────────
+    // 返回被删行（调用方要据此删磁盘文件）；同 id 二次删除 / 不存在的 id 返回 null。
+    {
+        auto dir = MakeScratch("downloads-delete");
+        auto dbPath = dir / "db.json";
+        {
+            DatabaseService db;
+            db.Load(dbPath.string());
+            const json a = db.AddDownload(json{
+                { "fileName", "A.epub" }, { "filePath", "C:/dl/A.epub" }, { "size", 2048 } });
+            CHECK_TRUE(!db.AddDownload(json{
+                { "fileName", "B.epub" }, { "filePath", "C:/dl/B.epub" }, { "size", 4096 } }).is_null());
+            const int idA = a["id"].get<int>();
+
+            const json removed = db.DeleteDownload(idA);
+            CHECK_TRUE(!removed.is_null());
+            CHECK_EQ(removed["id"].get<int>(), idA);
+            CHECK_EQ(removed["filePath"].get<std::string>(), std::string("C:/dl/A.epub"));
+
+            CHECK_TRUE(db.DeleteDownload(idA).is_null());   // 已经删过一次
+            CHECK_TRUE(db.DeleteDownload(999).is_null());   // 不存在的 id
+
+            const json downloads = db.GetDownloads();
+            CHECK_EQ((int)downloads.size(), 1);
+            CHECK_EQ(downloads[0]["filePath"].get<std::string>(), std::string("C:/dl/B.epub"));
+            db.FlushSync();
+        }
+        fs::remove_all(dir);
+    }
+
+    // ── 17. PB-030 downloads: 下载历史跨重启落盘 ─────────────────────────
+    // FlushSync 后 Another instance Load 同一路径：行内容完整，且
+    // nextDownloadId 也已持久化（重启后 id 从 2 继续）。
+    {
+        auto dir = MakeScratch("downloads-persist");
+        auto dbPath = dir / "db.json";
+        {
+            DatabaseService db;
+            db.Load(dbPath.string());
+            CHECK_TRUE(!db.AddDownload(json{
+                { "fileName", "Keep.epub" }, { "filePath", "C:/dl/Keep.epub" },
+                { "size", 12345 } }).is_null());
+            db.FlushSync();
+
+            std::ifstream f(dbPath);
+            json parsed = json::parse(f);
+            CHECK_TRUE(parsed["downloads"].is_array());
+            CHECK_EQ((int)parsed["downloads"].size(), 1);
+        }
+        {
+            DatabaseService db;
+            db.Load(dbPath.string());
+            const json downloads = db.GetDownloads();
+            CHECK_EQ((int)downloads.size(), 1);
+            CHECK_EQ(downloads[0]["fileName"].get<std::string>(), std::string("Keep.epub"));
+            CHECK_EQ(downloads[0]["filePath"].get<std::string>(), std::string("C:/dl/Keep.epub"));
+            CHECK_EQ(downloads[0]["size"].get<int>(), 12345);
+            CHECK_TRUE(!downloads[0]["createdAt"].get<std::string>().empty());
+
+            const json second = db.AddDownload(json{
+                { "fileName", "Second.epub" }, { "filePath", "C:/dl/Second.epub" }, { "size", 2 } });
+            CHECK_EQ(second["id"].get<int>(), 2);  // nextDownloadId 已持久化
+            db.FlushSync();
+        }
+        fs::remove_all(dir);
+    }
+
+    // ── 18. v4 -> v5 download history migration + pre-migrate backup ────
+    // 备份名由 CopyForMigrationBackup 拼成 path + ".pre-migrate-v" +
+    // 【来源版本】+ "-" + 时间戳 —— v4 库的前缀是 pre-migrate-v4-，不是 v5。
+    // 迁移只补 downloads / nextDownloadId 容器，已有 books / settings 不动。
+    {
+        auto dir = MakeScratch("schema-v5");
+        auto dbPath = dir / "db.json";
+        WriteText(dbPath, R"json({
+            "schema_version": 4,
+            "books": [{"id": 1, "title": "V4 Book", "file_path": "C:/books/v4.epub"}],
+            "nextId": 2,
+            "settings": {"theme": "dark"}
+        })json");
+        {
+            DatabaseService db;
+            db.Load(dbPath.string());
+            CHECK_EQ(db.GetSchemaVersion(), DatabaseService::kCurrentSchemaVersion);
+            CHECK_EQ(db.GetSchemaVersion(), 5);
+            CHECK_TRUE(db.GetDownloads().is_array());
+            CHECK_EQ((int)db.GetDownloads().size(), 0);
+            CHECK_EQ((int)db.GetBooks().size(), 1);  // 老数据不丢
+            CHECK_EQ(db.GetBooks()[0]["title"].get<std::string>(), std::string("V4 Book"));
+            CHECK_EQ(db.GetSettings()["theme"].get<std::string>(), std::string("dark"));
+            db.FlushSync();
+        }
+        CHECK_EQ(CountPrefixed(dir, "db.json.pre-migrate-v4-"), 1);
+        CHECK_EQ(CountPrefixed(dir, "db.json.pre-migrate-v5-"), 0);  // 别按目标版本猜
+        {
+            std::ifstream f(dbPath);
+            json parsed = json::parse(f);
+            CHECK_EQ(parsed["schema_version"].get<int>(), 5);
+            CHECK_TRUE(parsed["downloads"].is_array());
+            CHECK_EQ(parsed["nextDownloadId"].get<int>(), 1);
         }
         fs::remove_all(dir);
     }

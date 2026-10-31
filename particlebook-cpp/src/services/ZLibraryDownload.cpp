@@ -639,6 +639,16 @@ void ZLibraryService::FinishDownload(ICoreWebView2DownloadOperation* op,
     }
 
     m_zlibDlInProgress = false;
+
+    // PB-030: 下载历史的唯一真实来源 —— 只有真正落盘成功的才算一条。
+    if (m_db) {
+        json row;
+        row["fileName"] = fileName;
+        row["filePath"] = finalPath;
+        row["size"] = static_cast<long long>(size);
+        m_db->AddDownload(row);
+    }
+
     pb::LogInfo("zlib", "downloaded " + fileName + " (" + std::to_string((long long)size) + " bytes)");
     m_bridge->EmitEvent("zlib:downloadComplete", {{"fileName", fileName}, {"path", finalPath}});
     if (m_hwnd) {

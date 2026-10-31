@@ -202,4 +202,22 @@ export const enLibrary: Record<string, string> = {
   '可参与分屏': 'Can split',
   '网络错误或超时': 'Network error or timeout',
   '下载已取消': 'Download cancelled',
+
+  // 2026-10-31：下载历史页（DownloadHistoryPage）
+  '下载历史': 'Download history',
+  '共 {{n}} 条': '{{n}} total',
+  '还没有下载记录': 'No downloads yet',
+  '在 Z-Library 里点下载后，这里会留下记录': 'Books you download from Z-Library will show up here.',
+  '已在书架': 'In library',
+  '在文件夹中查看': 'Show in folder',
+  '删除记录': 'Delete record',
+  '文件已不在原位置': 'The file is no longer at that location',
+  '无法打开所在文件夹': 'Could not open the containing folder',
+  '删除下载记录': 'Delete download record',
+  '同时从硬盘删除文件': 'Also delete the file from disk',
+  '书架上已导入的书也会一并移除': 'Books already imported into your library will be removed from the library too.',
+  '删除中...': 'Deleting...',
+  '删除失败，请重试': 'Delete failed, please try again',
+  '加载下载记录失败': 'Failed to load downloads',
+  '重试': 'Retry',
 }

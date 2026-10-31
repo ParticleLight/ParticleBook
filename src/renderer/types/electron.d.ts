@@ -33,6 +33,16 @@ interface PbBook {
   rating: number
 }
 
+interface PbDownload {
+  // PB-030 下载历史：一次成功落盘 = 一行；同一 filePath 重复下载会原地更新并置顶。
+  // 与书架的关联不落库，前端按 filePath 与 PbBook.file_path 匹配（文件被移走就自然不匹配）。
+  id: number
+  fileName: string
+  filePath: string
+  size: number
+  createdAt: string
+}
+
 interface PbBookMetadataPatch {
   // book:updateMetadata 的 patch：只带要改的字段；空书名会被 C++ 拒绝（返回 null）。
   title?: string
@@ -323,6 +333,13 @@ interface ElectronAPI {
   getLibrarySeries: () => Promise<string[]>
   updateReadingProgress: (bookId: number, progress: PbProgressInput) => Promise<void>
   getReadingProgress: (bookId: number) => Promise<PbProgressRecord>
+
+  // Downloads
+  getDownloads: () => Promise<PbDownload[]>
+  deleteDownload: (id: number, deleteFile: boolean) => Promise<PbDownload | null>
+
+  // Utilities
+  revealPath: (path: string) => Promise<boolean>
 
   // Bookmarks
   getBookmarks: (bookId: number) => Promise<PbBookmark[]>

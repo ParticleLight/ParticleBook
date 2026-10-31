@@ -19,6 +19,7 @@ export const groups = [
   "Files",
   "PDF",
   "Books",
+  "Downloads",
   "Bookmarks",
   "Highlights",
   "Notes",
@@ -66,6 +67,18 @@ export const types = [
       '  series_name: string',
       '  series_index: number',
       '  rating: number'
+    ]
+  },
+  {
+    name: 'PbDownload',
+    body: [
+      '  // PB-030 下载历史：一次成功落盘 = 一行；同一 filePath 重复下载会原地更新并置顶。',
+      '  // 与书架的关联不落库，前端按 filePath 与 PbBook.file_path 匹配（文件被移走就自然不匹配）。',
+      '  id: number',
+      '  fileName: string',
+      '  filePath: string',
+      '  size: number',
+      '  createdAt: string'
     ]
   },
   {
@@ -468,6 +481,28 @@ export const contract = [
     group: "Books",
     params: [{ n: "bookId", t: "number" }],
     returns: "Promise<PbProgressRecord>"
+  },
+  // PB-030: 下载历史（schema v5）
+  {
+    member: "getDownloads", method: "db:getDownloads",
+    kind: "invoke",
+    group: "Downloads",
+    params: [],
+    returns: "Promise<PbDownload[]>"
+  },
+  {
+    member: "deleteDownload", method: "db:deleteDownload",
+    kind: "invoke",
+    group: "Downloads",
+    params: [{ n: "id", t: "number" }, { n: "deleteFile", t: "boolean" }],
+    returns: "Promise<PbDownload | null>"
+  },
+  {
+    member: "revealPath", method: "app:revealPath",
+    kind: "invoke",
+    group: "Utilities",
+    params: [{ n: "path", t: "string" }],
+    returns: "Promise<boolean>"
   },
   // ── Bookmarks ──
   {

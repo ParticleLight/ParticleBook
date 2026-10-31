@@ -11,13 +11,14 @@ import { useLibraryStore } from './stores/libraryStore'
 const SplitReaderView = lazy(() => import('./components/Reader/SplitReaderView').then(m => ({ default: m.SplitReaderView })))
 const GlobalSettings = lazy(() => import('./components/Settings/GlobalSettings').then(m => ({ default: m.GlobalSettings })))
 const StatisticsPage = lazy(() => import('./components/Library/StatisticsPage').then(m => ({ default: m.StatisticsPage })))
+const DownloadHistoryPage = lazy(() => import('./components/Library/DownloadHistoryPage').then(m => ({ default: m.DownloadHistoryPage })))
 
 // Only auto-check for updates once per app session — the check useEffect below
 // runs on every App mount, and going in/out of Z-Library reloads the page (and
 // thus remounts App), which would otherwise re-trigger the check each time.
 let autoCheckFired = false
 
-type Page = 'library' | 'settings' | 'statistics'
+type Page = 'library' | 'settings' | 'statistics' | 'downloads'
 
 const PageLoader = () => (
   <div className="h-screen flex items-center justify-center" style={{ background: 'var(--md-sys-color-surface)' }} role="status" aria-label="Loading">
@@ -321,6 +322,18 @@ export default function App() {
     )
   }
 
+  // PB-030：下载历史。阅读器分支排在 page 分支之前，所以这里 onOpenBook 能直接进阅读器，
+  // 关闭后 currentBookId 归 null，又回到本页。
+  if (page === 'downloads') {
+    return (
+      <PageShell show key={`downloads-${pageKey}`}>
+        <Suspense fallback={<PageLoader />}>
+          <DownloadHistoryPage onBack={() => navigateTo('library')} onOpenBook={openBook} />
+        </Suspense>
+      </PageShell>
+    )
+  }
+
   return (
     <PageShell show key="library">
       {zlibAllFailed && <ZlibFailedBanner onDismiss={() => setZlibAllFailed(false)} />}
@@ -333,6 +346,7 @@ export default function App() {
         onOpenSettings={() => navigateTo('settings')}
         onOpenZLibrary={openZLibrary}
         onOpenStatistics={() => navigateTo('statistics')}
+        onOpenDownloads={() => navigateTo('downloads')}
         onOpenSplit={requestSplit}
       />
       {splitPicker}

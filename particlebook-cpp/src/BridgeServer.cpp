@@ -449,6 +449,10 @@ std::string BridgeServer::GenerateBridgeScript()
     updateReadingProgress: function(bid, prog) { return invoke('db:updateProgress', {bookId:bid, progress:prog}); },
     getReadingProgress: function(bid)          { return invoke('db:getProgress', {bookId:bid}); },
 
+    getDownloads: function()   { return invoke('db:getDownloads'); },
+    deleteDownload: function(id, delFile) { return invoke('db:deleteDownload', {id:id, deleteFile:!!delFile}); },
+    revealPath: function(path) { return invoke('app:revealPath', {path:path}); },
+
     getBookmarks: function(bid)      { return invoke('db:getBookmarks', {bookId:bid}); },
     addBookmark: function(bm)        { return invoke('db:addBookmark', {bm:bm}); },
     deleteBookmark: function(id)     { return invoke('db:deleteBookmark', {id:id}); },

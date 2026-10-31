@@ -186,6 +186,36 @@ void RegisterDbHandlers(BridgeServer* bridge, DatabaseService* db)
     });
 
 
+    // ── Download history (PB-030) ───────────────────
+    bridge->RegisterMethod("db:getDownloads", [db](const json&) {
+        return db->GetDownloads();
+    });
+    bridge->RegisterMethod("db:deleteDownload", [db, bridge](const json& p) {
+        int id = p.value("id", -1);
+        if (id < 0) return json(nullptr);
+        json removed = db->DeleteDownload(id);
+        if (removed.is_null()) return json(nullptr);
+        // 勾了「同时从硬盘删除」才动文件：书库里已导入过的那本书也一并移除，
+        // 否则书架上会留一条打不开的死记录。
+        if (p.value("deleteFile", false)) {
+            std::string fp = removed.value("filePath", std::string());
+            if (!fp.empty()) {
+                std::error_code ec;
+                std::filesystem::remove(pb::Utf8ToWide(fp), ec);
+                for (const char* ext : {".jpeg", ".jpg", ".png", ".webp"}) {
+                    std::filesystem::remove(pb::Utf8ToWide(fp + ext), ec);
+                }
+            }
+            // 按路径反查书架：同一本书导入过就先删书，避免留下打不开的死记录。
+            auto book = db->GetBookByPath(fp);
+            if (!book.is_null()) {
+                db->DeleteBook(book.value("id", 0));
+                bridge->EmitEvent("library:changed", json::object());
+            }
+        }
+        return removed;
+    });
+
     // ── Reading Sessions ────────────────────────────
     bridge->RegisterMethod("db:startReadingSession", [db](const json& p) {
         return db->StartReadingSession(p["bookId"].get<int>());

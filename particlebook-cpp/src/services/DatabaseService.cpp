@@ -189,11 +189,24 @@ namespace {
         return true;
     }
 
+    // PB-030 (schema v5): download history. The rows are new, so the migration
+    // only has to create the container; EnsureDefaults() also covers this for
+    // libraries that never went through the migration list.
+    bool MigrateV4ToV5(json& data, std::string& error) {
+        (void)error;
+        if (!data.contains("downloads") || !data["downloads"].is_array()) {
+            data["downloads"] = json::array();
+        }
+        if (!data.contains("nextDownloadId")) data["nextDownloadId"] = 1;
+        return true;
+    }
+
     const std::vector<Migration>& Migrations() {
         static const std::vector<Migration> migrations = {
             { 1, 2, "add schema_version", &MigrateV1ToV2 },
             { 2, 3, "unified annotations", &MigrateV2ToV3 },
             { 3, 4, "book metadata (tags / series / rating)", &MigrateV3ToV4 },
+            { 4, 5, "download history", &MigrateV4ToV5 },
         };
         return migrations;
     }
@@ -252,6 +265,12 @@ namespace {
     int allocNextAnnotationId(json& data) {
         int id = data.value("nextAnnotationId", 1);
         data["nextAnnotationId"] = id + 1;
+        return id;
+    }
+
+    int allocNextDownloadId(json& data) {
+        int id = data.value("nextDownloadId", 1);
+        data["nextDownloadId"] = id + 1;
         return id;
     }
 
@@ -586,8 +605,10 @@ void DatabaseService::EnsureDefaults()
     if (!m_data.contains("settings"))         m_data["settings"] = json::object();
     if (!m_data.contains("book_settings"))    m_data["book_settings"] = json::object();
     if (!m_data.contains("annotations"))      m_data["annotations"] = json::array();
+    if (!m_data.contains("downloads"))        m_data["downloads"] = json::array();
     if (!m_data.contains("nextAnnotationId")) m_data["nextAnnotationId"] = 1;
     if (!m_data.contains("nextId"))           m_data["nextId"] = 1;
+    if (!m_data.contains("nextDownloadId"))   m_data["nextDownloadId"] = 1;
     // PB-005：books 行元数据默认值（迁移前的老库 / 手改库 / 旧 Insert 路径都补齐）
     if (m_data["books"].is_array()) {
         for (auto& book : m_data["books"]) NormalizeBookMetadata(book);
@@ -1226,6 +1247,66 @@ void DatabaseService::ClearAllBookSources()
     std::lock_guard<std::mutex> lock(m_mutex);
     m_data["book_sources"] = json::array();
     ScheduleWrite();
+}
+
+// ── Download history (schema v5) ─────────────────────────────────
+
+json DatabaseService::GetDownloads() const
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    if (!m_data.contains("downloads") || !m_data["downloads"].is_array()) return json::array();
+    return m_data["downloads"];
+}
+
+json DatabaseService::AddDownload(const json& download)
+{
+    if (!download.is_object()) return nullptr;
+    const std::string filePath = download.value("filePath", std::string());
+    if (filePath.empty()) return nullptr;
+
+    std::lock_guard<std::mutex> lock(m_mutex);
+    auto& arr = m_data["downloads"];
+
+    json row = download;
+    row["filePath"] = filePath;
+    if (!row.contains("fileName") || !row["fileName"].is_string()) row["fileName"] = std::string();
+    if (!row.contains("size") || !row["size"].is_number_integer()) row["size"] = 0;
+    if (!row.contains("createdAt") || !row["createdAt"].is_string()) row["createdAt"] = NowISO();
+
+    // 同一路径当作同一本：更新旧行并挪到最前，历史不会因为反复下载而膨胀。
+    for (auto it = arr.begin(); it != arr.end(); ++it) {
+        if (it->value("filePath", std::string()) != filePath) continue;
+        json merged = *it;
+        for (auto& [k, v] : row.items()) merged[k] = v;
+        merged["id"] = it->value("id", 0);
+        merged["createdAt"] = NowISO();
+        arr.erase(it);
+        arr.insert(arr.begin(), merged);
+        ScheduleWrite();
+        return merged;
+    }
+
+    row["id"] = allocNextDownloadId(m_data);
+    arr.insert(arr.begin(), row);
+    ScheduleWrite();
+    return row;
+}
+
+json DatabaseService::DeleteDownload(int id)
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    if (!m_data.contains("downloads") || !m_data["downloads"].is_array()) return nullptr;
+    auto& arr = m_data["downloads"];
+    json removed = nullptr;
+    for (auto it = arr.begin(); it != arr.end(); ++it) {
+        if (it->value("id", 0) == id) {
+            removed = *it;
+            arr.erase(it);
+            break;
+        }
+    }
+    if (!removed.is_null()) ScheduleWrite();
+    return removed;
 }
 
 // ── Reading Sessions ─────────────────────────────────────────────

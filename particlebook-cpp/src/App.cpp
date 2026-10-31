@@ -279,6 +279,24 @@ void App::Init(HINSTANCE hInstance, std::vector<std::string> startupPaths, Singl
         return json(nullptr);
     });
 
+    // PB-030: 下载历史 → 「在文件夹中查看」。文件还在就用 /select 定位并选中；
+    // 已被用户删掉/移走时退一步打开它原来所在的目录。
+    m_bridge->RegisterMethod("app:revealPath", [](const json& p) -> json {
+        const std::string utf8 = p.value("path", std::string());
+        if (utf8.empty()) return json(false);
+        const std::wstring path = pb::Utf8ToWide(utf8);
+        std::error_code ec;
+        if (std::filesystem::exists(std::filesystem::path(path), ec)) {
+            const std::wstring args = L"/select,\"" + path + L"\"";
+            ShellExecuteW(nullptr, L"open", L"explorer.exe", args.c_str(), nullptr, SW_SHOWNORMAL);
+            return json(true);
+        }
+        const std::filesystem::path parent = std::filesystem::path(path).parent_path();
+        if (parent.empty() || !std::filesystem::exists(parent, ec)) return json(false);
+        ShellExecuteW(nullptr, L"open", parent.wstring().c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+        return json(true);
+    });
+
     m_bridge->RegisterMethod("app:exportDiagnostics", [this](const json&) -> json {
         if (!m_log) return json(nullptr);
         pb::DiagnosticsPackage pkg;
