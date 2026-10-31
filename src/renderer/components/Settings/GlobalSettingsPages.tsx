@@ -51,12 +51,21 @@ const THEMES = (t: TFunction) => [
   { id: 'sepia' as const, label: t('护眼'), icon: 'M15 12a3 3 0 11-6 0 3 3 0 016 0z M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z' },
 ]
 
-const ACCENTS = (t: TFunction): { id: AccentColor; label: string; color: string }[] => [
-  { id: 'blue', label: t('蓝色'), color: '#60cdff' },
-  { id: 'purple', label: t('紫色'), color: '#c084fc' },
-  { id: 'green', label: t('绿色'), color: '#4ade80' },
-  { id: 'orange', label: t('橙色'), color: '#fb923c' },
-]
+// 色点跟随当前主题：浅色主题的蓝/紫与深色主题不是同一组色值（见 globals.css 的
+// [data-accent] 覆盖块），写死一套会让「看到的色点」和「应用后的颜色」对不上。
+const ACCENTS = (t: TFunction, theme: 'light' | 'dark' | 'sepia'): { id: AccentColor; label: string; color: string }[] => {
+  const dot = theme === 'light'
+    ? { blue: '#2563eb', purple: '#9333ea', green: '#16a34a', orange: '#ea580c' }
+    : theme === 'sepia'
+      ? { blue: '#b8860b', purple: '#a78bfa', green: '#a3e635', orange: '#fdba74' }
+      : { blue: '#60cdff', purple: '#c084fc', green: '#4ade80', orange: '#fb923c' }
+  return [
+    { id: 'blue', label: t('蓝色'), color: dot.blue },
+    { id: 'purple', label: t('紫色'), color: dot.purple },
+    { id: 'green', label: t('绿色'), color: dot.green },
+    { id: 'orange', label: t('橙色'), color: dot.orange },
+  ]
+}
 
 const SORT_OPTIONS = (t: TFunction) => [
   { value: 'last_opened' as const, label: t('最近阅读') },
@@ -186,7 +195,7 @@ export function AppearancePage() {
   const { t } = useTranslation()
   const fonts = useMemo(() => FONTS(t), [t])
   const themes = useMemo(() => THEMES(t), [t])
-  const accents = useMemo(() => ACCENTS(t), [t])
+  const accents = useMemo(() => ACCENTS(t, theme), [t, theme])
 
   return (
     <div className="space-y-6">
