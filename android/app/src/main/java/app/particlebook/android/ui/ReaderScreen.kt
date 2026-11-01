@@ -931,6 +931,9 @@ private fun ImmersiveDialogWindow() {
         }
         val window = dialogWindow
         if (window != null) {
+            // spec §5.3：dialog 窗口自身也要 edge-to-edge（insets 由内容自己 navigationBarsPadding 处理），
+            // 只在 dialog window 上生效，不改活动窗口。
+            WindowCompat.setDecorFitsSystemWindows(window, false)
             val controller = WindowCompat.getInsetsController(window, view)
             controller.systemBarsBehavior =
                 WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
