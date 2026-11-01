@@ -65,6 +65,10 @@ fun SettingsScreen(
     onThemeModeChange: (AppThemeMode) -> Unit,
     fontSize: Int,
     onFontSizeChange: (Int) -> Unit,
+    lineHeight: Float,
+    onLineHeightChange: (Float) -> Unit,
+    defaultSort: LibrarySort,
+    onDefaultSortChange: (LibrarySort) -> Unit,
     onImportClick: () -> Unit,
     onClearReadingRecords: () -> Unit,
     modifier: Modifier = Modifier,
@@ -77,6 +81,8 @@ fun SettingsScreen(
     }
     var storageBytes by remember { mutableLongStateOf(0L) }
     var fontSheetOpen by rememberSaveable { mutableStateOf(false) }
+    var lineHeightSheetOpen by rememberSaveable { mutableStateOf(false) }
+    var sortSheetOpen by rememberSaveable { mutableStateOf(false) }
     var clearDialogOpen by rememberSaveable { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
@@ -117,11 +123,17 @@ fun SettingsScreen(
                 )
                 ListItem(
                     headlineContent = { Text("行距") },
-                    trailingContent = { ValueTrailing(value = "1.7") },
+                    supportingContent = { Text("正文行高倍数") },
+                    trailingContent = {
+                        ValueTrailing(value = formatLineHeight(lineHeight), showChevron = true)
+                    },
+                    modifier = Modifier.clickable { lineHeightSheetOpen = true },
                 )
                 ListItem(
                     headlineContent = { Text("默认排序") },
-                    trailingContent = { ValueTrailing(value = "最近阅读") },
+                    supportingContent = { Text("打开书架时的排序方式") },
+                    trailingContent = { ValueTrailing(value = defaultSort.label, showChevron = true) },
+                    modifier = Modifier.clickable { sortSheetOpen = true },
                 )
             }
 
@@ -272,6 +284,106 @@ fun SettingsScreen(
         }
     }
 
+    if (lineHeightSheetOpen) {
+        ModalBottomSheet(onDismissRequest = { lineHeightSheetOpen = false }) {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = Spacing.screen),
+            ) {
+                Text("行距", style = MaterialTheme.typography.titleLarge)
+                Spacer(Modifier.size(Spacing.xs))
+                Text(
+                    text = "故乡的河里，有一条小小的船……",
+                    style = MaterialTheme.typography.bodyLarge.copy(
+                        fontSize = fontSize.sp,
+                        lineHeight = (fontSize * lineHeight).sp,
+                    ),
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Spacer(Modifier.size(Spacing.xs))
+                LineHeightOptions.forEach { option ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 48.dp)
+                            .selectable(
+                                selected = lineHeight == option,
+                                role = Role.RadioButton,
+                                onClick = { onLineHeightChange(option) },
+                            ),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        RadioButton(selected = lineHeight == option, onClick = null)
+                        Spacer(Modifier.size(Spacing.sm))
+                        Text(
+                            text = formatLineHeight(option) + " 倍",
+                            style = MaterialTheme.typography.bodyLarge,
+                        )
+                    }
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                ) {
+                    FilledTonalButton(onClick = { lineHeightSheetOpen = false }) { Text("完成") }
+                }
+                Spacer(Modifier.size(Spacing.sm))
+            }
+        }
+    }
+
+    if (sortSheetOpen) {
+        ModalBottomSheet(onDismissRequest = { sortSheetOpen = false }) {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = Spacing.screen),
+            ) {
+                Text("默认排序", style = MaterialTheme.typography.titleLarge)
+                Spacer(Modifier.size(Spacing.xs))
+                LibrarySort.entries.forEach { option ->
+                    val enabled = option != LibrarySort.Rating
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 48.dp)
+                            .selectable(
+                                selected = defaultSort == option,
+                                enabled = enabled,
+                                role = Role.RadioButton,
+                                onClick = { onDefaultSortChange(option) },
+                            ),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        RadioButton(
+                            selected = defaultSort == option,
+                            onClick = null,
+                            enabled = enabled,
+                        )
+                        Spacer(Modifier.size(Spacing.sm))
+                        Text(
+                            text = option.label + if (enabled) "" else "（后续版本）",
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = if (enabled) {
+                                MaterialTheme.colorScheme.onSurface
+                            } else {
+                                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                            },
+                        )
+                    }
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                ) {
+                    FilledTonalButton(onClick = { sortSheetOpen = false }) { Text("完成") }
+                }
+                Spacer(Modifier.size(Spacing.sm))
+            }
+        }
+    }
+
     if (clearDialogOpen) {
         AlertDialog(
             onDismissRequest = { clearDialogOpen = false },
@@ -293,6 +405,12 @@ fun SettingsScreen(
         )
     }
 }
+
+/** 行距可选项：4 档，够用且不会在 200% 字号下溢出。 */
+private val LineHeightOptions = listOf(1.3f, 1.5f, 1.7f, 2.0f)
+
+/** 行距显示成「1.7」而不是「1.700000」。 */
+private fun formatLineHeight(value: Float): String = String.format(Locale.US, "%.1f", value)
 
 /** 行尾值：当前值 + 可选 chevron。 */
 @Composable

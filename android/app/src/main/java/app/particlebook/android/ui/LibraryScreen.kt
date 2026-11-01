@@ -16,10 +16,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
@@ -58,8 +62,10 @@ import androidx.compose.material3.rememberTopAppBarState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -83,6 +89,7 @@ import androidx.compose.ui.text.style.TextAlign
 import app.particlebook.android.ui.data.Book
 import app.particlebook.android.ui.data.BookFormat
 import app.particlebook.android.ui.shelf.ShelfList
+import kotlinx.coroutines.flow.collect
 
 /** 排序方式；评分排序需要书评数据，P0 只占位。 */
 enum class LibrarySort(val label: String) {
@@ -121,10 +128,12 @@ fun LibraryScreen(
     onImportClick: () -> Unit,
     onRetry: () -> Unit,
     modifier: Modifier = Modifier,
+    // 设置里的「默认排序」；书架自己仍可在排序 sheet 里临时改。
+    defaultSort: LibrarySort = LibrarySort.RecentRead,
 ) {
     var query by rememberSaveable { mutableStateOf("") }
     var searchActive by rememberSaveable { mutableStateOf(false) }
-    var sort by rememberSaveable { mutableStateOf(LibrarySort.RecentRead) }
+    var sort by rememberSaveable { mutableStateOf(defaultSort) }
     var formatFilter by rememberSaveable { mutableStateOf(FormatFilter.All) }
     var sortSheetOpen by rememberSaveable { mutableStateOf(false) }
     var formatDialogOpen by rememberSaveable { mutableStateOf(false) }
@@ -149,6 +158,32 @@ fun LibraryScreen(
         filterBooks(books = books, query = query, sort = sort, filter = formatFilter)
     }
     val filterActive = formatFilter != FormatFilter.All
+
+    // §9.2 D1：横屏列表与竖屏网格各持一个 Lazy 状态，旋转切换分支就从 0 开始。
+    // 两套布局 item 0 都是段头、书籍顺序同源（visible），索引 1:1 互用，所以只保存 firstVisibleItemIndex。
+    val gridState: LazyGridState = rememberLazyGridState()
+    val listState: LazyListState = rememberLazyListState()
+    var savedIndex by rememberSaveable { mutableIntStateOf(0) }
+    LaunchedEffect(compactLandscape, books.isNotEmpty()) {
+        if (savedIndex > 0) {
+            try {
+                if (compactLandscape) {
+                    listState.scrollToItem(savedIndex)
+                } else {
+                    gridState.scrollToItem(savedIndex)
+                }
+            } catch (cancellation: kotlinx.coroutines.CancellationException) {
+                throw cancellation
+            } catch (ignored: Exception) {
+                // 索引超出当前列表（例如刚删过书）时忽略，从当前位置开始即可。
+            }
+        }
+    }
+    LaunchedEffect(compactLandscape) {
+        snapshotFlow {
+            if (compactLandscape) listState.firstVisibleItemIndex else gridState.firstVisibleItemIndex
+        }.collect { index -> savedIndex = index }
+    }
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -260,10 +295,12 @@ fun LibraryScreen(
                     onSortClick = { sortSheetOpen = true },
                     onEditFilter = { sortSheetOpen = true },
                     onClearFilter = { formatFilter = FormatFilter.All },
+                    state = listState,
                 )
 
                 else -> LazyVerticalGrid(
                     columns = gridCells,
+                    state = gridState,
                     modifier = Modifier
                         .fillMaxSize()
                         .nestedScroll(scrollBehavior.nestedScrollConnection),

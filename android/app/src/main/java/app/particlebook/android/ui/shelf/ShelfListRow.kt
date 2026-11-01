@@ -16,7 +16,9 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.MenuBook
@@ -199,9 +201,12 @@ fun ShelfList(
     onEditFilter: () -> Unit,
     onClearFilter: () -> Unit,
     modifier: Modifier = Modifier,
+    // 滚动状态由调用方持有：横屏/竖屏两条分支共用同一份「保存索引」，旋转后能回到原位置（§9.2 D1）。
+    state: LazyListState = rememberLazyListState(),
 ) {
     val haptics = LocalHapticFeedback.current
     LazyColumn(
+        state = state,
         modifier = modifier.fillMaxSize(),
         contentPadding = PaddingValues(
             start = Spacing.screen,

@@ -36,6 +36,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -91,9 +92,26 @@ private class AppPreferences(context: Context) {
             prefs.edit().putInt(KEY_FONT_SIZE, value).apply()
         }
 
+    /** 正文行高倍数（1.3 / 1.5 / 1.7 / 2.0）。 */
+    var lineHeight: Float
+        get() = prefs.getFloat(KEY_LINE_HEIGHT, 1.7f)
+        set(value) {
+            prefs.edit().putFloat(KEY_LINE_HEIGHT, value).apply()
+        }
+
+    /** 书架默认排序，存 LibrarySort.name。 */
+    var defaultSort: String
+        get() = prefs.getString(KEY_DEFAULT_SORT, LibrarySort.RecentRead.name)
+            ?: LibrarySort.RecentRead.name
+        set(value) {
+            prefs.edit().putString(KEY_DEFAULT_SORT, value).apply()
+        }
+
     private companion object {
         const val KEY_THEME = "theme_mode"
         const val KEY_FONT_SIZE = "font_size"
+        const val KEY_LINE_HEIGHT = "line_height"
+        const val KEY_DEFAULT_SORT = "default_sort"
     }
 }
 
@@ -113,6 +131,10 @@ fun ParticleBookApp() {
     var tabIndex by rememberSaveable { mutableIntStateOf(0) }
     var openBookId by rememberSaveable { mutableLongStateOf(-1L) }
     var fontSize by rememberSaveable { mutableIntStateOf(preferences.fontSize) }
+    var lineHeight by rememberSaveable { mutableFloatStateOf(preferences.lineHeight) }
+    var defaultSortName by rememberSaveable { mutableStateOf(preferences.defaultSort) }
+    val defaultSort = LibrarySort.entries.firstOrNull { it.name == defaultSortName }
+        ?: LibrarySort.RecentRead
 
     val store = remember { LibraryStore(context) }
     LaunchedEffect(Unit) { store.ensureLoaded() }
@@ -219,6 +241,7 @@ fun ParticleBookApp() {
                         },
                         onImportClick = launchImport,
                         onRetry = { scope.launch { store.reload() } },
+                        defaultSort = defaultSort,
                     )
 
                     else -> SettingsScreen(
@@ -231,6 +254,16 @@ fun ParticleBookApp() {
                         onFontSizeChange = { size ->
                             fontSize = size
                             preferences.fontSize = size
+                        },
+                        lineHeight = lineHeight,
+                        onLineHeightChange = { value ->
+                            lineHeight = value
+                            preferences.lineHeight = value
+                        },
+                        defaultSort = defaultSort,
+                        onDefaultSortChange = { option ->
+                            defaultSortName = option.name
+                            preferences.defaultSort = option.name
                         },
                         onImportClick = launchImport,
                         onClearReadingRecords = {
