@@ -1,0 +1,203 @@
+
+(function() {
+  const pending = new Map();
+  let reqId = 0;
+  const eventListeners = new Map();
+
+  window.chrome.webview.addEventListener('message', function(e) {
+    try {
+      var msg = typeof e.data === 'string' ? JSON.parse(e.data) : e.data;
+    } catch (_) { return; }
+
+    if (msg.type === 'response') {
+      var p = pending.get(msg.id);
+      if (!p) return;
+      pending.delete(msg.id);
+      var method = p.method;
+      var resolve = p.resolve;
+      var reject = p.reject;
+      var result = msg.result;
+      var error = msg.error;
+      setTimeout(function() {
+        if (error) { reject(new Error(error)); }
+        else { resolve(result); }
+      }, 0);
+      if ((method === 'db:deleteBook' || method === 'book:import') && window.__refreshLibrary) {
+        setTimeout(function(){ if (typeof window.__refreshLibrary === 'function') window.__refreshLibrary(); }, 50);
+      }
+    } else if (msg.type === 'event') {
+      var listeners = eventListeners.get(msg.event);
+      if (listeners) { listeners.forEach(function(fn) { fn(msg.data); }); }
+    }
+  });
+
+  function invoke(method, params) {
+    return new Promise(function(resolve, reject) {
+      var id = ++reqId;
+      pending.set(id, {resolve: resolve, reject: reject, method: method});
+      window.chrome.webview.postMessage(JSON.stringify({
+        type: 'invoke', id: id, method: method, params: params
+      }));
+    });
+  }
+
+  function onEvent(event, callback) {
+    if (!eventListeners.has(event)) eventListeners.set(event, new Set());
+    eventListeners.get(event).add(callback);
+    window.chrome.webview.postMessage(JSON.stringify({type:'subscribe',event:event}));
+    return function() {
+      var s = eventListeners.get(event);
+      if (s) { s.delete(callback); if (s.size === 0) eventListeners.delete(event); }
+      window.chrome.webview.postMessage(JSON.stringify({type:'unsubscribe',event:event}));
+    };
+  }
+
+  function noop() { return Promise.resolve(null); }
+
+  window.electronAPI = {
+    openFile: function()           { return invoke('dialog:openFile'); },
+    readFile: async function(path) { var r = await invoke('file:read', {path:path}); if (r && r._pb_url) { var resp = await fetch(r._pb_url); var buf = await resp.arrayBuffer(); return new Uint8Array(buf); } return r; },
+    importBooks: function(p)       { return invoke('book:import', {paths:p}); },
+    writeDroppedFile: function(name, dataB64) { return invoke('book:writeDroppedFile', {name:name, data:dataB64}); },
+    getCoverImage: function(id)    { return invoke('book:cover', {id:id}); },
+
+    getBooks: function()       { return invoke('db:getBooks'); },
+    getBook: function(id)      { return invoke('db:getBook', {id:id}); },
+    deleteBook: function(id)   { return invoke('db:deleteBook', {id:id}); },
+    updateBookMetadata: function(id, patch) { return invoke('book:updateMetadata', {id:id, patch:patch||{}}); },
+    getLibraryTags: function()   { return invoke('library:getTags'); },
+    getLibrarySeries: function() { return invoke('library:getSeries'); },
+    updateReadingProgress: function(bid, prog) { return invoke('db:updateProgress', {bookId:bid, progress:prog}); },
+    getReadingProgress: function(bid)          { return invoke('db:getProgress', {bookId:bid}); },
+
+    getDownloads: function()   { return invoke('db:getDownloads'); },
+    deleteDownload: function(id, delFile) { return invoke('db:deleteDownload', {id:id, deleteFile:!!delFile}); },
+    revealPath: function(path) { return invoke('app:revealPath', {path:path}); },
+
+    getBookmarks: function(bid)      { return invoke('db:getBookmarks', {bookId:bid}); },
+    addBookmark: function(bm)        { return invoke('db:addBookmark', {bm:bm}); },
+    deleteBookmark: function(id)     { return invoke('db:deleteBookmark', {id:id}); },
+    updateBookmarkTitle: function(id,t){ return invoke('db:updateBookmarkTitle', {id:id, title:t}); },
+
+    getHighlights: function(bid)   { return invoke('db:getHighlights', {bookId:bid}); },
+    addHighlight: function(hl)     { return invoke('db:addHighlight', {hl:hl}); },
+    deleteHighlight: function(id)  { return invoke('db:deleteHighlight', {id:id}); },
+
+    getNotes: function(bid)    { return invoke('db:getNotes', {bookId:bid}); },
+    addNote: function(n)       { return invoke('db:addNote', {note:n}); },
+    updateNote: function(id,c) { return invoke('db:updateNote', {id:id, content:c}); },
+    deleteNote: function(id)   { return invoke('db:deleteNote', {id:id}); },
+
+    getAnnotations: function(bid) { return invoke('annotations:list', {bookId:bid===undefined?0:bid}); },
+    addAnnotation: function(a)    { return invoke('annotations:add', {annotation:a}); },
+    updateAnnotation: function(id, patch) { return invoke('annotations:update', {id:id, patch:patch||{}}); },
+    deleteAnnotation: function(id) { return invoke('annotations:delete', {id:id}); },
+
+    getSettings: function()           { return invoke('db:getSettings'); },
+    updateSettings: function(s)       { return invoke('db:updateSettings', {settings:s}); },
+    getBookSettings: function(bid)    { return invoke('db:getBookSettings', {bookId:bid}); },
+    updateBookSettings: function(bid,s){ return invoke('db:updateBookSettings', {bookId:bid, settings:s}); },
+
+    getBookshelves: function()              { return invoke('db:getBookshelves'); },
+    addBookshelf: function(name)            { return invoke('db:addBookshelf', {name:name}); },
+    deleteBookshelf: function(id)           { return invoke('db:deleteBookshelf', {id:id}); },
+    renameBookshelf: function(id, name)     { return invoke('db:renameBookshelf', {id:id, name:name}); },
+    getBooksInShelf: function(sid)          { return invoke('db:getBooksInShelf', {shelfId:sid}); },
+    addBookToShelf: function(sid, bid)      { return invoke('db:addBookToShelf', {shelfId:sid, bookId:bid}); },
+    removeBookFromShelf: function(sid, bid) { return invoke('db:removeBookFromShelf', {shelfId:sid, bookId:bid}); },
+
+    startReadingSession: function(bid)          { return invoke('db:startReadingSession', {bookId:bid}); },
+    endReadingSession: function(sid)            { return invoke('db:endReadingSession', {sessionId:sid}); },
+    updateReadingSessionDuration: function(sid,d){ return invoke('db:updateReadingSessionDuration', {sessionId:sid, duration:d}); },
+    getAllReadingTime: function()               { return invoke('db:getAllReadingTime'); },
+    getAllReadingProgress: function()           { return invoke('db:getAllReadingProgress'); },
+
+    getBookSources: function()       { return invoke('bookSource:getAll'); },
+    getBookSource: function(id)      { return invoke('bookSource:get', {id:id}); },
+    insertBookSource: function(s)    { return invoke('bookSource:insert', {source:s}); },
+    updateBookSource: function(id,u) { return invoke('bookSource:update', {id:id, updates:u}); },
+    deleteBookSource: function(id)   { return invoke('bookSource:delete', {id:id}); },
+    toggleBookSource: function(id)   { return invoke('bookSource:toggle', {id:id}); },
+    clearAllBookSources: function()  { return invoke('bookSource:clearAll'); },
+    importBookSources: function()    { return invoke('bookSource:importFile'); },
+    searchBooks: function(kw,p)      { return invoke('bookSource:search', {keyword:kw, page:p}); },
+    searchBooksFromSource: function(sid,kw,p) { return invoke('bookSource:searchOne', {sourceId:sid, keyword:kw, page:p}); },
+    getBookInfoFromSource: function(sid,u)    { return invoke('bookSource:getBookInfo', {sourceId:sid, bookUrl:u}); },
+    getChapterListFromSource: function(sid,u) { return invoke('bookSource:getChapterList', {sourceId:sid, tocUrl:u}); },
+    downloadBook: function(sid,u,n,f)         { return invoke('bookSource:download', {sourceId:sid, bookUrl:u, bookName:n, format:f}); },
+    onDownloadProgress: function(cb) { return onEvent('bookSource:downloadProgress', cb); },
+
+    zlibHide: function()      { return invoke('zlib:hide'); },
+    zlibShow: function()      { return invoke('zlib:show'); },
+    zlibGetMirrorInfo: function(){ return invoke('zlib:getMirrorInfo'); },
+    zlibGetDownloadPath: function()  { return invoke('zlib:getDownloadPath'); },
+    zlibPickDownloadFolder: function() { return invoke('zlib:pickDownloadFolder'); },
+    onZlibMirrorChanged: function(cb)    { return onEvent('zlib:mirrorChanged', cb); },
+    onZlibAllMirrorsFailed: function(cb) { return onEvent('zlib:allMirrorsFailed', cb); },
+    onZlibDownloadError: function(cb)   { return onEvent('zlib:downloadError', cb); },
+
+    onLibraryChanged: function(cb) { return onEvent('library:changed', cb); },
+    onImportProgress: function(cb) { return onEvent('book:importProgress', cb); },
+    getPendingOpenFiles: function() { return invoke('app:getPendingOpenFiles'); },
+    exportDiagnostics: function() { return invoke('app:exportDiagnostics'); },
+    exportAnnotations: function(bookId, format, options) { return invoke('export:annotations', {bookId:bookId||0, format:format||'markdown', options:options||{}}); },
+    openDefaultApps: function() { return invoke('app:openDefaultApps'); },
+    getReadingSessions: function() { return invoke('stats:getReadingSessions'); },
+    getSettingsSchema: function() { return invoke('settings:schema'); },
+    searchBuild: function() { return invoke('search:build'); },
+    searchQuery: function(query, maxHits) { return invoke('search:query', {query:query||'', maxHits:maxHits||50}); },
+    searchStatus: function() { return invoke('search:status'); },
+    translationSetKey: function(key) { return invoke('translation:setKey', {key:key||''}); },
+    translationHasKey: function() { return invoke('translation:hasKey'); },
+    translationListModels: function() { return invoke('translation:listModels'); },
+    translationClearKey: function() { return invoke('translation:clearKey'); },
+    translationTranslate: function(segments, sourceLang, targetLang, context) {
+      return invoke('translation:translate', {segments:segments||[], sourceLang:sourceLang||'auto', targetLang:targetLang||'zh', context:context||''});
+    },
+    getTtsVoices: function() { return invoke('tts:voices'); },
+    ttsSpeak: function(text, tag, flush) { return invoke('tts:speak', {text:text||'', tag:tag||'', flush:flush===undefined?true:!!flush}); },
+    ttsPause: function() { return invoke('tts:pause'); },
+    ttsResume: function() { return invoke('tts:resume'); },
+    ttsStop: function() { return invoke('tts:stop'); },
+    ttsStatus: function() { return invoke('tts:status'); },
+    ttsSetVoice: function(voiceId) { return invoke('tts:setVoice', {voiceId:voiceId||''}); },
+    ttsSetRate: function(rate) { return invoke('tts:setRate', {rate:rate||0}); },
+    ttsSetVolume: function(volume) { return invoke('tts:setVolume', {volume:volume===undefined?100:volume}); },
+    onTtsEvent: function(cb) { return onEvent('tts:event', cb); },
+    createBackup: function() { return invoke('backup:create'); },
+    onBackupProgress: function(cb) { return onEvent('backup:progress', cb); },
+    restoreBackup: function(path) { return invoke('backup:restore', {path:path||''}); },
+    dictionaryImport: function(path) { return invoke('dictionary:import', {path:path||''}); },
+    onDictionaryProgress: function(cb) { return onEvent('dictionary:progress', cb); },
+    dictionaryLookup: function(word, options) { return invoke('dictionary:lookup', Object.assign({word:word}, options||{})); },
+    dictionaryStatus: function() { return invoke('dictionary:status'); },
+    dictionarySetEnabled: function(enabled) { return invoke('dictionary:setEnabled', {enabled:!!enabled}); },
+    dictionaryClear: function() { return invoke('dictionary:clear'); },
+    onOpenFiles: function(cb) { return onEvent('app:openFiles', cb); },
+
+    checkUpdate: function()    { return invoke('app:checkUpdate'); },
+    getAppVersion: function()  { return invoke('app:getVersion'); },
+    setLanguage: function(lang){ return invoke('app:setLanguage', {lang:lang||'zh'}); },
+    downloadUpdate: function(url, sha512) { return invoke('app:downloadUpdate', {url:url||'', sha512:sha512||''}); },
+    quitAndInstall: function() { return invoke('app:quitAndInstall'); },
+    onUpdateChecked: function(cb)          { return onEvent('app:updateChecked', cb); },
+    onUpdateDownloaded: function(cb)       { return onEvent('app:updateDownloaded', cb); },
+    onUpdateError: function(cb)            { return onEvent('app:updateError', cb); },
+    onUpdateDownloadProgress: function(cb) { return onEvent('app:downloadProgress', cb); },
+
+    pdfOpen: function(path)    { return invoke('pdf:open', {filePath:path}); },
+    pdfTextLayer: function(id,pageNum) { return invoke('pdf:textLayer', {id:id, pageNum:pageNum||0}); },
+    pdfRenderPage: function(id,p,w,h) { return invoke('pdf:renderPage', {id:id, pageNum:p, width:w, height:h}); },
+    pdfExtractText: function(id) { return invoke('pdf:extractText', {id:id}); },
+    pdfClose: function(id)    { return invoke('pdf:close', {id:id}); },
+
+    getFilePath: function(file) {
+      if (file && file.path) return file.path;
+      if (file && file.name && window._droppedFiles) {
+        var found = window._droppedFiles.find(function(f) { return f.name === file.name; });
+        if (found) return found.path;
+      }
+      return '';
+    }
+  };
+})();

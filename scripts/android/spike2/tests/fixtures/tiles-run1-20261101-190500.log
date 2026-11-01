@@ -1,0 +1,6 @@
+I/PBPERF(4321): RUNENV|app=spike2t|run_id=tiles-run1-20261101-190500|apk_md5=def456|scenario=T1,T2|ts=2026-11-01T19:05:00+08:00
+I/PBPERF(4321): PBPERF|scenario=T1|phase=tile|page=0|w=512|h=512|ms=12.400|extra=tx:0,ty:0,key:0:0
+I/PBPERF(4321): PBPERF|scenario=T1|phase=tile|page=0|w=512|h=512|ms=13.100|extra=tx:512,ty:0,key:0:1
+I/PBPERF(4321): PBPERF|scenario=T1|phase=first_screen|page=0|w=1080|h=1682|ms=86.300|extra=tiles:4
+I/PBPERF(4321): PBDONE|scenario=ALL|runs=2|extra=ok
+PBTIME|app=spike2t|phase=refresh_hz|ms=60.000

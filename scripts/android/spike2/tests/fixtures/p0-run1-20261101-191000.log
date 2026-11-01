@@ -1,0 +1,6 @@
+10-31 19:10:00.000  4321  4350 I PBPdf   : pdf_open pages=4 docBytes=152591 took=154.0ms
+AMSTART|rep=1|TotalTime=4287|WaitTime=4300|app=particlebook
+10-31 19:10:00.100  4321  4350 I PBPdf   : pdf_page page=0 1188x1682 render=160.5ms encode=258.9ms bytes=78321
+10-31 19:10:00.300  4321  4350 I PBPdf   : pdf_page page=1 1188x1682 render=158.2ms encode=255.1ms bytes=77900
+10-31 19:10:00.500  4321  4350 I PBPdf   : pdf_page page=2 1188x1682 render=161.9ms encode=257.4ms bytes=78100
+10-31 19:10:00.900  4321  4350 I PBPdf   : pdf_page page=3 1188x1682 render=162.0ms

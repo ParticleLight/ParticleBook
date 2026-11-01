@@ -1,0 +1,21 @@
+--------- beginning of main
+11-01 18:52:54.000  4321  4350 I PBPERF  : RUNENV|app=spike2|run_id=render-run1-20261101-190000|apk_md5=abc123|scenario=S1,S2,S4|ts=2026-11-01T19:00:00+08:00
+11-01 18:52:54.010  4321  4350 I ActivityManager: Start proc 4321:app.pb.spike2/u0a1 for activity
+11-01 18:52:54.050  4321  4350 I PBPERF  : PBPERF|scenario=S2|phase=render|page=0|w=1188|h=1682|ms=99.900|extra=warmup
+11-01 18:52:54.123  4321  4350 I PBPERF  : PBPERF|scenario=S2|phase=render|page=0|w=1188|h=1682|ms=42.700|extra=path:argb8888
+11-01 18:52:54.300  4321  4350 I PBPERF  : PBPERF|scenario=S2|phase=render|page=1|w=1188|h=1682|ms=41.500|extra=path:argb8888
+11-01 18:52:54.500  4321  4350 I PBPERF  : PBPERF|scenario=S2|phase=render|page=2|w=1188|h=1682|ms=40.250|extra=path:argb8888
+11-01 18:52:54.700  4321  4350 I PBPERF  : PBPERF|scenario=S2|phase=render|page=3|w=1188|h=1682|ms=45.125|extra=path:argb8888
+11-01 18:52:54.900  4321  4350 I PBPERF  : PBPERF|scenario=S2|phase=render|page=4|w=1188|h=1682|ms=39.000|extra=path:argb8888
+11-01 18:52:55.100  4321  4350 I PBPERF  : PBPERF|scenario=S2|phase=render|page=5|w=1188|h=1682|ms=47.900|extra=path:argb8888
+11-01 18:52:55.200  4321  4350 I PBPERF  : PBPERF|scenario=S4|phase=total|page=-1|w=-1|h=-1|ms=498.000|extra=pages:5
+11-01 18:52:55.300  4321  4350 I PBPERF  : PBPERF|scenario=S4|phase=pss|page=-1|w=-1|h=-1|ms=0|extra=pss_kb:123456,native_kb:45678,java_kb:12345
+11-01 18:52:55.400  4321  4350 I PBPERF  : PBPERF|scenario=S4|phase=total|page=-1|w=-1|h=-1|ms=505.500|extra=pages:5
+11-01 18:52:55.500  4321  4350 I PBPERF  : PBPERF|scenario=S4|phase=total|page=-1|w=-1|h=-1|ms=512.400|extra=pages:5
+11-01 18:52:55.600  4321  4350 I PBPERF  : PBPERF|scenario=S4|phase=total|page=-1|w=-1|h=-1|ms=519.700|extra=pages:5
+11-01 18:52:55.700  4321  4350 I PBPERF  : PBPERF|scenario=S4|phase=pss|page=-1|w=-1|h=-1|ms=0|extra=pss_kb:130000,native_kb:48000,java_kb:12600
+11-01 18:52:55.800  4321  4350 I PBPERF  : PBPERF|scenario=S8|phase=render|page=-1|w=-1|h=-1|ms=0|extra=error:java.lang.IllegalArgumentException.
+11-01 18:52:55.900  4321  4350 I PBPERF  : PBDONE|scenario=S2|runs=25|extra=ok
+11-01 18:52:55.950  4321  4350 I PBPERF  : PBDONE|scenario=S4|runs=25|extra=ok
+11-01 18:52:56.100  4321  4350 I PBPERF  : PBTIME|app=spike2|phase=first_frame|ms=210.500
+11-01 18:52:56.700  4321  4350 I PBPERF  : PBPERF|scenario=S1|phase=open

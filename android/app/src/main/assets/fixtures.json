@@ -1,0 +1,52 @@
+{
+  "books": [
+    {
+      "id": 1,
+      "title": "故乡的河",
+      "author": "沈从文",
+      "format": "epub",
+      "file_path": "/data/user/0/app.particlebook/files/_pb_files/seed-01.epub",
+      "file_size": 94478,
+      "description": null,
+      "publisher": null,
+      "cover_path": null,
+      "language": "zh",
+      "isbn": null,
+      "added_at": "2026-11-01T08:27:40.880Z",
+      "last_opened": null,
+      "tags": [],
+      "series_name": "",
+      "series_index": 0,
+      "rating": 0
+    },
+    {
+      "id": 2,
+      "title": "统计之美",
+      "author": null,
+      "format": "pdf",
+      "file_path": "/data/user/0/app.particlebook/files/_pb_files/seed-03.pdf",
+      "file_size": 152591,
+      "description": null,
+      "publisher": null,
+      "cover_path": null,
+      "language": "zh",
+      "isbn": null,
+      "added_at": "2026-11-01T08:27:40.880Z",
+      "last_opened": null,
+      "tags": [],
+      "series_name": "",
+      "series_index": 0,
+      "rating": 0
+    }
+  ],
+  "bookshelves": [],
+  "settings": {
+    "theme": "light",
+    "fontSize": 18,
+    "lineHeight": 1.7,
+    "margin": 24,
+    "language": "zh",
+    "defaultViewMode": "grid",
+    "defaultSortBy": "added_at"
+  }
+}
