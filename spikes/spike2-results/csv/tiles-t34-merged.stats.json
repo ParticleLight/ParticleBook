@@ -1,0 +1,340 @@
+{
+  "schema": 1,
+  "tool": "scripts/android/spike2/parse.py",
+  "generated_at": "2026-11-01T21:16:12+08:00",
+  "name": "tiles-t34-merged",
+  "options": {
+    "app": "spike2t",
+    "drop_first": 0,
+    "drop_mode": "first-per-phase",
+    "min_samples": 5,
+    "out": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\csv"
+  },
+  "inputs": [
+    {
+      "file": "spikes\\spike2-results\\raw\\tiles-t34-run1-20261101-211458.log",
+      "lines": 244,
+      "record_lines": 35,
+      "parse_failures": 0,
+      "run_id": "tiles-t34-run1-20261101-211458",
+      "app": "spike2t",
+      "runenv": [
+        {
+          "app": "spike2t",
+          "run_id": "tiles-t34-run1-20261101-211458",
+          "apk": "spikes/spike2-tiles/app/build/outputs/apk/debug/app-debug.apk",
+          "apk_md5": "7ab3634ff0d97dcad0a759c988304e5d",
+          "apk_bytes": "7300534",
+          "scenario": "T3,T4",
+          "api": "35",
+          "model": "Android_SDK_built_for_x86_64",
+          "abi": "x86_64",
+          "build": "12368160",
+          "ts": "2026-11-01T21:15:06+0800"
+        }
+      ]
+    }
+  ],
+  "counts": {
+    "files": 1,
+    "lines": 244,
+    "records": 35,
+    "source_record_lines": 35,
+    "parse_failures": 0,
+    "by_record": {
+      "AMSTART": 1,
+      "PBDONE": 3,
+      "PBPERF": 28,
+      "PBTIME": 2,
+      "RUNENV": 1
+    },
+    "warmup": 11,
+    "warmup_dropped": 11,
+    "error": 0,
+    "pss": 1,
+    "stats_samples": 20
+  },
+  "groups": [
+    {
+      "scope": "run",
+      "run_id": "tiles-t34-run1-20261101-211458",
+      "app": "spike2t",
+      "scenario": "T3",
+      "phase": "frame_stat",
+      "n": 10,
+      "median": 53.125,
+      "p50": 52.083,
+      "p95": 66.667,
+      "max": 66.667,
+      "min": 37.879,
+      "sources": [
+        {
+          "file": "spikes\\spike2-results\\raw\\tiles-t34-run1-20261101-211458.log",
+          "min_line": 193,
+          "max_line": 211,
+          "n": 10
+        }
+      ]
+    },
+    {
+      "scope": "run",
+      "run_id": "tiles-t34-run1-20261101-211458",
+      "app": "spike2t",
+      "scenario": "T3",
+      "phase": "frame_stat_all",
+      "n": 2,
+      "median": 48.301,
+      "p50": 39.785,
+      "p95": 56.818,
+      "max": 56.818,
+      "min": 39.785,
+      "sources": [
+        {
+          "file": "spikes\\spike2-results\\raw\\tiles-t34-run1-20261101-211458.log",
+          "min_line": 205,
+          "max_line": 212,
+          "n": 2
+        }
+      ]
+    },
+    {
+      "scope": "run",
+      "run_id": "tiles-t34-run1-20261101-211458",
+      "app": "spike2t",
+      "scenario": "T4",
+      "phase": "gesture_stat",
+      "n": 4,
+      "median": 53.519,
+      "p50": 53.333,
+      "p95": 57.843,
+      "max": 57.843,
+      "min": 49.167,
+      "sources": [
+        {
+          "file": "spikes\\spike2-results\\raw\\tiles-t34-run1-20261101-211458.log",
+          "min_line": 220,
+          "max_line": 235,
+          "n": 4
+        }
+      ]
+    },
+    {
+      "scope": "run",
+      "run_id": "tiles-t34-run1-20261101-211458",
+      "app": "spike2t",
+      "scenario": "T4",
+      "phase": "rerender",
+      "n": 4,
+      "median": 644.577,
+      "p50": 505.308,
+      "p95": 807.601,
+      "max": 807.601,
+      "min": 464.019,
+      "sources": [
+        {
+          "file": "spikes\\spike2-results\\raw\\tiles-t34-run1-20261101-211458.log",
+          "min_line": 221,
+          "max_line": 238,
+          "n": 4
+        }
+      ]
+    },
+    {
+      "scope": "all",
+      "run_id": "",
+      "app": "spike2t",
+      "scenario": "T3",
+      "phase": "frame_stat",
+      "n": 10,
+      "median": 53.125,
+      "p50": 52.083,
+      "p95": 66.667,
+      "max": 66.667,
+      "min": 37.879,
+      "sources": [
+        {
+          "file": "spikes\\spike2-results\\raw\\tiles-t34-run1-20261101-211458.log",
+          "min_line": 193,
+          "max_line": 211,
+          "n": 10
+        }
+      ]
+    },
+    {
+      "scope": "all",
+      "run_id": "",
+      "app": "spike2t",
+      "scenario": "T3",
+      "phase": "frame_stat_all",
+      "n": 2,
+      "median": 48.301,
+      "p50": 39.785,
+      "p95": 56.818,
+      "max": 56.818,
+      "min": 39.785,
+      "sources": [
+        {
+          "file": "spikes\\spike2-results\\raw\\tiles-t34-run1-20261101-211458.log",
+          "min_line": 205,
+          "max_line": 212,
+          "n": 2
+        }
+      ]
+    },
+    {
+      "scope": "all",
+      "run_id": "",
+      "app": "spike2t",
+      "scenario": "T4",
+      "phase": "gesture_stat",
+      "n": 4,
+      "median": 53.519,
+      "p50": 53.333,
+      "p95": 57.843,
+      "max": 57.843,
+      "min": 49.167,
+      "sources": [
+        {
+          "file": "spikes\\spike2-results\\raw\\tiles-t34-run1-20261101-211458.log",
+          "min_line": 220,
+          "max_line": 235,
+          "n": 4
+        }
+      ]
+    },
+    {
+      "scope": "all",
+      "run_id": "",
+      "app": "spike2t",
+      "scenario": "T4",
+      "phase": "rerender",
+      "n": 4,
+      "median": 644.577,
+      "p50": 505.308,
+      "p95": 807.601,
+      "max": 807.601,
+      "min": 464.019,
+      "sources": [
+        {
+          "file": "spikes\\spike2-results\\raw\\tiles-t34-run1-20261101-211458.log",
+          "min_line": 221,
+          "max_line": 238,
+          "n": 4
+        }
+      ]
+    }
+  ],
+  "mem": [],
+  "low_confidence_groups": [
+    {
+      "run_id": "tiles-t34-run1-20261101-211458",
+      "app": "spike2t",
+      "scenario": "ALL",
+      "phase": "pss",
+      "n": 0,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "tiles-t34-run1-20261101-211458",
+      "app": "spike2t",
+      "scenario": "PBTIME",
+      "phase": "first_frame",
+      "n": 0,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "tiles-t34-run1-20261101-211458",
+      "app": "spike2t",
+      "scenario": "PBTIME",
+      "phase": "refresh_hz",
+      "n": 0,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "tiles-t34-run1-20261101-211458",
+      "app": "spike2t",
+      "scenario": "T1",
+      "phase": "lowres",
+      "n": 0,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "tiles-t34-run1-20261101-211458",
+      "app": "spike2t",
+      "scenario": "T1",
+      "phase": "open",
+      "n": 0,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "tiles-t34-run1-20261101-211458",
+      "app": "spike2t",
+      "scenario": "T1",
+      "phase": "tileprobe",
+      "n": 0,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "tiles-t34-run1-20261101-211458",
+      "app": "spike2t",
+      "scenario": "T3",
+      "phase": "frame_stat_all",
+      "n": 2,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "tiles-t34-run1-20261101-211458",
+      "app": "spike2t",
+      "scenario": "T4",
+      "phase": "gesture_stat",
+      "n": 4,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "tiles-t34-run1-20261101-211458",
+      "app": "spike2t",
+      "scenario": "T4",
+      "phase": "rerender",
+      "n": 4,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "tiles-t34-run1-20261101-211458",
+      "app": "spike2t",
+      "scenario": "cold_start",
+      "phase": "am_start",
+      "n": 0,
+      "errors": 0,
+      "warmup": 1
+    }
+  ],
+  "missing_pbdone": [],
+  "runenv": [
+    {
+      "file": "spikes\\spike2-results\\raw\\tiles-t34-run1-20261101-211458.log",
+      "fields": {
+        "app": "spike2t",
+        "run_id": "tiles-t34-run1-20261101-211458",
+        "apk": "spikes/spike2-tiles/app/build/outputs/apk/debug/app-debug.apk",
+        "apk_md5": "7ab3634ff0d97dcad0a759c988304e5d",
+        "apk_bytes": "7300534",
+        "scenario": "T3,T4",
+        "api": "35",
+        "model": "Android_SDK_built_for_x86_64",
+        "abi": "x86_64",
+        "build": "12368160",
+        "ts": "2026-11-01T21:15:06+0800"
+      }
+    }
+  ],
+  "parse_failures": []
+}

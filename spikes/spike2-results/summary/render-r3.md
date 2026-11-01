@@ -1,28 +1,28 @@
 # Spike2 汇总 · render-r3
 
 > 由 scripts/android/spike2/summarize.py 从 parse.py 的 CSV 汇总；所有数字可由 raw logcat 重算（CSV 的 src_file/src_line 指回 raw 行号）。
-> 生成时间：2026-11-01T21:07:24+08:00　|　真机推算系数 x1.80（[推测]，PDFium 纯 CPU 光栅，真机/模拟器约 1.4-2.5）
+> 生成时间：2026-11-01T21:16:09+08:00　|　真机推算系数 x1.80（[推测]，PDFium 纯 CPU 光栅，真机/模拟器约 1.4-2.5）
 > 口径：median=statistics.median；p95=nearest-rank（idx=ceil(q*n)-1）；单位 ms。
 
 ## 1. 输入与环境
 
 | CSV | CSV 行数 | 参与统计行 | run 数 | apps |
 |---|---|---|---|---|
-| F:\VScode\Read\.agents\worktrees\dsh-2998e44b-11d5\spikes\spike2-results\csv\render-r3-merged.csv | 34 | 34 | 1 | spike2 |
+| spikes\spike2-results\csv\render-r3-merged.csv | 34 | 34 | 1 | spike2 |
 
 **RUNENV 环境头**
 
 | run_id | app | apk | md5 | api | model | abi | build | ts | 来源 |
 |---|---|---|---|---|---|---|---|---|---|
-| render-r3-run1-20261101-210622 | spike2 | spikes/spike2-pdf/app/build/outputs/apk/debug/app-debug.apk | 8ea3edc683ebf0b5be2f32f32dc57bb9 | 35 | Android_SDK_built_for_x86_64 | x86_64 | 12368160 | 2026-11-01T21:06:33+0800 | F:\VScode\Read\.agents\worktrees\dsh-2998e44b-11d5\spikes\spike2-results\raw\render-r3-run1-20261101-210622.log:1 |
+| render-r3-run1-20261101-210622 | spike2 | spikes/spike2-pdf/app/build/outputs/apk/debug/app-debug.apk | 8ea3edc683ebf0b5be2f32f32dc57bb9 | 35 | Android_SDK_built_for_x86_64 | x86_64 | 12368160 | 2026-11-01T21:06:33+0800 | spikes\spike2-results\raw\render-r3-run1-20261101-210622.log:1 |
 
 ## 2. ms 统计（跨 run，冷热混合，仅总览）
 
 | app | scenario | phase | dims | n | min | p50 | p95 | max | 真机推算 p50 | run 数 | 来源 |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| spike2 | S1 | open | - | 1 | 1685.539 | 1685.539 | 1685.539 | 1685.539 | 3034.0 [推测] | 1 | F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r3-run1-20261101-210622.log:146-146 |
-| spike2 | S6 | render | 1073x1518,1650x2336,594x841 | 14 | 135.844 | 467.117 | 1311.447 | 1311.447 | 840.8 [推测] | 1 | F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r3-run1-20261101-210622.log:175-201 |
-| spike2 | S8 | render_hw | 1188x1682 | 4 | 0.107 | 8.440 | 16.155 | 16.155 | 15.2 [推测] | 1 | F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r3-run1-20261101-210622.log:217-225 |
+| spike2 | S1 | open | - | 1 | 1685.539 | 1685.539 | 1685.539 | 1685.539 | 3034.0 [推测] | 1 | spikes/spike2-results/raw/render-r3-run1-20261101-210622.log:146-146 |
+| spike2 | S6 | render | 1073x1518,1650x2336,594x841 | 14 | 135.844 | 467.117 | 1311.447 | 1311.447 | 840.8 [推测] | 1 | spikes/spike2-results/raw/render-r3-run1-20261101-210622.log:175-201 |
+| spike2 | S8 | render_hw | 1188x1682 | 4 | 0.107 | 8.440 | 16.155 | 16.155 | 15.2 [推测] | 1 | spikes/spike2-results/raw/render-r3-run1-20261101-210622.log:217-225 |
 
 > 第 2 节把 cold/warm 混在一起，只用于总览；跨 app / 跨路径对比必须用第 3 节的同冷热分组。
 > 注意：tiles app 的 *_stat 行（tile_stat/frame_stat/gesture_stat…）是 app 侧已聚合的块统计，不按单样本计入本节，单独列在第 2b 节。
@@ -45,10 +45,10 @@
 
 | run_id | app | scenario | phase | pss_kb | native_kb | java_kb | tag | hit | evict | miss | bytes | limit | tiles | cycles | 来源 |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| render-r3-run1-20261101-210622 | spike2 | S7 | pss | 24228 | 3887 | 678 | cold |  |  |  |  |  |  |  | F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r3-run1-20261101-210622.log:126 |
-| render-r3-run1-20261101-210622 | spike2 | S7 | pss | 71635 | 42643 | 689 | open |  |  |  |  |  |  |  | F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r3-run1-20261101-210622.log:203 |
-| render-r3-run1-20261101-210622 | spike2 | S7 | pss | 72458 | 42694 | 693 | 10pages |  |  |  |  |  |  |  | F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r3-run1-20261101-210622.log:206 |
-| render-r3-run1-20261101-210622 | spike2 | S7 | pss | 75493 | 42234 | 701 | 30pages |  |  |  |  |  |  |  | F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r3-run1-20261101-210622.log:208 |
+| render-r3-run1-20261101-210622 | spike2 | S7 | pss | 24228 | 3887 | 678 | cold |  |  |  |  |  |  |  | spikes/spike2-results/raw/render-r3-run1-20261101-210622.log:126 |
+| render-r3-run1-20261101-210622 | spike2 | S7 | pss | 71635 | 42643 | 689 | open |  |  |  |  |  |  |  | spikes/spike2-results/raw/render-r3-run1-20261101-210622.log:203 |
+| render-r3-run1-20261101-210622 | spike2 | S7 | pss | 72458 | 42694 | 693 | 10pages |  |  |  |  |  |  |  | spikes/spike2-results/raw/render-r3-run1-20261101-210622.log:206 |
+| render-r3-run1-20261101-210622 | spike2 | S7 | pss | 75493 | 42234 | 701 | 30pages |  |  |  |  |  |  |  | spikes/spike2-results/raw/render-r3-run1-20261101-210622.log:208 |
 
 ## 3. 冷/热分组（跨 app 对比只允许同状态）
 
@@ -56,8 +56,8 @@
 
 | app | scenario | phase | 状态 | n | min | p50 | p95 | max | 真机推算 p50 | 来源 |
 |---|---|---|---|---|---|---|---|---|---|---|
-| spike2 | S6 | render | cold | 3 | 556.250 | 588.464 | 1311.447 | 1311.447 | 1059.2 [推测] | F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r3-run1-20261101-210622.log:175-186 |
-| spike2 | S6 | render | warm | 11 | 135.844 | 384.174 | 782.025 | 782.025 | 691.5 [推测] | F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r3-run1-20261101-210622.log:191-201 |
+| spike2 | S6 | render | cold | 3 | 556.250 | 588.464 | 1311.447 | 1311.447 | 1059.2 [推测] | spikes/spike2-results/raw/render-r3-run1-20261101-210622.log:175-186 |
+| spike2 | S6 | render | warm | 11 | 135.844 | 384.174 | 782.025 | 782.025 | 691.5 [推测] | spikes/spike2-results/raw/render-r3-run1-20261101-210622.log:191-201 |
 
 ## 4. renderAnnot 分组（A/B）
 
@@ -71,7 +71,7 @@
 
 | # | run_id | app | n | median | avg | ts | 来源 |
 |---|---|---|---|---|---|---|---|
-| 1 | render-r3-run1-20261101-210622 | spike2 | 1 | 1685.539 | 1685.539 | 11-01 13:06:50.428 | F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r3-run1-20261101-210622.log:146-146 |
+| 1 | render-r3-run1-20261101-210622 | spike2 | 1 | 1685.539 | 1685.539 | 11-01 13:06:50.428 | spikes/spike2-results/raw/render-r3-run1-20261101-210622.log:146-146 |
 
 - 只有 1 个 run，无法判断漂移（至少 2 个 run 才有哨兵意义）。
 
@@ -81,8 +81,8 @@
 
 | app | scenario | phase | n | p50 | 来源 |
 |---|---|---|---|---|---|
-| spike2 | S1 | open | 1 | 1685.539 | F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r3-run1-20261101-210622.log:146-146 |
-| spike2 | S8 | render_hw | 4 | 8.440 | F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r3-run1-20261101-210622.log:217-225 |
+| spike2 | S1 | open | 1 | 1685.539 | spikes/spike2-results/raw/render-r3-run1-20261101-210622.log:146-146 |
+| spike2 | S8 | render_hw | 4 | 8.440 | spikes/spike2-results/raw/render-r3-run1-20261101-210622.log:217-225 |
 
 ## 7. 缺 cold/warm 标注的 render 记录
 

@@ -3,7 +3,7 @@
 > 这层脚本负责：装 APK → 冷启 → 等场景跑完 → 抓 logcat → 解析 CSV → 汇总。
 > 产物三件套在 spikes/spike2-results/{raw,csv,summary}：raw 是原始 logcat（验收要求必留），csv/summary 全部可再从 raw 重算。
 
-## 0. 现状（2026-11-01 20:45）
+## 0. 现状（2026-11-01 21:20：正式集已完成并冻结）
 
 - 脚本 + 单测（24 个）已完成；冒烟已跑通「装 → 冷启 → 抓 logcat → parse → summarize」全链路（20:10，作废，见 data.md §4.0）。
 - P0 基线改为 **CDP 打开 PDF**（p0-cdp.py，真实 React onClick；adb tap 易被长按菜单挡），CDP 失败自动回退 tap。
@@ -12,7 +12,7 @@
   跑三道断言（时间窗 / PID 唯一 / 结构行），任一失败把 raw 改名 `.log.INVALID`（parse 不匹配）+ rc=7。
 - **最新冻结 APK（Lead 20:26 FREEZE GO）**：spikes/spike2-pdf/app/build/outputs/apk/debug/app-debug.apk，
   md5 `8ea3edc683ebf0b5be2f32f32dc57bb9` / 7,287,902B；场景语义同 19:43，只把 S8 判据改成 silent-fail。
-- 正式集等 Lead 放行；批次计划见 docs/android-port/spike2-data.md §3.2（每 rep 独立一次调用，约 45–60s）。
+- **正式集已于 20:41–21:15 跑完 8 个批次**（render-r1/r2/r3/r5 + tiles-t1t6/t2/t5/t34），逐批三道断言 PASS、逐批 parse+summarize 落盘；数据表与缺口见 docs/android-port/spike2-data.md §4–§5。测量结束后不再有新的 run。
 - 口径与数据表在 docs/android-port/spike2-data.md（本 README 只讲怎么跑）。
 
 ## 1. 一条命令跑正式测量

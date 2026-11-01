@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "tool": "scripts/android/spike2/parse.py",
-  "generated_at": "2026-11-01T20:52:45+08:00",
+  "generated_at": "2026-11-01T21:16:08+08:00",
   "name": "render-r2-merged",
   "options": {
     "app": "spike2",
@@ -12,7 +12,7 @@
   },
   "inputs": [
     {
-      "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r2-run1-20261101-204959.log",
+      "file": "spikes\\spike2-results\\raw\\render-r2-run1-20261101-204959.log",
       "lines": 197,
       "record_lines": 41,
       "parse_failures": 0,
@@ -35,7 +35,7 @@
       ]
     },
     {
-      "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r2-run1-20261101-205037.log",
+      "file": "spikes\\spike2-results\\raw\\render-r2-run1-20261101-205037.log",
       "lines": 200,
       "record_lines": 41,
       "parse_failures": 0,
@@ -58,7 +58,7 @@
       ]
     },
     {
-      "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r2-run1-20261101-205144.log",
+      "file": "spikes\\spike2-results\\raw\\render-r2-run1-20261101-205144.log",
       "lines": 217,
       "record_lines": 41,
       "parse_failures": 0,
@@ -81,7 +81,7 @@
       ]
     },
     {
-      "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r2-run2-20261101-205107.log",
+      "file": "spikes\\spike2-results\\raw\\render-r2-run2-20261101-205107.log",
       "lines": 207,
       "record_lines": 41,
       "parse_failures": 0,
@@ -104,7 +104,7 @@
       ]
     },
     {
-      "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r2-run2-20261101-205218.log",
+      "file": "spikes\\spike2-results\\raw\\render-r2-run2-20261101-205218.log",
       "lines": 205,
       "record_lines": 41,
       "parse_failures": 0,
@@ -161,7 +161,7 @@
       "min": 371.722,
       "sources": [
         {
-          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r2-run1-20261101-204959.log",
+          "file": "spikes\\spike2-results\\raw\\render-r2-run1-20261101-204959.log",
           "min_line": 119,
           "max_line": 119,
           "n": 1
@@ -182,7 +182,7 @@
       "min": 56.137,
       "sources": [
         {
-          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r2-run1-20261101-204959.log",
+          "file": "spikes\\spike2-results\\raw\\render-r2-run1-20261101-204959.log",
           "min_line": 135,
           "max_line": 182,
           "n": 24
@@ -203,7 +203,7 @@
       "min": 0.603,
       "sources": [
         {
-          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r2-run1-20261101-204959.log",
+          "file": "spikes\\spike2-results\\raw\\render-r2-run1-20261101-204959.log",
           "min_line": 186,
           "max_line": 188,
           "n": 3
@@ -224,7 +224,7 @@
       "min": 308.896,
       "sources": [
         {
-          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r2-run1-20261101-205037.log",
+          "file": "spikes\\spike2-results\\raw\\render-r2-run1-20261101-205037.log",
           "min_line": 115,
           "max_line": 115,
           "n": 1
@@ -245,7 +245,7 @@
       "min": 66.717,
       "sources": [
         {
-          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r2-run1-20261101-205037.log",
+          "file": "spikes\\spike2-results\\raw\\render-r2-run1-20261101-205037.log",
           "min_line": 127,
           "max_line": 184,
           "n": 24
@@ -266,7 +266,7 @@
       "min": 0.667,
       "sources": [
         {
-          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r2-run1-20261101-205037.log",
+          "file": "spikes\\spike2-results\\raw\\render-r2-run1-20261101-205037.log",
           "min_line": 188,
           "max_line": 190,
           "n": 3
@@ -287,7 +287,7 @@
       "min": 415.786,
       "sources": [
         {
-          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r2-run1-20261101-205144.log",
+          "file": "spikes\\spike2-results\\raw\\render-r2-run1-20261101-205144.log",
           "min_line": 140,
           "max_line": 140,
           "n": 1
@@ -308,7 +308,7 @@
       "min": 42.763,
       "sources": [
         {
-          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r2-run1-20261101-205144.log",
+          "file": "spikes\\spike2-results\\raw\\render-r2-run1-20261101-205144.log",
           "min_line": 169,
           "max_line": 198,
           "n": 24
@@ -329,7 +329,7 @@
       "min": 0.889,
       "sources": [
         {
-          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r2-run1-20261101-205144.log",
+          "file": "spikes\\spike2-results\\raw\\render-r2-run1-20261101-205144.log",
           "min_line": 202,
           "max_line": 204,
           "n": 3
@@ -350,7 +350,7 @@
       "min": 343.12,
       "sources": [
         {
-          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r2-run2-20261101-205107.log",
+          "file": "spikes\\spike2-results\\raw\\render-r2-run2-20261101-205107.log",
           "min_line": 124,
           "max_line": 124,
           "n": 1
@@ -371,7 +371,7 @@
       "min": 59.213,
       "sources": [
         {
-          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r2-run2-20261101-205107.log",
+          "file": "spikes\\spike2-results\\raw\\render-r2-run2-20261101-205107.log",
           "min_line": 136,
           "max_line": 194,
           "n": 24
@@ -392,7 +392,7 @@
       "min": 0.955,
       "sources": [
         {
-          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r2-run2-20261101-205107.log",
+          "file": "spikes\\spike2-results\\raw\\render-r2-run2-20261101-205107.log",
           "min_line": 198,
           "max_line": 200,
           "n": 3
@@ -413,7 +413,7 @@
       "min": 285.956,
       "sources": [
         {
-          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r2-run2-20261101-205218.log",
+          "file": "spikes\\spike2-results\\raw\\render-r2-run2-20261101-205218.log",
           "min_line": 122,
           "max_line": 122,
           "n": 1
@@ -434,7 +434,7 @@
       "min": 45.041,
       "sources": [
         {
-          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r2-run2-20261101-205218.log",
+          "file": "spikes\\spike2-results\\raw\\render-r2-run2-20261101-205218.log",
           "min_line": 138,
           "max_line": 186,
           "n": 24
@@ -455,7 +455,7 @@
       "min": 0.484,
       "sources": [
         {
-          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r2-run2-20261101-205218.log",
+          "file": "spikes\\spike2-results\\raw\\render-r2-run2-20261101-205218.log",
           "min_line": 190,
           "max_line": 192,
           "n": 3
@@ -476,31 +476,31 @@
       "min": 285.956,
       "sources": [
         {
-          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r2-run1-20261101-204959.log",
+          "file": "spikes\\spike2-results\\raw\\render-r2-run1-20261101-204959.log",
           "min_line": 119,
           "max_line": 119,
           "n": 1
         },
         {
-          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r2-run1-20261101-205037.log",
+          "file": "spikes\\spike2-results\\raw\\render-r2-run1-20261101-205037.log",
           "min_line": 115,
           "max_line": 115,
           "n": 1
         },
         {
-          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r2-run1-20261101-205144.log",
+          "file": "spikes\\spike2-results\\raw\\render-r2-run1-20261101-205144.log",
           "min_line": 140,
           "max_line": 140,
           "n": 1
         },
         {
-          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r2-run2-20261101-205107.log",
+          "file": "spikes\\spike2-results\\raw\\render-r2-run2-20261101-205107.log",
           "min_line": 124,
           "max_line": 124,
           "n": 1
         },
         {
-          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r2-run2-20261101-205218.log",
+          "file": "spikes\\spike2-results\\raw\\render-r2-run2-20261101-205218.log",
           "min_line": 122,
           "max_line": 122,
           "n": 1
@@ -521,31 +521,31 @@
       "min": 42.763,
       "sources": [
         {
-          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r2-run1-20261101-204959.log",
+          "file": "spikes\\spike2-results\\raw\\render-r2-run1-20261101-204959.log",
           "min_line": 135,
           "max_line": 182,
           "n": 24
         },
         {
-          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r2-run1-20261101-205037.log",
+          "file": "spikes\\spike2-results\\raw\\render-r2-run1-20261101-205037.log",
           "min_line": 127,
           "max_line": 184,
           "n": 24
         },
         {
-          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r2-run1-20261101-205144.log",
+          "file": "spikes\\spike2-results\\raw\\render-r2-run1-20261101-205144.log",
           "min_line": 169,
           "max_line": 198,
           "n": 24
         },
         {
-          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r2-run2-20261101-205107.log",
+          "file": "spikes\\spike2-results\\raw\\render-r2-run2-20261101-205107.log",
           "min_line": 136,
           "max_line": 194,
           "n": 24
         },
         {
-          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r2-run2-20261101-205218.log",
+          "file": "spikes\\spike2-results\\raw\\render-r2-run2-20261101-205218.log",
           "min_line": 138,
           "max_line": 186,
           "n": 24
@@ -566,31 +566,31 @@
       "min": 0.484,
       "sources": [
         {
-          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r2-run1-20261101-204959.log",
+          "file": "spikes\\spike2-results\\raw\\render-r2-run1-20261101-204959.log",
           "min_line": 186,
           "max_line": 188,
           "n": 3
         },
         {
-          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r2-run1-20261101-205037.log",
+          "file": "spikes\\spike2-results\\raw\\render-r2-run1-20261101-205037.log",
           "min_line": 188,
           "max_line": 190,
           "n": 3
         },
         {
-          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r2-run1-20261101-205144.log",
+          "file": "spikes\\spike2-results\\raw\\render-r2-run1-20261101-205144.log",
           "min_line": 202,
           "max_line": 204,
           "n": 3
         },
         {
-          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r2-run2-20261101-205107.log",
+          "file": "spikes\\spike2-results\\raw\\render-r2-run2-20261101-205107.log",
           "min_line": 198,
           "max_line": 200,
           "n": 3
         },
         {
-          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r2-run2-20261101-205218.log",
+          "file": "spikes\\spike2-results\\raw\\render-r2-run2-20261101-205218.log",
           "min_line": 190,
           "max_line": 192,
           "n": 3
@@ -607,7 +607,7 @@
       "n": 1,
       "sources": [
         {
-          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r2-run1-20261101-204959.log",
+          "file": "spikes\\spike2-results\\raw\\render-r2-run1-20261101-204959.log",
           "min_line": 183,
           "max_line": 183,
           "n": 1
@@ -640,7 +640,7 @@
       "n": 1,
       "sources": [
         {
-          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r2-run1-20261101-205037.log",
+          "file": "spikes\\spike2-results\\raw\\render-r2-run1-20261101-205037.log",
           "min_line": 185,
           "max_line": 185,
           "n": 1
@@ -673,7 +673,7 @@
       "n": 1,
       "sources": [
         {
-          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r2-run1-20261101-205144.log",
+          "file": "spikes\\spike2-results\\raw\\render-r2-run1-20261101-205144.log",
           "min_line": 199,
           "max_line": 199,
           "n": 1
@@ -706,7 +706,7 @@
       "n": 1,
       "sources": [
         {
-          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r2-run2-20261101-205107.log",
+          "file": "spikes\\spike2-results\\raw\\render-r2-run2-20261101-205107.log",
           "min_line": 195,
           "max_line": 195,
           "n": 1
@@ -739,7 +739,7 @@
       "n": 1,
       "sources": [
         {
-          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r2-run2-20261101-205218.log",
+          "file": "spikes\\spike2-results\\raw\\render-r2-run2-20261101-205218.log",
           "min_line": 187,
           "max_line": 187,
           "n": 1
@@ -772,31 +772,31 @@
       "n": 5,
       "sources": [
         {
-          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r2-run1-20261101-204959.log",
+          "file": "spikes\\spike2-results\\raw\\render-r2-run1-20261101-204959.log",
           "min_line": 183,
           "max_line": 183,
           "n": 1
         },
         {
-          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r2-run1-20261101-205037.log",
+          "file": "spikes\\spike2-results\\raw\\render-r2-run1-20261101-205037.log",
           "min_line": 185,
           "max_line": 185,
           "n": 1
         },
         {
-          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r2-run1-20261101-205144.log",
+          "file": "spikes\\spike2-results\\raw\\render-r2-run1-20261101-205144.log",
           "min_line": 199,
           "max_line": 199,
           "n": 1
         },
         {
-          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r2-run2-20261101-205107.log",
+          "file": "spikes\\spike2-results\\raw\\render-r2-run2-20261101-205107.log",
           "min_line": 195,
           "max_line": 195,
           "n": 1
         },
         {
-          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r2-run2-20261101-205218.log",
+          "file": "spikes\\spike2-results\\raw\\render-r2-run2-20261101-205218.log",
           "min_line": 187,
           "max_line": 187,
           "n": 1
@@ -1097,7 +1097,7 @@
   "missing_pbdone": [],
   "runenv": [
     {
-      "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r2-run1-20261101-204959.log",
+      "file": "spikes\\spike2-results\\raw\\render-r2-run1-20261101-204959.log",
       "fields": {
         "app": "spike2",
         "run_id": "render-r2-run1-20261101-204959",
@@ -1113,7 +1113,7 @@
       }
     },
     {
-      "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r2-run1-20261101-205037.log",
+      "file": "spikes\\spike2-results\\raw\\render-r2-run1-20261101-205037.log",
       "fields": {
         "app": "spike2",
         "run_id": "render-r2-run1-20261101-205037",
@@ -1129,7 +1129,7 @@
       }
     },
     {
-      "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r2-run1-20261101-205144.log",
+      "file": "spikes\\spike2-results\\raw\\render-r2-run1-20261101-205144.log",
       "fields": {
         "app": "spike2",
         "run_id": "render-r2-run1-20261101-205144",
@@ -1145,7 +1145,7 @@
       }
     },
     {
-      "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r2-run2-20261101-205107.log",
+      "file": "spikes\\spike2-results\\raw\\render-r2-run2-20261101-205107.log",
       "fields": {
         "app": "spike2",
         "run_id": "render-r2-run2-20261101-205107",
@@ -1161,7 +1161,7 @@
       }
     },
     {
-      "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r2-run2-20261101-205218.log",
+      "file": "spikes\\spike2-results\\raw\\render-r2-run2-20261101-205218.log",
       "fields": {
         "app": "spike2",
         "run_id": "render-r2-run2-20261101-205218",

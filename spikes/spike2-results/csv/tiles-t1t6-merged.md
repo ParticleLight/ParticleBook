@@ -1,27 +1,27 @@
 # Spike2 基准统计 · tiles-t1t6-merged
 
 > 由 `scripts/android/spike2/parse.py` 生成；本文件所有数字均来自解析结果，未做估算。
-> 生成时间：2026-11-01T21:00:10+08:00　|　解析失败行：0
+> 生成时间：2026-11-01T21:16:10+08:00　|　解析失败行：0
 
 ## 1. 环境与输入
 
 | 文件 | run_id | app | 总行数 | 记录行 | 解析失败 |
 |---|---|---|---|---|---|
-| F:\VScode\Read\.agents\worktrees\dsh-2998e44b-11d5\spikes\spike2-results\raw\tiles-t1t6-run1-20261101-205642.log | tiles-t1t6-run1-20261101-205642 | spike2t | 216 | 29 | 0 |
-| F:\VScode\Read\.agents\worktrees\dsh-2998e44b-11d5\spikes\spike2-results\raw\tiles-t1t6-run1-20261101-205821.log | tiles-t1t6-run1-20261101-205821 | spike2t | 234 | 29 | 0 |
-| F:\VScode\Read\.agents\worktrees\dsh-2998e44b-11d5\spikes\spike2-results\raw\tiles-t1t6-run1-20261101-205938.log | tiles-t1t6-run1-20261101-205938 | spike2t | 259 | 29 | 0 |
-| F:\VScode\Read\.agents\worktrees\dsh-2998e44b-11d5\spikes\spike2-results\raw\tiles-t1t6-run2-20261101-205718.log | tiles-t1t6-run2-20261101-205718 | spike2t | 225 | 29 | 0 |
-| F:\VScode\Read\.agents\worktrees\dsh-2998e44b-11d5\spikes\spike2-results\raw\tiles-t1t6-run2-20261101-205859.log | tiles-t1t6-run2-20261101-205859 | spike2t | 206 | 29 | 0 |
+| spikes\spike2-results\raw\tiles-t1t6-run1-20261101-205642.log | tiles-t1t6-run1-20261101-205642 | spike2t | 216 | 29 | 0 |
+| spikes\spike2-results\raw\tiles-t1t6-run1-20261101-205821.log | tiles-t1t6-run1-20261101-205821 | spike2t | 234 | 29 | 0 |
+| spikes\spike2-results\raw\tiles-t1t6-run1-20261101-205938.log | tiles-t1t6-run1-20261101-205938 | spike2t | 259 | 29 | 0 |
+| spikes\spike2-results\raw\tiles-t1t6-run2-20261101-205718.log | tiles-t1t6-run2-20261101-205718 | spike2t | 225 | 29 | 0 |
+| spikes\spike2-results\raw\tiles-t1t6-run2-20261101-205859.log | tiles-t1t6-run2-20261101-205859 | spike2t | 206 | 29 | 0 |
 
 **RUNENV 元数据**
 
 | 文件 | run_id | app | apk_md5 | scenario | ts |
 |---|---|---|---|---|---|
-| F:\VScode\Read\.agents\worktrees\dsh-2998e44b-11d5\spikes\spike2-results\raw\tiles-t1t6-run1-20261101-205642.log | tiles-t1t6-run1-20261101-205642 | spike2t | 7ab3634ff0d97dcad0a759c988304e5d | T1,T6 | 2026-11-01T20:56:50+0800 |
-| F:\VScode\Read\.agents\worktrees\dsh-2998e44b-11d5\spikes\spike2-results\raw\tiles-t1t6-run1-20261101-205821.log | tiles-t1t6-run1-20261101-205821 | spike2t | 7ab3634ff0d97dcad0a759c988304e5d | T1,T6 | 2026-11-01T20:58:29+0800 |
-| F:\VScode\Read\.agents\worktrees\dsh-2998e44b-11d5\spikes\spike2-results\raw\tiles-t1t6-run1-20261101-205938.log | tiles-t1t6-run1-20261101-205938 | spike2t | 7ab3634ff0d97dcad0a759c988304e5d | T1,T6 | 2026-11-01T20:59:45+0800 |
-| F:\VScode\Read\.agents\worktrees\dsh-2998e44b-11d5\spikes\spike2-results\raw\tiles-t1t6-run2-20261101-205718.log | tiles-t1t6-run2-20261101-205718 | spike2t | 7ab3634ff0d97dcad0a759c988304e5d | T1,T6 | 2026-11-01T20:57:24+0800 |
-| F:\VScode\Read\.agents\worktrees\dsh-2998e44b-11d5\spikes\spike2-results\raw\tiles-t1t6-run2-20261101-205859.log | tiles-t1t6-run2-20261101-205859 | spike2t | 7ab3634ff0d97dcad0a759c988304e5d | T1,T6 | 2026-11-01T20:59:03+0800 |
+| spikes\spike2-results\raw\tiles-t1t6-run1-20261101-205642.log | tiles-t1t6-run1-20261101-205642 | spike2t | 7ab3634ff0d97dcad0a759c988304e5d | T1,T6 | 2026-11-01T20:56:50+0800 |
+| spikes\spike2-results\raw\tiles-t1t6-run1-20261101-205821.log | tiles-t1t6-run1-20261101-205821 | spike2t | 7ab3634ff0d97dcad0a759c988304e5d | T1,T6 | 2026-11-01T20:58:29+0800 |
+| spikes\spike2-results\raw\tiles-t1t6-run1-20261101-205938.log | tiles-t1t6-run1-20261101-205938 | spike2t | 7ab3634ff0d97dcad0a759c988304e5d | T1,T6 | 2026-11-01T20:59:45+0800 |
+| spikes\spike2-results\raw\tiles-t1t6-run2-20261101-205718.log | tiles-t1t6-run2-20261101-205718 | spike2t | 7ab3634ff0d97dcad0a759c988304e5d | T1,T6 | 2026-11-01T20:57:24+0800 |
+| spikes\spike2-results\raw\tiles-t1t6-run2-20261101-205859.log | tiles-t1t6-run2-20261101-205859 | spike2t | 7ab3634ff0d97dcad0a759c988304e5d | T1,T6 | 2026-11-01T20:59:03+0800 |
 
 | 参数 | 值 |
 |---|---|
@@ -29,7 +29,7 @@
 | --drop-first | 0 |
 | --drop-mode | first-per-phase |
 | --min-samples | 5 |
-| 输入路径 | F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/tiles-t1t6-run1-20261101-205642.log F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/tiles-t1t6-run1-20261101-205821.log F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/tiles-t1t6-run1-20261101-205938.log F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/tiles-t1t6-run2-20261101-205718.log F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/tiles-t1t6-run2-20261101-205859.log |
+| 输入路径 | spikes/spike2-results/raw/tiles-t1t6-run1-20261101-205642.log spikes/spike2-results/raw/tiles-t1t6-run1-20261101-205821.log spikes/spike2-results/raw/tiles-t1t6-run1-20261101-205938.log spikes/spike2-results/raw/tiles-t1t6-run2-20261101-205718.log spikes/spike2-results/raw/tiles-t1t6-run2-20261101-205859.log |
 
 ## 2. 样本构成
 
@@ -53,23 +53,23 @@
 
 | app | scenario | phase | n | median | p50 | p95 | max | min | 来源 |
 |---|---|---|---|---|---|---|---|---|---|
-| spike2t | T1 | tile | 40 | 13.111 | 11.452 | 203.918 | 248.108 | 0.206 | F:\VScode\Read\.agents\worktrees\dsh-2998e44b-11d5\spikes\spike2-results\raw\tiles-t1t6-run1-20261101-205642.log:175-183(n=8)<br>F:\VScode\Read\.agents\worktrees\dsh-2998e44b-11d5\spikes\spike2-results\raw\tiles-t1t6-run1-20261101-205821.log:189-197(n=8)<br>F:\VScode\Read\.agents\worktrees\dsh-2998e44b-11d5\spikes\spike2-results\raw\tiles-t1t6-run1-20261101-205938.log:156-165(n=8)<br>F:\VScode\Read\.agents\worktrees\dsh-2998e44b-11d5\spikes\spike2-results\raw\tiles-t1t6-run2-20261101-205718.log:183-190(n=8)<br>F:\VScode\Read\.agents\worktrees\dsh-2998e44b-11d5\spikes\spike2-results\raw\tiles-t1t6-run2-20261101-205859.log:163-171(n=8) |
-| spike2t | T6 | first_screen | 20 | 345.539 | 318.081 | 509.539 | 600.994 | 263.677 | F:\VScode\Read\.agents\worktrees\dsh-2998e44b-11d5\spikes\spike2-results\raw\tiles-t1t6-run1-20261101-205642.log:202-206(n=4)<br>F:\VScode\Read\.agents\worktrees\dsh-2998e44b-11d5\spikes\spike2-results\raw\tiles-t1t6-run1-20261101-205821.log:216-225(n=4)<br>F:\VScode\Read\.agents\worktrees\dsh-2998e44b-11d5\spikes\spike2-results\raw\tiles-t1t6-run1-20261101-205938.log:193-203(n=4)<br>F:\VScode\Read\.agents\worktrees\dsh-2998e44b-11d5\spikes\spike2-results\raw\tiles-t1t6-run2-20261101-205718.log:211-215(n=4)<br>F:\VScode\Read\.agents\worktrees\dsh-2998e44b-11d5\spikes\spike2-results\raw\tiles-t1t6-run2-20261101-205859.log:183-196(n=4) |
+| spike2t | T1 | tile | 40 | 13.111 | 11.452 | 203.918 | 248.108 | 0.206 | spikes\spike2-results\raw\tiles-t1t6-run1-20261101-205642.log:175-183(n=8)<br>spikes\spike2-results\raw\tiles-t1t6-run1-20261101-205821.log:189-197(n=8)<br>spikes\spike2-results\raw\tiles-t1t6-run1-20261101-205938.log:156-165(n=8)<br>spikes\spike2-results\raw\tiles-t1t6-run2-20261101-205718.log:183-190(n=8)<br>spikes\spike2-results\raw\tiles-t1t6-run2-20261101-205859.log:163-171(n=8) |
+| spike2t | T6 | first_screen | 20 | 345.539 | 318.081 | 509.539 | 600.994 | 263.677 | spikes\spike2-results\raw\tiles-t1t6-run1-20261101-205642.log:202-206(n=4)<br>spikes\spike2-results\raw\tiles-t1t6-run1-20261101-205821.log:216-225(n=4)<br>spikes\spike2-results\raw\tiles-t1t6-run1-20261101-205938.log:193-203(n=4)<br>spikes\spike2-results\raw\tiles-t1t6-run2-20261101-205718.log:211-215(n=4)<br>spikes\spike2-results\raw\tiles-t1t6-run2-20261101-205859.log:183-196(n=4) |
 
 ## 4. ms 统计（按 run）
 
 | run_id | app | scenario | phase | n | median | p50 | p95 | max | min | 来源 |
 |---|---|---|---|---|---|---|---|---|---|---|
-| tiles-t1t6-run1-20261101-205642 | spike2t | T1 | tile | 8 | 13.973 | 3.348 | 208.669 | 208.669 | 0.505 | F:\VScode\Read\.agents\worktrees\dsh-2998e44b-11d5\spikes\spike2-results\raw\tiles-t1t6-run1-20261101-205642.log:175-183(n=8) |
-| tiles-t1t6-run1-20261101-205642 | spike2t | T6 | first_screen | 4 | 350.704 | 317.808 | 399.981 | 399.981 | 273.559 | F:\VScode\Read\.agents\worktrees\dsh-2998e44b-11d5\spikes\spike2-results\raw\tiles-t1t6-run1-20261101-205642.log:202-206(n=4) |
-| tiles-t1t6-run1-20261101-205821 | spike2t | T1 | tile | 8 | 13.662 | 5.933 | 139.812 | 139.812 | 0.481 | F:\VScode\Read\.agents\worktrees\dsh-2998e44b-11d5\spikes\spike2-results\raw\tiles-t1t6-run1-20261101-205821.log:189-197(n=8) |
-| tiles-t1t6-run1-20261101-205821 | spike2t | T6 | first_screen | 4 | 350.711 | 292.044 | 503.567 | 503.567 | 276.575 | F:\VScode\Read\.agents\worktrees\dsh-2998e44b-11d5\spikes\spike2-results\raw\tiles-t1t6-run1-20261101-205821.log:216-225(n=4) |
-| tiles-t1t6-run1-20261101-205938 | spike2t | T1 | tile | 8 | 12.314 | 8.618 | 248.108 | 248.108 | 0.268 | F:\VScode\Read\.agents\worktrees\dsh-2998e44b-11d5\spikes\spike2-results\raw\tiles-t1t6-run1-20261101-205938.log:156-165(n=8) |
-| tiles-t1t6-run1-20261101-205938 | spike2t | T6 | first_screen | 4 | 304.750 | 291.418 | 397.091 | 397.091 | 282.460 | F:\VScode\Read\.agents\worktrees\dsh-2998e44b-11d5\spikes\spike2-results\raw\tiles-t1t6-run1-20261101-205938.log:193-203(n=4) |
-| tiles-t1t6-run2-20261101-205718 | spike2t | T1 | tile | 8 | 12.957 | 11.144 | 68.167 | 68.167 | 0.206 | F:\VScode\Read\.agents\worktrees\dsh-2998e44b-11d5\spikes\spike2-results\raw\tiles-t1t6-run2-20261101-205718.log:183-190(n=8) |
-| tiles-t1t6-run2-20261101-205718 | spike2t | T6 | first_screen | 4 | 374.101 | 314.247 | 600.994 | 600.994 | 263.677 | F:\VScode\Read\.agents\worktrees\dsh-2998e44b-11d5\spikes\spike2-results\raw\tiles-t1t6-run2-20261101-205718.log:211-215(n=4) |
-| tiles-t1t6-run2-20261101-205859 | spike2t | T1 | tile | 8 | 18.206 | 11.452 | 149.102 | 149.102 | 0.211 | F:\VScode\Read\.agents\worktrees\dsh-2998e44b-11d5\spikes\spike2-results\raw\tiles-t1t6-run2-20261101-205859.log:163-171(n=8) |
-| tiles-t1t6-run2-20261101-205859 | spike2t | T6 | first_screen | 4 | 430.098 | 372.998 | 509.539 | 509.539 | 295.373 | F:\VScode\Read\.agents\worktrees\dsh-2998e44b-11d5\spikes\spike2-results\raw\tiles-t1t6-run2-20261101-205859.log:183-196(n=4) |
+| tiles-t1t6-run1-20261101-205642 | spike2t | T1 | tile | 8 | 13.973 | 3.348 | 208.669 | 208.669 | 0.505 | spikes\spike2-results\raw\tiles-t1t6-run1-20261101-205642.log:175-183(n=8) |
+| tiles-t1t6-run1-20261101-205642 | spike2t | T6 | first_screen | 4 | 350.704 | 317.808 | 399.981 | 399.981 | 273.559 | spikes\spike2-results\raw\tiles-t1t6-run1-20261101-205642.log:202-206(n=4) |
+| tiles-t1t6-run1-20261101-205821 | spike2t | T1 | tile | 8 | 13.662 | 5.933 | 139.812 | 139.812 | 0.481 | spikes\spike2-results\raw\tiles-t1t6-run1-20261101-205821.log:189-197(n=8) |
+| tiles-t1t6-run1-20261101-205821 | spike2t | T6 | first_screen | 4 | 350.711 | 292.044 | 503.567 | 503.567 | 276.575 | spikes\spike2-results\raw\tiles-t1t6-run1-20261101-205821.log:216-225(n=4) |
+| tiles-t1t6-run1-20261101-205938 | spike2t | T1 | tile | 8 | 12.314 | 8.618 | 248.108 | 248.108 | 0.268 | spikes\spike2-results\raw\tiles-t1t6-run1-20261101-205938.log:156-165(n=8) |
+| tiles-t1t6-run1-20261101-205938 | spike2t | T6 | first_screen | 4 | 304.750 | 291.418 | 397.091 | 397.091 | 282.460 | spikes\spike2-results\raw\tiles-t1t6-run1-20261101-205938.log:193-203(n=4) |
+| tiles-t1t6-run2-20261101-205718 | spike2t | T1 | tile | 8 | 12.957 | 11.144 | 68.167 | 68.167 | 0.206 | spikes\spike2-results\raw\tiles-t1t6-run2-20261101-205718.log:183-190(n=8) |
+| tiles-t1t6-run2-20261101-205718 | spike2t | T6 | first_screen | 4 | 374.101 | 314.247 | 600.994 | 600.994 | 263.677 | spikes\spike2-results\raw\tiles-t1t6-run2-20261101-205718.log:211-215(n=4) |
+| tiles-t1t6-run2-20261101-205859 | spike2t | T1 | tile | 8 | 18.206 | 11.452 | 149.102 | 149.102 | 0.211 | spikes\spike2-results\raw\tiles-t1t6-run2-20261101-205859.log:163-171(n=8) |
+| tiles-t1t6-run2-20261101-205859 | spike2t | T6 | first_screen | 4 | 430.098 | 372.998 | 509.539 | 509.539 | 295.373 | spikes\spike2-results\raw\tiles-t1t6-run2-20261101-205859.log:183-196(n=4) |
 
 ## 5. 内存（PSS，不进 ms 表）
 

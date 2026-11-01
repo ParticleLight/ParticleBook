@@ -1,0 +1,547 @@
+{
+  "schema": 1,
+  "tool": "scripts/android/spike2/parse.py",
+  "generated_at": "2026-11-01T21:16:11+08:00",
+  "name": "tiles-t5-merged",
+  "options": {
+    "app": "spike2t",
+    "drop_first": 0,
+    "drop_mode": "first-per-phase",
+    "min_samples": 5,
+    "out": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\csv"
+  },
+  "inputs": [
+    {
+      "file": "spikes\\spike2-results\\raw\\tiles-t5-run1-20261101-210906.log",
+      "lines": 234,
+      "record_lines": 13,
+      "parse_failures": 0,
+      "run_id": "tiles-t5-run1-20261101-210906",
+      "app": "spike2t",
+      "runenv": [
+        {
+          "app": "spike2t",
+          "run_id": "tiles-t5-run1-20261101-210906",
+          "apk": "spikes/spike2-tiles/app/build/outputs/apk/debug/app-debug.apk",
+          "apk_md5": "7ab3634ff0d97dcad0a759c988304e5d",
+          "apk_bytes": "7300534",
+          "scenario": "T5",
+          "api": "35",
+          "model": "Android_SDK_built_for_x86_64",
+          "abi": "x86_64",
+          "build": "12368160",
+          "ts": "2026-11-01T21:09:14+0800"
+        }
+      ]
+    },
+    {
+      "file": "spikes\\spike2-results\\raw\\tiles-t5-run1-20261101-211023.log",
+      "lines": 244,
+      "record_lines": 13,
+      "parse_failures": 0,
+      "run_id": "tiles-t5-run1-20261101-211023",
+      "app": "spike2t",
+      "runenv": [
+        {
+          "app": "spike2t",
+          "run_id": "tiles-t5-run1-20261101-211023",
+          "apk": "spikes/spike2-tiles/app/build/outputs/apk/debug/app-debug.apk",
+          "apk_md5": "7ab3634ff0d97dcad0a759c988304e5d",
+          "apk_bytes": "7300534",
+          "scenario": "T5",
+          "api": "35",
+          "model": "Android_SDK_built_for_x86_64",
+          "abi": "x86_64",
+          "build": "12368160",
+          "ts": "2026-11-01T21:10:33+0800"
+        }
+      ]
+    },
+    {
+      "file": "spikes\\spike2-results\\raw\\tiles-t5-run1-20261101-211344.log",
+      "lines": 254,
+      "record_lines": 13,
+      "parse_failures": 0,
+      "run_id": "tiles-t5-run1-20261101-211344",
+      "app": "spike2t",
+      "runenv": [
+        {
+          "app": "spike2t",
+          "run_id": "tiles-t5-run1-20261101-211344",
+          "apk": "spikes/spike2-tiles/app/build/outputs/apk/debug/app-debug.apk",
+          "apk_md5": "7ab3634ff0d97dcad0a759c988304e5d",
+          "apk_bytes": "7300534",
+          "scenario": "T5",
+          "api": "35",
+          "model": "Android_SDK_built_for_x86_64",
+          "abi": "x86_64",
+          "build": "12368160",
+          "ts": "2026-11-01T21:13:54+0800"
+        }
+      ]
+    }
+  ],
+  "counts": {
+    "files": 3,
+    "lines": 732,
+    "records": 39,
+    "source_record_lines": 39,
+    "parse_failures": 0,
+    "by_record": {
+      "AMSTART": 3,
+      "PBDONE": 6,
+      "PBPERF": 21,
+      "PBTIME": 6,
+      "RUNENV": 3
+    },
+    "warmup": 27,
+    "warmup_dropped": 27,
+    "error": 0,
+    "pss": 9,
+    "stats_samples": 3
+  },
+  "groups": [],
+  "mem": [
+    {
+      "scope": "run",
+      "run_id": "tiles-t5-run1-20261101-210906",
+      "app": "spike2t",
+      "scenario": "T5",
+      "n": 1,
+      "sources": [
+        {
+          "file": "spikes\\spike2-results\\raw\\tiles-t5-run1-20261101-210906.log",
+          "min_line": 211,
+          "max_line": 211,
+          "n": 1
+        }
+      ],
+      "pss_kb": {
+        "n": 1,
+        "min": 115290.0,
+        "median": 115290.0,
+        "max": 115290.0
+      },
+      "native_kb": {
+        "n": 1,
+        "min": 79632.0,
+        "median": 79632.0,
+        "max": 79632.0
+      },
+      "java_kb": {
+        "n": 1,
+        "min": 832.0,
+        "median": 832.0,
+        "max": 832.0
+      }
+    },
+    {
+      "scope": "run",
+      "run_id": "tiles-t5-run1-20261101-211023",
+      "app": "spike2t",
+      "scenario": "T5",
+      "n": 1,
+      "sources": [
+        {
+          "file": "spikes\\spike2-results\\raw\\tiles-t5-run1-20261101-211023.log",
+          "min_line": 226,
+          "max_line": 226,
+          "n": 1
+        }
+      ],
+      "pss_kb": {
+        "n": 1,
+        "min": 128680.0,
+        "median": 128680.0,
+        "max": 128680.0
+      },
+      "native_kb": {
+        "n": 1,
+        "min": 94120.0,
+        "median": 94120.0,
+        "max": 94120.0
+      },
+      "java_kb": {
+        "n": 1,
+        "min": 780.0,
+        "median": 780.0,
+        "max": 780.0
+      }
+    },
+    {
+      "scope": "run",
+      "run_id": "tiles-t5-run1-20261101-211344",
+      "app": "spike2t",
+      "scenario": "T5",
+      "n": 1,
+      "sources": [
+        {
+          "file": "spikes\\spike2-results\\raw\\tiles-t5-run1-20261101-211344.log",
+          "min_line": 235,
+          "max_line": 235,
+          "n": 1
+        }
+      ],
+      "pss_kb": {
+        "n": 1,
+        "min": 125702.0,
+        "median": 125702.0,
+        "max": 125702.0
+      },
+      "native_kb": {
+        "n": 1,
+        "min": 90840.0,
+        "median": 90840.0,
+        "max": 90840.0
+      },
+      "java_kb": {
+        "n": 1,
+        "min": 808.0,
+        "median": 808.0,
+        "max": 808.0
+      }
+    },
+    {
+      "scope": "all",
+      "run_id": "",
+      "app": "spike2t",
+      "scenario": "T5",
+      "n": 3,
+      "sources": [
+        {
+          "file": "spikes\\spike2-results\\raw\\tiles-t5-run1-20261101-210906.log",
+          "min_line": 211,
+          "max_line": 211,
+          "n": 1
+        },
+        {
+          "file": "spikes\\spike2-results\\raw\\tiles-t5-run1-20261101-211023.log",
+          "min_line": 226,
+          "max_line": 226,
+          "n": 1
+        },
+        {
+          "file": "spikes\\spike2-results\\raw\\tiles-t5-run1-20261101-211344.log",
+          "min_line": 235,
+          "max_line": 235,
+          "n": 1
+        }
+      ],
+      "pss_kb": {
+        "n": 3,
+        "min": 115290.0,
+        "median": 125702.0,
+        "max": 128680.0
+      },
+      "native_kb": {
+        "n": 3,
+        "min": 79632.0,
+        "median": 90840.0,
+        "max": 94120.0
+      },
+      "java_kb": {
+        "n": 3,
+        "min": 780.0,
+        "median": 808.0,
+        "max": 832.0
+      }
+    }
+  ],
+  "low_confidence_groups": [
+    {
+      "run_id": "tiles-t5-run1-20261101-210906",
+      "app": "spike2t",
+      "scenario": "ALL",
+      "phase": "pss",
+      "n": 0,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "tiles-t5-run1-20261101-210906",
+      "app": "spike2t",
+      "scenario": "PBTIME",
+      "phase": "first_frame",
+      "n": 0,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "tiles-t5-run1-20261101-210906",
+      "app": "spike2t",
+      "scenario": "PBTIME",
+      "phase": "refresh_hz",
+      "n": 0,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "tiles-t5-run1-20261101-210906",
+      "app": "spike2t",
+      "scenario": "T1",
+      "phase": "lowres",
+      "n": 0,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "tiles-t5-run1-20261101-210906",
+      "app": "spike2t",
+      "scenario": "T1",
+      "phase": "open",
+      "n": 0,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "tiles-t5-run1-20261101-210906",
+      "app": "spike2t",
+      "scenario": "T1",
+      "phase": "tileprobe",
+      "n": 0,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "tiles-t5-run1-20261101-210906",
+      "app": "spike2t",
+      "scenario": "T5",
+      "phase": "cache",
+      "n": 0,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "tiles-t5-run1-20261101-210906",
+      "app": "spike2t",
+      "scenario": "T5",
+      "phase": "pss",
+      "n": 1,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "tiles-t5-run1-20261101-210906",
+      "app": "spike2t",
+      "scenario": "cold_start",
+      "phase": "am_start",
+      "n": 0,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "tiles-t5-run1-20261101-211023",
+      "app": "spike2t",
+      "scenario": "ALL",
+      "phase": "pss",
+      "n": 0,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "tiles-t5-run1-20261101-211023",
+      "app": "spike2t",
+      "scenario": "PBTIME",
+      "phase": "first_frame",
+      "n": 0,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "tiles-t5-run1-20261101-211023",
+      "app": "spike2t",
+      "scenario": "PBTIME",
+      "phase": "refresh_hz",
+      "n": 0,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "tiles-t5-run1-20261101-211023",
+      "app": "spike2t",
+      "scenario": "T1",
+      "phase": "lowres",
+      "n": 0,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "tiles-t5-run1-20261101-211023",
+      "app": "spike2t",
+      "scenario": "T1",
+      "phase": "open",
+      "n": 0,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "tiles-t5-run1-20261101-211023",
+      "app": "spike2t",
+      "scenario": "T1",
+      "phase": "tileprobe",
+      "n": 0,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "tiles-t5-run1-20261101-211023",
+      "app": "spike2t",
+      "scenario": "T5",
+      "phase": "cache",
+      "n": 0,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "tiles-t5-run1-20261101-211023",
+      "app": "spike2t",
+      "scenario": "T5",
+      "phase": "pss",
+      "n": 1,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "tiles-t5-run1-20261101-211023",
+      "app": "spike2t",
+      "scenario": "cold_start",
+      "phase": "am_start",
+      "n": 0,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "tiles-t5-run1-20261101-211344",
+      "app": "spike2t",
+      "scenario": "ALL",
+      "phase": "pss",
+      "n": 0,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "tiles-t5-run1-20261101-211344",
+      "app": "spike2t",
+      "scenario": "PBTIME",
+      "phase": "first_frame",
+      "n": 0,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "tiles-t5-run1-20261101-211344",
+      "app": "spike2t",
+      "scenario": "PBTIME",
+      "phase": "refresh_hz",
+      "n": 0,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "tiles-t5-run1-20261101-211344",
+      "app": "spike2t",
+      "scenario": "T1",
+      "phase": "lowres",
+      "n": 0,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "tiles-t5-run1-20261101-211344",
+      "app": "spike2t",
+      "scenario": "T1",
+      "phase": "open",
+      "n": 0,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "tiles-t5-run1-20261101-211344",
+      "app": "spike2t",
+      "scenario": "T1",
+      "phase": "tileprobe",
+      "n": 0,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "tiles-t5-run1-20261101-211344",
+      "app": "spike2t",
+      "scenario": "T5",
+      "phase": "cache",
+      "n": 0,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "tiles-t5-run1-20261101-211344",
+      "app": "spike2t",
+      "scenario": "T5",
+      "phase": "pss",
+      "n": 1,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "tiles-t5-run1-20261101-211344",
+      "app": "spike2t",
+      "scenario": "cold_start",
+      "phase": "am_start",
+      "n": 0,
+      "errors": 0,
+      "warmup": 1
+    }
+  ],
+  "missing_pbdone": [],
+  "runenv": [
+    {
+      "file": "spikes\\spike2-results\\raw\\tiles-t5-run1-20261101-210906.log",
+      "fields": {
+        "app": "spike2t",
+        "run_id": "tiles-t5-run1-20261101-210906",
+        "apk": "spikes/spike2-tiles/app/build/outputs/apk/debug/app-debug.apk",
+        "apk_md5": "7ab3634ff0d97dcad0a759c988304e5d",
+        "apk_bytes": "7300534",
+        "scenario": "T5",
+        "api": "35",
+        "model": "Android_SDK_built_for_x86_64",
+        "abi": "x86_64",
+        "build": "12368160",
+        "ts": "2026-11-01T21:09:14+0800"
+      }
+    },
+    {
+      "file": "spikes\\spike2-results\\raw\\tiles-t5-run1-20261101-211023.log",
+      "fields": {
+        "app": "spike2t",
+        "run_id": "tiles-t5-run1-20261101-211023",
+        "apk": "spikes/spike2-tiles/app/build/outputs/apk/debug/app-debug.apk",
+        "apk_md5": "7ab3634ff0d97dcad0a759c988304e5d",
+        "apk_bytes": "7300534",
+        "scenario": "T5",
+        "api": "35",
+        "model": "Android_SDK_built_for_x86_64",
+        "abi": "x86_64",
+        "build": "12368160",
+        "ts": "2026-11-01T21:10:33+0800"
+      }
+    },
+    {
+      "file": "spikes\\spike2-results\\raw\\tiles-t5-run1-20261101-211344.log",
+      "fields": {
+        "app": "spike2t",
+        "run_id": "tiles-t5-run1-20261101-211344",
+        "apk": "spikes/spike2-tiles/app/build/outputs/apk/debug/app-debug.apk",
+        "apk_md5": "7ab3634ff0d97dcad0a759c988304e5d",
+        "apk_bytes": "7300534",
+        "scenario": "T5",
+        "api": "35",
+        "model": "Android_SDK_built_for_x86_64",
+        "abi": "x86_64",
+        "build": "12368160",
+        "ts": "2026-11-01T21:13:54+0800"
+      }
+    }
+  ],
+  "parse_failures": []
+}

@@ -1,7 +1,7 @@
 # Spike2 汇总 · render-r2
 
 > 由 scripts/android/spike2/summarize.py 从 parse.py 的 CSV 汇总；所有数字可由 raw logcat 重算（CSV 的 src_file/src_line 指回 raw 行号）。
-> 生成时间：2026-11-01T20:58:11+08:00　|　真机推算系数 x1.80（[推测]，PDFium 纯 CPU 光栅，真机/模拟器约 1.4-2.5）
+> 生成时间：2026-11-01T21:16:08+08:00　|　真机推算系数 x1.80（[推测]，PDFium 纯 CPU 光栅，真机/模拟器约 1.4-2.5）
 > 口径：median=statistics.median；p95=nearest-rank（idx=ceil(q*n)-1）；单位 ms。
 
 ## 1. 输入与环境
@@ -14,19 +14,19 @@
 
 | run_id | app | apk | md5 | api | model | abi | build | ts | 来源 |
 |---|---|---|---|---|---|---|---|---|---|
-| render-r2-run1-20261101-204959 | spike2 | spikes/spike2-pdf/app/build/outputs/apk/debug/app-debug.apk | 8ea3edc683ebf0b5be2f32f32dc57bb9 | 35 | Android_SDK_built_for_x86_64 | x86_64 | 12368160 | 2026-11-01T20:50:07+0800 | F:\VScode\Read\.agents\worktrees\dsh-2998e44b-11d5\spikes\spike2-results\raw\render-r2-run1-20261101-204959.log:1 |
-| render-r2-run1-20261101-205037 | spike2 | spikes/spike2-pdf/app/build/outputs/apk/debug/app-debug.apk | 8ea3edc683ebf0b5be2f32f32dc57bb9 | 35 | Android_SDK_built_for_x86_64 | x86_64 | 12368160 | 2026-11-01T20:50:44+0800 | F:\VScode\Read\.agents\worktrees\dsh-2998e44b-11d5\spikes\spike2-results\raw\render-r2-run1-20261101-205037.log:1 |
-| render-r2-run1-20261101-205144 | spike2 | spikes/spike2-pdf/app/build/outputs/apk/debug/app-debug.apk | 8ea3edc683ebf0b5be2f32f32dc57bb9 | 35 | Android_SDK_built_for_x86_64 | x86_64 | 12368160 | 2026-11-01T20:51:52+0800 | F:\VScode\Read\.agents\worktrees\dsh-2998e44b-11d5\spikes\spike2-results\raw\render-r2-run1-20261101-205144.log:1 |
-| render-r2-run2-20261101-205107 | spike2 | spikes/spike2-pdf/app/build/outputs/apk/debug/app-debug.apk | 8ea3edc683ebf0b5be2f32f32dc57bb9 | 35 | Android_SDK_built_for_x86_64 | x86_64 | 12368160 | 2026-11-01T20:51:11+0800 | F:\VScode\Read\.agents\worktrees\dsh-2998e44b-11d5\spikes\spike2-results\raw\render-r2-run2-20261101-205107.log:1 |
-| render-r2-run2-20261101-205218 | spike2 | spikes/spike2-pdf/app/build/outputs/apk/debug/app-debug.apk | 8ea3edc683ebf0b5be2f32f32dc57bb9 | 35 | Android_SDK_built_for_x86_64 | x86_64 | 12368160 | 2026-11-01T20:52:22+0800 | F:\VScode\Read\.agents\worktrees\dsh-2998e44b-11d5\spikes\spike2-results\raw\render-r2-run2-20261101-205218.log:1 |
+| render-r2-run1-20261101-204959 | spike2 | spikes/spike2-pdf/app/build/outputs/apk/debug/app-debug.apk | 8ea3edc683ebf0b5be2f32f32dc57bb9 | 35 | Android_SDK_built_for_x86_64 | x86_64 | 12368160 | 2026-11-01T20:50:07+0800 | spikes\spike2-results\raw\render-r2-run1-20261101-204959.log:1 |
+| render-r2-run1-20261101-205037 | spike2 | spikes/spike2-pdf/app/build/outputs/apk/debug/app-debug.apk | 8ea3edc683ebf0b5be2f32f32dc57bb9 | 35 | Android_SDK_built_for_x86_64 | x86_64 | 12368160 | 2026-11-01T20:50:44+0800 | spikes\spike2-results\raw\render-r2-run1-20261101-205037.log:1 |
+| render-r2-run1-20261101-205144 | spike2 | spikes/spike2-pdf/app/build/outputs/apk/debug/app-debug.apk | 8ea3edc683ebf0b5be2f32f32dc57bb9 | 35 | Android_SDK_built_for_x86_64 | x86_64 | 12368160 | 2026-11-01T20:51:52+0800 | spikes\spike2-results\raw\render-r2-run1-20261101-205144.log:1 |
+| render-r2-run2-20261101-205107 | spike2 | spikes/spike2-pdf/app/build/outputs/apk/debug/app-debug.apk | 8ea3edc683ebf0b5be2f32f32dc57bb9 | 35 | Android_SDK_built_for_x86_64 | x86_64 | 12368160 | 2026-11-01T20:51:11+0800 | spikes\spike2-results\raw\render-r2-run2-20261101-205107.log:1 |
+| render-r2-run2-20261101-205218 | spike2 | spikes/spike2-pdf/app/build/outputs/apk/debug/app-debug.apk | 8ea3edc683ebf0b5be2f32f32dc57bb9 | 35 | Android_SDK_built_for_x86_64 | x86_64 | 12368160 | 2026-11-01T20:52:22+0800 | spikes\spike2-results\raw\render-r2-run2-20261101-205218.log:1 |
 
 ## 2. ms 统计（跨 run，冷热混合，仅总览）
 
 | app | scenario | phase | dims | n | min | p50 | p95 | max | 真机推算 p50 | run 数 | 来源 |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| spike2 | S1 | open | - | 5 | 285.956 | 343.120 | 415.786 | 415.786 | 617.6 [推测] | 5 | F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r2-run1-20261101-204959.log:119-119; F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r2-run1-20261101-205037.log:115-115; F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r2-run1-20261101-205144.log:140-140; F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r2-run2-20261101-205107.log:124-124; F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r2-run2-20261101-205218.log:122-122 |
-| spike2 | S4 | total | 1080x1529 | 120 | 42.763 | 83.707 | 284.111 | 1070.376 | 150.7 [推测] | 5 | F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r2-run1-20261101-204959.log:135-182; F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r2-run1-20261101-205037.log:127-184; F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r2-run1-20261101-205144.log:169-198; F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r2-run2-20261101-205107.log:136-194; F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r2-run2-20261101-205218.log:138-186 |
-| spike2 | S5 | text | 594x841 | 15 | 0.484 | 3.023 | 8.681 | 8.681 | 5.4 [推测] | 5 | F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r2-run1-20261101-204959.log:186-188; F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r2-run1-20261101-205037.log:188-190; F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r2-run1-20261101-205144.log:202-204; F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r2-run2-20261101-205107.log:198-200; F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r2-run2-20261101-205218.log:190-192 |
+| spike2 | S1 | open | - | 5 | 285.956 | 343.120 | 415.786 | 415.786 | 617.6 [推测] | 5 | spikes/spike2-results/raw/render-r2-run1-20261101-204959.log:119-119; spikes/spike2-results/raw/render-r2-run1-20261101-205037.log:115-115; spikes/spike2-results/raw/render-r2-run1-20261101-205144.log:140-140; spikes/spike2-results/raw/render-r2-run2-20261101-205107.log:124-124; spikes/spike2-results/raw/render-r2-run2-20261101-205218.log:122-122 |
+| spike2 | S4 | total | 1080x1529 | 120 | 42.763 | 83.707 | 284.111 | 1070.376 | 150.7 [推测] | 5 | spikes/spike2-results/raw/render-r2-run1-20261101-204959.log:135-182; spikes/spike2-results/raw/render-r2-run1-20261101-205037.log:127-184; spikes/spike2-results/raw/render-r2-run1-20261101-205144.log:169-198; spikes/spike2-results/raw/render-r2-run2-20261101-205107.log:136-194; spikes/spike2-results/raw/render-r2-run2-20261101-205218.log:138-186 |
+| spike2 | S5 | text | 594x841 | 15 | 0.484 | 3.023 | 8.681 | 8.681 | 5.4 [推测] | 5 | spikes/spike2-results/raw/render-r2-run1-20261101-204959.log:186-188; spikes/spike2-results/raw/render-r2-run1-20261101-205037.log:188-190; spikes/spike2-results/raw/render-r2-run1-20261101-205144.log:202-204; spikes/spike2-results/raw/render-r2-run2-20261101-205107.log:198-200; spikes/spike2-results/raw/render-r2-run2-20261101-205218.log:190-192 |
 
 > 第 2 节把 cold/warm 混在一起，只用于总览；跨 app / 跨路径对比必须用第 3 节的同冷热分组。
 > 注意：tiles app 的 *_stat 行（tile_stat/frame_stat/gesture_stat…）是 app 侧已聚合的块统计，不按单样本计入本节，单独列在第 2b 节。
@@ -49,21 +49,21 @@
 
 | run_id | app | scenario | phase | pss_kb | native_kb | java_kb | tag | hit | evict | miss | bytes | limit | tiles | cycles | 来源 |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| render-r2-run1-20261101-204959 | spike2 | S7 | pss | 22770 | 3956 | 685 | cold |  |  |  |  |  |  |  | F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r2-run1-20261101-204959.log:101 |
-| render-r2-run1-20261101-204959 | spike2 | S4 | pss | 65683 | 40166 | 1637 | before |  |  |  |  |  |  |  | F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r2-run1-20261101-204959.log:121 |
-| render-r2-run1-20261101-204959 | spike2 | S4 | pss | 80153 | 51749 | 1792 | after |  |  |  |  |  |  |  | F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r2-run1-20261101-204959.log:183 |
-| render-r2-run1-20261101-205037 | spike2 | S7 | pss | 24645 | 3901 | 689 | cold |  |  |  |  |  |  |  | F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r2-run1-20261101-205037.log:97 |
-| render-r2-run1-20261101-205037 | spike2 | S4 | pss | 66376 | 40391 | 1641 | before |  |  |  |  |  |  |  | F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r2-run1-20261101-205037.log:120 |
-| render-r2-run1-20261101-205037 | spike2 | S4 | pss | 82021 | 51808 | 1792 | after |  |  |  |  |  |  |  | F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r2-run1-20261101-205037.log:185 |
-| render-r2-run1-20261101-205144 | spike2 | S7 | pss | 24574 | 3909 | 685 | cold |  |  |  |  |  |  |  | F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r2-run1-20261101-205144.log:119 |
-| render-r2-run1-20261101-205144 | spike2 | S4 | pss | 66149 | 40338 | 1637 | before |  |  |  |  |  |  |  | F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r2-run1-20261101-205144.log:142 |
-| render-r2-run1-20261101-205144 | spike2 | S4 | pss | 80314 | 51795 | 1788 | after |  |  |  |  |  |  |  | F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r2-run1-20261101-205144.log:199 |
-| render-r2-run2-20261101-205107 | spike2 | S7 | pss | 24697 | 3943 | 689 | cold |  |  |  |  |  |  |  | F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r2-run2-20261101-205107.log:106 |
-| render-r2-run2-20261101-205107 | spike2 | S4 | pss | 66475 | 40503 | 1641 | before |  |  |  |  |  |  |  | F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r2-run2-20261101-205107.log:127 |
-| render-r2-run2-20261101-205107 | spike2 | S4 | pss | 81899 | 51864 | 1792 | after |  |  |  |  |  |  |  | F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r2-run2-20261101-205107.log:195 |
-| render-r2-run2-20261101-205218 | spike2 | S7 | pss | 22701 | 3895 | 685 | cold |  |  |  |  |  |  |  | F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r2-run2-20261101-205218.log:105 |
-| render-r2-run2-20261101-205218 | spike2 | S4 | pss | 65355 | 39755 | 1641 | before |  |  |  |  |  |  |  | F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r2-run2-20261101-205218.log:125 |
-| render-r2-run2-20261101-205218 | spike2 | S4 | pss | 81733 | 51810 | 1792 | after |  |  |  |  |  |  |  | F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r2-run2-20261101-205218.log:187 |
+| render-r2-run1-20261101-204959 | spike2 | S7 | pss | 22770 | 3956 | 685 | cold |  |  |  |  |  |  |  | spikes/spike2-results/raw/render-r2-run1-20261101-204959.log:101 |
+| render-r2-run1-20261101-204959 | spike2 | S4 | pss | 65683 | 40166 | 1637 | before |  |  |  |  |  |  |  | spikes/spike2-results/raw/render-r2-run1-20261101-204959.log:121 |
+| render-r2-run1-20261101-204959 | spike2 | S4 | pss | 80153 | 51749 | 1792 | after |  |  |  |  |  |  |  | spikes/spike2-results/raw/render-r2-run1-20261101-204959.log:183 |
+| render-r2-run1-20261101-205037 | spike2 | S7 | pss | 24645 | 3901 | 689 | cold |  |  |  |  |  |  |  | spikes/spike2-results/raw/render-r2-run1-20261101-205037.log:97 |
+| render-r2-run1-20261101-205037 | spike2 | S4 | pss | 66376 | 40391 | 1641 | before |  |  |  |  |  |  |  | spikes/spike2-results/raw/render-r2-run1-20261101-205037.log:120 |
+| render-r2-run1-20261101-205037 | spike2 | S4 | pss | 82021 | 51808 | 1792 | after |  |  |  |  |  |  |  | spikes/spike2-results/raw/render-r2-run1-20261101-205037.log:185 |
+| render-r2-run1-20261101-205144 | spike2 | S7 | pss | 24574 | 3909 | 685 | cold |  |  |  |  |  |  |  | spikes/spike2-results/raw/render-r2-run1-20261101-205144.log:119 |
+| render-r2-run1-20261101-205144 | spike2 | S4 | pss | 66149 | 40338 | 1637 | before |  |  |  |  |  |  |  | spikes/spike2-results/raw/render-r2-run1-20261101-205144.log:142 |
+| render-r2-run1-20261101-205144 | spike2 | S4 | pss | 80314 | 51795 | 1788 | after |  |  |  |  |  |  |  | spikes/spike2-results/raw/render-r2-run1-20261101-205144.log:199 |
+| render-r2-run2-20261101-205107 | spike2 | S7 | pss | 24697 | 3943 | 689 | cold |  |  |  |  |  |  |  | spikes/spike2-results/raw/render-r2-run2-20261101-205107.log:106 |
+| render-r2-run2-20261101-205107 | spike2 | S4 | pss | 66475 | 40503 | 1641 | before |  |  |  |  |  |  |  | spikes/spike2-results/raw/render-r2-run2-20261101-205107.log:127 |
+| render-r2-run2-20261101-205107 | spike2 | S4 | pss | 81899 | 51864 | 1792 | after |  |  |  |  |  |  |  | spikes/spike2-results/raw/render-r2-run2-20261101-205107.log:195 |
+| render-r2-run2-20261101-205218 | spike2 | S7 | pss | 22701 | 3895 | 685 | cold |  |  |  |  |  |  |  | spikes/spike2-results/raw/render-r2-run2-20261101-205218.log:105 |
+| render-r2-run2-20261101-205218 | spike2 | S4 | pss | 65355 | 39755 | 1641 | before |  |  |  |  |  |  |  | spikes/spike2-results/raw/render-r2-run2-20261101-205218.log:125 |
+| render-r2-run2-20261101-205218 | spike2 | S4 | pss | 81733 | 51810 | 1792 | after |  |  |  |  |  |  |  | spikes/spike2-results/raw/render-r2-run2-20261101-205218.log:187 |
 
 ## 3. 冷/热分组（跨 app 对比只允许同状态）
 
@@ -71,8 +71,8 @@
 
 | app | scenario | phase | 状态 | n | min | p50 | p95 | max | 真机推算 p50 | 来源 |
 |---|---|---|---|---|---|---|---|---|---|---|
-| spike2 | S4 | total | cold | 25 | 79.322 | 160.348 | 971.857 | 1070.376 | 288.6 [推测] | F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r2-run1-20261101-204959.log:135-158; F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r2-run1-20261101-205037.log:127-161; F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r2-run1-20261101-205144.log:169-175; F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r2-run2-20261101-205107.log:136-164; F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r2-run2-20261101-205218.log:138-163 |
-| spike2 | S4 | total | warm | 95 | 42.763 | 78.568 | 126.284 | 160.194 | 141.4 [推测] | F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r2-run1-20261101-204959.log:161-182; F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r2-run1-20261101-205037.log:163-184; F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r2-run1-20261101-205144.log:178-198; F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r2-run2-20261101-205107.log:166-194; F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r2-run2-20261101-205218.log:165-186 |
+| spike2 | S4 | total | cold | 25 | 79.322 | 160.348 | 971.857 | 1070.376 | 288.6 [推测] | spikes/spike2-results/raw/render-r2-run1-20261101-204959.log:135-158; spikes/spike2-results/raw/render-r2-run1-20261101-205037.log:127-161; spikes/spike2-results/raw/render-r2-run1-20261101-205144.log:169-175; spikes/spike2-results/raw/render-r2-run2-20261101-205107.log:136-164; spikes/spike2-results/raw/render-r2-run2-20261101-205218.log:138-163 |
+| spike2 | S4 | total | warm | 95 | 42.763 | 78.568 | 126.284 | 160.194 | 141.4 [推测] | spikes/spike2-results/raw/render-r2-run1-20261101-204959.log:161-182; spikes/spike2-results/raw/render-r2-run1-20261101-205037.log:163-184; spikes/spike2-results/raw/render-r2-run1-20261101-205144.log:178-198; spikes/spike2-results/raw/render-r2-run2-20261101-205107.log:166-194; spikes/spike2-results/raw/render-r2-run2-20261101-205218.log:165-186 |
 
 ## 4. renderAnnot 分组（A/B）
 
@@ -86,11 +86,11 @@
 
 | # | run_id | app | n | median | avg | ts | 来源 |
 |---|---|---|---|---|---|---|---|
-| 1 | render-r2-run1-20261101-204959 | spike2 | 1 | 371.722 | 371.722 | 11-01 12:50:12.738 | F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r2-run1-20261101-204959.log:119-119 |
-| 2 | render-r2-run1-20261101-205037 | spike2 | 1 | 308.896 | 308.896 | 11-01 12:50:50.602 | F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r2-run1-20261101-205037.log:115-115 |
-| 3 | render-r2-run2-20261101-205107 | spike2 | 1 | 343.120 | 343.120 | 11-01 12:51:17.986 | F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r2-run2-20261101-205107.log:124-124 |
-| 4 | render-r2-run1-20261101-205144 | spike2 | 1 | 415.786 | 415.786 | 11-01 12:51:59.943 | F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r2-run1-20261101-205144.log:140-140 |
-| 5 | render-r2-run2-20261101-205218 | spike2 | 1 | 285.956 | 285.956 | 11-01 12:52:28.238 | F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r2-run2-20261101-205218.log:122-122 |
+| 1 | render-r2-run1-20261101-204959 | spike2 | 1 | 371.722 | 371.722 | 11-01 12:50:12.738 | spikes/spike2-results/raw/render-r2-run1-20261101-204959.log:119-119 |
+| 2 | render-r2-run1-20261101-205037 | spike2 | 1 | 308.896 | 308.896 | 11-01 12:50:50.602 | spikes/spike2-results/raw/render-r2-run1-20261101-205037.log:115-115 |
+| 3 | render-r2-run2-20261101-205107 | spike2 | 1 | 343.120 | 343.120 | 11-01 12:51:17.986 | spikes/spike2-results/raw/render-r2-run2-20261101-205107.log:124-124 |
+| 4 | render-r2-run1-20261101-205144 | spike2 | 1 | 415.786 | 415.786 | 11-01 12:51:59.943 | spikes/spike2-results/raw/render-r2-run1-20261101-205144.log:140-140 |
+| 5 | render-r2-run2-20261101-205218 | spike2 | 1 | 285.956 | 285.956 | 11-01 12:52:28.238 | spikes/spike2-results/raw/render-r2-run2-20261101-205218.log:122-122 |
 
 - 首 run median=371.722 ms，末 run median=285.956 ms，变化 -23.1% DRIFT_WARN
 - **DRIFT_WARN**：本批首末漂移超阈值，跨批绝对值不可直接比，只能同批内相对比较。

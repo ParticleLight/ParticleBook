@@ -1,12 +1,12 @@
 {
  "name": "tiles-t1t6",
- "generated_at": "2026-11-01T21:00:10+08:00",
+ "generated_at": "2026-11-01T21:16:10+08:00",
  "factor": 1.8,
  "min_samples": 5,
  "drift_warn_ratio": 0.2,
  "inputs": [
   {
-   "path": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\csv\\tiles-t1t6-merged.csv",
+   "path": "spikes\\spike2-results\\csv\\tiles-t1t6-merged.csv",
    "rows": 145
   }
  ],
@@ -14,7 +14,7 @@
   {
    "app": "spike2t",
    "run_id": "tiles-t1t6-run1-20261101-205642",
-   "src": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\tiles-t1t6-run1-20261101-205642.log:1",
+   "src": "spikes\\spike2-results\\raw\\tiles-t1t6-run1-20261101-205642.log:1",
    "apk": "spikes/spike2-tiles/app/build/outputs/apk/debug/app-debug.apk",
    "apk_md5": "7ab3634ff0d97dcad0a759c988304e5d",
    "apk_bytes": "7300534",
@@ -29,7 +29,7 @@
   {
    "app": "spike2t",
    "run_id": "tiles-t1t6-run1-20261101-205821",
-   "src": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\tiles-t1t6-run1-20261101-205821.log:1",
+   "src": "spikes\\spike2-results\\raw\\tiles-t1t6-run1-20261101-205821.log:1",
    "apk": "spikes/spike2-tiles/app/build/outputs/apk/debug/app-debug.apk",
    "apk_md5": "7ab3634ff0d97dcad0a759c988304e5d",
    "apk_bytes": "7300534",
@@ -44,7 +44,7 @@
   {
    "app": "spike2t",
    "run_id": "tiles-t1t6-run1-20261101-205938",
-   "src": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\tiles-t1t6-run1-20261101-205938.log:1",
+   "src": "spikes\\spike2-results\\raw\\tiles-t1t6-run1-20261101-205938.log:1",
    "apk": "spikes/spike2-tiles/app/build/outputs/apk/debug/app-debug.apk",
    "apk_md5": "7ab3634ff0d97dcad0a759c988304e5d",
    "apk_bytes": "7300534",
@@ -59,7 +59,7 @@
   {
    "app": "spike2t",
    "run_id": "tiles-t1t6-run2-20261101-205718",
-   "src": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\tiles-t1t6-run2-20261101-205718.log:1",
+   "src": "spikes\\spike2-results\\raw\\tiles-t1t6-run2-20261101-205718.log:1",
    "apk": "spikes/spike2-tiles/app/build/outputs/apk/debug/app-debug.apk",
    "apk_md5": "7ab3634ff0d97dcad0a759c988304e5d",
    "apk_bytes": "7300534",
@@ -74,7 +74,7 @@
   {
    "app": "spike2t",
    "run_id": "tiles-t1t6-run2-20261101-205859",
-   "src": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\tiles-t1t6-run2-20261101-205859.log:1",
+   "src": "spikes\\spike2-results\\raw\\tiles-t1t6-run2-20261101-205859.log:1",
    "apk": "spikes/spike2-tiles/app/build/outputs/apk/debug/app-debug.apk",
    "apk_md5": "7ab3634ff0d97dcad0a759c988304e5d",
    "apk_bytes": "7300534",
@@ -95,7 +95,7 @@
    "p95": 203.918,
    "max": 248.108,
    "est_p50": 23.6,
-   "src": "F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/tiles-t1t6-run1-20261101-205642.log:175-183; F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/tiles-t1t6-run1-20261101-205821.log:189-197; F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/tiles-t1t6-run1-20261101-205938.log:156-165; F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/tiles-t1t6-run2-20261101-205718.log:183-190; F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/tiles-t1t6-run2-20261101-205859.log:163-171",
+   "src": "spikes/spike2-results/raw/tiles-t1t6-run1-20261101-205642.log:175-183; spikes/spike2-results/raw/tiles-t1t6-run1-20261101-205821.log:189-197; spikes/spike2-results/raw/tiles-t1t6-run1-20261101-205938.log:156-165; spikes/spike2-results/raw/tiles-t1t6-run2-20261101-205718.log:183-190; spikes/spike2-results/raw/tiles-t1t6-run2-20261101-205859.log:163-171",
    "runs": [
     "tiles-t1t6-run1-20261101-205642",
     "tiles-t1t6-run1-20261101-205821",
@@ -121,7 +121,7 @@
    "p95": 509.539,
    "max": 600.994,
    "est_p50": 622.0,
-   "src": "F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/tiles-t1t6-run1-20261101-205642.log:202-206; F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/tiles-t1t6-run1-20261101-205821.log:216-225; F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/tiles-t1t6-run1-20261101-205938.log:193-203; F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/tiles-t1t6-run2-20261101-205718.log:211-215; F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/tiles-t1t6-run2-20261101-205859.log:183-196",
+   "src": "spikes/spike2-results/raw/tiles-t1t6-run1-20261101-205642.log:202-206; spikes/spike2-results/raw/tiles-t1t6-run1-20261101-205821.log:216-225; spikes/spike2-results/raw/tiles-t1t6-run1-20261101-205938.log:193-203; spikes/spike2-results/raw/tiles-t1t6-run2-20261101-205718.log:211-215; spikes/spike2-results/raw/tiles-t1t6-run2-20261101-205859.log:183-196",
    "runs": [
     "tiles-t1t6-run1-20261101-205642",
     "tiles-t1t6-run1-20261101-205821",
@@ -150,7 +150,7 @@
    "read_path_ms": 1306.2,
    "from_create_ms": 5166.2,
    "tiles": "9",
-   "src": "F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/tiles-t1t6-run1-20261101-205642.log:184"
+   "src": "spikes/spike2-results/raw/tiles-t1t6-run1-20261101-205642.log:184"
   },
   {
    "run_id": "tiles-t1t6-run1-20261101-205821",
@@ -160,7 +160,7 @@
    "read_path_ms": 1371.7,
    "from_create_ms": 6342.3,
    "tiles": "9",
-   "src": "F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/tiles-t1t6-run1-20261101-205821.log:198"
+   "src": "spikes/spike2-results/raw/tiles-t1t6-run1-20261101-205821.log:198"
   },
   {
    "run_id": "tiles-t1t6-run1-20261101-205938",
@@ -170,7 +170,7 @@
    "read_path_ms": 1286.1,
    "from_create_ms": 4313.7,
    "tiles": "9",
-   "src": "F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/tiles-t1t6-run1-20261101-205938.log:171"
+   "src": "spikes/spike2-results/raw/tiles-t1t6-run1-20261101-205938.log:171"
   },
   {
    "run_id": "tiles-t1t6-run2-20261101-205718",
@@ -180,7 +180,7 @@
    "read_path_ms": 1530.5,
    "from_create_ms": 5895.6,
    "tiles": "9",
-   "src": "F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/tiles-t1t6-run2-20261101-205718.log:192"
+   "src": "spikes/spike2-results/raw/tiles-t1t6-run2-20261101-205718.log:192"
   },
   {
    "run_id": "tiles-t1t6-run2-20261101-205859",
@@ -190,7 +190,7 @@
    "read_path_ms": 1239.9,
    "from_create_ms": 4504.4,
    "tiles": "9",
-   "src": "F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/tiles-t1t6-run2-20261101-205859.log:172"
+   "src": "spikes/spike2-results/raw/tiles-t1t6-run2-20261101-205859.log:172"
   }
  ],
  "mem": [
@@ -210,7 +210,7 @@
    "limit": "",
    "tiles": "",
    "cycles": "",
-   "src": "F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/tiles-t1t6-run1-20261101-205642.log:208"
+   "src": "spikes/spike2-results/raw/tiles-t1t6-run1-20261101-205642.log:208"
   },
   {
    "run_id": "tiles-t1t6-run1-20261101-205642",
@@ -228,7 +228,7 @@
    "limit": "",
    "tiles": "",
    "cycles": "",
-   "src": "F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/tiles-t1t6-run1-20261101-205642.log:210"
+   "src": "spikes/spike2-results/raw/tiles-t1t6-run1-20261101-205642.log:210"
   },
   {
    "run_id": "tiles-t1t6-run1-20261101-205821",
@@ -246,7 +246,7 @@
    "limit": "",
    "tiles": "",
    "cycles": "",
-   "src": "F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/tiles-t1t6-run1-20261101-205821.log:226"
+   "src": "spikes/spike2-results/raw/tiles-t1t6-run1-20261101-205821.log:226"
   },
   {
    "run_id": "tiles-t1t6-run1-20261101-205821",
@@ -264,7 +264,7 @@
    "limit": "",
    "tiles": "",
    "cycles": "",
-   "src": "F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/tiles-t1t6-run1-20261101-205821.log:229"
+   "src": "spikes/spike2-results/raw/tiles-t1t6-run1-20261101-205821.log:229"
   },
   {
    "run_id": "tiles-t1t6-run1-20261101-205938",
@@ -282,7 +282,7 @@
    "limit": "",
    "tiles": "",
    "cycles": "",
-   "src": "F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/tiles-t1t6-run1-20261101-205938.log:204"
+   "src": "spikes/spike2-results/raw/tiles-t1t6-run1-20261101-205938.log:204"
   },
   {
    "run_id": "tiles-t1t6-run1-20261101-205938",
@@ -300,7 +300,7 @@
    "limit": "",
    "tiles": "",
    "cycles": "",
-   "src": "F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/tiles-t1t6-run1-20261101-205938.log:214"
+   "src": "spikes/spike2-results/raw/tiles-t1t6-run1-20261101-205938.log:214"
   },
   {
    "run_id": "tiles-t1t6-run2-20261101-205718",
@@ -318,7 +318,7 @@
    "limit": "",
    "tiles": "",
    "cycles": "",
-   "src": "F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/tiles-t1t6-run2-20261101-205718.log:216"
+   "src": "spikes/spike2-results/raw/tiles-t1t6-run2-20261101-205718.log:216"
   },
   {
    "run_id": "tiles-t1t6-run2-20261101-205718",
@@ -336,7 +336,7 @@
    "limit": "",
    "tiles": "",
    "cycles": "",
-   "src": "F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/tiles-t1t6-run2-20261101-205718.log:224"
+   "src": "spikes/spike2-results/raw/tiles-t1t6-run2-20261101-205718.log:224"
   },
   {
    "run_id": "tiles-t1t6-run2-20261101-205859",
@@ -354,7 +354,7 @@
    "limit": "",
    "tiles": "",
    "cycles": "",
-   "src": "F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/tiles-t1t6-run2-20261101-205859.log:197"
+   "src": "spikes/spike2-results/raw/tiles-t1t6-run2-20261101-205859.log:197"
   },
   {
    "run_id": "tiles-t1t6-run2-20261101-205859",
@@ -372,7 +372,7 @@
    "limit": "",
    "tiles": "",
    "cycles": "",
-   "src": "F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/tiles-t1t6-run2-20261101-205859.log:199"
+   "src": "spikes/spike2-results/raw/tiles-t1t6-run2-20261101-205859.log:199"
   }
  ],
  "drift": {
@@ -387,7 +387,7 @@
     "n": 8,
     "ts": "11-01 12:56:59.396",
     "app": "spike2t",
-    "src": "F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/tiles-t1t6-run1-20261101-205642.log:175-183"
+    "src": "spikes/spike2-results/raw/tiles-t1t6-run1-20261101-205642.log:175-183"
    },
    {
     "run_id": "tiles-t1t6-run2-20261101-205718",
@@ -396,7 +396,7 @@
     "n": 8,
     "ts": "11-01 12:57:35.298",
     "app": "spike2t",
-    "src": "F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/tiles-t1t6-run2-20261101-205718.log:183-190"
+    "src": "spikes/spike2-results/raw/tiles-t1t6-run2-20261101-205718.log:183-190"
    },
    {
     "run_id": "tiles-t1t6-run1-20261101-205821",
@@ -405,7 +405,7 @@
     "n": 8,
     "ts": "11-01 12:58:41.642",
     "app": "spike2t",
-    "src": "F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/tiles-t1t6-run1-20261101-205821.log:189-197"
+    "src": "spikes/spike2-results/raw/tiles-t1t6-run1-20261101-205821.log:189-197"
    },
    {
     "run_id": "tiles-t1t6-run2-20261101-205859",
@@ -414,7 +414,7 @@
     "n": 8,
     "ts": "11-01 12:59:12.628",
     "app": "spike2t",
-    "src": "F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/tiles-t1t6-run2-20261101-205859.log:163-171"
+    "src": "spikes/spike2-results/raw/tiles-t1t6-run2-20261101-205859.log:163-171"
    },
    {
     "run_id": "tiles-t1t6-run1-20261101-205938",
@@ -423,7 +423,7 @@
     "n": 8,
     "ts": "11-01 12:59:53.028",
     "app": "spike2t",
-    "src": "F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/tiles-t1t6-run1-20261101-205938.log:156-165"
+    "src": "spikes/spike2-results/raw/tiles-t1t6-run1-20261101-205938.log:156-165"
    }
   ],
   "first": {
@@ -433,7 +433,7 @@
    "n": 8,
    "ts": "11-01 12:56:59.396",
    "app": "spike2t",
-   "src": "F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/tiles-t1t6-run1-20261101-205642.log:175-183"
+   "src": "spikes/spike2-results/raw/tiles-t1t6-run1-20261101-205642.log:175-183"
   },
   "last": {
    "run_id": "tiles-t1t6-run1-20261101-205938",
@@ -442,11 +442,11 @@
    "n": 8,
    "ts": "11-01 12:59:53.028",
    "app": "spike2t",
-   "src": "F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/tiles-t1t6-run1-20261101-205938.log:156-165"
+   "src": "spikes/spike2-results/raw/tiles-t1t6-run1-20261101-205938.log:156-165"
   },
   "ratio": -0.119,
   "flag": "",
-  "src": "F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/tiles-t1t6-run1-20261101-205642.log:175-183; F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/tiles-t1t6-run1-20261101-205821.log:189-197; F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/tiles-t1t6-run1-20261101-205938.log:156-165; F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/tiles-t1t6-run2-20261101-205718.log:183-190; F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/tiles-t1t6-run2-20261101-205859.log:163-171"
+  "src": "spikes/spike2-results/raw/tiles-t1t6-run1-20261101-205642.log:175-183; spikes/spike2-results/raw/tiles-t1t6-run1-20261101-205821.log:189-197; spikes/spike2-results/raw/tiles-t1t6-run1-20261101-205938.log:156-165; spikes/spike2-results/raw/tiles-t1t6-run2-20261101-205718.log:183-190; spikes/spike2-results/raw/tiles-t1t6-run2-20261101-205859.log:163-171"
  },
  "row_counts": {
   "total": 145,

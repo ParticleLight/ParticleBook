@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "tool": "scripts/android/spike2/parse.py",
-  "generated_at": "2026-11-01T21:00:10+08:00",
+  "generated_at": "2026-11-01T21:16:10+08:00",
   "name": "tiles-t1t6-merged",
   "options": {
     "app": "spike2t",
@@ -12,7 +12,7 @@
   },
   "inputs": [
     {
-      "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\tiles-t1t6-run1-20261101-205642.log",
+      "file": "spikes\\spike2-results\\raw\\tiles-t1t6-run1-20261101-205642.log",
       "lines": 216,
       "record_lines": 29,
       "parse_failures": 0,
@@ -35,7 +35,7 @@
       ]
     },
     {
-      "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\tiles-t1t6-run1-20261101-205821.log",
+      "file": "spikes\\spike2-results\\raw\\tiles-t1t6-run1-20261101-205821.log",
       "lines": 234,
       "record_lines": 29,
       "parse_failures": 0,
@@ -58,7 +58,7 @@
       ]
     },
     {
-      "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\tiles-t1t6-run1-20261101-205938.log",
+      "file": "spikes\\spike2-results\\raw\\tiles-t1t6-run1-20261101-205938.log",
       "lines": 259,
       "record_lines": 29,
       "parse_failures": 0,
@@ -81,7 +81,7 @@
       ]
     },
     {
-      "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\tiles-t1t6-run2-20261101-205718.log",
+      "file": "spikes\\spike2-results\\raw\\tiles-t1t6-run2-20261101-205718.log",
       "lines": 225,
       "record_lines": 29,
       "parse_failures": 0,
@@ -104,7 +104,7 @@
       ]
     },
     {
-      "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\tiles-t1t6-run2-20261101-205859.log",
+      "file": "spikes\\spike2-results\\raw\\tiles-t1t6-run2-20261101-205859.log",
       "lines": 206,
       "record_lines": 29,
       "parse_failures": 0,
@@ -161,7 +161,7 @@
       "min": 0.505,
       "sources": [
         {
-          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\tiles-t1t6-run1-20261101-205642.log",
+          "file": "spikes\\spike2-results\\raw\\tiles-t1t6-run1-20261101-205642.log",
           "min_line": 175,
           "max_line": 183,
           "n": 8
@@ -182,7 +182,7 @@
       "min": 273.559,
       "sources": [
         {
-          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\tiles-t1t6-run1-20261101-205642.log",
+          "file": "spikes\\spike2-results\\raw\\tiles-t1t6-run1-20261101-205642.log",
           "min_line": 202,
           "max_line": 206,
           "n": 4
@@ -203,7 +203,7 @@
       "min": 0.481,
       "sources": [
         {
-          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\tiles-t1t6-run1-20261101-205821.log",
+          "file": "spikes\\spike2-results\\raw\\tiles-t1t6-run1-20261101-205821.log",
           "min_line": 189,
           "max_line": 197,
           "n": 8
@@ -224,7 +224,7 @@
       "min": 276.575,
       "sources": [
         {
-          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\tiles-t1t6-run1-20261101-205821.log",
+          "file": "spikes\\spike2-results\\raw\\tiles-t1t6-run1-20261101-205821.log",
           "min_line": 216,
           "max_line": 225,
           "n": 4
@@ -245,7 +245,7 @@
       "min": 0.268,
       "sources": [
         {
-          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\tiles-t1t6-run1-20261101-205938.log",
+          "file": "spikes\\spike2-results\\raw\\tiles-t1t6-run1-20261101-205938.log",
           "min_line": 156,
           "max_line": 165,
           "n": 8
@@ -266,7 +266,7 @@
       "min": 282.46,
       "sources": [
         {
-          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\tiles-t1t6-run1-20261101-205938.log",
+          "file": "spikes\\spike2-results\\raw\\tiles-t1t6-run1-20261101-205938.log",
           "min_line": 193,
           "max_line": 203,
           "n": 4
@@ -287,7 +287,7 @@
       "min": 0.206,
       "sources": [
         {
-          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\tiles-t1t6-run2-20261101-205718.log",
+          "file": "spikes\\spike2-results\\raw\\tiles-t1t6-run2-20261101-205718.log",
           "min_line": 183,
           "max_line": 190,
           "n": 8
@@ -308,7 +308,7 @@
       "min": 263.677,
       "sources": [
         {
-          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\tiles-t1t6-run2-20261101-205718.log",
+          "file": "spikes\\spike2-results\\raw\\tiles-t1t6-run2-20261101-205718.log",
           "min_line": 211,
           "max_line": 215,
           "n": 4
@@ -329,7 +329,7 @@
       "min": 0.211,
       "sources": [
         {
-          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\tiles-t1t6-run2-20261101-205859.log",
+          "file": "spikes\\spike2-results\\raw\\tiles-t1t6-run2-20261101-205859.log",
           "min_line": 163,
           "max_line": 171,
           "n": 8
@@ -350,7 +350,7 @@
       "min": 295.373,
       "sources": [
         {
-          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\tiles-t1t6-run2-20261101-205859.log",
+          "file": "spikes\\spike2-results\\raw\\tiles-t1t6-run2-20261101-205859.log",
           "min_line": 183,
           "max_line": 196,
           "n": 4
@@ -371,31 +371,31 @@
       "min": 0.206,
       "sources": [
         {
-          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\tiles-t1t6-run1-20261101-205642.log",
+          "file": "spikes\\spike2-results\\raw\\tiles-t1t6-run1-20261101-205642.log",
           "min_line": 175,
           "max_line": 183,
           "n": 8
         },
         {
-          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\tiles-t1t6-run1-20261101-205821.log",
+          "file": "spikes\\spike2-results\\raw\\tiles-t1t6-run1-20261101-205821.log",
           "min_line": 189,
           "max_line": 197,
           "n": 8
         },
         {
-          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\tiles-t1t6-run1-20261101-205938.log",
+          "file": "spikes\\spike2-results\\raw\\tiles-t1t6-run1-20261101-205938.log",
           "min_line": 156,
           "max_line": 165,
           "n": 8
         },
         {
-          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\tiles-t1t6-run2-20261101-205718.log",
+          "file": "spikes\\spike2-results\\raw\\tiles-t1t6-run2-20261101-205718.log",
           "min_line": 183,
           "max_line": 190,
           "n": 8
         },
         {
-          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\tiles-t1t6-run2-20261101-205859.log",
+          "file": "spikes\\spike2-results\\raw\\tiles-t1t6-run2-20261101-205859.log",
           "min_line": 163,
           "max_line": 171,
           "n": 8
@@ -416,31 +416,31 @@
       "min": 263.677,
       "sources": [
         {
-          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\tiles-t1t6-run1-20261101-205642.log",
+          "file": "spikes\\spike2-results\\raw\\tiles-t1t6-run1-20261101-205642.log",
           "min_line": 202,
           "max_line": 206,
           "n": 4
         },
         {
-          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\tiles-t1t6-run1-20261101-205821.log",
+          "file": "spikes\\spike2-results\\raw\\tiles-t1t6-run1-20261101-205821.log",
           "min_line": 216,
           "max_line": 225,
           "n": 4
         },
         {
-          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\tiles-t1t6-run1-20261101-205938.log",
+          "file": "spikes\\spike2-results\\raw\\tiles-t1t6-run1-20261101-205938.log",
           "min_line": 193,
           "max_line": 203,
           "n": 4
         },
         {
-          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\tiles-t1t6-run2-20261101-205718.log",
+          "file": "spikes\\spike2-results\\raw\\tiles-t1t6-run2-20261101-205718.log",
           "min_line": 211,
           "max_line": 215,
           "n": 4
         },
         {
-          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\tiles-t1t6-run2-20261101-205859.log",
+          "file": "spikes\\spike2-results\\raw\\tiles-t1t6-run2-20261101-205859.log",
           "min_line": 183,
           "max_line": 196,
           "n": 4
@@ -994,7 +994,7 @@
   "missing_pbdone": [],
   "runenv": [
     {
-      "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\tiles-t1t6-run1-20261101-205642.log",
+      "file": "spikes\\spike2-results\\raw\\tiles-t1t6-run1-20261101-205642.log",
       "fields": {
         "app": "spike2t",
         "run_id": "tiles-t1t6-run1-20261101-205642",
@@ -1010,7 +1010,7 @@
       }
     },
     {
-      "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\tiles-t1t6-run1-20261101-205821.log",
+      "file": "spikes\\spike2-results\\raw\\tiles-t1t6-run1-20261101-205821.log",
       "fields": {
         "app": "spike2t",
         "run_id": "tiles-t1t6-run1-20261101-205821",
@@ -1026,7 +1026,7 @@
       }
     },
     {
-      "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\tiles-t1t6-run1-20261101-205938.log",
+      "file": "spikes\\spike2-results\\raw\\tiles-t1t6-run1-20261101-205938.log",
       "fields": {
         "app": "spike2t",
         "run_id": "tiles-t1t6-run1-20261101-205938",
@@ -1042,7 +1042,7 @@
       }
     },
     {
-      "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\tiles-t1t6-run2-20261101-205718.log",
+      "file": "spikes\\spike2-results\\raw\\tiles-t1t6-run2-20261101-205718.log",
       "fields": {
         "app": "spike2t",
         "run_id": "tiles-t1t6-run2-20261101-205718",
@@ -1058,7 +1058,7 @@
       }
     },
     {
-      "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\tiles-t1t6-run2-20261101-205859.log",
+      "file": "spikes\\spike2-results\\raw\\tiles-t1t6-run2-20261101-205859.log",
       "fields": {
         "app": "spike2t",
         "run_id": "tiles-t1t6-run2-20261101-205859",

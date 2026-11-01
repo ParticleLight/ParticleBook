@@ -1,19 +1,19 @@
 # Spike2 基准统计 · tiles-t2-merged
 
 > 由 `scripts/android/spike2/parse.py` 生成；本文件所有数字均来自解析结果，未做估算。
-> 生成时间：2026-11-01T21:08:53+08:00　|　解析失败行：0
+> 生成时间：2026-11-01T21:16:11+08:00　|　解析失败行：0
 
 ## 1. 环境与输入
 
 | 文件 | run_id | app | 总行数 | 记录行 | 解析失败 |
 |---|---|---|---|---|---|
-| F:\VScode\Read\.agents\worktrees\dsh-2998e44b-11d5\spikes\spike2-results\raw\tiles-t2-run1-20261101-210735.log | tiles-t2-run1-20261101-210735 | spike2t | 355 | 111 | 0 |
+| spikes\spike2-results\raw\tiles-t2-run1-20261101-210735.log | tiles-t2-run1-20261101-210735 | spike2t | 355 | 111 | 0 |
 
 **RUNENV 元数据**
 
 | 文件 | run_id | app | apk_md5 | scenario | ts |
 |---|---|---|---|---|---|
-| F:\VScode\Read\.agents\worktrees\dsh-2998e44b-11d5\spikes\spike2-results\raw\tiles-t2-run1-20261101-210735.log | tiles-t2-run1-20261101-210735 | spike2t | 7ab3634ff0d97dcad0a759c988304e5d | T2 | 2026-11-01T21:07:48+0800 |
+| spikes\spike2-results\raw\tiles-t2-run1-20261101-210735.log | tiles-t2-run1-20261101-210735 | spike2t | 7ab3634ff0d97dcad0a759c988304e5d | T2 | 2026-11-01T21:07:48+0800 |
 
 | 参数 | 值 |
 |---|---|
@@ -21,7 +21,7 @@
 | --drop-first | 0 |
 | --drop-mode | first-per-phase |
 | --min-samples | 5 |
-| 输入路径 | F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/tiles-t2-run1-20261101-210735.log |
+| 输入路径 | spikes/spike2-results/raw/tiles-t2-run1-20261101-210735.log |
 
 ## 2. 样本构成
 
@@ -45,19 +45,19 @@
 
 | app | scenario | phase | n | median | p50 | p95 | max | min | 来源 |
 |---|---|---|---|---|---|---|---|---|---|
-| spike2t | T2 | full_curve | 9 | 102.054 | 102.054 | 299.091 | 299.091 | 44.469 | F:\VScode\Read\.agents\worktrees\dsh-2998e44b-11d5\spikes\spike2-results\raw\tiles-t2-run1-20261101-210735.log:342-351(n=9) |
-| spike2t | T2 | full_ref | 2 | 922.726 | 532.211 | 1313.241 | 1313.241 | 532.211 | F:\VScode\Read\.agents\worktrees\dsh-2998e44b-11d5\spikes\spike2-results\raw\tiles-t2-run1-20261101-210735.log:325-335(n=2) |
-| spike2t | T2 | tile | 71 | 142.848 | 142.848 | 738.176 | 1010.736 | 18.485 | F:\VScode\Read\.agents\worktrees\dsh-2998e44b-11d5\spikes\spike2-results\raw\tiles-t2-run1-20261101-210735.log:205-332(n=71) |
-| spike2t | T2 | tile_stat | 11 | 164.747 | 164.747 | 590.714 | 590.714 | 42.103 | F:\VScode\Read\.agents\worktrees\dsh-2998e44b-11d5\spikes\spike2-results\raw\tiles-t2-run1-20261101-210735.log:229-333(n=11) |
+| spike2t | T2 | full_curve | 9 | 102.054 | 102.054 | 299.091 | 299.091 | 44.469 | spikes\spike2-results\raw\tiles-t2-run1-20261101-210735.log:342-351(n=9) |
+| spike2t | T2 | full_ref | 2 | 922.726 | 532.211 | 1313.241 | 1313.241 | 532.211 | spikes\spike2-results\raw\tiles-t2-run1-20261101-210735.log:325-335(n=2) |
+| spike2t | T2 | tile | 71 | 142.848 | 142.848 | 738.176 | 1010.736 | 18.485 | spikes\spike2-results\raw\tiles-t2-run1-20261101-210735.log:205-332(n=71) |
+| spike2t | T2 | tile_stat | 11 | 164.747 | 164.747 | 590.714 | 590.714 | 42.103 | spikes\spike2-results\raw\tiles-t2-run1-20261101-210735.log:229-333(n=11) |
 
 ## 4. ms 统计（按 run）
 
 | run_id | app | scenario | phase | n | median | p50 | p95 | max | min | 来源 |
 |---|---|---|---|---|---|---|---|---|---|---|
-| tiles-t2-run1-20261101-210735 | spike2t | T2 | full_curve | 9 | 102.054 | 102.054 | 299.091 | 299.091 | 44.469 | F:\VScode\Read\.agents\worktrees\dsh-2998e44b-11d5\spikes\spike2-results\raw\tiles-t2-run1-20261101-210735.log:342-351(n=9) |
-| tiles-t2-run1-20261101-210735 | spike2t | T2 | full_ref | 2 | 922.726 | 532.211 | 1313.241 | 1313.241 | 532.211 | F:\VScode\Read\.agents\worktrees\dsh-2998e44b-11d5\spikes\spike2-results\raw\tiles-t2-run1-20261101-210735.log:325-335(n=2) |
-| tiles-t2-run1-20261101-210735 | spike2t | T2 | tile | 71 | 142.848 | 142.848 | 738.176 | 1010.736 | 18.485 | F:\VScode\Read\.agents\worktrees\dsh-2998e44b-11d5\spikes\spike2-results\raw\tiles-t2-run1-20261101-210735.log:205-332(n=71) |
-| tiles-t2-run1-20261101-210735 | spike2t | T2 | tile_stat | 11 | 164.747 | 164.747 | 590.714 | 590.714 | 42.103 | F:\VScode\Read\.agents\worktrees\dsh-2998e44b-11d5\spikes\spike2-results\raw\tiles-t2-run1-20261101-210735.log:229-333(n=11) |
+| tiles-t2-run1-20261101-210735 | spike2t | T2 | full_curve | 9 | 102.054 | 102.054 | 299.091 | 299.091 | 44.469 | spikes\spike2-results\raw\tiles-t2-run1-20261101-210735.log:342-351(n=9) |
+| tiles-t2-run1-20261101-210735 | spike2t | T2 | full_ref | 2 | 922.726 | 532.211 | 1313.241 | 1313.241 | 532.211 | spikes\spike2-results\raw\tiles-t2-run1-20261101-210735.log:325-335(n=2) |
+| tiles-t2-run1-20261101-210735 | spike2t | T2 | tile | 71 | 142.848 | 142.848 | 738.176 | 1010.736 | 18.485 | spikes\spike2-results\raw\tiles-t2-run1-20261101-210735.log:205-332(n=71) |
+| tiles-t2-run1-20261101-210735 | spike2t | T2 | tile_stat | 11 | 164.747 | 164.747 | 590.714 | 590.714 | 42.103 | spikes\spike2-results\raw\tiles-t2-run1-20261101-210735.log:229-333(n=11) |
 
 ## 5. 内存（PSS，不进 ms 表）
 
