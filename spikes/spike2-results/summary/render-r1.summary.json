@@ -1,0 +1,526 @@
+{
+ "name": "render-r1",
+ "generated_at": "2026-11-01T20:49:31+08:00",
+ "factor": 1.8,
+ "min_samples": 5,
+ "drift_warn_ratio": 0.2,
+ "inputs": [
+  {
+   "path": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\csv\\render-r1-merged.csv",
+   "rows": 285
+  }
+ ],
+ "env": [
+  {
+   "app": "spike2",
+   "run_id": "render-r1-run1-20261101-204131",
+   "src": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r1-run1-20261101-204131.log:1",
+   "apk": "spikes/spike2-pdf/app/build/outputs/apk/debug/app-debug.apk",
+   "apk_md5": "8ea3edc683ebf0b5be2f32f32dc57bb9",
+   "apk_bytes": "7287902",
+   "scenario": "S1",
+   "api": "35",
+   "model": "Android_SDK_built_for_x86_64",
+   "abi": "x86_64",
+   "build": "12368160",
+   "ts": "2026-11-01T20:41:39+0800",
+   "host": ""
+  },
+  {
+   "app": "spike2",
+   "run_id": "render-r1-run1-20261101-204647",
+   "src": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r1-run1-20261101-204647.log:1",
+   "apk": "spikes/spike2-pdf/app/build/outputs/apk/debug/app-debug.apk",
+   "apk_md5": "8ea3edc683ebf0b5be2f32f32dc57bb9",
+   "apk_bytes": "7287902",
+   "scenario": "S1",
+   "api": "35",
+   "model": "Android_SDK_built_for_x86_64",
+   "abi": "x86_64",
+   "build": "12368160",
+   "ts": "2026-11-01T20:46:55+0800",
+   "host": ""
+  },
+  {
+   "app": "spike2",
+   "run_id": "render-r1-run1-20261101-204732",
+   "src": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r1-run1-20261101-204732.log:1",
+   "apk": "spikes/spike2-pdf/app/build/outputs/apk/debug/app-debug.apk",
+   "apk_md5": "8ea3edc683ebf0b5be2f32f32dc57bb9",
+   "apk_bytes": "7287902",
+   "scenario": "S1",
+   "api": "35",
+   "model": "Android_SDK_built_for_x86_64",
+   "abi": "x86_64",
+   "build": "12368160",
+   "ts": "2026-11-01T20:47:40+0800",
+   "host": ""
+  },
+  {
+   "app": "spike2",
+   "run_id": "render-r1-run1-20261101-204818",
+   "src": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r1-run1-20261101-204818.log:1",
+   "apk": "spikes/spike2-pdf/app/build/outputs/apk/debug/app-debug.apk",
+   "apk_md5": "8ea3edc683ebf0b5be2f32f32dc57bb9",
+   "apk_bytes": "7287902",
+   "scenario": "S1",
+   "api": "35",
+   "model": "Android_SDK_built_for_x86_64",
+   "abi": "x86_64",
+   "build": "12368160",
+   "ts": "2026-11-01T20:48:25+0800",
+   "host": ""
+  },
+  {
+   "app": "spike2",
+   "run_id": "render-r1-run1-20261101-204859",
+   "src": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r1-run1-20261101-204859.log:1",
+   "apk": "spikes/spike2-pdf/app/build/outputs/apk/debug/app-debug.apk",
+   "apk_md5": "8ea3edc683ebf0b5be2f32f32dc57bb9",
+   "apk_bytes": "7287902",
+   "scenario": "S1",
+   "api": "35",
+   "model": "Android_SDK_built_for_x86_64",
+   "abi": "x86_64",
+   "build": "12368160",
+   "ts": "2026-11-01T20:49:06+0800",
+   "host": ""
+  }
+ ],
+ "groups": [
+  {
+   "n": 5,
+   "min": 324.164,
+   "p50": 540.686,
+   "p95": 665.414,
+   "max": 665.414,
+   "est_p50": 973.2,
+   "src": "F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r1-run1-20261101-204131.log:122-122; F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r1-run1-20261101-204647.log:118-118; F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r1-run1-20261101-204732.log:128-128; F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r1-run1-20261101-204818.log:122-122; F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r1-run1-20261101-204859.log:124-124",
+   "runs": [
+    "render-r1-run1-20261101-204131",
+    "render-r1-run1-20261101-204647",
+    "render-r1-run1-20261101-204732",
+    "render-r1-run1-20261101-204818",
+    "render-r1-run1-20261101-204859"
+   ],
+   "dims": [],
+   "low_confidence": false,
+   "app": "spike2",
+   "scenario": "S1",
+   "phase": "open"
+  },
+  {
+   "n": 95,
+   "min": 18.029,
+   "p50": 42.206,
+   "p95": 251.172,
+   "max": 705.791,
+   "est_p50": 76.0,
+   "src": "F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r1-run1-20261101-204131.log:163-224; F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r1-run1-20261101-204647.log:155-210; F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r1-run1-20261101-204732.log:147-219; F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r1-run1-20261101-204818.log:156-202; F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r1-run1-20261101-204859.log:156-202",
+   "runs": [
+    "render-r1-run1-20261101-204131",
+    "render-r1-run1-20261101-204647",
+    "render-r1-run1-20261101-204732",
+    "render-r1-run1-20261101-204818",
+    "render-r1-run1-20261101-204859"
+   ],
+   "dims": [
+    "1188x1682"
+   ],
+   "low_confidence": false,
+   "app": "spike2",
+   "scenario": "S2",
+   "phase": "present"
+  },
+  {
+   "n": 95,
+   "min": 4.924,
+   "p50": 102.717,
+   "p95": 582.05,
+   "max": 1525.398,
+   "est_p50": 184.9,
+   "src": "F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r1-run1-20261101-204131.log:133-223; F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r1-run1-20261101-204647.log:152-208; F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r1-run1-20261101-204732.log:139-218; F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r1-run1-20261101-204818.log:133-201; F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r1-run1-20261101-204859.log:134-201",
+   "runs": [
+    "render-r1-run1-20261101-204131",
+    "render-r1-run1-20261101-204647",
+    "render-r1-run1-20261101-204732",
+    "render-r1-run1-20261101-204818",
+    "render-r1-run1-20261101-204859"
+   ],
+   "dims": [
+    "1188x1682"
+   ],
+   "low_confidence": false,
+   "app": "spike2",
+   "scenario": "S2",
+   "phase": "render"
+  },
+  {
+   "n": 20,
+   "min": 136.061,
+   "p50": 298.816,
+   "p95": 520.122,
+   "max": 549.477,
+   "est_p50": 537.9,
+   "src": "F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r1-run1-20261101-204131.log:226-232; F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r1-run1-20261101-204647.log:212-216; F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r1-run1-20261101-204732.log:222-229; F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r1-run1-20261101-204818.log:204-215; F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r1-run1-20261101-204859.log:204-214",
+   "runs": [
+    "render-r1-run1-20261101-204131",
+    "render-r1-run1-20261101-204647",
+    "render-r1-run1-20261101-204732",
+    "render-r1-run1-20261101-204818",
+    "render-r1-run1-20261101-204859"
+   ],
+   "dims": [
+    "1188x1682"
+   ],
+   "low_confidence": false,
+   "app": "spike2",
+   "scenario": "S3",
+   "phase": "render"
+  }
+ ],
+ "by_temp": [
+  {
+   "n": 20,
+   "min": 18.029,
+   "p50": 50.931,
+   "p95": 597.233,
+   "max": 705.791,
+   "est_p50": 91.7,
+   "src": "F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r1-run1-20261101-204131.log:163-211; F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r1-run1-20261101-204647.log:155-193; F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r1-run1-20261101-204732.log:147-210; F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r1-run1-20261101-204818.log:156-193; F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r1-run1-20261101-204859.log:156-194",
+   "runs": [
+    "render-r1-run1-20261101-204131",
+    "render-r1-run1-20261101-204647",
+    "render-r1-run1-20261101-204732",
+    "render-r1-run1-20261101-204818",
+    "render-r1-run1-20261101-204859"
+   ],
+   "dims": [
+    "1188x1682"
+   ],
+   "low_confidence": false,
+   "app": "spike2",
+   "scenario": "S2",
+   "phase": "present",
+   "temp": "cold"
+  },
+  {
+   "n": 75,
+   "min": 20.978,
+   "p50": 38.528,
+   "p95": 91.171,
+   "max": 126.506,
+   "est_p50": 69.4,
+   "src": "F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r1-run1-20261101-204131.log:181-224; F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r1-run1-20261101-204647.log:164-210; F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r1-run1-20261101-204732.log:168-219; F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r1-run1-20261101-204818.log:165-202; F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r1-run1-20261101-204859.log:163-202",
+   "runs": [
+    "render-r1-run1-20261101-204131",
+    "render-r1-run1-20261101-204647",
+    "render-r1-run1-20261101-204732",
+    "render-r1-run1-20261101-204818",
+    "render-r1-run1-20261101-204859"
+   ],
+   "dims": [
+    "1188x1682"
+   ],
+   "low_confidence": false,
+   "app": "spike2",
+   "scenario": "S2",
+   "phase": "present",
+   "temp": "warm"
+  },
+  {
+   "n": 20,
+   "min": 41.036,
+   "p50": 150.532,
+   "p95": 1089.814,
+   "max": 1525.398,
+   "est_p50": 271.0,
+   "src": "F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r1-run1-20261101-204131.log:133-210; F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r1-run1-20261101-204647.log:152-192; F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r1-run1-20261101-204732.log:139-209; F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r1-run1-20261101-204818.log:133-192; F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r1-run1-20261101-204859.log:134-193",
+   "runs": [
+    "render-r1-run1-20261101-204131",
+    "render-r1-run1-20261101-204647",
+    "render-r1-run1-20261101-204732",
+    "render-r1-run1-20261101-204818",
+    "render-r1-run1-20261101-204859"
+   ],
+   "dims": [
+    "1188x1682"
+   ],
+   "low_confidence": false,
+   "app": "spike2",
+   "scenario": "S2",
+   "phase": "render",
+   "temp": "cold"
+  },
+  {
+   "n": 75,
+   "min": 4.924,
+   "p50": 82.364,
+   "p95": 409.732,
+   "max": 561.947,
+   "est_p50": 148.3,
+   "src": "F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r1-run1-20261101-204131.log:180-223; F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r1-run1-20261101-204647.log:163-208; F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r1-run1-20261101-204732.log:167-218; F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r1-run1-20261101-204818.log:164-201; F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r1-run1-20261101-204859.log:162-201",
+   "runs": [
+    "render-r1-run1-20261101-204131",
+    "render-r1-run1-20261101-204647",
+    "render-r1-run1-20261101-204732",
+    "render-r1-run1-20261101-204818",
+    "render-r1-run1-20261101-204859"
+   ],
+   "dims": [
+    "1188x1682"
+   ],
+   "low_confidence": false,
+   "app": "spike2",
+   "scenario": "S2",
+   "phase": "render",
+   "temp": "warm"
+  },
+  {
+   "n": 5,
+   "min": 143.363,
+   "p50": 199.3,
+   "p95": 397.943,
+   "max": 397.943,
+   "est_p50": 358.7,
+   "src": "F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r1-run1-20261101-204131.log:226-226; F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r1-run1-20261101-204647.log:212-212; F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r1-run1-20261101-204732.log:222-222; F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r1-run1-20261101-204818.log:204-204; F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r1-run1-20261101-204859.log:204-204",
+   "runs": [
+    "render-r1-run1-20261101-204131",
+    "render-r1-run1-20261101-204647",
+    "render-r1-run1-20261101-204732",
+    "render-r1-run1-20261101-204818",
+    "render-r1-run1-20261101-204859"
+   ],
+   "dims": [
+    "1188x1682"
+   ],
+   "low_confidence": false,
+   "app": "spike2",
+   "scenario": "S3",
+   "phase": "render",
+   "temp": "cold"
+  },
+  {
+   "n": 15,
+   "min": 136.061,
+   "p50": 313.039,
+   "p95": 549.477,
+   "max": 549.477,
+   "est_p50": 563.5,
+   "src": "F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r1-run1-20261101-204131.log:230-232; F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r1-run1-20261101-204647.log:214-216; F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r1-run1-20261101-204732.log:227-229; F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r1-run1-20261101-204818.log:206-215; F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r1-run1-20261101-204859.log:212-214",
+   "runs": [
+    "render-r1-run1-20261101-204131",
+    "render-r1-run1-20261101-204647",
+    "render-r1-run1-20261101-204732",
+    "render-r1-run1-20261101-204818",
+    "render-r1-run1-20261101-204859"
+   ],
+   "dims": [
+    "1188x1682"
+   ],
+   "low_confidence": false,
+   "app": "spike2",
+   "scenario": "S3",
+   "phase": "render",
+   "temp": "warm"
+  }
+ ],
+ "by_annot": [
+  {
+   "n": 95,
+   "min": 4.924,
+   "p50": 102.717,
+   "p95": 582.05,
+   "max": 1525.398,
+   "est_p50": 184.9,
+   "src": "F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r1-run1-20261101-204131.log:133-223; F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r1-run1-20261101-204647.log:152-208; F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r1-run1-20261101-204732.log:139-218; F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r1-run1-20261101-204818.log:133-201; F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r1-run1-20261101-204859.log:134-201",
+   "runs": [
+    "render-r1-run1-20261101-204131",
+    "render-r1-run1-20261101-204647",
+    "render-r1-run1-20261101-204732",
+    "render-r1-run1-20261101-204818",
+    "render-r1-run1-20261101-204859"
+   ],
+   "dims": [
+    "1188x1682"
+   ],
+   "low_confidence": false,
+   "app": "spike2",
+   "scenario": "S2",
+   "phase": "render",
+   "annot": "1"
+  }
+ ],
+ "aggregates": [],
+ "first_screen": [],
+ "mem": [
+  {
+   "run_id": "render-r1-run1-20261101-204131",
+   "app": "spike2",
+   "scenario": "S7",
+   "phase": "pss",
+   "pss_kb": "24923",
+   "native_kb": "3897",
+   "java_kb": "702",
+   "tag": "cold",
+   "hit": "",
+   "evict": "",
+   "miss": "",
+   "bytes": "",
+   "limit": "",
+   "tiles": "",
+   "cycles": "",
+   "src": "F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r1-run1-20261101-204131.log:103"
+  },
+  {
+   "run_id": "render-r1-run1-20261101-204647",
+   "app": "spike2",
+   "scenario": "S7",
+   "phase": "pss",
+   "pss_kb": "24461",
+   "native_kb": "3886",
+   "java_kb": "685",
+   "tag": "cold",
+   "hit": "",
+   "evict": "",
+   "miss": "",
+   "bytes": "",
+   "limit": "",
+   "tiles": "",
+   "cycles": "",
+   "src": "F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r1-run1-20261101-204647.log:101"
+  },
+  {
+   "run_id": "render-r1-run1-20261101-204732",
+   "app": "spike2",
+   "scenario": "S7",
+   "phase": "pss",
+   "pss_kb": "22796",
+   "native_kb": "3926",
+   "java_kb": "685",
+   "tag": "cold",
+   "hit": "",
+   "evict": "",
+   "miss": "",
+   "bytes": "",
+   "limit": "",
+   "tiles": "",
+   "cycles": "",
+   "src": "F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r1-run1-20261101-204732.log:110"
+  },
+  {
+   "run_id": "render-r1-run1-20261101-204818",
+   "app": "spike2",
+   "scenario": "S7",
+   "phase": "pss",
+   "pss_kb": "24560",
+   "native_kb": "3908",
+   "java_kb": "685",
+   "tag": "cold",
+   "hit": "",
+   "evict": "",
+   "miss": "",
+   "bytes": "",
+   "limit": "",
+   "tiles": "",
+   "cycles": "",
+   "src": "F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r1-run1-20261101-204818.log:105"
+  },
+  {
+   "run_id": "render-r1-run1-20261101-204859",
+   "app": "spike2",
+   "scenario": "S7",
+   "phase": "pss",
+   "pss_kb": "24480",
+   "native_kb": "3890",
+   "java_kb": "685",
+   "tag": "cold",
+   "hit": "",
+   "evict": "",
+   "miss": "",
+   "bytes": "",
+   "limit": "",
+   "tiles": "",
+   "cycles": "",
+   "src": "F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r1-run1-20261101-204859.log:106"
+  }
+ ],
+ "drift": {
+  "scenario": "S2",
+  "phase": "render",
+  "page": 0,
+  "runs": [
+   {
+    "run_id": "render-r1-run1-20261101-204131",
+    "avg": 517.443,
+    "med": 426.952,
+    "n": 4,
+    "ts": "11-01 12:41:46.368",
+    "app": "spike2",
+    "src": "F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r1-run1-20261101-204131.log:133-185"
+   },
+   {
+    "run_id": "render-r1-run1-20261101-204647",
+    "avg": 656.491,
+    "med": 418.932,
+    "n": 4,
+    "ts": "11-01 12:47:03.705",
+    "app": "spike2",
+    "src": "F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r1-run1-20261101-204647.log:152-167"
+   },
+   {
+    "run_id": "render-r1-run1-20261101-204732",
+    "avg": 536.019,
+    "med": 395.462,
+    "n": 4,
+    "ts": "11-01 12:47:48.293",
+    "app": "spike2",
+    "src": "F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r1-run1-20261101-204732.log:139-172"
+   },
+   {
+    "run_id": "render-r1-run1-20261101-204818",
+    "avg": 509.53,
+    "med": 365.313,
+    "n": 4,
+    "ts": "11-01 12:48:32.325",
+    "app": "spike2",
+    "src": "F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r1-run1-20261101-204818.log:133-168"
+   },
+   {
+    "run_id": "render-r1-run1-20261101-204859",
+    "avg": 395.115,
+    "med": 345.632,
+    "n": 4,
+    "ts": "11-01 12:49:13.033",
+    "app": "spike2",
+    "src": "F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r1-run1-20261101-204859.log:134-169"
+   }
+  ],
+  "first": {
+   "run_id": "render-r1-run1-20261101-204131",
+   "avg": 517.443,
+   "med": 426.952,
+   "n": 4,
+   "ts": "11-01 12:41:46.368",
+   "app": "spike2",
+   "src": "F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r1-run1-20261101-204131.log:133-185"
+  },
+  "last": {
+   "run_id": "render-r1-run1-20261101-204859",
+   "avg": 395.115,
+   "med": 345.632,
+   "n": 4,
+   "ts": "11-01 12:49:13.033",
+   "app": "spike2",
+   "src": "F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r1-run1-20261101-204859.log:134-169"
+  },
+  "ratio": -0.19,
+  "flag": "",
+  "src": "F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r1-run1-20261101-204131.log:133-185; F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r1-run1-20261101-204647.log:152-167; F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r1-run1-20261101-204732.log:139-172; F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r1-run1-20261101-204818.log:133-168; F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r1-run1-20261101-204859.log:134-169"
+ },
+ "row_counts": {
+  "total": 285,
+  "countable": 215,
+  "runs": 5
+ }
+}

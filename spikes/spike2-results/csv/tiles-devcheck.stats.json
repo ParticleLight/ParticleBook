@@ -1,0 +1,1168 @@
+{
+  "schema": 1,
+  "tool": "scripts/android/spike2/parse.py",
+  "generated_at": "2026-11-01T20:16:38+08:00",
+  "name": "tiles-devcheck",
+  "options": {
+    "app": "spike2t",
+    "drop_first": 0,
+    "drop_mode": "none",
+    "min_samples": 5,
+    "out": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\csv"
+  },
+  "inputs": [
+    {
+      "file": "spikes\\spike2-results\\raw\\tiles-dev-20261101-193520.log",
+      "lines": 110,
+      "record_lines": 109,
+      "parse_failures": 0,
+      "run_id": "tiles-dev-20261101-193520",
+      "app": "spike2t",
+      "runenv": []
+    },
+    {
+      "file": "spikes\\spike2-results\\raw\\tiles-dev-20261101-193349.log",
+      "lines": 46,
+      "record_lines": 45,
+      "parse_failures": 0,
+      "run_id": "tiles-dev-20261101-193349",
+      "app": "spike2t",
+      "runenv": []
+    }
+  ],
+  "counts": {
+    "files": 2,
+    "lines": 156,
+    "records": 154,
+    "source_record_lines": 154,
+    "parse_failures": 0,
+    "by_record": {
+      "PBDONE": 3,
+      "PBPERF": 146,
+      "PBTIME": 5
+    },
+    "warmup": 0,
+    "warmup_dropped": 0,
+    "error": 0,
+    "pss": 1,
+    "stats_samples": 151
+  },
+  "groups": [
+    {
+      "scope": "run",
+      "run_id": "tiles-dev-20261101-193349",
+      "app": "spike2t",
+      "scenario": "PBTIME",
+      "phase": "first_frame",
+      "n": 1,
+      "median": 3534.665,
+      "p50": 3534.665,
+      "p95": 3534.665,
+      "max": 3534.665,
+      "min": 3534.665,
+      "sources": [
+        {
+          "file": "spikes\\spike2-results\\raw\\tiles-dev-20261101-193349.log",
+          "min_line": 3,
+          "max_line": 3,
+          "n": 1
+        }
+      ]
+    },
+    {
+      "scope": "run",
+      "run_id": "tiles-dev-20261101-193349",
+      "app": "spike2t",
+      "scenario": "PBTIME",
+      "phase": "read_path",
+      "n": 1,
+      "median": 2714.282,
+      "p50": 2714.282,
+      "p95": 2714.282,
+      "max": 2714.282,
+      "min": 2714.282,
+      "sources": [
+        {
+          "file": "spikes\\spike2-results\\raw\\tiles-dev-20261101-193349.log",
+          "min_line": 15,
+          "max_line": 15,
+          "n": 1
+        }
+      ]
+    },
+    {
+      "scope": "run",
+      "run_id": "tiles-dev-20261101-193349",
+      "app": "spike2t",
+      "scenario": "PBTIME",
+      "phase": "refresh_hz",
+      "n": 1,
+      "median": 60.0,
+      "p50": 60.0,
+      "p95": 60.0,
+      "max": 60.0,
+      "min": 60.0,
+      "sources": [
+        {
+          "file": "spikes\\spike2-results\\raw\\tiles-dev-20261101-193349.log",
+          "min_line": 2,
+          "max_line": 2,
+          "n": 1
+        }
+      ]
+    },
+    {
+      "scope": "run",
+      "run_id": "tiles-dev-20261101-193349",
+      "app": "spike2t",
+      "scenario": "T1",
+      "phase": "first_screen",
+      "n": 1,
+      "median": 2074.532,
+      "p50": 2074.532,
+      "p95": 2074.532,
+      "max": 2074.532,
+      "min": 2074.532,
+      "sources": [
+        {
+          "file": "spikes\\spike2-results\\raw\\tiles-dev-20261101-193349.log",
+          "min_line": 14,
+          "max_line": 14,
+          "n": 1
+        }
+      ]
+    },
+    {
+      "scope": "run",
+      "run_id": "tiles-dev-20261101-193349",
+      "app": "spike2t",
+      "scenario": "T1",
+      "phase": "lowres",
+      "n": 1,
+      "median": 317.697,
+      "p50": 317.697,
+      "p95": 317.697,
+      "max": 317.697,
+      "min": 317.697,
+      "sources": [
+        {
+          "file": "spikes\\spike2-results\\raw\\tiles-dev-20261101-193349.log",
+          "min_line": 18,
+          "max_line": 18,
+          "n": 1
+        }
+      ]
+    },
+    {
+      "scope": "run",
+      "run_id": "tiles-dev-20261101-193349",
+      "app": "spike2t",
+      "scenario": "T1",
+      "phase": "open",
+      "n": 1,
+      "median": 639.751,
+      "p50": 639.751,
+      "p95": 639.751,
+      "max": 639.751,
+      "min": 639.751,
+      "sources": [
+        {
+          "file": "spikes\\spike2-results\\raw\\tiles-dev-20261101-193349.log",
+          "min_line": 4,
+          "max_line": 4,
+          "n": 1
+        }
+      ]
+    },
+    {
+      "scope": "run",
+      "run_id": "tiles-dev-20261101-193349",
+      "app": "spike2t",
+      "scenario": "T1",
+      "phase": "tile",
+      "n": 9,
+      "median": 27.927,
+      "p50": 27.927,
+      "p95": 523.456,
+      "max": 523.456,
+      "min": 0.301,
+      "sources": [
+        {
+          "file": "spikes\\spike2-results\\raw\\tiles-dev-20261101-193349.log",
+          "min_line": 5,
+          "max_line": 13,
+          "n": 9
+        }
+      ]
+    },
+    {
+      "scope": "run",
+      "run_id": "tiles-dev-20261101-193349",
+      "app": "spike2t",
+      "scenario": "T1",
+      "phase": "tileprobe",
+      "n": 1,
+      "median": 0.0,
+      "p50": 0.0,
+      "p95": 0.0,
+      "max": 0.0,
+      "min": 0.0,
+      "sources": [
+        {
+          "file": "spikes\\spike2-results\\raw\\tiles-dev-20261101-193349.log",
+          "min_line": 17,
+          "max_line": 17,
+          "n": 1
+        }
+      ]
+    },
+    {
+      "scope": "run",
+      "run_id": "tiles-dev-20261101-193349",
+      "app": "spike2t",
+      "scenario": "T2",
+      "phase": "tile",
+      "n": 24,
+      "median": 120.888,
+      "p50": 95.471,
+      "p95": 529.284,
+      "max": 625.273,
+      "min": 25.642,
+      "sources": [
+        {
+          "file": "spikes\\spike2-results\\raw\\tiles-dev-20261101-193349.log",
+          "min_line": 19,
+          "max_line": 45,
+          "n": 24
+        }
+      ]
+    },
+    {
+      "scope": "run",
+      "run_id": "tiles-dev-20261101-193349",
+      "app": "spike2t",
+      "scenario": "T2",
+      "phase": "tile_stat",
+      "n": 4,
+      "median": 120.199,
+      "p50": 111.271,
+      "p95": 406.638,
+      "max": 406.638,
+      "min": 74.45,
+      "sources": [
+        {
+          "file": "spikes\\spike2-results\\raw\\tiles-dev-20261101-193349.log",
+          "min_line": 25,
+          "max_line": 46,
+          "n": 4
+        }
+      ]
+    },
+    {
+      "scope": "run",
+      "run_id": "tiles-dev-20261101-193520",
+      "app": "spike2t",
+      "scenario": "PBTIME",
+      "phase": "first_frame",
+      "n": 1,
+      "median": 1883.409,
+      "p50": 1883.409,
+      "p95": 1883.409,
+      "max": 1883.409,
+      "min": 1883.409,
+      "sources": [
+        {
+          "file": "spikes\\spike2-results\\raw\\tiles-dev-20261101-193520.log",
+          "min_line": 3,
+          "max_line": 3,
+          "n": 1
+        }
+      ]
+    },
+    {
+      "scope": "run",
+      "run_id": "tiles-dev-20261101-193520",
+      "app": "spike2t",
+      "scenario": "PBTIME",
+      "phase": "refresh_hz",
+      "n": 1,
+      "median": 60.0,
+      "p50": 60.0,
+      "p95": 60.0,
+      "max": 60.0,
+      "min": 60.0,
+      "sources": [
+        {
+          "file": "spikes\\spike2-results\\raw\\tiles-dev-20261101-193520.log",
+          "min_line": 2,
+          "max_line": 2,
+          "n": 1
+        }
+      ]
+    },
+    {
+      "scope": "run",
+      "run_id": "tiles-dev-20261101-193520",
+      "app": "spike2t",
+      "scenario": "T1",
+      "phase": "lowres",
+      "n": 1,
+      "median": 30.615,
+      "p50": 30.615,
+      "p95": 30.615,
+      "max": 30.615,
+      "min": 30.615,
+      "sources": [
+        {
+          "file": "spikes\\spike2-results\\raw\\tiles-dev-20261101-193520.log",
+          "min_line": 6,
+          "max_line": 6,
+          "n": 1
+        }
+      ]
+    },
+    {
+      "scope": "run",
+      "run_id": "tiles-dev-20261101-193520",
+      "app": "spike2t",
+      "scenario": "T1",
+      "phase": "open",
+      "n": 1,
+      "median": 389.144,
+      "p50": 389.144,
+      "p95": 389.144,
+      "max": 389.144,
+      "min": 389.144,
+      "sources": [
+        {
+          "file": "spikes\\spike2-results\\raw\\tiles-dev-20261101-193520.log",
+          "min_line": 4,
+          "max_line": 4,
+          "n": 1
+        }
+      ]
+    },
+    {
+      "scope": "run",
+      "run_id": "tiles-dev-20261101-193520",
+      "app": "spike2t",
+      "scenario": "T1",
+      "phase": "tileprobe",
+      "n": 1,
+      "median": 0.0,
+      "p50": 0.0,
+      "p95": 0.0,
+      "max": 0.0,
+      "min": 0.0,
+      "sources": [
+        {
+          "file": "spikes\\spike2-results\\raw\\tiles-dev-20261101-193520.log",
+          "min_line": 5,
+          "max_line": 5,
+          "n": 1
+        }
+      ]
+    },
+    {
+      "scope": "run",
+      "run_id": "tiles-dev-20261101-193520",
+      "app": "spike2t",
+      "scenario": "T2",
+      "phase": "full",
+      "n": 1,
+      "median": 142.869,
+      "p50": 142.869,
+      "p95": 142.869,
+      "max": 142.869,
+      "min": 142.869,
+      "sources": [
+        {
+          "file": "spikes\\spike2-results\\raw\\tiles-dev-20261101-193520.log",
+          "min_line": 96,
+          "max_line": 96,
+          "n": 1
+        }
+      ]
+    },
+    {
+      "scope": "run",
+      "run_id": "tiles-dev-20261101-193520",
+      "app": "spike2t",
+      "scenario": "T2",
+      "phase": "full_curve",
+      "n": 10,
+      "median": 100.829,
+      "p50": 100.66,
+      "p95": 131.882,
+      "max": 131.882,
+      "min": 35.09,
+      "sources": [
+        {
+          "file": "spikes\\spike2-results\\raw\\tiles-dev-20261101-193520.log",
+          "min_line": 98,
+          "max_line": 107,
+          "n": 10
+        }
+      ]
+    },
+    {
+      "scope": "run",
+      "run_id": "tiles-dev-20261101-193520",
+      "app": "spike2t",
+      "scenario": "T2",
+      "phase": "full_ref",
+      "n": 3,
+      "median": 237.138,
+      "p50": 237.138,
+      "p95": 462.058,
+      "max": 462.058,
+      "min": 205.327,
+      "sources": [
+        {
+          "file": "spikes\\spike2-results\\raw\\tiles-dev-20261101-193520.log",
+          "min_line": 78,
+          "max_line": 94,
+          "n": 3
+        }
+      ]
+    },
+    {
+      "scope": "run",
+      "run_id": "tiles-dev-20261101-193520",
+      "app": "spike2t",
+      "scenario": "T2",
+      "phase": "overload_probe",
+      "n": 1,
+      "median": 0.0,
+      "p50": 0.0,
+      "p95": 0.0,
+      "max": 0.0,
+      "min": 0.0,
+      "sources": [
+        {
+          "file": "spikes\\spike2-results\\raw\\tiles-dev-20261101-193520.log",
+          "min_line": 42,
+          "max_line": 42,
+          "n": 1
+        }
+      ]
+    },
+    {
+      "scope": "run",
+      "run_id": "tiles-dev-20261101-193520",
+      "app": "spike2t",
+      "scenario": "T2",
+      "phase": "tile",
+      "n": 72,
+      "median": 98.386,
+      "p50": 93.83,
+      "p95": 497.005,
+      "max": 601.532,
+      "min": 13.468,
+      "sources": [
+        {
+          "file": "spikes\\spike2-results\\raw\\tiles-dev-20261101-193520.log",
+          "min_line": 7,
+          "max_line": 92,
+          "n": 72
+        }
+      ]
+    },
+    {
+      "scope": "run",
+      "run_id": "tiles-dev-20261101-193520",
+      "app": "spike2t",
+      "scenario": "T2",
+      "phase": "tile_overhead",
+      "n": 1,
+      "median": -1.089,
+      "p50": -1.089,
+      "p95": -1.089,
+      "max": -1.089,
+      "min": -1.089,
+      "sources": [
+        {
+          "file": "spikes\\spike2-results\\raw\\tiles-dev-20261101-193520.log",
+          "min_line": 97,
+          "max_line": 97,
+          "n": 1
+        }
+      ]
+    },
+    {
+      "scope": "run",
+      "run_id": "tiles-dev-20261101-193520",
+      "app": "spike2t",
+      "scenario": "T2",
+      "phase": "tile_stat",
+      "n": 12,
+      "median": 97.575,
+      "p50": 85.259,
+      "p95": 363.538,
+      "max": 363.538,
+      "min": 26.667,
+      "sources": [
+        {
+          "file": "spikes\\spike2-results\\raw\\tiles-dev-20261101-193520.log",
+          "min_line": 13,
+          "max_line": 93,
+          "n": 12
+        }
+      ]
+    },
+    {
+      "scope": "run",
+      "run_id": "tiles-dev-20261101-193520",
+      "app": "spike2t",
+      "scenario": "T2",
+      "phase": "tiles_serial",
+      "n": 1,
+      "median": 141.78,
+      "p50": 141.78,
+      "p95": 141.78,
+      "max": 141.78,
+      "min": 141.78,
+      "sources": [
+        {
+          "file": "spikes\\spike2-results\\raw\\tiles-dev-20261101-193520.log",
+          "min_line": 95,
+          "max_line": 95,
+          "n": 1
+        }
+      ]
+    },
+    {
+      "scope": "all",
+      "run_id": "",
+      "app": "spike2t",
+      "scenario": "PBTIME",
+      "phase": "first_frame",
+      "n": 2,
+      "median": 2709.037,
+      "p50": 1883.409,
+      "p95": 3534.665,
+      "max": 3534.665,
+      "min": 1883.409,
+      "sources": [
+        {
+          "file": "spikes\\spike2-results\\raw\\tiles-dev-20261101-193349.log",
+          "min_line": 3,
+          "max_line": 3,
+          "n": 1
+        },
+        {
+          "file": "spikes\\spike2-results\\raw\\tiles-dev-20261101-193520.log",
+          "min_line": 3,
+          "max_line": 3,
+          "n": 1
+        }
+      ]
+    },
+    {
+      "scope": "all",
+      "run_id": "",
+      "app": "spike2t",
+      "scenario": "PBTIME",
+      "phase": "read_path",
+      "n": 1,
+      "median": 2714.282,
+      "p50": 2714.282,
+      "p95": 2714.282,
+      "max": 2714.282,
+      "min": 2714.282,
+      "sources": [
+        {
+          "file": "spikes\\spike2-results\\raw\\tiles-dev-20261101-193349.log",
+          "min_line": 15,
+          "max_line": 15,
+          "n": 1
+        }
+      ]
+    },
+    {
+      "scope": "all",
+      "run_id": "",
+      "app": "spike2t",
+      "scenario": "PBTIME",
+      "phase": "refresh_hz",
+      "n": 2,
+      "median": 60.0,
+      "p50": 60.0,
+      "p95": 60.0,
+      "max": 60.0,
+      "min": 60.0,
+      "sources": [
+        {
+          "file": "spikes\\spike2-results\\raw\\tiles-dev-20261101-193349.log",
+          "min_line": 2,
+          "max_line": 2,
+          "n": 1
+        },
+        {
+          "file": "spikes\\spike2-results\\raw\\tiles-dev-20261101-193520.log",
+          "min_line": 2,
+          "max_line": 2,
+          "n": 1
+        }
+      ]
+    },
+    {
+      "scope": "all",
+      "run_id": "",
+      "app": "spike2t",
+      "scenario": "T1",
+      "phase": "first_screen",
+      "n": 1,
+      "median": 2074.532,
+      "p50": 2074.532,
+      "p95": 2074.532,
+      "max": 2074.532,
+      "min": 2074.532,
+      "sources": [
+        {
+          "file": "spikes\\spike2-results\\raw\\tiles-dev-20261101-193349.log",
+          "min_line": 14,
+          "max_line": 14,
+          "n": 1
+        }
+      ]
+    },
+    {
+      "scope": "all",
+      "run_id": "",
+      "app": "spike2t",
+      "scenario": "T1",
+      "phase": "lowres",
+      "n": 2,
+      "median": 174.156,
+      "p50": 30.615,
+      "p95": 317.697,
+      "max": 317.697,
+      "min": 30.615,
+      "sources": [
+        {
+          "file": "spikes\\spike2-results\\raw\\tiles-dev-20261101-193349.log",
+          "min_line": 18,
+          "max_line": 18,
+          "n": 1
+        },
+        {
+          "file": "spikes\\spike2-results\\raw\\tiles-dev-20261101-193520.log",
+          "min_line": 6,
+          "max_line": 6,
+          "n": 1
+        }
+      ]
+    },
+    {
+      "scope": "all",
+      "run_id": "",
+      "app": "spike2t",
+      "scenario": "T1",
+      "phase": "open",
+      "n": 2,
+      "median": 514.447,
+      "p50": 389.144,
+      "p95": 639.751,
+      "max": 639.751,
+      "min": 389.144,
+      "sources": [
+        {
+          "file": "spikes\\spike2-results\\raw\\tiles-dev-20261101-193349.log",
+          "min_line": 4,
+          "max_line": 4,
+          "n": 1
+        },
+        {
+          "file": "spikes\\spike2-results\\raw\\tiles-dev-20261101-193520.log",
+          "min_line": 4,
+          "max_line": 4,
+          "n": 1
+        }
+      ]
+    },
+    {
+      "scope": "all",
+      "run_id": "",
+      "app": "spike2t",
+      "scenario": "T1",
+      "phase": "tile",
+      "n": 9,
+      "median": 27.927,
+      "p50": 27.927,
+      "p95": 523.456,
+      "max": 523.456,
+      "min": 0.301,
+      "sources": [
+        {
+          "file": "spikes\\spike2-results\\raw\\tiles-dev-20261101-193349.log",
+          "min_line": 5,
+          "max_line": 13,
+          "n": 9
+        }
+      ]
+    },
+    {
+      "scope": "all",
+      "run_id": "",
+      "app": "spike2t",
+      "scenario": "T1",
+      "phase": "tileprobe",
+      "n": 2,
+      "median": 0.0,
+      "p50": 0.0,
+      "p95": 0.0,
+      "max": 0.0,
+      "min": 0.0,
+      "sources": [
+        {
+          "file": "spikes\\spike2-results\\raw\\tiles-dev-20261101-193349.log",
+          "min_line": 17,
+          "max_line": 17,
+          "n": 1
+        },
+        {
+          "file": "spikes\\spike2-results\\raw\\tiles-dev-20261101-193520.log",
+          "min_line": 5,
+          "max_line": 5,
+          "n": 1
+        }
+      ]
+    },
+    {
+      "scope": "all",
+      "run_id": "",
+      "app": "spike2t",
+      "scenario": "T2",
+      "phase": "full",
+      "n": 1,
+      "median": 142.869,
+      "p50": 142.869,
+      "p95": 142.869,
+      "max": 142.869,
+      "min": 142.869,
+      "sources": [
+        {
+          "file": "spikes\\spike2-results\\raw\\tiles-dev-20261101-193520.log",
+          "min_line": 96,
+          "max_line": 96,
+          "n": 1
+        }
+      ]
+    },
+    {
+      "scope": "all",
+      "run_id": "",
+      "app": "spike2t",
+      "scenario": "T2",
+      "phase": "full_curve",
+      "n": 10,
+      "median": 100.829,
+      "p50": 100.66,
+      "p95": 131.882,
+      "max": 131.882,
+      "min": 35.09,
+      "sources": [
+        {
+          "file": "spikes\\spike2-results\\raw\\tiles-dev-20261101-193520.log",
+          "min_line": 98,
+          "max_line": 107,
+          "n": 10
+        }
+      ]
+    },
+    {
+      "scope": "all",
+      "run_id": "",
+      "app": "spike2t",
+      "scenario": "T2",
+      "phase": "full_ref",
+      "n": 3,
+      "median": 237.138,
+      "p50": 237.138,
+      "p95": 462.058,
+      "max": 462.058,
+      "min": 205.327,
+      "sources": [
+        {
+          "file": "spikes\\spike2-results\\raw\\tiles-dev-20261101-193520.log",
+          "min_line": 78,
+          "max_line": 94,
+          "n": 3
+        }
+      ]
+    },
+    {
+      "scope": "all",
+      "run_id": "",
+      "app": "spike2t",
+      "scenario": "T2",
+      "phase": "overload_probe",
+      "n": 1,
+      "median": 0.0,
+      "p50": 0.0,
+      "p95": 0.0,
+      "max": 0.0,
+      "min": 0.0,
+      "sources": [
+        {
+          "file": "spikes\\spike2-results\\raw\\tiles-dev-20261101-193520.log",
+          "min_line": 42,
+          "max_line": 42,
+          "n": 1
+        }
+      ]
+    },
+    {
+      "scope": "all",
+      "run_id": "",
+      "app": "spike2t",
+      "scenario": "T2",
+      "phase": "tile",
+      "n": 96,
+      "median": 99.207,
+      "p50": 95.471,
+      "p95": 497.131,
+      "max": 625.273,
+      "min": 13.468,
+      "sources": [
+        {
+          "file": "spikes\\spike2-results\\raw\\tiles-dev-20261101-193349.log",
+          "min_line": 19,
+          "max_line": 45,
+          "n": 24
+        },
+        {
+          "file": "spikes\\spike2-results\\raw\\tiles-dev-20261101-193520.log",
+          "min_line": 7,
+          "max_line": 92,
+          "n": 72
+        }
+      ]
+    },
+    {
+      "scope": "all",
+      "run_id": "",
+      "app": "spike2t",
+      "scenario": "T2",
+      "phase": "tile_overhead",
+      "n": 1,
+      "median": -1.089,
+      "p50": -1.089,
+      "p95": -1.089,
+      "max": -1.089,
+      "min": -1.089,
+      "sources": [
+        {
+          "file": "spikes\\spike2-results\\raw\\tiles-dev-20261101-193520.log",
+          "min_line": 97,
+          "max_line": 97,
+          "n": 1
+        }
+      ]
+    },
+    {
+      "scope": "all",
+      "run_id": "",
+      "app": "spike2t",
+      "scenario": "T2",
+      "phase": "tile_stat",
+      "n": 16,
+      "median": 110.581,
+      "p50": 109.891,
+      "p95": 406.638,
+      "max": 406.638,
+      "min": 26.667,
+      "sources": [
+        {
+          "file": "spikes\\spike2-results\\raw\\tiles-dev-20261101-193349.log",
+          "min_line": 25,
+          "max_line": 46,
+          "n": 4
+        },
+        {
+          "file": "spikes\\spike2-results\\raw\\tiles-dev-20261101-193520.log",
+          "min_line": 13,
+          "max_line": 93,
+          "n": 12
+        }
+      ]
+    },
+    {
+      "scope": "all",
+      "run_id": "",
+      "app": "spike2t",
+      "scenario": "T2",
+      "phase": "tiles_serial",
+      "n": 1,
+      "median": 141.78,
+      "p50": 141.78,
+      "p95": 141.78,
+      "max": 141.78,
+      "min": 141.78,
+      "sources": [
+        {
+          "file": "spikes\\spike2-results\\raw\\tiles-dev-20261101-193520.log",
+          "min_line": 95,
+          "max_line": 95,
+          "n": 1
+        }
+      ]
+    }
+  ],
+  "mem": [
+    {
+      "scope": "run",
+      "run_id": "tiles-dev-20261101-193520",
+      "app": "spike2t",
+      "scenario": "ALL",
+      "n": 1,
+      "sources": [
+        {
+          "file": "spikes\\spike2-results\\raw\\tiles-dev-20261101-193520.log",
+          "min_line": 109,
+          "max_line": 109,
+          "n": 1
+        }
+      ],
+      "pss_kb": {
+        "n": 1,
+        "min": 58735.0,
+        "median": 58735.0,
+        "max": 58735.0
+      },
+      "native_kb": {
+        "n": 1,
+        "min": 29654.0,
+        "median": 29654.0,
+        "max": 29654.0
+      },
+      "java_kb": {
+        "n": 1,
+        "min": 832.0,
+        "median": 832.0,
+        "max": 832.0
+      }
+    },
+    {
+      "scope": "all",
+      "run_id": "",
+      "app": "spike2t",
+      "scenario": "ALL",
+      "n": 1,
+      "sources": [
+        {
+          "file": "spikes\\spike2-results\\raw\\tiles-dev-20261101-193520.log",
+          "min_line": 109,
+          "max_line": 109,
+          "n": 1
+        }
+      ],
+      "pss_kb": {
+        "n": 1,
+        "min": 58735.0,
+        "median": 58735.0,
+        "max": 58735.0
+      },
+      "native_kb": {
+        "n": 1,
+        "min": 29654.0,
+        "median": 29654.0,
+        "max": 29654.0
+      },
+      "java_kb": {
+        "n": 1,
+        "min": 832.0,
+        "median": 832.0,
+        "max": 832.0
+      }
+    }
+  ],
+  "low_confidence_groups": [
+    {
+      "run_id": "tiles-dev-20261101-193349",
+      "app": "spike2t",
+      "scenario": "PBTIME",
+      "phase": "first_frame",
+      "n": 1,
+      "errors": 0,
+      "warmup": 0
+    },
+    {
+      "run_id": "tiles-dev-20261101-193349",
+      "app": "spike2t",
+      "scenario": "PBTIME",
+      "phase": "read_path",
+      "n": 1,
+      "errors": 0,
+      "warmup": 0
+    },
+    {
+      "run_id": "tiles-dev-20261101-193349",
+      "app": "spike2t",
+      "scenario": "PBTIME",
+      "phase": "refresh_hz",
+      "n": 1,
+      "errors": 0,
+      "warmup": 0
+    },
+    {
+      "run_id": "tiles-dev-20261101-193349",
+      "app": "spike2t",
+      "scenario": "T1",
+      "phase": "first_screen",
+      "n": 1,
+      "errors": 0,
+      "warmup": 0
+    },
+    {
+      "run_id": "tiles-dev-20261101-193349",
+      "app": "spike2t",
+      "scenario": "T1",
+      "phase": "lowres",
+      "n": 1,
+      "errors": 0,
+      "warmup": 0
+    },
+    {
+      "run_id": "tiles-dev-20261101-193349",
+      "app": "spike2t",
+      "scenario": "T1",
+      "phase": "open",
+      "n": 1,
+      "errors": 0,
+      "warmup": 0
+    },
+    {
+      "run_id": "tiles-dev-20261101-193349",
+      "app": "spike2t",
+      "scenario": "T1",
+      "phase": "tileprobe",
+      "n": 1,
+      "errors": 0,
+      "warmup": 0
+    },
+    {
+      "run_id": "tiles-dev-20261101-193349",
+      "app": "spike2t",
+      "scenario": "T2",
+      "phase": "tile_stat",
+      "n": 4,
+      "errors": 0,
+      "warmup": 0
+    },
+    {
+      "run_id": "tiles-dev-20261101-193520",
+      "app": "spike2t",
+      "scenario": "ALL",
+      "phase": "pss",
+      "n": 1,
+      "errors": 0,
+      "warmup": 0
+    },
+    {
+      "run_id": "tiles-dev-20261101-193520",
+      "app": "spike2t",
+      "scenario": "PBTIME",
+      "phase": "first_frame",
+      "n": 1,
+      "errors": 0,
+      "warmup": 0
+    },
+    {
+      "run_id": "tiles-dev-20261101-193520",
+      "app": "spike2t",
+      "scenario": "PBTIME",
+      "phase": "refresh_hz",
+      "n": 1,
+      "errors": 0,
+      "warmup": 0
+    },
+    {
+      "run_id": "tiles-dev-20261101-193520",
+      "app": "spike2t",
+      "scenario": "T1",
+      "phase": "lowres",
+      "n": 1,
+      "errors": 0,
+      "warmup": 0
+    },
+    {
+      "run_id": "tiles-dev-20261101-193520",
+      "app": "spike2t",
+      "scenario": "T1",
+      "phase": "open",
+      "n": 1,
+      "errors": 0,
+      "warmup": 0
+    },
+    {
+      "run_id": "tiles-dev-20261101-193520",
+      "app": "spike2t",
+      "scenario": "T1",
+      "phase": "tileprobe",
+      "n": 1,
+      "errors": 0,
+      "warmup": 0
+    },
+    {
+      "run_id": "tiles-dev-20261101-193520",
+      "app": "spike2t",
+      "scenario": "T2",
+      "phase": "full",
+      "n": 1,
+      "errors": 0,
+      "warmup": 0
+    },
+    {
+      "run_id": "tiles-dev-20261101-193520",
+      "app": "spike2t",
+      "scenario": "T2",
+      "phase": "full_ref",
+      "n": 3,
+      "errors": 0,
+      "warmup": 0
+    },
+    {
+      "run_id": "tiles-dev-20261101-193520",
+      "app": "spike2t",
+      "scenario": "T2",
+      "phase": "overload_probe",
+      "n": 1,
+      "errors": 0,
+      "warmup": 0
+    },
+    {
+      "run_id": "tiles-dev-20261101-193520",
+      "app": "spike2t",
+      "scenario": "T2",
+      "phase": "tile_overhead",
+      "n": 1,
+      "errors": 0,
+      "warmup": 0
+    },
+    {
+      "run_id": "tiles-dev-20261101-193520",
+      "app": "spike2t",
+      "scenario": "T2",
+      "phase": "tiles_serial",
+      "n": 1,
+      "errors": 0,
+      "warmup": 0
+    }
+  ],
+  "missing_pbdone": [
+    {
+      "run_id": "tiles-dev-20261101-193349",
+      "app": "spike2t",
+      "scenario": "PBTIME"
+    },
+    {
+      "run_id": "tiles-dev-20261101-193349",
+      "app": "spike2t",
+      "scenario": "T2"
+    }
+  ],
+  "runenv": [],
+  "parse_failures": []
+}

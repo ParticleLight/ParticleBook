@@ -1,0 +1,323 @@
+{
+ "name": "render-smoke2",
+ "generated_at": "2026-11-01T20:41:18+08:00",
+ "factor": 1.8,
+ "min_samples": 5,
+ "drift_warn_ratio": 0.2,
+ "inputs": [
+  {
+   "path": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\csv\\render-smoke2-merged.csv",
+   "rows": 51
+  }
+ ],
+ "env": [
+  {
+   "app": "spike2",
+   "run_id": "render-smoke2-run1-20261101-204037",
+   "src": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-smoke2-run1-20261101-204037.log:1",
+   "apk": "spikes/spike2-pdf/app/build/outputs/apk/debug/app-debug.apk",
+   "apk_md5": "8ea3edc683ebf0b5be2f32f32dc57bb9",
+   "apk_bytes": "7287902",
+   "scenario": "S1",
+   "api": "35",
+   "model": "Android_SDK_built_for_x86_64",
+   "abi": "x86_64",
+   "build": "12368160",
+   "ts": "2026-11-01T20:40:48+0800",
+   "host": ""
+  }
+ ],
+ "groups": [
+  {
+   "n": 1,
+   "min": 1403.849,
+   "p50": 1403.849,
+   "p95": 1403.849,
+   "max": 1403.849,
+   "est_p50": 2526.9,
+   "src": "F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-smoke2-run1-20261101-204037.log:129-129",
+   "runs": [
+    "render-smoke2-run1-20261101-204037"
+   ],
+   "dims": [],
+   "low_confidence": true,
+   "app": "spike2",
+   "scenario": "PBTIME",
+   "phase": "first_frame"
+  },
+  {
+   "n": 1,
+   "min": 3827.834,
+   "p50": 3827.834,
+   "p95": 3827.834,
+   "max": 3827.834,
+   "est_p50": 6890.1,
+   "src": "F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-smoke2-run1-20261101-204037.log:159-159",
+   "runs": [
+    "render-smoke2-run1-20261101-204037"
+   ],
+   "dims": [],
+   "low_confidence": true,
+   "app": "spike2",
+   "scenario": "PBTIME",
+   "phase": "first_screen"
+  },
+  {
+   "n": 1,
+   "min": 2842.865,
+   "p50": 2842.865,
+   "p95": 2842.865,
+   "max": 2842.865,
+   "est_p50": 5117.2,
+   "src": "F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-smoke2-run1-20261101-204037.log:160-160",
+   "runs": [
+    "render-smoke2-run1-20261101-204037"
+   ],
+   "dims": [],
+   "low_confidence": true,
+   "app": "spike2",
+   "scenario": "PBTIME",
+   "phase": "open_to_first_screen"
+  },
+  {
+   "n": 2,
+   "min": 370.231,
+   "p50": 529.84,
+   "p95": 689.449,
+   "max": 689.449,
+   "est_p50": 953.7,
+   "src": "F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-smoke2-run1-20261101-204037.log:131-135",
+   "runs": [
+    "render-smoke2-run1-20261101-204037"
+   ],
+   "dims": [],
+   "low_confidence": true,
+   "app": "spike2",
+   "scenario": "S1",
+   "phase": "open"
+  },
+  {
+   "n": 20,
+   "min": 17.356,
+   "p50": 40.38,
+   "p95": 97.255,
+   "max": 215.607,
+   "est_p50": 72.7,
+   "src": "F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-smoke2-run1-20261101-204037.log:156-221",
+   "runs": [
+    "render-smoke2-run1-20261101-204037"
+   ],
+   "dims": [
+    "1188x1682"
+   ],
+   "low_confidence": false,
+   "app": "spike2",
+   "scenario": "S2",
+   "phase": "present"
+  },
+  {
+   "n": 20,
+   "min": 21.799,
+   "p50": 94.454,
+   "p95": 775.821,
+   "max": 1242.749,
+   "est_p50": 170.0,
+   "src": "F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-smoke2-run1-20261101-204037.log:148-220",
+   "runs": [
+    "render-smoke2-run1-20261101-204037"
+   ],
+   "dims": [
+    "1188x1682"
+   ],
+   "low_confidence": false,
+   "app": "spike2",
+   "scenario": "S2",
+   "phase": "render"
+  },
+  {
+   "n": 1,
+   "min": 6871.0,
+   "p50": 6871.0,
+   "p95": 6871.0,
+   "max": 6871.0,
+   "est_p50": 12367.8,
+   "src": "F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-smoke2-run1-20261101-204037.log:4-4",
+   "runs": [
+    "render-smoke2-run1-20261101-204037"
+   ],
+   "dims": [],
+   "low_confidence": true,
+   "app": "spike2",
+   "scenario": "cold_start",
+   "phase": "am_start"
+  }
+ ],
+ "by_temp": [
+  {
+   "n": 4,
+   "min": 27.839,
+   "p50": 71.309,
+   "p95": 215.607,
+   "max": 215.607,
+   "est_p50": 128.4,
+   "src": "F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-smoke2-run1-20261101-204037.log:156-212",
+   "runs": [
+    "render-smoke2-run1-20261101-204037"
+   ],
+   "dims": [
+    "1188x1682"
+   ],
+   "low_confidence": true,
+   "app": "spike2",
+   "scenario": "S2",
+   "phase": "present",
+   "temp": "cold"
+  },
+  {
+   "n": 16,
+   "min": 17.356,
+   "p50": 36.915,
+   "p95": 97.255,
+   "max": 97.255,
+   "est_p50": 66.4,
+   "src": "F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-smoke2-run1-20261101-204037.log:179-221",
+   "runs": [
+    "render-smoke2-run1-20261101-204037"
+   ],
+   "dims": [
+    "1188x1682"
+   ],
+   "low_confidence": false,
+   "app": "spike2",
+   "scenario": "S2",
+   "phase": "present",
+   "temp": "warm"
+  },
+  {
+   "n": 4,
+   "min": 21.799,
+   "p50": 150.48,
+   "p95": 1242.749,
+   "max": 1242.749,
+   "est_p50": 270.9,
+   "src": "F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-smoke2-run1-20261101-204037.log:148-211",
+   "runs": [
+    "render-smoke2-run1-20261101-204037"
+   ],
+   "dims": [
+    "1188x1682"
+   ],
+   "low_confidence": true,
+   "app": "spike2",
+   "scenario": "S2",
+   "phase": "render",
+   "temp": "cold"
+  },
+  {
+   "n": 16,
+   "min": 32.613,
+   "p50": 94.454,
+   "p95": 775.821,
+   "max": 775.821,
+   "est_p50": 170.0,
+   "src": "F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-smoke2-run1-20261101-204037.log:178-220",
+   "runs": [
+    "render-smoke2-run1-20261101-204037"
+   ],
+   "dims": [
+    "1188x1682"
+   ],
+   "low_confidence": false,
+   "app": "spike2",
+   "scenario": "S2",
+   "phase": "render",
+   "temp": "warm"
+  }
+ ],
+ "by_annot": [
+  {
+   "n": 20,
+   "min": 21.799,
+   "p50": 94.454,
+   "p95": 775.821,
+   "max": 1242.749,
+   "est_p50": 170.0,
+   "src": "F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-smoke2-run1-20261101-204037.log:148-220",
+   "runs": [
+    "render-smoke2-run1-20261101-204037"
+   ],
+   "dims": [
+    "1188x1682"
+   ],
+   "low_confidence": false,
+   "app": "spike2",
+   "scenario": "S2",
+   "phase": "render",
+   "annot": "1"
+  }
+ ],
+ "aggregates": [],
+ "first_screen": [],
+ "mem": [
+  {
+   "run_id": "render-smoke2-run1-20261101-204037",
+   "app": "spike2",
+   "scenario": "S7",
+   "phase": "pss",
+   "pss_kb": "25073",
+   "native_kb": "3890",
+   "java_kb": "702",
+   "tag": "cold",
+   "hit": "",
+   "evict": "",
+   "miss": "",
+   "bytes": "",
+   "limit": "",
+   "tiles": "",
+   "cycles": "",
+   "src": "F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-smoke2-run1-20261101-204037.log:117"
+  }
+ ],
+ "drift": {
+  "scenario": "S2",
+  "phase": "render",
+  "page": 0,
+  "runs": [
+   {
+    "run_id": "render-smoke2-run1-20261101-204037",
+    "avg": 685.672,
+    "med": 683.47,
+    "n": 5,
+    "ts": "11-01 12:41:00.057",
+    "app": "spike2",
+    "src": "F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-smoke2-run1-20261101-204037.log:148-185"
+   }
+  ],
+  "first": {
+   "run_id": "render-smoke2-run1-20261101-204037",
+   "avg": 685.672,
+   "med": 683.47,
+   "n": 5,
+   "ts": "11-01 12:41:00.057",
+   "app": "spike2",
+   "src": "F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-smoke2-run1-20261101-204037.log:148-185"
+  },
+  "last": {
+   "run_id": "render-smoke2-run1-20261101-204037",
+   "avg": 685.672,
+   "med": 683.47,
+   "n": 5,
+   "ts": "11-01 12:41:00.057",
+   "app": "spike2",
+   "src": "F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-smoke2-run1-20261101-204037.log:148-185"
+  },
+  "ratio": null,
+  "flag": "",
+  "src": "F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-smoke2-run1-20261101-204037.log:148-185"
+ },
+ "row_counts": {
+  "total": 51,
+  "countable": 46,
+  "runs": 1
+ }
+}

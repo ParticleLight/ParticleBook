@@ -1,0 +1,384 @@
+{
+ "name": "tiles-t1t6",
+ "generated_at": "2026-11-01T20:59:29+08:00",
+ "factor": 1.8,
+ "min_samples": 5,
+ "drift_warn_ratio": 0.2,
+ "inputs": [
+  {
+   "path": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\csv\\tiles-t1t6-merged.csv",
+   "rows": 116
+  }
+ ],
+ "env": [
+  {
+   "app": "spike2t",
+   "run_id": "tiles-t1t6-run1-20261101-205642",
+   "src": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\tiles-t1t6-run1-20261101-205642.log:1",
+   "apk": "spikes/spike2-tiles/app/build/outputs/apk/debug/app-debug.apk",
+   "apk_md5": "7ab3634ff0d97dcad0a759c988304e5d",
+   "apk_bytes": "7300534",
+   "scenario": "T1",
+   "api": "35",
+   "model": "Android_SDK_built_for_x86_64",
+   "abi": "x86_64",
+   "build": "12368160",
+   "ts": "2026-11-01T20:56:50+0800",
+   "host": ""
+  },
+  {
+   "app": "spike2t",
+   "run_id": "tiles-t1t6-run1-20261101-205821",
+   "src": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\tiles-t1t6-run1-20261101-205821.log:1",
+   "apk": "spikes/spike2-tiles/app/build/outputs/apk/debug/app-debug.apk",
+   "apk_md5": "7ab3634ff0d97dcad0a759c988304e5d",
+   "apk_bytes": "7300534",
+   "scenario": "T1",
+   "api": "35",
+   "model": "Android_SDK_built_for_x86_64",
+   "abi": "x86_64",
+   "build": "12368160",
+   "ts": "2026-11-01T20:58:29+0800",
+   "host": ""
+  },
+  {
+   "app": "spike2t",
+   "run_id": "tiles-t1t6-run2-20261101-205718",
+   "src": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\tiles-t1t6-run2-20261101-205718.log:1",
+   "apk": "spikes/spike2-tiles/app/build/outputs/apk/debug/app-debug.apk",
+   "apk_md5": "7ab3634ff0d97dcad0a759c988304e5d",
+   "apk_bytes": "7300534",
+   "scenario": "T1",
+   "api": "35",
+   "model": "Android_SDK_built_for_x86_64",
+   "abi": "x86_64",
+   "build": "12368160",
+   "ts": "2026-11-01T20:57:24+0800",
+   "host": ""
+  },
+  {
+   "app": "spike2t",
+   "run_id": "tiles-t1t6-run2-20261101-205859",
+   "src": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\tiles-t1t6-run2-20261101-205859.log:1",
+   "apk": "spikes/spike2-tiles/app/build/outputs/apk/debug/app-debug.apk",
+   "apk_md5": "7ab3634ff0d97dcad0a759c988304e5d",
+   "apk_bytes": "7300534",
+   "scenario": "T1",
+   "api": "35",
+   "model": "Android_SDK_built_for_x86_64",
+   "abi": "x86_64",
+   "build": "12368160",
+   "ts": "2026-11-01T20:59:03+0800",
+   "host": ""
+  }
+ ],
+ "groups": [
+  {
+   "n": 32,
+   "min": 0.206,
+   "p50": 13.111,
+   "p95": 203.918,
+   "max": 208.669,
+   "est_p50": 23.6,
+   "src": "F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/tiles-t1t6-run1-20261101-205642.log:175-183; F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/tiles-t1t6-run1-20261101-205821.log:189-197; F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/tiles-t1t6-run2-20261101-205718.log:183-190; F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/tiles-t1t6-run2-20261101-205859.log:163-171",
+   "runs": [
+    "tiles-t1t6-run1-20261101-205642",
+    "tiles-t1t6-run1-20261101-205821",
+    "tiles-t1t6-run2-20261101-205718",
+    "tiles-t1t6-run2-20261101-205859"
+   ],
+   "dims": [
+    "512x505",
+    "512x512",
+    "56x505",
+    "56x512"
+   ],
+   "low_confidence": false,
+   "app": "spike2t",
+   "scenario": "T1",
+   "phase": "tile"
+  },
+  {
+   "n": 16,
+   "min": 263.677,
+   "p50": 378.299,
+   "p95": 600.994,
+   "max": 600.994,
+   "est_p50": 680.9,
+   "src": "F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/tiles-t1t6-run1-20261101-205642.log:202-206; F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/tiles-t1t6-run1-20261101-205821.log:216-225; F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/tiles-t1t6-run2-20261101-205718.log:211-215; F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/tiles-t1t6-run2-20261101-205859.log:183-196",
+   "runs": [
+    "tiles-t1t6-run1-20261101-205642",
+    "tiles-t1t6-run1-20261101-205821",
+    "tiles-t1t6-run2-20261101-205718",
+    "tiles-t1t6-run2-20261101-205859"
+   ],
+   "dims": [
+    "1080x2400"
+   ],
+   "low_confidence": false,
+   "app": "spike2t",
+   "scenario": "T6",
+   "phase": "first_screen"
+  }
+ ],
+ "by_temp": [],
+ "by_annot": [],
+ "aggregates": [],
+ "first_screen": [
+  {
+   "run_id": "tiles-t1t6-run1-20261101-205642",
+   "app": "spike2t",
+   "first_screen_ms": 1009.09,
+   "open_ms": 297.1,
+   "read_path_ms": 1306.2,
+   "from_create_ms": 5166.2,
+   "tiles": "9",
+   "src": "F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/tiles-t1t6-run1-20261101-205642.log:184"
+  },
+  {
+   "run_id": "tiles-t1t6-run1-20261101-205821",
+   "app": "spike2t",
+   "first_screen_ms": 1042.063,
+   "open_ms": 329.6,
+   "read_path_ms": 1371.7,
+   "from_create_ms": 6342.3,
+   "tiles": "9",
+   "src": "F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/tiles-t1t6-run1-20261101-205821.log:198"
+  },
+  {
+   "run_id": "tiles-t1t6-run2-20261101-205718",
+   "app": "spike2t",
+   "first_screen_ms": 1040.48,
+   "open_ms": 490.0,
+   "read_path_ms": 1530.5,
+   "from_create_ms": 5895.6,
+   "tiles": "9",
+   "src": "F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/tiles-t1t6-run2-20261101-205718.log:192"
+  },
+  {
+   "run_id": "tiles-t1t6-run2-20261101-205859",
+   "app": "spike2t",
+   "first_screen_ms": 873.06,
+   "open_ms": 366.8,
+   "read_path_ms": 1239.9,
+   "from_create_ms": 4504.4,
+   "tiles": "9",
+   "src": "F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/tiles-t1t6-run2-20261101-205859.log:172"
+  }
+ ],
+ "mem": [
+  {
+   "run_id": "tiles-t1t6-run1-20261101-205642",
+   "app": "spike2t",
+   "scenario": "T6",
+   "phase": "pss",
+   "pss_kb": "125102",
+   "native_kb": "92140",
+   "java_kb": "804",
+   "tag": "",
+   "hit": "",
+   "evict": "",
+   "miss": "",
+   "bytes": "",
+   "limit": "",
+   "tiles": "",
+   "cycles": "",
+   "src": "F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/tiles-t1t6-run1-20261101-205642.log:208"
+  },
+  {
+   "run_id": "tiles-t1t6-run1-20261101-205642",
+   "app": "spike2t",
+   "scenario": "ALL",
+   "phase": "pss",
+   "pss_kb": "133966",
+   "native_kb": "100740",
+   "java_kb": "828",
+   "tag": "",
+   "hit": "",
+   "evict": "",
+   "miss": "",
+   "bytes": "",
+   "limit": "",
+   "tiles": "",
+   "cycles": "",
+   "src": "F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/tiles-t1t6-run1-20261101-205642.log:210"
+  },
+  {
+   "run_id": "tiles-t1t6-run1-20261101-205821",
+   "app": "spike2t",
+   "scenario": "T6",
+   "phase": "pss",
+   "pss_kb": "125266",
+   "native_kb": "92220",
+   "java_kb": "800",
+   "tag": "",
+   "hit": "",
+   "evict": "",
+   "miss": "",
+   "bytes": "",
+   "limit": "",
+   "tiles": "",
+   "cycles": "",
+   "src": "F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/tiles-t1t6-run1-20261101-205821.log:226"
+  },
+  {
+   "run_id": "tiles-t1t6-run1-20261101-205821",
+   "app": "spike2t",
+   "scenario": "ALL",
+   "phase": "pss",
+   "pss_kb": "134120",
+   "native_kb": "100860",
+   "java_kb": "816",
+   "tag": "",
+   "hit": "",
+   "evict": "",
+   "miss": "",
+   "bytes": "",
+   "limit": "",
+   "tiles": "",
+   "cycles": "",
+   "src": "F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/tiles-t1t6-run1-20261101-205821.log:229"
+  },
+  {
+   "run_id": "tiles-t1t6-run2-20261101-205718",
+   "app": "spike2t",
+   "scenario": "T6",
+   "phase": "pss",
+   "pss_kb": "125698",
+   "native_kb": "92160",
+   "java_kb": "792",
+   "tag": "",
+   "hit": "",
+   "evict": "",
+   "miss": "",
+   "bytes": "",
+   "limit": "",
+   "tiles": "",
+   "cycles": "",
+   "src": "F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/tiles-t1t6-run2-20261101-205718.log:216"
+  },
+  {
+   "run_id": "tiles-t1t6-run2-20261101-205718",
+   "app": "spike2t",
+   "scenario": "ALL",
+   "phase": "pss",
+   "pss_kb": "135562",
+   "native_kb": "100772",
+   "java_kb": "820",
+   "tag": "",
+   "hit": "",
+   "evict": "",
+   "miss": "",
+   "bytes": "",
+   "limit": "",
+   "tiles": "",
+   "cycles": "",
+   "src": "F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/tiles-t1t6-run2-20261101-205718.log:224"
+  },
+  {
+   "run_id": "tiles-t1t6-run2-20261101-205859",
+   "app": "spike2t",
+   "scenario": "T6",
+   "phase": "pss",
+   "pss_kb": "125458",
+   "native_kb": "92204",
+   "java_kb": "740",
+   "tag": "",
+   "hit": "",
+   "evict": "",
+   "miss": "",
+   "bytes": "",
+   "limit": "",
+   "tiles": "",
+   "cycles": "",
+   "src": "F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/tiles-t1t6-run2-20261101-205859.log:197"
+  },
+  {
+   "run_id": "tiles-t1t6-run2-20261101-205859",
+   "app": "spike2t",
+   "scenario": "ALL",
+   "phase": "pss",
+   "pss_kb": "134378",
+   "native_kb": "100844",
+   "java_kb": "764",
+   "tag": "",
+   "hit": "",
+   "evict": "",
+   "miss": "",
+   "bytes": "",
+   "limit": "",
+   "tiles": "",
+   "cycles": "",
+   "src": "F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/tiles-t1t6-run2-20261101-205859.log:199"
+  }
+ ],
+ "drift": {
+  "scenario": "T1",
+  "phase": "tile",
+  "page": 0,
+  "runs": [
+   {
+    "run_id": "tiles-t1t6-run1-20261101-205642",
+    "avg": 59.811,
+    "med": 13.973,
+    "n": 8,
+    "ts": "11-01 12:56:59.396",
+    "app": "spike2t",
+    "src": "F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/tiles-t1t6-run1-20261101-205642.log:175-183"
+   },
+   {
+    "run_id": "tiles-t1t6-run2-20261101-205718",
+    "avg": 21.01,
+    "med": 12.957,
+    "n": 8,
+    "ts": "11-01 12:57:35.298",
+    "app": "spike2t",
+    "src": "F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/tiles-t1t6-run2-20261101-205718.log:183-190"
+   },
+   {
+    "run_id": "tiles-t1t6-run1-20261101-205821",
+    "avg": 44.12,
+    "med": 13.662,
+    "n": 8,
+    "ts": "11-01 12:58:41.642",
+    "app": "spike2t",
+    "src": "F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/tiles-t1t6-run1-20261101-205821.log:189-197"
+   },
+   {
+    "run_id": "tiles-t1t6-run2-20261101-205859",
+    "avg": 46.458,
+    "med": 18.206,
+    "n": 8,
+    "ts": "11-01 12:59:12.628",
+    "app": "spike2t",
+    "src": "F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/tiles-t1t6-run2-20261101-205859.log:163-171"
+   }
+  ],
+  "first": {
+   "run_id": "tiles-t1t6-run1-20261101-205642",
+   "avg": 59.811,
+   "med": 13.973,
+   "n": 8,
+   "ts": "11-01 12:56:59.396",
+   "app": "spike2t",
+   "src": "F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/tiles-t1t6-run1-20261101-205642.log:175-183"
+  },
+  "last": {
+   "run_id": "tiles-t1t6-run2-20261101-205859",
+   "avg": 46.458,
+   "med": 18.206,
+   "n": 8,
+   "ts": "11-01 12:59:12.628",
+   "app": "spike2t",
+   "src": "F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/tiles-t1t6-run2-20261101-205859.log:163-171"
+  },
+  "ratio": 0.303,
+  "flag": "DRIFT_WARN",
+  "src": "F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/tiles-t1t6-run1-20261101-205642.log:175-183; F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/tiles-t1t6-run1-20261101-205821.log:189-197; F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/tiles-t1t6-run2-20261101-205718.log:183-190; F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/tiles-t1t6-run2-20261101-205859.log:163-171"
+ },
+ "row_counts": {
+  "total": 116,
+  "countable": 48,
+  "runs": 4
+ }
+}

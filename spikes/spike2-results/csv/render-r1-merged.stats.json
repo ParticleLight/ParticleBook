@@ -1,0 +1,1153 @@
+{
+  "schema": 1,
+  "tool": "scripts/android/spike2/parse.py",
+  "generated_at": "2026-11-01T20:49:30+08:00",
+  "name": "render-r1-merged",
+  "options": {
+    "app": "spike2",
+    "drop_first": 0,
+    "drop_mode": "first-per-phase",
+    "min_samples": 5,
+    "out": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\csv"
+  },
+  "inputs": [
+    {
+      "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r1-run1-20261101-204131.log",
+      "lines": 240,
+      "record_lines": 57,
+      "parse_failures": 0,
+      "run_id": "render-r1-run1-20261101-204131",
+      "app": "spike2",
+      "runenv": [
+        {
+          "app": "spike2",
+          "run_id": "render-r1-run1-20261101-204131",
+          "apk": "spikes/spike2-pdf/app/build/outputs/apk/debug/app-debug.apk",
+          "apk_md5": "8ea3edc683ebf0b5be2f32f32dc57bb9",
+          "apk_bytes": "7287902",
+          "scenario": "S1,S2,S3",
+          "api": "35",
+          "model": "Android_SDK_built_for_x86_64",
+          "abi": "x86_64",
+          "build": "12368160",
+          "ts": "2026-11-01T20:41:39+0800"
+        }
+      ]
+    },
+    {
+      "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r1-run1-20261101-204647.log",
+      "lines": 224,
+      "record_lines": 57,
+      "parse_failures": 0,
+      "run_id": "render-r1-run1-20261101-204647",
+      "app": "spike2",
+      "runenv": [
+        {
+          "app": "spike2",
+          "run_id": "render-r1-run1-20261101-204647",
+          "apk": "spikes/spike2-pdf/app/build/outputs/apk/debug/app-debug.apk",
+          "apk_md5": "8ea3edc683ebf0b5be2f32f32dc57bb9",
+          "apk_bytes": "7287902",
+          "scenario": "S1,S2,S3",
+          "api": "35",
+          "model": "Android_SDK_built_for_x86_64",
+          "abi": "x86_64",
+          "build": "12368160",
+          "ts": "2026-11-01T20:46:55+0800"
+        }
+      ]
+    },
+    {
+      "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r1-run1-20261101-204732.log",
+      "lines": 237,
+      "record_lines": 57,
+      "parse_failures": 0,
+      "run_id": "render-r1-run1-20261101-204732",
+      "app": "spike2",
+      "runenv": [
+        {
+          "app": "spike2",
+          "run_id": "render-r1-run1-20261101-204732",
+          "apk": "spikes/spike2-pdf/app/build/outputs/apk/debug/app-debug.apk",
+          "apk_md5": "8ea3edc683ebf0b5be2f32f32dc57bb9",
+          "apk_bytes": "7287902",
+          "scenario": "S1,S2,S3",
+          "api": "35",
+          "model": "Android_SDK_built_for_x86_64",
+          "abi": "x86_64",
+          "build": "12368160",
+          "ts": "2026-11-01T20:47:40+0800"
+        }
+      ]
+    },
+    {
+      "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r1-run1-20261101-204818.log",
+      "lines": 222,
+      "record_lines": 57,
+      "parse_failures": 0,
+      "run_id": "render-r1-run1-20261101-204818",
+      "app": "spike2",
+      "runenv": [
+        {
+          "app": "spike2",
+          "run_id": "render-r1-run1-20261101-204818",
+          "apk": "spikes/spike2-pdf/app/build/outputs/apk/debug/app-debug.apk",
+          "apk_md5": "8ea3edc683ebf0b5be2f32f32dc57bb9",
+          "apk_bytes": "7287902",
+          "scenario": "S1,S2,S3",
+          "api": "35",
+          "model": "Android_SDK_built_for_x86_64",
+          "abi": "x86_64",
+          "build": "12368160",
+          "ts": "2026-11-01T20:48:25+0800"
+        }
+      ]
+    },
+    {
+      "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r1-run1-20261101-204859.log",
+      "lines": 221,
+      "record_lines": 57,
+      "parse_failures": 0,
+      "run_id": "render-r1-run1-20261101-204859",
+      "app": "spike2",
+      "runenv": [
+        {
+          "app": "spike2",
+          "run_id": "render-r1-run1-20261101-204859",
+          "apk": "spikes/spike2-pdf/app/build/outputs/apk/debug/app-debug.apk",
+          "apk_md5": "8ea3edc683ebf0b5be2f32f32dc57bb9",
+          "apk_bytes": "7287902",
+          "scenario": "S1,S2,S3",
+          "api": "35",
+          "model": "Android_SDK_built_for_x86_64",
+          "abi": "x86_64",
+          "build": "12368160",
+          "ts": "2026-11-01T20:49:06+0800"
+        }
+      ]
+    }
+  ],
+  "counts": {
+    "files": 5,
+    "lines": 1144,
+    "records": 285,
+    "source_record_lines": 285,
+    "parse_failures": 0,
+    "by_record": {
+      "AMSTART": 5,
+      "PBDONE": 20,
+      "PBPERF": 240,
+      "PBTIME": 15,
+      "RUNENV": 5
+    },
+    "warmup": 45,
+    "warmup_dropped": 45,
+    "error": 0,
+    "pss": 5,
+    "stats_samples": 215
+  },
+  "groups": [
+    {
+      "scope": "run",
+      "run_id": "render-r1-run1-20261101-204131",
+      "app": "spike2",
+      "scenario": "S1",
+      "phase": "open",
+      "n": 1,
+      "median": 466.173,
+      "p50": 466.173,
+      "p95": 466.173,
+      "max": 466.173,
+      "min": 466.173,
+      "sources": [
+        {
+          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r1-run1-20261101-204131.log",
+          "min_line": 122,
+          "max_line": 122,
+          "n": 1
+        }
+      ]
+    },
+    {
+      "scope": "run",
+      "run_id": "render-r1-run1-20261101-204131",
+      "app": "spike2",
+      "scenario": "S2",
+      "phase": "present",
+      "n": 19,
+      "median": 40.478,
+      "p50": 40.478,
+      "p95": 572.397,
+      "max": 572.397,
+      "min": 22.321,
+      "sources": [
+        {
+          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r1-run1-20261101-204131.log",
+          "min_line": 163,
+          "max_line": 224,
+          "n": 19
+        }
+      ]
+    },
+    {
+      "scope": "run",
+      "run_id": "render-r1-run1-20261101-204131",
+      "app": "spike2",
+      "scenario": "S2",
+      "phase": "render",
+      "n": 19,
+      "median": 122.287,
+      "p50": 122.287,
+      "p95": 889.735,
+      "max": 889.735,
+      "min": 24.344,
+      "sources": [
+        {
+          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r1-run1-20261101-204131.log",
+          "min_line": 133,
+          "max_line": 223,
+          "n": 19
+        }
+      ]
+    },
+    {
+      "scope": "run",
+      "run_id": "render-r1-run1-20261101-204131",
+      "app": "spike2",
+      "scenario": "S3",
+      "phase": "render",
+      "n": 4,
+      "median": 327.389,
+      "p50": 300.426,
+      "p95": 379.821,
+      "max": 379.821,
+      "min": 297.206,
+      "sources": [
+        {
+          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r1-run1-20261101-204131.log",
+          "min_line": 226,
+          "max_line": 232,
+          "n": 4
+        }
+      ]
+    },
+    {
+      "scope": "run",
+      "run_id": "render-r1-run1-20261101-204647",
+      "app": "spike2",
+      "scenario": "S1",
+      "phase": "open",
+      "n": 1,
+      "median": 665.414,
+      "p50": 665.414,
+      "p95": 665.414,
+      "max": 665.414,
+      "min": 665.414,
+      "sources": [
+        {
+          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r1-run1-20261101-204647.log",
+          "min_line": 118,
+          "max_line": 118,
+          "n": 1
+        }
+      ]
+    },
+    {
+      "scope": "run",
+      "run_id": "render-r1-run1-20261101-204647",
+      "app": "spike2",
+      "scenario": "S2",
+      "phase": "present",
+      "n": 19,
+      "median": 49.371,
+      "p50": 49.371,
+      "p95": 251.172,
+      "max": 251.172,
+      "min": 28.882,
+      "sources": [
+        {
+          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r1-run1-20261101-204647.log",
+          "min_line": 155,
+          "max_line": 210,
+          "n": 19
+        }
+      ]
+    },
+    {
+      "scope": "run",
+      "run_id": "render-r1-run1-20261101-204647",
+      "app": "spike2",
+      "scenario": "S2",
+      "phase": "render",
+      "n": 19,
+      "median": 126.797,
+      "p50": 126.797,
+      "p95": 1525.398,
+      "max": 1525.398,
+      "min": 23.583,
+      "sources": [
+        {
+          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r1-run1-20261101-204647.log",
+          "min_line": 152,
+          "max_line": 208,
+          "n": 19
+        }
+      ]
+    },
+    {
+      "scope": "run",
+      "run_id": "render-r1-run1-20261101-204647",
+      "app": "spike2",
+      "scenario": "S3",
+      "phase": "render",
+      "n": 4,
+      "median": 308.933,
+      "p50": 219.923,
+      "p95": 492.736,
+      "max": 492.736,
+      "min": 215.04,
+      "sources": [
+        {
+          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r1-run1-20261101-204647.log",
+          "min_line": 212,
+          "max_line": 216,
+          "n": 4
+        }
+      ]
+    },
+    {
+      "scope": "run",
+      "run_id": "render-r1-run1-20261101-204732",
+      "app": "spike2",
+      "scenario": "S1",
+      "phase": "open",
+      "n": 1,
+      "median": 557.827,
+      "p50": 557.827,
+      "p95": 557.827,
+      "max": 557.827,
+      "min": 557.827,
+      "sources": [
+        {
+          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r1-run1-20261101-204732.log",
+          "min_line": 128,
+          "max_line": 128,
+          "n": 1
+        }
+      ]
+    },
+    {
+      "scope": "run",
+      "run_id": "render-r1-run1-20261101-204732",
+      "app": "spike2",
+      "scenario": "S2",
+      "phase": "present",
+      "n": 19,
+      "median": 39.601,
+      "p50": 39.601,
+      "p95": 306.479,
+      "max": 306.479,
+      "min": 18.029,
+      "sources": [
+        {
+          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r1-run1-20261101-204732.log",
+          "min_line": 147,
+          "max_line": 219,
+          "n": 19
+        }
+      ]
+    },
+    {
+      "scope": "run",
+      "run_id": "render-r1-run1-20261101-204732",
+      "app": "spike2",
+      "scenario": "S2",
+      "phase": "render",
+      "n": 19,
+      "median": 93.316,
+      "p50": 93.316,
+      "p95": 1026.55,
+      "max": 1026.55,
+      "min": 4.924,
+      "sources": [
+        {
+          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r1-run1-20261101-204732.log",
+          "min_line": 139,
+          "max_line": 218,
+          "n": 19
+        }
+      ]
+    },
+    {
+      "scope": "run",
+      "run_id": "render-r1-run1-20261101-204732",
+      "app": "spike2",
+      "scenario": "S3",
+      "phase": "render",
+      "n": 4,
+      "median": 297.978,
+      "p50": 282.918,
+      "p95": 549.477,
+      "max": 549.477,
+      "min": 199.3,
+      "sources": [
+        {
+          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r1-run1-20261101-204732.log",
+          "min_line": 222,
+          "max_line": 229,
+          "n": 4
+        }
+      ]
+    },
+    {
+      "scope": "run",
+      "run_id": "render-r1-run1-20261101-204818",
+      "app": "spike2",
+      "scenario": "S1",
+      "phase": "open",
+      "n": 1,
+      "median": 324.164,
+      "p50": 324.164,
+      "p95": 324.164,
+      "max": 324.164,
+      "min": 324.164,
+      "sources": [
+        {
+          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r1-run1-20261101-204818.log",
+          "min_line": 122,
+          "max_line": 122,
+          "n": 1
+        }
+      ]
+    },
+    {
+      "scope": "run",
+      "run_id": "render-r1-run1-20261101-204818",
+      "app": "spike2",
+      "scenario": "S2",
+      "phase": "present",
+      "n": 19,
+      "median": 38.528,
+      "p50": 38.528,
+      "p95": 705.791,
+      "max": 705.791,
+      "min": 20.978,
+      "sources": [
+        {
+          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r1-run1-20261101-204818.log",
+          "min_line": 156,
+          "max_line": 202,
+          "n": 19
+        }
+      ]
+    },
+    {
+      "scope": "run",
+      "run_id": "render-r1-run1-20261101-204818",
+      "app": "spike2",
+      "scenario": "S2",
+      "phase": "render",
+      "n": 19,
+      "median": 99.531,
+      "p50": 99.531,
+      "p95": 1089.814,
+      "max": 1089.814,
+      "min": 12.865,
+      "sources": [
+        {
+          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r1-run1-20261101-204818.log",
+          "min_line": 133,
+          "max_line": 201,
+          "n": 19
+        }
+      ]
+    },
+    {
+      "scope": "run",
+      "run_id": "render-r1-run1-20261101-204818",
+      "app": "spike2",
+      "scenario": "S3",
+      "phase": "render",
+      "n": 4,
+      "median": 232.447,
+      "p50": 190.727,
+      "p95": 520.122,
+      "max": 520.122,
+      "min": 136.061,
+      "sources": [
+        {
+          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r1-run1-20261101-204818.log",
+          "min_line": 204,
+          "max_line": 215,
+          "n": 4
+        }
+      ]
+    },
+    {
+      "scope": "run",
+      "run_id": "render-r1-run1-20261101-204859",
+      "app": "spike2",
+      "scenario": "S1",
+      "phase": "open",
+      "n": 1,
+      "median": 540.686,
+      "p50": 540.686,
+      "p95": 540.686,
+      "max": 540.686,
+      "min": 540.686,
+      "sources": [
+        {
+          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r1-run1-20261101-204859.log",
+          "min_line": 124,
+          "max_line": 124,
+          "n": 1
+        }
+      ]
+    },
+    {
+      "scope": "run",
+      "run_id": "render-r1-run1-20261101-204859",
+      "app": "spike2",
+      "scenario": "S2",
+      "phase": "present",
+      "n": 19,
+      "median": 36.222,
+      "p50": 36.222,
+      "p95": 597.233,
+      "max": 597.233,
+      "min": 23.998,
+      "sources": [
+        {
+          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r1-run1-20261101-204859.log",
+          "min_line": 156,
+          "max_line": 202,
+          "n": 19
+        }
+      ]
+    },
+    {
+      "scope": "run",
+      "run_id": "render-r1-run1-20261101-204859",
+      "app": "spike2",
+      "scenario": "S2",
+      "phase": "render",
+      "n": 19,
+      "median": 95.027,
+      "p50": 95.027,
+      "p95": 582.05,
+      "max": 582.05,
+      "min": 27.232,
+      "sources": [
+        {
+          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r1-run1-20261101-204859.log",
+          "min_line": 134,
+          "max_line": 201,
+          "n": 19
+        }
+      ]
+    },
+    {
+      "scope": "run",
+      "run_id": "render-r1-run1-20261101-204859",
+      "app": "spike2",
+      "scenario": "S3",
+      "phase": "render",
+      "n": 4,
+      "median": 258.726,
+      "p50": 192.374,
+      "p95": 372.365,
+      "max": 372.365,
+      "min": 143.363,
+      "sources": [
+        {
+          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r1-run1-20261101-204859.log",
+          "min_line": 204,
+          "max_line": 214,
+          "n": 4
+        }
+      ]
+    },
+    {
+      "scope": "all",
+      "run_id": "",
+      "app": "spike2",
+      "scenario": "S1",
+      "phase": "open",
+      "n": 5,
+      "median": 540.686,
+      "p50": 540.686,
+      "p95": 665.414,
+      "max": 665.414,
+      "min": 324.164,
+      "sources": [
+        {
+          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r1-run1-20261101-204131.log",
+          "min_line": 122,
+          "max_line": 122,
+          "n": 1
+        },
+        {
+          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r1-run1-20261101-204647.log",
+          "min_line": 118,
+          "max_line": 118,
+          "n": 1
+        },
+        {
+          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r1-run1-20261101-204732.log",
+          "min_line": 128,
+          "max_line": 128,
+          "n": 1
+        },
+        {
+          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r1-run1-20261101-204818.log",
+          "min_line": 122,
+          "max_line": 122,
+          "n": 1
+        },
+        {
+          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r1-run1-20261101-204859.log",
+          "min_line": 124,
+          "max_line": 124,
+          "n": 1
+        }
+      ]
+    },
+    {
+      "scope": "all",
+      "run_id": "",
+      "app": "spike2",
+      "scenario": "S2",
+      "phase": "present",
+      "n": 95,
+      "median": 42.206,
+      "p50": 42.206,
+      "p95": 251.172,
+      "max": 705.791,
+      "min": 18.029,
+      "sources": [
+        {
+          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r1-run1-20261101-204131.log",
+          "min_line": 163,
+          "max_line": 224,
+          "n": 19
+        },
+        {
+          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r1-run1-20261101-204647.log",
+          "min_line": 155,
+          "max_line": 210,
+          "n": 19
+        },
+        {
+          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r1-run1-20261101-204732.log",
+          "min_line": 147,
+          "max_line": 219,
+          "n": 19
+        },
+        {
+          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r1-run1-20261101-204818.log",
+          "min_line": 156,
+          "max_line": 202,
+          "n": 19
+        },
+        {
+          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r1-run1-20261101-204859.log",
+          "min_line": 156,
+          "max_line": 202,
+          "n": 19
+        }
+      ]
+    },
+    {
+      "scope": "all",
+      "run_id": "",
+      "app": "spike2",
+      "scenario": "S2",
+      "phase": "render",
+      "n": 95,
+      "median": 102.717,
+      "p50": 102.717,
+      "p95": 582.05,
+      "max": 1525.398,
+      "min": 4.924,
+      "sources": [
+        {
+          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r1-run1-20261101-204131.log",
+          "min_line": 133,
+          "max_line": 223,
+          "n": 19
+        },
+        {
+          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r1-run1-20261101-204647.log",
+          "min_line": 152,
+          "max_line": 208,
+          "n": 19
+        },
+        {
+          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r1-run1-20261101-204732.log",
+          "min_line": 139,
+          "max_line": 218,
+          "n": 19
+        },
+        {
+          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r1-run1-20261101-204818.log",
+          "min_line": 133,
+          "max_line": 201,
+          "n": 19
+        },
+        {
+          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r1-run1-20261101-204859.log",
+          "min_line": 134,
+          "max_line": 201,
+          "n": 19
+        }
+      ]
+    },
+    {
+      "scope": "all",
+      "run_id": "",
+      "app": "spike2",
+      "scenario": "S3",
+      "phase": "render",
+      "n": 20,
+      "median": 298.816,
+      "p50": 297.206,
+      "p95": 520.122,
+      "max": 549.477,
+      "min": 136.061,
+      "sources": [
+        {
+          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r1-run1-20261101-204131.log",
+          "min_line": 226,
+          "max_line": 232,
+          "n": 4
+        },
+        {
+          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r1-run1-20261101-204647.log",
+          "min_line": 212,
+          "max_line": 216,
+          "n": 4
+        },
+        {
+          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r1-run1-20261101-204732.log",
+          "min_line": 222,
+          "max_line": 229,
+          "n": 4
+        },
+        {
+          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r1-run1-20261101-204818.log",
+          "min_line": 204,
+          "max_line": 215,
+          "n": 4
+        },
+        {
+          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r1-run1-20261101-204859.log",
+          "min_line": 204,
+          "max_line": 214,
+          "n": 4
+        }
+      ]
+    }
+  ],
+  "mem": [],
+  "low_confidence_groups": [
+    {
+      "run_id": "render-r1-run1-20261101-204131",
+      "app": "spike2",
+      "scenario": "PBTIME",
+      "phase": "first_frame",
+      "n": 0,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "render-r1-run1-20261101-204131",
+      "app": "spike2",
+      "scenario": "PBTIME",
+      "phase": "first_screen",
+      "n": 0,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "render-r1-run1-20261101-204131",
+      "app": "spike2",
+      "scenario": "PBTIME",
+      "phase": "open_to_first_screen",
+      "n": 0,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "render-r1-run1-20261101-204131",
+      "app": "spike2",
+      "scenario": "S1",
+      "phase": "open",
+      "n": 1,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "render-r1-run1-20261101-204131",
+      "app": "spike2",
+      "scenario": "S3",
+      "phase": "render",
+      "n": 4,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "render-r1-run1-20261101-204131",
+      "app": "spike2",
+      "scenario": "S7",
+      "phase": "pss",
+      "n": 0,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "render-r1-run1-20261101-204131",
+      "app": "spike2",
+      "scenario": "cold_start",
+      "phase": "am_start",
+      "n": 0,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "render-r1-run1-20261101-204647",
+      "app": "spike2",
+      "scenario": "PBTIME",
+      "phase": "first_frame",
+      "n": 0,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "render-r1-run1-20261101-204647",
+      "app": "spike2",
+      "scenario": "PBTIME",
+      "phase": "first_screen",
+      "n": 0,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "render-r1-run1-20261101-204647",
+      "app": "spike2",
+      "scenario": "PBTIME",
+      "phase": "open_to_first_screen",
+      "n": 0,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "render-r1-run1-20261101-204647",
+      "app": "spike2",
+      "scenario": "S1",
+      "phase": "open",
+      "n": 1,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "render-r1-run1-20261101-204647",
+      "app": "spike2",
+      "scenario": "S3",
+      "phase": "render",
+      "n": 4,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "render-r1-run1-20261101-204647",
+      "app": "spike2",
+      "scenario": "S7",
+      "phase": "pss",
+      "n": 0,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "render-r1-run1-20261101-204647",
+      "app": "spike2",
+      "scenario": "cold_start",
+      "phase": "am_start",
+      "n": 0,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "render-r1-run1-20261101-204732",
+      "app": "spike2",
+      "scenario": "PBTIME",
+      "phase": "first_frame",
+      "n": 0,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "render-r1-run1-20261101-204732",
+      "app": "spike2",
+      "scenario": "PBTIME",
+      "phase": "first_screen",
+      "n": 0,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "render-r1-run1-20261101-204732",
+      "app": "spike2",
+      "scenario": "PBTIME",
+      "phase": "open_to_first_screen",
+      "n": 0,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "render-r1-run1-20261101-204732",
+      "app": "spike2",
+      "scenario": "S1",
+      "phase": "open",
+      "n": 1,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "render-r1-run1-20261101-204732",
+      "app": "spike2",
+      "scenario": "S3",
+      "phase": "render",
+      "n": 4,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "render-r1-run1-20261101-204732",
+      "app": "spike2",
+      "scenario": "S7",
+      "phase": "pss",
+      "n": 0,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "render-r1-run1-20261101-204732",
+      "app": "spike2",
+      "scenario": "cold_start",
+      "phase": "am_start",
+      "n": 0,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "render-r1-run1-20261101-204818",
+      "app": "spike2",
+      "scenario": "PBTIME",
+      "phase": "first_frame",
+      "n": 0,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "render-r1-run1-20261101-204818",
+      "app": "spike2",
+      "scenario": "PBTIME",
+      "phase": "first_screen",
+      "n": 0,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "render-r1-run1-20261101-204818",
+      "app": "spike2",
+      "scenario": "PBTIME",
+      "phase": "open_to_first_screen",
+      "n": 0,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "render-r1-run1-20261101-204818",
+      "app": "spike2",
+      "scenario": "S1",
+      "phase": "open",
+      "n": 1,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "render-r1-run1-20261101-204818",
+      "app": "spike2",
+      "scenario": "S3",
+      "phase": "render",
+      "n": 4,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "render-r1-run1-20261101-204818",
+      "app": "spike2",
+      "scenario": "S7",
+      "phase": "pss",
+      "n": 0,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "render-r1-run1-20261101-204818",
+      "app": "spike2",
+      "scenario": "cold_start",
+      "phase": "am_start",
+      "n": 0,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "render-r1-run1-20261101-204859",
+      "app": "spike2",
+      "scenario": "PBTIME",
+      "phase": "first_frame",
+      "n": 0,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "render-r1-run1-20261101-204859",
+      "app": "spike2",
+      "scenario": "PBTIME",
+      "phase": "first_screen",
+      "n": 0,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "render-r1-run1-20261101-204859",
+      "app": "spike2",
+      "scenario": "PBTIME",
+      "phase": "open_to_first_screen",
+      "n": 0,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "render-r1-run1-20261101-204859",
+      "app": "spike2",
+      "scenario": "S1",
+      "phase": "open",
+      "n": 1,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "render-r1-run1-20261101-204859",
+      "app": "spike2",
+      "scenario": "S3",
+      "phase": "render",
+      "n": 4,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "render-r1-run1-20261101-204859",
+      "app": "spike2",
+      "scenario": "S7",
+      "phase": "pss",
+      "n": 0,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "render-r1-run1-20261101-204859",
+      "app": "spike2",
+      "scenario": "cold_start",
+      "phase": "am_start",
+      "n": 0,
+      "errors": 0,
+      "warmup": 1
+    }
+  ],
+  "missing_pbdone": [],
+  "runenv": [
+    {
+      "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r1-run1-20261101-204131.log",
+      "fields": {
+        "app": "spike2",
+        "run_id": "render-r1-run1-20261101-204131",
+        "apk": "spikes/spike2-pdf/app/build/outputs/apk/debug/app-debug.apk",
+        "apk_md5": "8ea3edc683ebf0b5be2f32f32dc57bb9",
+        "apk_bytes": "7287902",
+        "scenario": "S1,S2,S3",
+        "api": "35",
+        "model": "Android_SDK_built_for_x86_64",
+        "abi": "x86_64",
+        "build": "12368160",
+        "ts": "2026-11-01T20:41:39+0800"
+      }
+    },
+    {
+      "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r1-run1-20261101-204647.log",
+      "fields": {
+        "app": "spike2",
+        "run_id": "render-r1-run1-20261101-204647",
+        "apk": "spikes/spike2-pdf/app/build/outputs/apk/debug/app-debug.apk",
+        "apk_md5": "8ea3edc683ebf0b5be2f32f32dc57bb9",
+        "apk_bytes": "7287902",
+        "scenario": "S1,S2,S3",
+        "api": "35",
+        "model": "Android_SDK_built_for_x86_64",
+        "abi": "x86_64",
+        "build": "12368160",
+        "ts": "2026-11-01T20:46:55+0800"
+      }
+    },
+    {
+      "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r1-run1-20261101-204732.log",
+      "fields": {
+        "app": "spike2",
+        "run_id": "render-r1-run1-20261101-204732",
+        "apk": "spikes/spike2-pdf/app/build/outputs/apk/debug/app-debug.apk",
+        "apk_md5": "8ea3edc683ebf0b5be2f32f32dc57bb9",
+        "apk_bytes": "7287902",
+        "scenario": "S1,S2,S3",
+        "api": "35",
+        "model": "Android_SDK_built_for_x86_64",
+        "abi": "x86_64",
+        "build": "12368160",
+        "ts": "2026-11-01T20:47:40+0800"
+      }
+    },
+    {
+      "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r1-run1-20261101-204818.log",
+      "fields": {
+        "app": "spike2",
+        "run_id": "render-r1-run1-20261101-204818",
+        "apk": "spikes/spike2-pdf/app/build/outputs/apk/debug/app-debug.apk",
+        "apk_md5": "8ea3edc683ebf0b5be2f32f32dc57bb9",
+        "apk_bytes": "7287902",
+        "scenario": "S1,S2,S3",
+        "api": "35",
+        "model": "Android_SDK_built_for_x86_64",
+        "abi": "x86_64",
+        "build": "12368160",
+        "ts": "2026-11-01T20:48:25+0800"
+      }
+    },
+    {
+      "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r1-run1-20261101-204859.log",
+      "fields": {
+        "app": "spike2",
+        "run_id": "render-r1-run1-20261101-204859",
+        "apk": "spikes/spike2-pdf/app/build/outputs/apk/debug/app-debug.apk",
+        "apk_md5": "8ea3edc683ebf0b5be2f32f32dc57bb9",
+        "apk_bytes": "7287902",
+        "scenario": "S1,S2,S3",
+        "api": "35",
+        "model": "Android_SDK_built_for_x86_64",
+        "abi": "x86_64",
+        "build": "12368160",
+        "ts": "2026-11-01T20:49:06+0800"
+      }
+    }
+  ],
+  "parse_failures": []
+}

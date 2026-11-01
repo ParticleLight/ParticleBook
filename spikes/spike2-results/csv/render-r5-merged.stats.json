@@ -1,0 +1,1888 @@
+{
+  "schema": 1,
+  "tool": "scripts/android/spike2/parse.py",
+  "generated_at": "2026-11-01T20:58:11+08:00",
+  "name": "render-r5-merged",
+  "options": {
+    "app": "spike2",
+    "drop_first": 0,
+    "drop_mode": "first-per-phase",
+    "min_samples": 5,
+    "out": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\csv"
+  },
+  "inputs": [
+    {
+      "file": "spikes\\spike2-results\\raw\\render-r5-run1-20261101-205253.log",
+      "lines": 222,
+      "record_lines": 52,
+      "parse_failures": 0,
+      "run_id": "render-r5-run1-20261101-205253",
+      "app": "spike2",
+      "runenv": [
+        {
+          "app": "spike2",
+          "run_id": "render-r5-run1-20261101-205253",
+          "apk": "spikes/spike2-pdf/app/build/outputs/apk/debug/app-debug.apk",
+          "apk_md5": "8ea3edc683ebf0b5be2f32f32dc57bb9",
+          "apk_bytes": "7287902",
+          "scenario": "S9,S10",
+          "api": "35",
+          "model": "Android_SDK_built_for_x86_64",
+          "abi": "x86_64",
+          "build": "12368160",
+          "ts": "2026-11-01T20:53:00+0800"
+        }
+      ]
+    },
+    {
+      "file": "spikes\\spike2-results\\raw\\render-r5-run1-20261101-205342.log",
+      "lines": 237,
+      "record_lines": 52,
+      "parse_failures": 0,
+      "run_id": "render-r5-run1-20261101-205342",
+      "app": "spike2",
+      "runenv": [
+        {
+          "app": "spike2",
+          "run_id": "render-r5-run1-20261101-205342",
+          "apk": "spikes/spike2-pdf/app/build/outputs/apk/debug/app-debug.apk",
+          "apk_md5": "8ea3edc683ebf0b5be2f32f32dc57bb9",
+          "apk_bytes": "7287902",
+          "scenario": "S9,S10",
+          "api": "35",
+          "model": "Android_SDK_built_for_x86_64",
+          "abi": "x86_64",
+          "build": "12368160",
+          "ts": "2026-11-01T20:53:54+0800"
+        }
+      ]
+    },
+    {
+      "file": "spikes\\spike2-results\\raw\\render-r5-run1-20261101-205527.log",
+      "lines": 212,
+      "record_lines": 52,
+      "parse_failures": 0,
+      "run_id": "render-r5-run1-20261101-205527",
+      "app": "spike2",
+      "runenv": [
+        {
+          "app": "spike2",
+          "run_id": "render-r5-run1-20261101-205527",
+          "apk": "spikes/spike2-pdf/app/build/outputs/apk/debug/app-debug.apk",
+          "apk_md5": "8ea3edc683ebf0b5be2f32f32dc57bb9",
+          "apk_bytes": "7287902",
+          "scenario": "S9,S10",
+          "api": "35",
+          "model": "Android_SDK_built_for_x86_64",
+          "abi": "x86_64",
+          "build": "12368160",
+          "ts": "2026-11-01T20:55:35+0800"
+        }
+      ]
+    },
+    {
+      "file": "spikes\\spike2-results\\raw\\render-r5-run2-20261101-205433.log",
+      "lines": 224,
+      "record_lines": 52,
+      "parse_failures": 0,
+      "run_id": "render-r5-run2-20261101-205433",
+      "app": "spike2",
+      "runenv": [
+        {
+          "app": "spike2",
+          "run_id": "render-r5-run2-20261101-205433",
+          "apk": "spikes/spike2-pdf/app/build/outputs/apk/debug/app-debug.apk",
+          "apk_md5": "8ea3edc683ebf0b5be2f32f32dc57bb9",
+          "apk_bytes": "7287902",
+          "scenario": "S9,S10",
+          "api": "35",
+          "model": "Android_SDK_built_for_x86_64",
+          "abi": "x86_64",
+          "build": "12368160",
+          "ts": "2026-11-01T20:54:39+0800"
+        }
+      ]
+    },
+    {
+      "file": "spikes\\spike2-results\\raw\\render-r5-run2-20261101-205600.log",
+      "lines": 210,
+      "record_lines": 52,
+      "parse_failures": 0,
+      "run_id": "render-r5-run2-20261101-205600",
+      "app": "spike2",
+      "runenv": [
+        {
+          "app": "spike2",
+          "run_id": "render-r5-run2-20261101-205600",
+          "apk": "spikes/spike2-pdf/app/build/outputs/apk/debug/app-debug.apk",
+          "apk_md5": "8ea3edc683ebf0b5be2f32f32dc57bb9",
+          "apk_bytes": "7287902",
+          "scenario": "S9,S10",
+          "api": "35",
+          "model": "Android_SDK_built_for_x86_64",
+          "abi": "x86_64",
+          "build": "12368160",
+          "ts": "2026-11-01T20:56:05+0800"
+        }
+      ]
+    }
+  ],
+  "counts": {
+    "files": 5,
+    "lines": 1105,
+    "records": 260,
+    "source_record_lines": 260,
+    "parse_failures": 0,
+    "by_record": {
+      "AMSTART": 5,
+      "PBDONE": 20,
+      "PBPERF": 225,
+      "PBTIME": 5,
+      "RUNENV": 5
+    },
+    "warmup": 60,
+    "warmup_dropped": 60,
+    "error": 0,
+    "pss": 5,
+    "stats_samples": 175
+  },
+  "groups": [
+    {
+      "scope": "run",
+      "run_id": "render-r5-run1-20261101-205253",
+      "app": "spike2",
+      "scenario": "S1",
+      "phase": "open",
+      "n": 1,
+      "median": 287.802,
+      "p50": 287.802,
+      "p95": 287.802,
+      "max": 287.802,
+      "min": 287.802,
+      "sources": [
+        {
+          "file": "spikes\\spike2-results\\raw\\render-r5-run1-20261101-205253.log",
+          "min_line": 129,
+          "max_line": 129,
+          "n": 1
+        }
+      ]
+    },
+    {
+      "scope": "run",
+      "run_id": "render-r5-run1-20261101-205253",
+      "app": "spike2",
+      "scenario": "S10",
+      "phase": "check",
+      "n": 1,
+      "median": 0.0,
+      "p50": 0.0,
+      "p95": 0.0,
+      "max": 0.0,
+      "min": 0.0,
+      "sources": [
+        {
+          "file": "spikes\\spike2-results\\raw\\render-r5-run1-20261101-205253.log",
+          "min_line": 220,
+          "max_line": 220,
+          "n": 1
+        }
+      ]
+    },
+    {
+      "scope": "run",
+      "run_id": "render-r5-run1-20261101-205253",
+      "app": "spike2",
+      "scenario": "S10",
+      "phase": "present",
+      "n": 8,
+      "median": 52.478,
+      "p50": 51.016,
+      "p95": 86.606,
+      "max": 86.606,
+      "min": 32.903,
+      "sources": [
+        {
+          "file": "spikes\\spike2-results\\raw\\render-r5-run1-20261101-205253.log",
+          "min_line": 199,
+          "max_line": 219,
+          "n": 8
+        }
+      ]
+    },
+    {
+      "scope": "run",
+      "run_id": "render-r5-run1-20261101-205253",
+      "app": "spike2",
+      "scenario": "S10",
+      "phase": "render",
+      "n": 9,
+      "median": 278.872,
+      "p50": 278.872,
+      "p95": 770.328,
+      "max": 770.328,
+      "min": 192.51,
+      "sources": [
+        {
+          "file": "spikes\\spike2-results\\raw\\render-r5-run1-20261101-205253.log",
+          "min_line": 196,
+          "max_line": 218,
+          "n": 9
+        }
+      ]
+    },
+    {
+      "scope": "run",
+      "run_id": "render-r5-run1-20261101-205253",
+      "app": "spike2",
+      "scenario": "S9",
+      "phase": "encode",
+      "n": 4,
+      "median": 609.917,
+      "p50": 608.793,
+      "p95": 686.574,
+      "max": 686.574,
+      "min": 312.317,
+      "sources": [
+        {
+          "file": "spikes\\spike2-results\\raw\\render-r5-run1-20261101-205253.log",
+          "min_line": 166,
+          "max_line": 185,
+          "n": 4
+        }
+      ]
+    },
+    {
+      "scope": "run",
+      "run_id": "render-r5-run1-20261101-205253",
+      "app": "spike2",
+      "scenario": "S9",
+      "phase": "render",
+      "n": 4,
+      "median": 456.001,
+      "p50": 429.334,
+      "p95": 1424.152,
+      "max": 1424.152,
+      "min": 425.419,
+      "sources": [
+        {
+          "file": "spikes\\spike2-results\\raw\\render-r5-run1-20261101-205253.log",
+          "min_line": 155,
+          "max_line": 184,
+          "n": 4
+        }
+      ]
+    },
+    {
+      "scope": "run",
+      "run_id": "render-r5-run1-20261101-205253",
+      "app": "spike2",
+      "scenario": "S9",
+      "phase": "total",
+      "n": 4,
+      "median": 1161.827,
+      "p50": 1156.505,
+      "p95": 1204.993,
+      "max": 1204.993,
+      "min": 942.923,
+      "sources": [
+        {
+          "file": "spikes\\spike2-results\\raw\\render-r5-run1-20261101-205253.log",
+          "min_line": 168,
+          "max_line": 187,
+          "n": 4
+        }
+      ]
+    },
+    {
+      "scope": "run",
+      "run_id": "render-r5-run1-20261101-205253",
+      "app": "spike2",
+      "scenario": "S9",
+      "phase": "write",
+      "n": 4,
+      "median": 118.812,
+      "p50": 93.0,
+      "p95": 201.272,
+      "max": 201.272,
+      "min": 65.043,
+      "sources": [
+        {
+          "file": "spikes\\spike2-results\\raw\\render-r5-run1-20261101-205253.log",
+          "min_line": 167,
+          "max_line": 186,
+          "n": 4
+        }
+      ]
+    },
+    {
+      "scope": "run",
+      "run_id": "render-r5-run1-20261101-205342",
+      "app": "spike2",
+      "scenario": "S1",
+      "phase": "open",
+      "n": 1,
+      "median": 1114.952,
+      "p50": 1114.952,
+      "p95": 1114.952,
+      "max": 1114.952,
+      "min": 1114.952,
+      "sources": [
+        {
+          "file": "spikes\\spike2-results\\raw\\render-r5-run1-20261101-205342.log",
+          "min_line": 147,
+          "max_line": 147,
+          "n": 1
+        }
+      ]
+    },
+    {
+      "scope": "run",
+      "run_id": "render-r5-run1-20261101-205342",
+      "app": "spike2",
+      "scenario": "S10",
+      "phase": "check",
+      "n": 1,
+      "median": 0.0,
+      "p50": 0.0,
+      "p95": 0.0,
+      "max": 0.0,
+      "min": 0.0,
+      "sources": [
+        {
+          "file": "spikes\\spike2-results\\raw\\render-r5-run1-20261101-205342.log",
+          "min_line": 234,
+          "max_line": 234,
+          "n": 1
+        }
+      ]
+    },
+    {
+      "scope": "run",
+      "run_id": "render-r5-run1-20261101-205342",
+      "app": "spike2",
+      "scenario": "S10",
+      "phase": "present",
+      "n": 8,
+      "median": 62.029,
+      "p50": 60.033,
+      "p95": 101.713,
+      "max": 101.713,
+      "min": 34.082,
+      "sources": [
+        {
+          "file": "spikes\\spike2-results\\raw\\render-r5-run1-20261101-205342.log",
+          "min_line": 218,
+          "max_line": 233,
+          "n": 8
+        }
+      ]
+    },
+    {
+      "scope": "run",
+      "run_id": "render-r5-run1-20261101-205342",
+      "app": "spike2",
+      "scenario": "S10",
+      "phase": "render",
+      "n": 9,
+      "median": 398.996,
+      "p50": 398.996,
+      "p95": 1079.189,
+      "max": 1079.189,
+      "min": 158.527,
+      "sources": [
+        {
+          "file": "spikes\\spike2-results\\raw\\render-r5-run1-20261101-205342.log",
+          "min_line": 214,
+          "max_line": 232,
+          "n": 9
+        }
+      ]
+    },
+    {
+      "scope": "run",
+      "run_id": "render-r5-run1-20261101-205342",
+      "app": "spike2",
+      "scenario": "S9",
+      "phase": "encode",
+      "n": 4,
+      "median": 566.308,
+      "p50": 467.749,
+      "p95": 705.854,
+      "max": 705.854,
+      "min": 455.721,
+      "sources": [
+        {
+          "file": "spikes\\spike2-results\\raw\\render-r5-run1-20261101-205342.log",
+          "min_line": 181,
+          "max_line": 201,
+          "n": 4
+        }
+      ]
+    },
+    {
+      "scope": "run",
+      "run_id": "render-r5-run1-20261101-205342",
+      "app": "spike2",
+      "scenario": "S9",
+      "phase": "render",
+      "n": 4,
+      "median": 380.067,
+      "p50": 372.219,
+      "p95": 945.708,
+      "max": 945.708,
+      "min": 222.435,
+      "sources": [
+        {
+          "file": "spikes\\spike2-results\\raw\\render-r5-run1-20261101-205342.log",
+          "min_line": 161,
+          "max_line": 200,
+          "n": 4
+        }
+      ]
+    },
+    {
+      "scope": "run",
+      "run_id": "render-r5-run1-20261101-205342",
+      "app": "spike2",
+      "scenario": "S9",
+      "phase": "total",
+      "n": 4,
+      "median": 1022.203,
+      "p50": 929.04,
+      "p95": 1126.222,
+      "max": 1126.222,
+      "min": 753.777,
+      "sources": [
+        {
+          "file": "spikes\\spike2-results\\raw\\render-r5-run1-20261101-205342.log",
+          "min_line": 183,
+          "max_line": 203,
+          "n": 4
+        }
+      ]
+    },
+    {
+      "scope": "run",
+      "run_id": "render-r5-run1-20261101-205342",
+      "app": "spike2",
+      "scenario": "S9",
+      "phase": "write",
+      "n": 4,
+      "median": 82.346,
+      "p50": 63.593,
+      "p95": 129.882,
+      "max": 129.882,
+      "min": 62.582,
+      "sources": [
+        {
+          "file": "spikes\\spike2-results\\raw\\render-r5-run1-20261101-205342.log",
+          "min_line": 182,
+          "max_line": 202,
+          "n": 4
+        }
+      ]
+    },
+    {
+      "scope": "run",
+      "run_id": "render-r5-run1-20261101-205527",
+      "app": "spike2",
+      "scenario": "S1",
+      "phase": "open",
+      "n": 1,
+      "median": 190.097,
+      "p50": 190.097,
+      "p95": 190.097,
+      "max": 190.097,
+      "min": 190.097,
+      "sources": [
+        {
+          "file": "spikes\\spike2-results\\raw\\render-r5-run1-20261101-205527.log",
+          "min_line": 116,
+          "max_line": 116,
+          "n": 1
+        }
+      ]
+    },
+    {
+      "scope": "run",
+      "run_id": "render-r5-run1-20261101-205527",
+      "app": "spike2",
+      "scenario": "S10",
+      "phase": "check",
+      "n": 1,
+      "median": 0.0,
+      "p50": 0.0,
+      "p95": 0.0,
+      "max": 0.0,
+      "min": 0.0,
+      "sources": [
+        {
+          "file": "spikes\\spike2-results\\raw\\render-r5-run1-20261101-205527.log",
+          "min_line": 202,
+          "max_line": 202,
+          "n": 1
+        }
+      ]
+    },
+    {
+      "scope": "run",
+      "run_id": "render-r5-run1-20261101-205527",
+      "app": "spike2",
+      "scenario": "S10",
+      "phase": "present",
+      "n": 8,
+      "median": 39.231,
+      "p50": 38.548,
+      "p95": 90.267,
+      "max": 90.267,
+      "min": 23.541,
+      "sources": [
+        {
+          "file": "spikes\\spike2-results\\raw\\render-r5-run1-20261101-205527.log",
+          "min_line": 179,
+          "max_line": 201,
+          "n": 8
+        }
+      ]
+    },
+    {
+      "scope": "run",
+      "run_id": "render-r5-run1-20261101-205527",
+      "app": "spike2",
+      "scenario": "S10",
+      "phase": "render",
+      "n": 9,
+      "median": 187.309,
+      "p50": 187.309,
+      "p95": 350.265,
+      "max": 350.265,
+      "min": 127.155,
+      "sources": [
+        {
+          "file": "spikes\\spike2-results\\raw\\render-r5-run1-20261101-205527.log",
+          "min_line": 176,
+          "max_line": 200,
+          "n": 9
+        }
+      ]
+    },
+    {
+      "scope": "run",
+      "run_id": "render-r5-run1-20261101-205527",
+      "app": "spike2",
+      "scenario": "S9",
+      "phase": "encode",
+      "n": 4,
+      "median": 297.543,
+      "p50": 293.785,
+      "p95": 342.907,
+      "max": 342.907,
+      "min": 253.072,
+      "sources": [
+        {
+          "file": "spikes\\spike2-results\\raw\\render-r5-run1-20261101-205527.log",
+          "min_line": 157,
+          "max_line": 169,
+          "n": 4
+        }
+      ]
+    },
+    {
+      "scope": "run",
+      "run_id": "render-r5-run1-20261101-205527",
+      "app": "spike2",
+      "scenario": "S9",
+      "phase": "render",
+      "n": 4,
+      "median": 138.887,
+      "p50": 112.805,
+      "p95": 1091.097,
+      "max": 1091.097,
+      "min": 95.704,
+      "sources": [
+        {
+          "file": "spikes\\spike2-results\\raw\\render-r5-run1-20261101-205527.log",
+          "min_line": 127,
+          "max_line": 168,
+          "n": 4
+        }
+      ]
+    },
+    {
+      "scope": "run",
+      "run_id": "render-r5-run1-20261101-205527",
+      "app": "spike2",
+      "scenario": "S9",
+      "phase": "total",
+      "n": 4,
+      "median": 495.818,
+      "p50": 456.159,
+      "p95": 625.238,
+      "max": 625.238,
+      "min": 409.723,
+      "sources": [
+        {
+          "file": "spikes\\spike2-results\\raw\\render-r5-run1-20261101-205527.log",
+          "min_line": 159,
+          "max_line": 171,
+          "n": 4
+        }
+      ]
+    },
+    {
+      "scope": "run",
+      "run_id": "render-r5-run1-20261101-205527",
+      "app": "spike2",
+      "scenario": "S9",
+      "phase": "write",
+      "n": 4,
+      "median": 62.686,
+      "p50": 60.947,
+      "p95": 76.725,
+      "max": 76.725,
+      "min": 42.054,
+      "sources": [
+        {
+          "file": "spikes\\spike2-results\\raw\\render-r5-run1-20261101-205527.log",
+          "min_line": 158,
+          "max_line": 170,
+          "n": 4
+        }
+      ]
+    },
+    {
+      "scope": "run",
+      "run_id": "render-r5-run2-20261101-205433",
+      "app": "spike2",
+      "scenario": "S1",
+      "phase": "open",
+      "n": 1,
+      "median": 476.253,
+      "p50": 476.253,
+      "p95": 476.253,
+      "max": 476.253,
+      "min": 476.253,
+      "sources": [
+        {
+          "file": "spikes\\spike2-results\\raw\\render-r5-run2-20261101-205433.log",
+          "min_line": 130,
+          "max_line": 130,
+          "n": 1
+        }
+      ]
+    },
+    {
+      "scope": "run",
+      "run_id": "render-r5-run2-20261101-205433",
+      "app": "spike2",
+      "scenario": "S10",
+      "phase": "check",
+      "n": 1,
+      "median": 0.0,
+      "p50": 0.0,
+      "p95": 0.0,
+      "max": 0.0,
+      "min": 0.0,
+      "sources": [
+        {
+          "file": "spikes\\spike2-results\\raw\\render-r5-run2-20261101-205433.log",
+          "min_line": 221,
+          "max_line": 221,
+          "n": 1
+        }
+      ]
+    },
+    {
+      "scope": "run",
+      "run_id": "render-r5-run2-20261101-205433",
+      "app": "spike2",
+      "scenario": "S10",
+      "phase": "present",
+      "n": 8,
+      "median": 60.579,
+      "p50": 56.799,
+      "p95": 93.823,
+      "max": 93.823,
+      "min": 27.889,
+      "sources": [
+        {
+          "file": "spikes\\spike2-results\\raw\\render-r5-run2-20261101-205433.log",
+          "min_line": 204,
+          "max_line": 220,
+          "n": 8
+        }
+      ]
+    },
+    {
+      "scope": "run",
+      "run_id": "render-r5-run2-20261101-205433",
+      "app": "spike2",
+      "scenario": "S10",
+      "phase": "render",
+      "n": 9,
+      "median": 382.508,
+      "p50": 382.508,
+      "p95": 792.168,
+      "max": 792.168,
+      "min": 262.192,
+      "sources": [
+        {
+          "file": "spikes\\spike2-results\\raw\\render-r5-run2-20261101-205433.log",
+          "min_line": 201,
+          "max_line": 219,
+          "n": 9
+        }
+      ]
+    },
+    {
+      "scope": "run",
+      "run_id": "render-r5-run2-20261101-205433",
+      "app": "spike2",
+      "scenario": "S9",
+      "phase": "encode",
+      "n": 4,
+      "median": 780.75,
+      "p50": 675.462,
+      "p95": 1163.983,
+      "max": 1163.983,
+      "min": 469.076,
+      "sources": [
+        {
+          "file": "spikes\\spike2-results\\raw\\render-r5-run2-20261101-205433.log",
+          "min_line": 165,
+          "max_line": 190,
+          "n": 4
+        }
+      ]
+    },
+    {
+      "scope": "run",
+      "run_id": "render-r5-run2-20261101-205433",
+      "app": "spike2",
+      "scenario": "S9",
+      "phase": "render",
+      "n": 4,
+      "median": 686.02,
+      "p50": 602.437,
+      "p95": 838.072,
+      "max": 838.072,
+      "min": 409.151,
+      "sources": [
+        {
+          "file": "spikes\\spike2-results\\raw\\render-r5-run2-20261101-205433.log",
+          "min_line": 139,
+          "max_line": 189,
+          "n": 4
+        }
+      ]
+    },
+    {
+      "scope": "run",
+      "run_id": "render-r5-run2-20261101-205433",
+      "app": "spike2",
+      "scenario": "S9",
+      "phase": "total",
+      "n": 4,
+      "median": 1450.804,
+      "p50": 1165.21,
+      "p95": 1927.57,
+      "max": 1927.57,
+      "min": 1011.246,
+      "sources": [
+        {
+          "file": "spikes\\spike2-results\\raw\\render-r5-run2-20261101-205433.log",
+          "min_line": 167,
+          "max_line": 192,
+          "n": 4
+        }
+      ]
+    },
+    {
+      "scope": "run",
+      "run_id": "render-r5-run2-20261101-205433",
+      "app": "spike2",
+      "scenario": "S9",
+      "phase": "write",
+      "n": 4,
+      "median": 134.139,
+      "p50": 133.018,
+      "p95": 161.15,
+      "max": 161.15,
+      "min": 80.758,
+      "sources": [
+        {
+          "file": "spikes\\spike2-results\\raw\\render-r5-run2-20261101-205433.log",
+          "min_line": 166,
+          "max_line": 191,
+          "n": 4
+        }
+      ]
+    },
+    {
+      "scope": "run",
+      "run_id": "render-r5-run2-20261101-205600",
+      "app": "spike2",
+      "scenario": "S1",
+      "phase": "open",
+      "n": 1,
+      "median": 473.016,
+      "p50": 473.016,
+      "p95": 473.016,
+      "max": 473.016,
+      "min": 473.016,
+      "sources": [
+        {
+          "file": "spikes\\spike2-results\\raw\\render-r5-run2-20261101-205600.log",
+          "min_line": 122,
+          "max_line": 122,
+          "n": 1
+        }
+      ]
+    },
+    {
+      "scope": "run",
+      "run_id": "render-r5-run2-20261101-205600",
+      "app": "spike2",
+      "scenario": "S10",
+      "phase": "check",
+      "n": 1,
+      "median": 0.0,
+      "p50": 0.0,
+      "p95": 0.0,
+      "max": 0.0,
+      "min": 0.0,
+      "sources": [
+        {
+          "file": "spikes\\spike2-results\\raw\\render-r5-run2-20261101-205600.log",
+          "min_line": 203,
+          "max_line": 203,
+          "n": 1
+        }
+      ]
+    },
+    {
+      "scope": "run",
+      "run_id": "render-r5-run2-20261101-205600",
+      "app": "spike2",
+      "scenario": "S10",
+      "phase": "present",
+      "n": 8,
+      "median": 43.958,
+      "p50": 43.744,
+      "p95": 61.354,
+      "max": 61.354,
+      "min": 23.718,
+      "sources": [
+        {
+          "file": "spikes\\spike2-results\\raw\\render-r5-run2-20261101-205600.log",
+          "min_line": 180,
+          "max_line": 202,
+          "n": 8
+        }
+      ]
+    },
+    {
+      "scope": "run",
+      "run_id": "render-r5-run2-20261101-205600",
+      "app": "spike2",
+      "scenario": "S10",
+      "phase": "render",
+      "n": 9,
+      "median": 177.783,
+      "p50": 177.783,
+      "p95": 341.642,
+      "max": 341.642,
+      "min": 105.974,
+      "sources": [
+        {
+          "file": "spikes\\spike2-results\\raw\\render-r5-run2-20261101-205600.log",
+          "min_line": 177,
+          "max_line": 201,
+          "n": 9
+        }
+      ]
+    },
+    {
+      "scope": "run",
+      "run_id": "render-r5-run2-20261101-205600",
+      "app": "spike2",
+      "scenario": "S9",
+      "phase": "encode",
+      "n": 4,
+      "median": 287.228,
+      "p50": 285.528,
+      "p95": 357.469,
+      "max": 357.469,
+      "min": 276.018,
+      "sources": [
+        {
+          "file": "spikes\\spike2-results\\raw\\render-r5-run2-20261101-205600.log",
+          "min_line": 158,
+          "max_line": 170,
+          "n": 4
+        }
+      ]
+    },
+    {
+      "scope": "run",
+      "run_id": "render-r5-run2-20261101-205600",
+      "app": "spike2",
+      "scenario": "S9",
+      "phase": "render",
+      "n": 4,
+      "median": 295.124,
+      "p50": 239.368,
+      "p95": 1000.008,
+      "max": 1000.008,
+      "min": 235.974,
+      "sources": [
+        {
+          "file": "spikes\\spike2-results\\raw\\render-r5-run2-20261101-205600.log",
+          "min_line": 134,
+          "max_line": 169,
+          "n": 4
+        }
+      ]
+    },
+    {
+      "scope": "run",
+      "run_id": "render-r5-run2-20261101-205600",
+      "app": "spike2",
+      "scenario": "S9",
+      "phase": "total",
+      "n": 4,
+      "median": 658.705,
+      "p50": 655.493,
+      "p95": 762.533,
+      "max": 762.533,
+      "min": 584.027,
+      "sources": [
+        {
+          "file": "spikes\\spike2-results\\raw\\render-r5-run2-20261101-205600.log",
+          "min_line": 160,
+          "max_line": 172,
+          "n": 4
+        }
+      ]
+    },
+    {
+      "scope": "run",
+      "run_id": "render-r5-run2-20261101-205600",
+      "app": "spike2",
+      "scenario": "S9",
+      "phase": "write",
+      "n": 4,
+      "median": 73.778,
+      "p50": 59.125,
+      "p95": 140.107,
+      "max": 140.107,
+      "min": 54.185,
+      "sources": [
+        {
+          "file": "spikes\\spike2-results\\raw\\render-r5-run2-20261101-205600.log",
+          "min_line": 159,
+          "max_line": 171,
+          "n": 4
+        }
+      ]
+    },
+    {
+      "scope": "all",
+      "run_id": "",
+      "app": "spike2",
+      "scenario": "S1",
+      "phase": "open",
+      "n": 5,
+      "median": 473.016,
+      "p50": 473.016,
+      "p95": 1114.952,
+      "max": 1114.952,
+      "min": 190.097,
+      "sources": [
+        {
+          "file": "spikes\\spike2-results\\raw\\render-r5-run1-20261101-205253.log",
+          "min_line": 129,
+          "max_line": 129,
+          "n": 1
+        },
+        {
+          "file": "spikes\\spike2-results\\raw\\render-r5-run1-20261101-205342.log",
+          "min_line": 147,
+          "max_line": 147,
+          "n": 1
+        },
+        {
+          "file": "spikes\\spike2-results\\raw\\render-r5-run1-20261101-205527.log",
+          "min_line": 116,
+          "max_line": 116,
+          "n": 1
+        },
+        {
+          "file": "spikes\\spike2-results\\raw\\render-r5-run2-20261101-205433.log",
+          "min_line": 130,
+          "max_line": 130,
+          "n": 1
+        },
+        {
+          "file": "spikes\\spike2-results\\raw\\render-r5-run2-20261101-205600.log",
+          "min_line": 122,
+          "max_line": 122,
+          "n": 1
+        }
+      ]
+    },
+    {
+      "scope": "all",
+      "run_id": "",
+      "app": "spike2",
+      "scenario": "S10",
+      "phase": "check",
+      "n": 5,
+      "median": 0.0,
+      "p50": 0.0,
+      "p95": 0.0,
+      "max": 0.0,
+      "min": 0.0,
+      "sources": [
+        {
+          "file": "spikes\\spike2-results\\raw\\render-r5-run1-20261101-205253.log",
+          "min_line": 220,
+          "max_line": 220,
+          "n": 1
+        },
+        {
+          "file": "spikes\\spike2-results\\raw\\render-r5-run1-20261101-205342.log",
+          "min_line": 234,
+          "max_line": 234,
+          "n": 1
+        },
+        {
+          "file": "spikes\\spike2-results\\raw\\render-r5-run1-20261101-205527.log",
+          "min_line": 202,
+          "max_line": 202,
+          "n": 1
+        },
+        {
+          "file": "spikes\\spike2-results\\raw\\render-r5-run2-20261101-205433.log",
+          "min_line": 221,
+          "max_line": 221,
+          "n": 1
+        },
+        {
+          "file": "spikes\\spike2-results\\raw\\render-r5-run2-20261101-205600.log",
+          "min_line": 203,
+          "max_line": 203,
+          "n": 1
+        }
+      ]
+    },
+    {
+      "scope": "all",
+      "run_id": "",
+      "app": "spike2",
+      "scenario": "S10",
+      "phase": "present",
+      "n": 40,
+      "median": 49.567,
+      "p50": 48.119,
+      "p95": 93.342,
+      "max": 101.713,
+      "min": 23.541,
+      "sources": [
+        {
+          "file": "spikes\\spike2-results\\raw\\render-r5-run1-20261101-205253.log",
+          "min_line": 199,
+          "max_line": 219,
+          "n": 8
+        },
+        {
+          "file": "spikes\\spike2-results\\raw\\render-r5-run1-20261101-205342.log",
+          "min_line": 218,
+          "max_line": 233,
+          "n": 8
+        },
+        {
+          "file": "spikes\\spike2-results\\raw\\render-r5-run1-20261101-205527.log",
+          "min_line": 179,
+          "max_line": 201,
+          "n": 8
+        },
+        {
+          "file": "spikes\\spike2-results\\raw\\render-r5-run2-20261101-205433.log",
+          "min_line": 204,
+          "max_line": 220,
+          "n": 8
+        },
+        {
+          "file": "spikes\\spike2-results\\raw\\render-r5-run2-20261101-205600.log",
+          "min_line": 180,
+          "max_line": 202,
+          "n": 8
+        }
+      ]
+    },
+    {
+      "scope": "all",
+      "run_id": "",
+      "app": "spike2",
+      "scenario": "S10",
+      "phase": "render",
+      "n": 45,
+      "median": 278.872,
+      "p50": 278.872,
+      "p95": 770.328,
+      "max": 1079.189,
+      "min": 105.974,
+      "sources": [
+        {
+          "file": "spikes\\spike2-results\\raw\\render-r5-run1-20261101-205253.log",
+          "min_line": 196,
+          "max_line": 218,
+          "n": 9
+        },
+        {
+          "file": "spikes\\spike2-results\\raw\\render-r5-run1-20261101-205342.log",
+          "min_line": 214,
+          "max_line": 232,
+          "n": 9
+        },
+        {
+          "file": "spikes\\spike2-results\\raw\\render-r5-run1-20261101-205527.log",
+          "min_line": 176,
+          "max_line": 200,
+          "n": 9
+        },
+        {
+          "file": "spikes\\spike2-results\\raw\\render-r5-run2-20261101-205433.log",
+          "min_line": 201,
+          "max_line": 219,
+          "n": 9
+        },
+        {
+          "file": "spikes\\spike2-results\\raw\\render-r5-run2-20261101-205600.log",
+          "min_line": 177,
+          "max_line": 201,
+          "n": 9
+        }
+      ]
+    },
+    {
+      "scope": "all",
+      "run_id": "",
+      "app": "spike2",
+      "scenario": "S9",
+      "phase": "encode",
+      "n": 20,
+      "median": 461.735,
+      "p50": 455.721,
+      "p95": 886.038,
+      "max": 1163.983,
+      "min": 253.072,
+      "sources": [
+        {
+          "file": "spikes\\spike2-results\\raw\\render-r5-run1-20261101-205253.log",
+          "min_line": 166,
+          "max_line": 185,
+          "n": 4
+        },
+        {
+          "file": "spikes\\spike2-results\\raw\\render-r5-run1-20261101-205342.log",
+          "min_line": 181,
+          "max_line": 201,
+          "n": 4
+        },
+        {
+          "file": "spikes\\spike2-results\\raw\\render-r5-run1-20261101-205527.log",
+          "min_line": 157,
+          "max_line": 169,
+          "n": 4
+        },
+        {
+          "file": "spikes\\spike2-results\\raw\\render-r5-run2-20261101-205433.log",
+          "min_line": 165,
+          "max_line": 190,
+          "n": 4
+        },
+        {
+          "file": "spikes\\spike2-results\\raw\\render-r5-run2-20261101-205600.log",
+          "min_line": 158,
+          "max_line": 170,
+          "n": 4
+        }
+      ]
+    },
+    {
+      "scope": "all",
+      "run_id": "",
+      "app": "spike2",
+      "scenario": "S9",
+      "phase": "render",
+      "n": 20,
+      "median": 417.285,
+      "p50": 409.151,
+      "p95": 1091.097,
+      "max": 1424.152,
+      "min": 95.704,
+      "sources": [
+        {
+          "file": "spikes\\spike2-results\\raw\\render-r5-run1-20261101-205253.log",
+          "min_line": 155,
+          "max_line": 184,
+          "n": 4
+        },
+        {
+          "file": "spikes\\spike2-results\\raw\\render-r5-run1-20261101-205342.log",
+          "min_line": 161,
+          "max_line": 200,
+          "n": 4
+        },
+        {
+          "file": "spikes\\spike2-results\\raw\\render-r5-run1-20261101-205527.log",
+          "min_line": 127,
+          "max_line": 168,
+          "n": 4
+        },
+        {
+          "file": "spikes\\spike2-results\\raw\\render-r5-run2-20261101-205433.log",
+          "min_line": 139,
+          "max_line": 189,
+          "n": 4
+        },
+        {
+          "file": "spikes\\spike2-results\\raw\\render-r5-run2-20261101-205600.log",
+          "min_line": 134,
+          "max_line": 169,
+          "n": 4
+        }
+      ]
+    },
+    {
+      "scope": "all",
+      "run_id": "",
+      "app": "spike2",
+      "scenario": "S9",
+      "phase": "total",
+      "n": 20,
+      "median": 935.981,
+      "p50": 929.04,
+      "p95": 1736.399,
+      "max": 1927.57,
+      "min": 409.723,
+      "sources": [
+        {
+          "file": "spikes\\spike2-results\\raw\\render-r5-run1-20261101-205253.log",
+          "min_line": 168,
+          "max_line": 187,
+          "n": 4
+        },
+        {
+          "file": "spikes\\spike2-results\\raw\\render-r5-run1-20261101-205342.log",
+          "min_line": 183,
+          "max_line": 203,
+          "n": 4
+        },
+        {
+          "file": "spikes\\spike2-results\\raw\\render-r5-run1-20261101-205527.log",
+          "min_line": 159,
+          "max_line": 171,
+          "n": 4
+        },
+        {
+          "file": "spikes\\spike2-results\\raw\\render-r5-run2-20261101-205433.log",
+          "min_line": 167,
+          "max_line": 192,
+          "n": 4
+        },
+        {
+          "file": "spikes\\spike2-results\\raw\\render-r5-run2-20261101-205600.log",
+          "min_line": 160,
+          "max_line": 172,
+          "n": 4
+        }
+      ]
+    },
+    {
+      "scope": "all",
+      "run_id": "",
+      "app": "spike2",
+      "scenario": "S9",
+      "phase": "write",
+      "n": 20,
+      "median": 84.594,
+      "p50": 80.758,
+      "p95": 161.15,
+      "max": 201.272,
+      "min": 42.054,
+      "sources": [
+        {
+          "file": "spikes\\spike2-results\\raw\\render-r5-run1-20261101-205253.log",
+          "min_line": 167,
+          "max_line": 186,
+          "n": 4
+        },
+        {
+          "file": "spikes\\spike2-results\\raw\\render-r5-run1-20261101-205342.log",
+          "min_line": 182,
+          "max_line": 202,
+          "n": 4
+        },
+        {
+          "file": "spikes\\spike2-results\\raw\\render-r5-run1-20261101-205527.log",
+          "min_line": 158,
+          "max_line": 170,
+          "n": 4
+        },
+        {
+          "file": "spikes\\spike2-results\\raw\\render-r5-run2-20261101-205433.log",
+          "min_line": 166,
+          "max_line": 191,
+          "n": 4
+        },
+        {
+          "file": "spikes\\spike2-results\\raw\\render-r5-run2-20261101-205600.log",
+          "min_line": 159,
+          "max_line": 171,
+          "n": 4
+        }
+      ]
+    }
+  ],
+  "mem": [],
+  "low_confidence_groups": [
+    {
+      "run_id": "render-r5-run1-20261101-205253",
+      "app": "spike2",
+      "scenario": "PBTIME",
+      "phase": "first_frame",
+      "n": 0,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "render-r5-run1-20261101-205253",
+      "app": "spike2",
+      "scenario": "S1",
+      "phase": "open",
+      "n": 1,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "render-r5-run1-20261101-205253",
+      "app": "spike2",
+      "scenario": "S10",
+      "phase": "check",
+      "n": 1,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "render-r5-run1-20261101-205253",
+      "app": "spike2",
+      "scenario": "S10",
+      "phase": "first_frame",
+      "n": 0,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "render-r5-run1-20261101-205253",
+      "app": "spike2",
+      "scenario": "S7",
+      "phase": "pss",
+      "n": 0,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "render-r5-run1-20261101-205253",
+      "app": "spike2",
+      "scenario": "S9",
+      "phase": "encode",
+      "n": 4,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "render-r5-run1-20261101-205253",
+      "app": "spike2",
+      "scenario": "S9",
+      "phase": "render",
+      "n": 4,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "render-r5-run1-20261101-205253",
+      "app": "spike2",
+      "scenario": "S9",
+      "phase": "total",
+      "n": 4,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "render-r5-run1-20261101-205253",
+      "app": "spike2",
+      "scenario": "S9",
+      "phase": "write",
+      "n": 4,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "render-r5-run1-20261101-205253",
+      "app": "spike2",
+      "scenario": "cold_start",
+      "phase": "am_start",
+      "n": 0,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "render-r5-run1-20261101-205342",
+      "app": "spike2",
+      "scenario": "PBTIME",
+      "phase": "first_frame",
+      "n": 0,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "render-r5-run1-20261101-205342",
+      "app": "spike2",
+      "scenario": "S1",
+      "phase": "open",
+      "n": 1,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "render-r5-run1-20261101-205342",
+      "app": "spike2",
+      "scenario": "S10",
+      "phase": "check",
+      "n": 1,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "render-r5-run1-20261101-205342",
+      "app": "spike2",
+      "scenario": "S10",
+      "phase": "first_frame",
+      "n": 0,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "render-r5-run1-20261101-205342",
+      "app": "spike2",
+      "scenario": "S7",
+      "phase": "pss",
+      "n": 0,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "render-r5-run1-20261101-205342",
+      "app": "spike2",
+      "scenario": "S9",
+      "phase": "encode",
+      "n": 4,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "render-r5-run1-20261101-205342",
+      "app": "spike2",
+      "scenario": "S9",
+      "phase": "render",
+      "n": 4,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "render-r5-run1-20261101-205342",
+      "app": "spike2",
+      "scenario": "S9",
+      "phase": "total",
+      "n": 4,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "render-r5-run1-20261101-205342",
+      "app": "spike2",
+      "scenario": "S9",
+      "phase": "write",
+      "n": 4,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "render-r5-run1-20261101-205342",
+      "app": "spike2",
+      "scenario": "cold_start",
+      "phase": "am_start",
+      "n": 0,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "render-r5-run1-20261101-205527",
+      "app": "spike2",
+      "scenario": "PBTIME",
+      "phase": "first_frame",
+      "n": 0,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "render-r5-run1-20261101-205527",
+      "app": "spike2",
+      "scenario": "S1",
+      "phase": "open",
+      "n": 1,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "render-r5-run1-20261101-205527",
+      "app": "spike2",
+      "scenario": "S10",
+      "phase": "check",
+      "n": 1,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "render-r5-run1-20261101-205527",
+      "app": "spike2",
+      "scenario": "S10",
+      "phase": "first_frame",
+      "n": 0,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "render-r5-run1-20261101-205527",
+      "app": "spike2",
+      "scenario": "S7",
+      "phase": "pss",
+      "n": 0,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "render-r5-run1-20261101-205527",
+      "app": "spike2",
+      "scenario": "S9",
+      "phase": "encode",
+      "n": 4,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "render-r5-run1-20261101-205527",
+      "app": "spike2",
+      "scenario": "S9",
+      "phase": "render",
+      "n": 4,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "render-r5-run1-20261101-205527",
+      "app": "spike2",
+      "scenario": "S9",
+      "phase": "total",
+      "n": 4,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "render-r5-run1-20261101-205527",
+      "app": "spike2",
+      "scenario": "S9",
+      "phase": "write",
+      "n": 4,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "render-r5-run1-20261101-205527",
+      "app": "spike2",
+      "scenario": "cold_start",
+      "phase": "am_start",
+      "n": 0,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "render-r5-run2-20261101-205433",
+      "app": "spike2",
+      "scenario": "PBTIME",
+      "phase": "first_frame",
+      "n": 0,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "render-r5-run2-20261101-205433",
+      "app": "spike2",
+      "scenario": "S1",
+      "phase": "open",
+      "n": 1,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "render-r5-run2-20261101-205433",
+      "app": "spike2",
+      "scenario": "S10",
+      "phase": "check",
+      "n": 1,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "render-r5-run2-20261101-205433",
+      "app": "spike2",
+      "scenario": "S10",
+      "phase": "first_frame",
+      "n": 0,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "render-r5-run2-20261101-205433",
+      "app": "spike2",
+      "scenario": "S7",
+      "phase": "pss",
+      "n": 0,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "render-r5-run2-20261101-205433",
+      "app": "spike2",
+      "scenario": "S9",
+      "phase": "encode",
+      "n": 4,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "render-r5-run2-20261101-205433",
+      "app": "spike2",
+      "scenario": "S9",
+      "phase": "render",
+      "n": 4,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "render-r5-run2-20261101-205433",
+      "app": "spike2",
+      "scenario": "S9",
+      "phase": "total",
+      "n": 4,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "render-r5-run2-20261101-205433",
+      "app": "spike2",
+      "scenario": "S9",
+      "phase": "write",
+      "n": 4,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "render-r5-run2-20261101-205433",
+      "app": "spike2",
+      "scenario": "cold_start",
+      "phase": "am_start",
+      "n": 0,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "render-r5-run2-20261101-205600",
+      "app": "spike2",
+      "scenario": "PBTIME",
+      "phase": "first_frame",
+      "n": 0,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "render-r5-run2-20261101-205600",
+      "app": "spike2",
+      "scenario": "S1",
+      "phase": "open",
+      "n": 1,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "render-r5-run2-20261101-205600",
+      "app": "spike2",
+      "scenario": "S10",
+      "phase": "check",
+      "n": 1,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "render-r5-run2-20261101-205600",
+      "app": "spike2",
+      "scenario": "S10",
+      "phase": "first_frame",
+      "n": 0,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "render-r5-run2-20261101-205600",
+      "app": "spike2",
+      "scenario": "S7",
+      "phase": "pss",
+      "n": 0,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "render-r5-run2-20261101-205600",
+      "app": "spike2",
+      "scenario": "S9",
+      "phase": "encode",
+      "n": 4,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "render-r5-run2-20261101-205600",
+      "app": "spike2",
+      "scenario": "S9",
+      "phase": "render",
+      "n": 4,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "render-r5-run2-20261101-205600",
+      "app": "spike2",
+      "scenario": "S9",
+      "phase": "total",
+      "n": 4,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "render-r5-run2-20261101-205600",
+      "app": "spike2",
+      "scenario": "S9",
+      "phase": "write",
+      "n": 4,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "render-r5-run2-20261101-205600",
+      "app": "spike2",
+      "scenario": "cold_start",
+      "phase": "am_start",
+      "n": 0,
+      "errors": 0,
+      "warmup": 1
+    }
+  ],
+  "missing_pbdone": [],
+  "runenv": [
+    {
+      "file": "spikes\\spike2-results\\raw\\render-r5-run1-20261101-205253.log",
+      "fields": {
+        "app": "spike2",
+        "run_id": "render-r5-run1-20261101-205253",
+        "apk": "spikes/spike2-pdf/app/build/outputs/apk/debug/app-debug.apk",
+        "apk_md5": "8ea3edc683ebf0b5be2f32f32dc57bb9",
+        "apk_bytes": "7287902",
+        "scenario": "S9,S10",
+        "api": "35",
+        "model": "Android_SDK_built_for_x86_64",
+        "abi": "x86_64",
+        "build": "12368160",
+        "ts": "2026-11-01T20:53:00+0800"
+      }
+    },
+    {
+      "file": "spikes\\spike2-results\\raw\\render-r5-run1-20261101-205342.log",
+      "fields": {
+        "app": "spike2",
+        "run_id": "render-r5-run1-20261101-205342",
+        "apk": "spikes/spike2-pdf/app/build/outputs/apk/debug/app-debug.apk",
+        "apk_md5": "8ea3edc683ebf0b5be2f32f32dc57bb9",
+        "apk_bytes": "7287902",
+        "scenario": "S9,S10",
+        "api": "35",
+        "model": "Android_SDK_built_for_x86_64",
+        "abi": "x86_64",
+        "build": "12368160",
+        "ts": "2026-11-01T20:53:54+0800"
+      }
+    },
+    {
+      "file": "spikes\\spike2-results\\raw\\render-r5-run1-20261101-205527.log",
+      "fields": {
+        "app": "spike2",
+        "run_id": "render-r5-run1-20261101-205527",
+        "apk": "spikes/spike2-pdf/app/build/outputs/apk/debug/app-debug.apk",
+        "apk_md5": "8ea3edc683ebf0b5be2f32f32dc57bb9",
+        "apk_bytes": "7287902",
+        "scenario": "S9,S10",
+        "api": "35",
+        "model": "Android_SDK_built_for_x86_64",
+        "abi": "x86_64",
+        "build": "12368160",
+        "ts": "2026-11-01T20:55:35+0800"
+      }
+    },
+    {
+      "file": "spikes\\spike2-results\\raw\\render-r5-run2-20261101-205433.log",
+      "fields": {
+        "app": "spike2",
+        "run_id": "render-r5-run2-20261101-205433",
+        "apk": "spikes/spike2-pdf/app/build/outputs/apk/debug/app-debug.apk",
+        "apk_md5": "8ea3edc683ebf0b5be2f32f32dc57bb9",
+        "apk_bytes": "7287902",
+        "scenario": "S9,S10",
+        "api": "35",
+        "model": "Android_SDK_built_for_x86_64",
+        "abi": "x86_64",
+        "build": "12368160",
+        "ts": "2026-11-01T20:54:39+0800"
+      }
+    },
+    {
+      "file": "spikes\\spike2-results\\raw\\render-r5-run2-20261101-205600.log",
+      "fields": {
+        "app": "spike2",
+        "run_id": "render-r5-run2-20261101-205600",
+        "apk": "spikes/spike2-pdf/app/build/outputs/apk/debug/app-debug.apk",
+        "apk_md5": "8ea3edc683ebf0b5be2f32f32dc57bb9",
+        "apk_bytes": "7287902",
+        "scenario": "S9,S10",
+        "api": "35",
+        "model": "Android_SDK_built_for_x86_64",
+        "abi": "x86_64",
+        "build": "12368160",
+        "ts": "2026-11-01T20:56:05+0800"
+      }
+    }
+  ],
+  "parse_failures": []
+}

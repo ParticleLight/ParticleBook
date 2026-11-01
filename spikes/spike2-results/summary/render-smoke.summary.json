@@ -1,0 +1,384 @@
+{
+ "name": "render-smoke",
+ "generated_at": "2026-11-01T20:11:23+08:00",
+ "factor": 1.8,
+ "min_samples": 5,
+ "drift_warn_ratio": 0.2,
+ "inputs": [
+  {
+   "path": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\csv\\render-smoke-merged.csv",
+   "rows": 75
+  }
+ ],
+ "env": [
+  {
+   "app": "spike2",
+   "run_id": "render-smoke-run1-20261101-201032",
+   "src": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-smoke-run1-20261101-201032.log:1",
+   "apk": "spikes/spike2-pdf/app/build/outputs/apk/debug/app-debug.apk",
+   "apk_md5": "b844a40431795edd0bba9dc1ec1b0773",
+   "apk_bytes": "7287714",
+   "scenario": "S1",
+   "api": "35",
+   "model": "Android_SDK_built_for_x86_64",
+   "abi": "x86_64",
+   "build": "12368160",
+   "ts": "2026-11-01T20:10:45+0800",
+   "host": ""
+  }
+ ],
+ "groups": [
+  {
+   "n": 1,
+   "min": 2338.892,
+   "p50": 2338.892,
+   "p95": 2338.892,
+   "max": 2338.892,
+   "est_p50": 4210.0,
+   "src": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-smoke-run1-20261101-201032.log:1477-1477",
+   "runs": [
+    "render-smoke-run1-20261101-201032"
+   ],
+   "dims": [],
+   "low_confidence": true,
+   "app": "spike2",
+   "scenario": "PBTIME",
+   "phase": "first_frame"
+  },
+  {
+   "n": 1,
+   "min": 5350.925,
+   "p50": 5350.925,
+   "p95": 5350.925,
+   "max": 5350.925,
+   "est_p50": 9631.7,
+   "src": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-smoke-run1-20261101-201032.log:1521-1521",
+   "runs": [
+    "render-smoke-run1-20261101-201032"
+   ],
+   "dims": [],
+   "low_confidence": true,
+   "app": "spike2",
+   "scenario": "PBTIME",
+   "phase": "first_screen"
+  },
+  {
+   "n": 1,
+   "min": 3712.824,
+   "p50": 3712.824,
+   "p95": 3712.824,
+   "max": 3712.824,
+   "est_p50": 6683.1,
+   "src": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-smoke-run1-20261101-201032.log:1522-1522",
+   "runs": [
+    "render-smoke-run1-20261101-201032"
+   ],
+   "dims": [],
+   "low_confidence": true,
+   "app": "spike2",
+   "scenario": "PBTIME",
+   "phase": "open_to_first_screen"
+  },
+  {
+   "n": 2,
+   "min": 996.607,
+   "p50": 1411.215,
+   "p95": 1825.822,
+   "max": 1825.822,
+   "est_p50": 2540.2,
+   "src": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-smoke-run1-20261101-201032.log:1479-1491",
+   "runs": [
+    "render-smoke-run1-20261101-201032"
+   ],
+   "dims": [],
+   "low_confidence": true,
+   "app": "spike2",
+   "scenario": "S1",
+   "phase": "open"
+  },
+  {
+   "n": 2,
+   "min": 0.0,
+   "p50": 0.0,
+   "p95": 0.0,
+   "max": 0.0,
+   "est_p50": 0.0,
+   "src": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-smoke-run1-20261101-201032.log:1609-1620",
+   "runs": [
+    "render-smoke-run1-20261101-201032"
+   ],
+   "dims": [
+    "1080x1529",
+    "1080x2400"
+   ],
+   "low_confidence": true,
+   "app": "spike2",
+   "scenario": "S10",
+   "phase": "check"
+  },
+  {
+   "n": 1,
+   "min": 49.979,
+   "p50": 49.979,
+   "p95": 49.979,
+   "max": 49.979,
+   "est_p50": 90.0,
+   "src": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-smoke-run1-20261101-201032.log:1596-1596",
+   "runs": [
+    "render-smoke-run1-20261101-201032"
+   ],
+   "dims": [
+    "1080x2400"
+   ],
+   "low_confidence": true,
+   "app": "spike2",
+   "scenario": "S10",
+   "phase": "first_frame"
+  },
+  {
+   "n": 9,
+   "min": 31.612,
+   "p50": 42.332,
+   "p95": 72.428,
+   "max": 72.428,
+   "est_p50": 76.2,
+   "src": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-smoke-run1-20261101-201032.log:1598-1619",
+   "runs": [
+    "render-smoke-run1-20261101-201032"
+   ],
+   "dims": [
+    "1080x1529",
+    "1080x2400"
+   ],
+   "low_confidence": false,
+   "app": "spike2",
+   "scenario": "S10",
+   "phase": "present"
+  },
+  {
+   "n": 10,
+   "min": 184.056,
+   "p50": 229.332,
+   "p95": 936.474,
+   "max": 936.474,
+   "est_p50": 412.8,
+   "src": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-smoke-run1-20261101-201032.log:1595-1618",
+   "runs": [
+    "render-smoke-run1-20261101-201032"
+   ],
+   "dims": [
+    "1080x1529",
+    "1080x2400"
+   ],
+   "low_confidence": false,
+   "app": "spike2",
+   "scenario": "S10",
+   "phase": "render"
+  },
+  {
+   "n": 20,
+   "min": 27.602,
+   "p50": 57.81,
+   "p95": 98.63,
+   "max": 105.296,
+   "est_p50": 104.1,
+   "src": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-smoke-run1-20261101-201032.log:1518-1573",
+   "runs": [
+    "render-smoke-run1-20261101-201032"
+   ],
+   "dims": [
+    "1188x1682"
+   ],
+   "low_confidence": false,
+   "app": "spike2",
+   "scenario": "S2",
+   "phase": "present"
+  },
+  {
+   "n": 20,
+   "min": 28.732,
+   "p50": 129.256,
+   "p95": 485.376,
+   "max": 596.391,
+   "est_p50": 232.7,
+   "src": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-smoke-run1-20261101-201032.log:1515-1572",
+   "runs": [
+    "render-smoke-run1-20261101-201032"
+   ],
+   "dims": [
+    "1188x1682"
+   ],
+   "low_confidence": false,
+   "app": "spike2",
+   "scenario": "S2",
+   "phase": "render"
+  }
+ ],
+ "by_temp": [
+  {
+   "n": 4,
+   "min": 42.206,
+   "p50": 79.263,
+   "p95": 105.296,
+   "max": 105.296,
+   "est_p50": 142.7,
+   "src": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-smoke-run1-20261101-201032.log:1518-1563",
+   "runs": [
+    "render-smoke-run1-20261101-201032"
+   ],
+   "dims": [
+    "1188x1682"
+   ],
+   "low_confidence": true,
+   "app": "spike2",
+   "scenario": "S2",
+   "phase": "present",
+   "temp": "cold"
+  },
+  {
+   "n": 16,
+   "min": 27.602,
+   "p50": 57.6,
+   "p95": 91.875,
+   "max": 91.875,
+   "est_p50": 103.7,
+   "src": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-smoke-run1-20261101-201032.log:1524-1573",
+   "runs": [
+    "render-smoke-run1-20261101-201032"
+   ],
+   "dims": [
+    "1188x1682"
+   ],
+   "low_confidence": false,
+   "app": "spike2",
+   "scenario": "S2",
+   "phase": "present",
+   "temp": "warm"
+  },
+  {
+   "n": 4,
+   "min": 32.264,
+   "p50": 105.729,
+   "p95": 596.391,
+   "max": 596.391,
+   "est_p50": 190.3,
+   "src": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-smoke-run1-20261101-201032.log:1515-1562",
+   "runs": [
+    "render-smoke-run1-20261101-201032"
+   ],
+   "dims": [
+    "1188x1682"
+   ],
+   "low_confidence": true,
+   "app": "spike2",
+   "scenario": "S2",
+   "phase": "render",
+   "temp": "cold"
+  },
+  {
+   "n": 16,
+   "min": 28.732,
+   "p50": 129.256,
+   "p95": 485.376,
+   "max": 485.376,
+   "est_p50": 232.7,
+   "src": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-smoke-run1-20261101-201032.log:1523-1572",
+   "runs": [
+    "render-smoke-run1-20261101-201032"
+   ],
+   "dims": [
+    "1188x1682"
+   ],
+   "low_confidence": false,
+   "app": "spike2",
+   "scenario": "S2",
+   "phase": "render",
+   "temp": "warm"
+  }
+ ],
+ "by_annot": [
+  {
+   "n": 10,
+   "min": 184.056,
+   "p50": 229.332,
+   "p95": 936.474,
+   "max": 936.474,
+   "est_p50": 412.8,
+   "src": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-smoke-run1-20261101-201032.log:1595-1618",
+   "runs": [
+    "render-smoke-run1-20261101-201032"
+   ],
+   "dims": [
+    "1080x1529",
+    "1080x2400"
+   ],
+   "low_confidence": false,
+   "app": "spike2",
+   "scenario": "S10",
+   "phase": "render",
+   "annot": "0"
+  },
+  {
+   "n": 20,
+   "min": 28.732,
+   "p50": 129.256,
+   "p95": 485.376,
+   "max": 596.391,
+   "est_p50": 232.7,
+   "src": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-smoke-run1-20261101-201032.log:1515-1572",
+   "runs": [
+    "render-smoke-run1-20261101-201032"
+   ],
+   "dims": [
+    "1188x1682"
+   ],
+   "low_confidence": false,
+   "app": "spike2",
+   "scenario": "S2",
+   "phase": "render",
+   "annot": "1"
+  }
+ ],
+ "drift": {
+  "scenario": "S2",
+  "phase": "render",
+  "page": 0,
+  "runs": [
+   {
+    "run_id": "render-smoke-run1-20261101-201032",
+    "avg": 487.205,
+    "med": 466.012,
+    "n": 5,
+    "ts": "11-01 12:10:54.471",
+    "app": "spike2",
+    "src": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-smoke-run1-20261101-201032.log:1515-1530"
+   }
+  ],
+  "first": {
+   "run_id": "render-smoke-run1-20261101-201032",
+   "avg": 487.205,
+   "med": 466.012,
+   "n": 5,
+   "ts": "11-01 12:10:54.471",
+   "app": "spike2",
+   "src": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-smoke-run1-20261101-201032.log:1515-1530"
+  },
+  "last": {
+   "run_id": "render-smoke-run1-20261101-201032",
+   "avg": 487.205,
+   "med": 466.012,
+   "n": 5,
+   "ts": "11-01 12:10:54.471",
+   "app": "spike2",
+   "src": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-smoke-run1-20261101-201032.log:1515-1530"
+  },
+  "ratio": null,
+  "flag": "",
+  "src": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-smoke-run1-20261101-201032.log:1515-1530"
+ },
+ "row_counts": {
+  "total": 75,
+  "countable": 67,
+  "runs": 1
+ }
+}

@@ -1,0 +1,595 @@
+{
+ "name": "tiles-devcheck",
+ "generated_at": "2026-11-01T20:20:46+08:00",
+ "factor": 1.8,
+ "min_samples": 5,
+ "drift_warn_ratio": 0.2,
+ "inputs": [
+  {
+   "path": "spikes\\spike2-results\\csv\\tiles-devcheck.csv",
+   "rows": 154
+  }
+ ],
+ "env": [],
+ "groups": [
+  {
+   "n": 2,
+   "min": 1883.409,
+   "p50": 2709.037,
+   "p95": 3534.665,
+   "max": 3534.665,
+   "est_p50": 4876.3,
+   "src": "spikes/spike2-results/raw/tiles-dev-20261101-193349.log:3-3; spikes/spike2-results/raw/tiles-dev-20261101-193520.log:3-3",
+   "runs": [
+    "tiles-dev-20261101-193349",
+    "tiles-dev-20261101-193520"
+   ],
+   "dims": [],
+   "low_confidence": true,
+   "app": "spike2t",
+   "scenario": "PBTIME",
+   "phase": "first_frame"
+  },
+  {
+   "n": 1,
+   "min": 2714.282,
+   "p50": 2714.282,
+   "p95": 2714.282,
+   "max": 2714.282,
+   "est_p50": 4885.7,
+   "src": "spikes/spike2-results/raw/tiles-dev-20261101-193349.log:15-15",
+   "runs": [
+    "tiles-dev-20261101-193349"
+   ],
+   "dims": [],
+   "low_confidence": true,
+   "app": "spike2t",
+   "scenario": "PBTIME",
+   "phase": "read_path"
+  },
+  {
+   "n": 2,
+   "min": 60.0,
+   "p50": 60.0,
+   "p95": 60.0,
+   "max": 60.0,
+   "est_p50": 108.0,
+   "src": "spikes/spike2-results/raw/tiles-dev-20261101-193349.log:2-2; spikes/spike2-results/raw/tiles-dev-20261101-193520.log:2-2",
+   "runs": [
+    "tiles-dev-20261101-193349",
+    "tiles-dev-20261101-193520"
+   ],
+   "dims": [],
+   "low_confidence": true,
+   "app": "spike2t",
+   "scenario": "PBTIME",
+   "phase": "refresh_hz"
+  },
+  {
+   "n": 1,
+   "min": 2074.532,
+   "p50": 2074.532,
+   "p95": 2074.532,
+   "max": 2074.532,
+   "est_p50": 3734.2,
+   "src": "spikes/spike2-results/raw/tiles-dev-20261101-193349.log:14-14",
+   "runs": [
+    "tiles-dev-20261101-193349"
+   ],
+   "dims": [
+    "1080x2400"
+   ],
+   "low_confidence": true,
+   "app": "spike2t",
+   "scenario": "T1",
+   "phase": "first_screen"
+  },
+  {
+   "n": 2,
+   "min": 30.615,
+   "p50": 174.156,
+   "p95": 317.697,
+   "max": 317.697,
+   "est_p50": 313.5,
+   "src": "spikes/spike2-results/raw/tiles-dev-20261101-193349.log:18-18; spikes/spike2-results/raw/tiles-dev-20261101-193520.log:6-6",
+   "runs": [
+    "tiles-dev-20261101-193349",
+    "tiles-dev-20261101-193520"
+   ],
+   "dims": [],
+   "low_confidence": true,
+   "app": "spike2t",
+   "scenario": "T1",
+   "phase": "lowres"
+  },
+  {
+   "n": 2,
+   "min": 389.144,
+   "p50": 514.447,
+   "p95": 639.751,
+   "max": 639.751,
+   "est_p50": 926.0,
+   "src": "spikes/spike2-results/raw/tiles-dev-20261101-193349.log:4-4; spikes/spike2-results/raw/tiles-dev-20261101-193520.log:4-4",
+   "runs": [
+    "tiles-dev-20261101-193349",
+    "tiles-dev-20261101-193520"
+   ],
+   "dims": [],
+   "low_confidence": true,
+   "app": "spike2t",
+   "scenario": "T1",
+   "phase": "open"
+  },
+  {
+   "n": 9,
+   "min": 0.301,
+   "p50": 27.927,
+   "p95": 523.456,
+   "max": 523.456,
+   "est_p50": 50.3,
+   "src": "spikes/spike2-results/raw/tiles-dev-20261101-193349.log:5-13",
+   "runs": [
+    "tiles-dev-20261101-193349"
+   ],
+   "dims": [
+    "512x505",
+    "512x512",
+    "56x505",
+    "56x512"
+   ],
+   "low_confidence": false,
+   "app": "spike2t",
+   "scenario": "T1",
+   "phase": "tile"
+  },
+  {
+   "n": 2,
+   "min": 0.0,
+   "p50": 0.0,
+   "p95": 0.0,
+   "max": 0.0,
+   "est_p50": 0.0,
+   "src": "spikes/spike2-results/raw/tiles-dev-20261101-193349.log:17-17; spikes/spike2-results/raw/tiles-dev-20261101-193520.log:5-5",
+   "runs": [
+    "tiles-dev-20261101-193349",
+    "tiles-dev-20261101-193520"
+   ],
+   "dims": [
+    "512x512"
+   ],
+   "low_confidence": true,
+   "app": "spike2t",
+   "scenario": "T1",
+   "phase": "tileprobe"
+  },
+  {
+   "n": 1,
+   "min": 142.869,
+   "p50": 142.869,
+   "p95": 142.869,
+   "max": 142.869,
+   "est_p50": 257.2,
+   "src": "spikes/spike2-results/raw/tiles-dev-20261101-193520.log:96-96",
+   "runs": [
+    "tiles-dev-20261101-193520"
+   ],
+   "dims": [
+    "1350x1911"
+   ],
+   "low_confidence": true,
+   "app": "spike2t",
+   "scenario": "T2",
+   "phase": "full"
+  },
+  {
+   "n": 10,
+   "min": 35.09,
+   "p50": 100.829,
+   "p95": 131.882,
+   "max": 131.882,
+   "est_p50": 181.5,
+   "src": "spikes/spike2-results/raw/tiles-dev-20261101-193520.log:98-107",
+   "runs": [
+    "tiles-dev-20261101-193520"
+   ],
+   "dims": [
+    "1080x1529"
+   ],
+   "low_confidence": false,
+   "app": "spike2t",
+   "scenario": "T2",
+   "phase": "full_curve"
+  },
+  {
+   "n": 3,
+   "min": 205.327,
+   "p50": 237.138,
+   "p95": 462.058,
+   "max": 462.058,
+   "est_p50": 426.8,
+   "src": "spikes/spike2-results/raw/tiles-dev-20261101-193520.log:78-94",
+   "runs": [
+    "tiles-dev-20261101-193520"
+   ],
+   "dims": [
+    "1080x1529",
+    "2160x3058",
+    "3240x4587"
+   ],
+   "low_confidence": true,
+   "app": "spike2t",
+   "scenario": "T2",
+   "phase": "full_ref"
+  },
+  {
+   "n": 1,
+   "min": 0.0,
+   "p50": 0.0,
+   "p95": 0.0,
+   "max": 0.0,
+   "est_p50": 0.0,
+   "src": "spikes/spike2-results/raw/tiles-dev-20261101-193520.log:42-42",
+   "runs": [
+    "tiles-dev-20261101-193520"
+   ],
+   "dims": [
+    "512x512"
+   ],
+   "low_confidence": true,
+   "app": "spike2t",
+   "scenario": "T2",
+   "phase": "overload_probe"
+  },
+  {
+   "n": 96,
+   "min": 13.468,
+   "p50": 99.207,
+   "p95": 497.131,
+   "max": 625.273,
+   "est_p50": 178.6,
+   "src": "spikes/spike2-results/raw/tiles-dev-20261101-193349.log:19-45; spikes/spike2-results/raw/tiles-dev-20261101-193520.log:7-92",
+   "runs": [
+    "tiles-dev-20261101-193349",
+    "tiles-dev-20261101-193520"
+   ],
+   "dims": [
+    "1024x1024",
+    "1080x1529",
+    "512x512"
+   ],
+   "low_confidence": false,
+   "app": "spike2t",
+   "scenario": "T2",
+   "phase": "tile"
+  },
+  {
+   "n": 1,
+   "min": -1.089,
+   "p50": -1.089,
+   "p95": -1.089,
+   "max": -1.089,
+   "est_p50": -2.0,
+   "src": "spikes/spike2-results/raw/tiles-dev-20261101-193520.log:97-97",
+   "runs": [
+    "tiles-dev-20261101-193520"
+   ],
+   "dims": [
+    "1350x1911"
+   ],
+   "low_confidence": true,
+   "app": "spike2t",
+   "scenario": "T2",
+   "phase": "tile_overhead"
+  },
+  {
+   "n": 1,
+   "min": 141.78,
+   "p50": 141.78,
+   "p95": 141.78,
+   "max": 141.78,
+   "est_p50": 255.2,
+   "src": "spikes/spike2-results/raw/tiles-dev-20261101-193520.log:95-95",
+   "runs": [
+    "tiles-dev-20261101-193520"
+   ],
+   "dims": [
+    "1350x1911"
+   ],
+   "low_confidence": true,
+   "app": "spike2t",
+   "scenario": "T2",
+   "phase": "tiles_serial"
+  }
+ ],
+ "by_temp": [
+  {
+   "n": 16,
+   "min": 13.468,
+   "p50": 129.237,
+   "p95": 625.273,
+   "max": 625.273,
+   "est_p50": 232.6,
+   "src": "spikes/spike2-results/raw/tiles-dev-20261101-193349.log:19-40; spikes/spike2-results/raw/tiles-dev-20261101-193520.log:7-87",
+   "runs": [
+    "tiles-dev-20261101-193349",
+    "tiles-dev-20261101-193520"
+   ],
+   "dims": [
+    "1024x1024",
+    "1080x1529",
+    "512x512"
+   ],
+   "low_confidence": false,
+   "app": "spike2t",
+   "scenario": "T2",
+   "phase": "tile",
+   "temp": "warm"
+  }
+ ],
+ "by_annot": [
+  {
+   "n": 10,
+   "min": 35.09,
+   "p50": 100.829,
+   "p95": 131.882,
+   "max": 131.882,
+   "est_p50": 181.5,
+   "src": "spikes/spike2-results/raw/tiles-dev-20261101-193520.log:98-107",
+   "runs": [
+    "tiles-dev-20261101-193520"
+   ],
+   "dims": [
+    "1080x1529"
+   ],
+   "low_confidence": false,
+   "app": "spike2t",
+   "scenario": "T2",
+   "phase": "full_curve",
+   "annot": "0"
+  }
+ ],
+ "aggregates": [
+  {
+   "app": "spike2t",
+   "scenario": "T2",
+   "phase": "tile_stat",
+   "block": "zoom:1.0,tx:0,ty:0,kpx:256,ab:pagehandle,pagehandle:cached",
+   "blocks": 2,
+   "samples": 10,
+   "n_per_block": 5,
+   "p50_ms_med": 38.295,
+   "p95_ms_max": 176.02,
+   "fps_avg_med": 25.45,
+   "dims": "512x512",
+   "src": "spikes/spike2-results/raw/tiles-dev-20261101-193349.log:32-32; spikes/spike2-results/raw/tiles-dev-20261101-193520.log:20-20"
+  },
+  {
+   "app": "spike2t",
+   "scenario": "T2",
+   "phase": "tile_stat",
+   "block": "zoom:1.0,tx:0,ty:0,kpx:256,ab:pagehandle,pagehandle:fresh",
+   "blocks": 2,
+   "samples": 10,
+   "n_per_block": 5,
+   "p50_ms_med": 93.015,
+   "p95_ms_max": 376.6,
+   "fps_avg_med": 8.4,
+   "dims": "512x512",
+   "src": "spikes/spike2-results/raw/tiles-dev-20261101-193349.log:25-25; spikes/spike2-results/raw/tiles-dev-20261101-193520.log:13-13"
+  },
+  {
+   "app": "spike2t",
+   "scenario": "T2",
+   "phase": "tile_stat",
+   "block": "zoom:1.0,tx:0,ty:0,tilesize:1024,ab:overload,overload:matrix",
+   "blocks": 1,
+   "samples": 5,
+   "n_per_block": 5,
+   "p50_ms_med": 252.43,
+   "p95_ms_max": 445.76,
+   "fps_avg_med": 3.3,
+   "dims": "1024x1024",
+   "src": "spikes/spike2-results/raw/tiles-dev-20261101-193520.log:63-63"
+  },
+  {
+   "app": "spike2t",
+   "scenario": "T2",
+   "phase": "tile_stat",
+   "block": "zoom:1.0,tx:0,ty:0,tilesize:1024,ab:overload,overload:offset",
+   "blocks": 1,
+   "samples": 5,
+   "n_per_block": 5,
+   "p50_ms_med": 293.93,
+   "p95_ms_max": 452.28,
+   "fps_avg_med": 3.4,
+   "dims": "1024x1024",
+   "src": "spikes/spike2-results/raw/tiles-dev-20261101-193520.log:70-70"
+  },
+  {
+   "app": "spike2t",
+   "scenario": "T2",
+   "phase": "tile_stat",
+   "block": "zoom:1.0,tx:0,ty:0,tilesize:1024,kpx:1048,ab:tilesize",
+   "blocks": 2,
+   "samples": 10,
+   "n_per_block": 5,
+   "p50_ms_med": 403.615,
+   "p95_ms_max": 529.28,
+   "fps_avg_med": 2.65,
+   "dims": "1024x1024",
+   "src": "spikes/spike2-results/raw/tiles-dev-20261101-193349.log:46-46; spikes/spike2-results/raw/tiles-dev-20261101-193520.log:34-34"
+  },
+  {
+   "app": "spike2t",
+   "scenario": "T2",
+   "phase": "tile_stat",
+   "block": "zoom:1.0,tx:0,ty:0,tilesize:2048,kpx:1651,ab:tilesize",
+   "blocks": 1,
+   "samples": 5,
+   "n_per_block": 5,
+   "p50_ms_med": 266.95,
+   "p95_ms_max": 601.53,
+   "fps_avg_med": 3.1,
+   "dims": "1080x1529",
+   "src": "spikes/spike2-results/raw/tiles-dev-20261101-193520.log:41-41"
+  },
+  {
+   "app": "spike2t",
+   "scenario": "T2",
+   "phase": "tile_stat",
+   "block": "zoom:1.0,tx:0,ty:0,tilesize:512,ab:overload,overload:matrix",
+   "blocks": 1,
+   "samples": 5,
+   "n_per_block": 5,
+   "p50_ms_med": 136.13,
+   "p95_ms_max": 204.11,
+   "fps_avg_med": 7.2,
+   "dims": "512x512",
+   "src": "spikes/spike2-results/raw/tiles-dev-20261101-193520.log:49-49"
+  },
+  {
+   "app": "spike2t",
+   "scenario": "T2",
+   "phase": "tile_stat",
+   "block": "zoom:1.0,tx:0,ty:0,tilesize:512,ab:overload,overload:offset",
+   "blocks": 1,
+   "samples": 5,
+   "n_per_block": 5,
+   "p50_ms_med": 45.18,
+   "p95_ms_max": 114.06,
+   "fps_avg_med": 17.6,
+   "dims": "512x512",
+   "src": "spikes/spike2-results/raw/tiles-dev-20261101-193520.log:56-56"
+  },
+  {
+   "app": "spike2t",
+   "scenario": "T2",
+   "phase": "tile_stat",
+   "block": "zoom:1.0,tx:0,ty:0,tilesize:512,kpx:262,ab:tilesize",
+   "blocks": 2,
+   "samples": 10,
+   "n_per_block": 5,
+   "p50_ms_med": 51.86,
+   "p95_ms_max": 227.69,
+   "fps_avg_med": 17.8,
+   "dims": "512x512",
+   "src": "spikes/spike2-results/raw/tiles-dev-20261101-193349.log:39-39; spikes/spike2-results/raw/tiles-dev-20261101-193520.log:27-27"
+  },
+  {
+   "app": "spike2t",
+   "scenario": "T2",
+   "phase": "tile_stat",
+   "block": "zoom:1.0,tx:1,ty:1,kpx:262,scale:1.818,pagehandle:cached",
+   "blocks": 1,
+   "samples": 5,
+   "n_per_block": 5,
+   "p50_ms_med": 85.78,
+   "p95_ms_max": 133.55,
+   "fps_avg_med": 11.7,
+   "dims": "512x512",
+   "src": "spikes/spike2-results/raw/tiles-dev-20261101-193520.log:77-77"
+  },
+  {
+   "app": "spike2t",
+   "scenario": "T2",
+   "phase": "tile_stat",
+   "block": "zoom:2.0,tx:1,ty:1,kpx:262,scale:3.636,pagehandle:cached",
+   "blocks": 1,
+   "samples": 5,
+   "n_per_block": 5,
+   "p50_ms_med": 54.06,
+   "p95_ms_max": 93.83,
+   "fps_avg_med": 18.5,
+   "dims": "512x512",
+   "src": "spikes/spike2-results/raw/tiles-dev-20261101-193520.log:85-85"
+  },
+  {
+   "app": "spike2t",
+   "scenario": "T2",
+   "phase": "tile_stat",
+   "block": "zoom:3.0,tx:1,ty:1,kpx:262,scale:5.455,pagehandle:cached",
+   "blocks": 1,
+   "samples": 5,
+   "n_per_block": 5,
+   "p50_ms_med": 37.95,
+   "p95_ms_max": 65.03,
+   "fps_avg_med": 26.5,
+   "dims": "512x512",
+   "src": "spikes/spike2-results/raw/tiles-dev-20261101-193520.log:93-93"
+  }
+ ],
+ "first_screen": [
+  {
+   "run_id": "tiles-dev-20261101-193349",
+   "app": "spike2t",
+   "first_screen_ms": 2074.532,
+   "open_ms": 639.8,
+   "read_path_ms": 2714.3,
+   "from_create_ms": 8022.8,
+   "tiles": "9",
+   "src": "spikes/spike2-results/raw/tiles-dev-20261101-193349.log:14"
+  }
+ ],
+ "mem": [
+  {
+   "run_id": "tiles-dev-20261101-193520",
+   "app": "spike2t",
+   "scenario": "ALL",
+   "phase": "pss",
+   "pss_kb": "58735",
+   "native_kb": "29654",
+   "java_kb": "832",
+   "tag": "",
+   "hit": "",
+   "evict": "",
+   "miss": "",
+   "bytes": "",
+   "limit": "",
+   "tiles": "",
+   "cycles": "",
+   "src": "spikes/spike2-results/raw/tiles-dev-20261101-193520.log:109"
+  }
+ ],
+ "drift": {
+  "scenario": "T1",
+  "phase": "first_screen",
+  "page": 0,
+  "runs": [
+   {
+    "run_id": "tiles-dev-20261101-193349",
+    "avg": 2074.532,
+    "med": 2074.532,
+    "n": 1,
+    "ts": "11-01 11:34:07.518",
+    "app": "spike2t",
+    "src": "spikes/spike2-results/raw/tiles-dev-20261101-193349.log:14-14"
+   }
+  ],
+  "first": {
+   "run_id": "tiles-dev-20261101-193349",
+   "avg": 2074.532,
+   "med": 2074.532,
+   "n": 1,
+   "ts": "11-01 11:34:07.518",
+   "app": "spike2t",
+   "src": "spikes/spike2-results/raw/tiles-dev-20261101-193349.log:14-14"
+  },
+  "last": {
+   "run_id": "tiles-dev-20261101-193349",
+   "avg": 2074.532,
+   "med": 2074.532,
+   "n": 1,
+   "ts": "11-01 11:34:07.518",
+   "app": "spike2t",
+   "src": "spikes/spike2-results/raw/tiles-dev-20261101-193349.log:14-14"
+  },
+  "ratio": null,
+  "flag": "",
+  "src": "spikes/spike2-results/raw/tiles-dev-20261101-193349.log:14-14"
+ },
+ "row_counts": {
+  "total": 154,
+  "countable": 134,
+  "runs": 2
+ }
+}
