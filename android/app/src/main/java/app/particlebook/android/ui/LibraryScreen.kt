@@ -68,6 +68,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -161,30 +162,51 @@ fun LibraryScreen(
     }
     val filterActive = formatFilter != FormatFilter.All
 
-    // §9.2 D1：横屏列表与竖屏网格各持一个 Lazy 状态，旋转切换分支就从 0 开始。
-    // 两套布局 item 0 都是段头、书籍顺序同源（visible），索引 1:1 互用，所以只保存 firstVisibleItemIndex。
+    // §9.2 D1（首版复测 FAIL 后按 verify 定位重做）：两个布局各存一份索引，切换布局时只把
+    // 「另一个布局」的已存索引恢复过来；恢复的那几帧冻结快照记录 —— 否则新布局首帧的
+    // firstVisibleItemIndex = 0 会把目标索引冲掉，scrollToItem 的恢复值等于没生效。
+    // 两套布局 item 0 都是段头、书籍顺序同源（visible），索引 1:1 互用。
     val gridState: LazyGridState = rememberLazyGridState()
     val listState: LazyListState = rememberLazyListState()
-    var savedIndex by rememberSaveable { mutableIntStateOf(0) }
-    LaunchedEffect(compactLandscape, books.isNotEmpty()) {
-        if (savedIndex > 0) {
-            try {
-                if (compactLandscape) {
-                    listState.scrollToItem(savedIndex)
-                } else {
-                    gridState.scrollToItem(savedIndex)
-                }
-            } catch (cancellation: kotlinx.coroutines.CancellationException) {
-                throw cancellation
-            } catch (ignored: Exception) {
-                // 索引超出当前列表（例如刚删过书）时忽略，从当前位置开始即可。
+    var portraitIndex by rememberSaveable { mutableIntStateOf(0) }
+    var landscapeIndex by rememberSaveable { mutableIntStateOf(0) }
+    // true = 正在恢复位置，此期间 snapshotFlow 不写回（避免首帧 0 覆盖）。
+    var restoring by remember { mutableStateOf(false) }
+
+    LaunchedEffect(compactLandscape) {
+        // 恢复的是「刚离开的那个布局」记下的位置：进横屏用竖屏索引，回竖屏用横屏索引，
+        // 这样两种旋转都停在读者刚才看的那本书附近。
+        val target = if (compactLandscape) portraitIndex else landscapeIndex
+        restoring = true
+        try {
+            if (compactLandscape) {
+                listState.scrollToItem(target)
+            } else {
+                gridState.scrollToItem(target)
             }
+            // 等新布局至少完成一次测量，再解除冻结。
+            withFrameNanos { }
+            withFrameNanos { }
+        } catch (cancellation: kotlinx.coroutines.CancellationException) {
+            throw cancellation
+        } catch (ignored: Exception) {
+            // 索引超出当前列表（例如刚删过书）时忽略，从当前位置开始即可。
+        } finally {
+            restoring = false
         }
     }
+
     LaunchedEffect(compactLandscape) {
         snapshotFlow {
             if (compactLandscape) listState.firstVisibleItemIndex else gridState.firstVisibleItemIndex
-        }.collect { index -> savedIndex = index }
+        }.collect { index ->
+            if (restoring) return@collect
+            if (compactLandscape) {
+                landscapeIndex = index
+            } else {
+                portraitIndex = index
+            }
+        }
     }
 
     Scaffold(
