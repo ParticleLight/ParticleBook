@@ -3,6 +3,7 @@ package app.particlebook.android.ui
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -110,20 +111,22 @@ fun SettingsScreen(
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding),
+                .padding(innerPadding)
+                // spec §5.3：insets 只消费一次，避免面板开合时整页跳动。
+                .consumeWindowInsets(innerPadding),
             contentPadding = PaddingValues(bottom = 88.dp),
         ) {
             item {
                 SectionHeader("阅读")
                 ListItem(
                     headlineContent = { Text("字号") },
-                    supportingContent = { Text("正文排版字号") },
+                    supportingContent = { Text("EPUB 正文字号（PDF 保持原版式）") },
                     trailingContent = { ValueTrailing(value = fontSize.toString() + " sp", showChevron = true) },
                     modifier = Modifier.clickable { fontSheetOpen = true },
                 )
                 ListItem(
                     headlineContent = { Text("行距") },
-                    supportingContent = { Text("正文行高倍数") },
+                    supportingContent = { Text("EPUB 正文行距（PDF 保持原版式）") },
                     trailingContent = {
                         ValueTrailing(value = formatLineHeight(lineHeight), showChevron = true)
                     },
@@ -262,7 +265,8 @@ fun SettingsScreen(
                     text = "故乡的河里，有一条小小的船……",
                     style = MaterialTheme.typography.bodyLarge.copy(
                         fontSize = fontSize.sp,
-                        lineHeight = (fontSize * 1.7f).sp,
+                        // D6：预览行距跟随当前「行距」设置，和行距 sheet 保持一致。
+                        lineHeight = (fontSize * lineHeight).sp,
                     ),
                     color = MaterialTheme.colorScheme.onSurface,
                 )

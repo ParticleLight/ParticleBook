@@ -1,6 +1,5 @@
 package app.particlebook.android.ui.shelf
 
-import android.content.Context
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
@@ -42,6 +41,7 @@ import androidx.compose.ui.unit.dp
 import app.particlebook.android.ui.FilterActiveChip
 import app.particlebook.android.ui.Spacing
 import app.particlebook.android.ui.data.Book
+import app.particlebook.android.ui.data.ReadingProgress
 
 /**
  * 横屏书架列表（spec §2.1.8 C 方案）。
@@ -56,21 +56,6 @@ val ShelfRowHeight = 92.dp
 /** 缩略图 48×72dp（2:3），4dp 圆角。 */
 val ShelfThumbWidth = 48.dp
 val ShelfThumbHeight = 72.dp
-
-/**
- * 读取 pb_reading 里保存的进度，给第 2 行拼「已读 xx%」。
- * 没有进度（没读过、或只读到最后一页前没记录页数）就返回 null，那一行只剩「作者 · EPUB」。
- */
-private object ReadingProgress {
-    fun percentLabel(context: Context, bookId: Long): String? {
-        val prefs = context.getSharedPreferences("pb_reading", Context.MODE_PRIVATE)
-        val pages = prefs.getInt("pages_" + bookId, 0)
-        if (pages <= 1) return null
-        val current = prefs.getInt("page_" + bookId, 0).coerceIn(0, pages - 1)
-        val percent = ((current + 1) * 100 / pages).coerceIn(0, 100)
-        return "已读 " + percent + "%"
-    }
-}
 
 /** 段头单行 48dp：标题 + 计数 + 排序入口（竖屏网格的段头是 24/8 两段留白，横屏压扁成一行）。 */
 @Composable
@@ -111,8 +96,12 @@ fun ShelfListRow(
     selected: Boolean = false,
 ) {
     val context = LocalContext.current
-    val progress = ReadingProgress.percentLabel(context, book.id)
-    val meta = listOfNotNull(book.authorLabel, book.format.label, progress).joinToString(" · ")
+    val meta = listOfNotNull(
+        book.authorLabel,
+        book.format.label,
+        // 视觉上无进度不写「未读」（spec §2.1.3），只拼「已读 xx%」。
+        ReadingProgress.percentLabel(context, book.id),
+    ).joinToString(" · ")
     Row(
         modifier = modifier
             .fillMaxWidth()

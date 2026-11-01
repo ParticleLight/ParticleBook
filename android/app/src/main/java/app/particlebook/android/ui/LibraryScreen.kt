@@ -5,6 +5,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -12,6 +13,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -259,7 +261,9 @@ fun LibraryScreen(
         Box(
             Modifier
                 .fillMaxSize()
-                .padding(innerPadding),
+                .padding(innerPadding)
+                // spec §5.3：insets 只消费一次（外层 Scaffold 已置 0），避免 sheet/dialog 开合时内容跳动。
+                .consumeWindowInsets(innerPadding),
         ) {
             when {
                 loading && books.isEmpty() -> LibrarySkeleton()
@@ -366,11 +370,14 @@ fun LibraryScreen(
         ModalBottomSheet(
             onDismissRequest = { sortSheetOpen = false },
             sheetState = sheetState,
+            // spec §5.3：sheet 不接管 insets，底部由内容自己 navigationBarsPadding()。
+            contentWindowInsets = { WindowInsets(0) },
         ) {
             Column(
                 Modifier
                     .fillMaxWidth()
                     .verticalScroll(rememberScrollState())
+                    .navigationBarsPadding()
                     .padding(bottom = Spacing.md),
             ) {
                 Text(
@@ -577,7 +584,7 @@ private fun LibraryTopBarActions(
     }
     Box {
         IconButton(onClick = { menuOpen = true }) {
-            Icon(Icons.Outlined.MoreVert, contentDescription = "更多")
+            Icon(Icons.Outlined.MoreVert, contentDescription = "更多操作")
         }
         DropdownMenu(
             expanded = menuOpen,

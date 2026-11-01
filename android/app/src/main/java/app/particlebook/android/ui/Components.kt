@@ -51,6 +51,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.particlebook.android.ui.data.Book
+import app.particlebook.android.ui.data.ReadingProgress
 
 /**
  * 书卡：没有容器（封面自身就是视觉单元），文字直接排在 surface 上。
@@ -66,9 +67,13 @@ fun BookGridItem(
     selectionMode: Boolean = false,
     selected: Boolean = false,
 ) {
+    val context = LocalContext.current
+    // spec §2.1.3 / §7.3：视觉上无进度只显示格式（不写「未读」），TalkBack 末位才补「未读」。
+    val progressLabel = ReadingProgress.percentLabel(context, book.id)
+    val a11yStatus = progressLabel ?: "未读"
     Column(
         modifier = modifier.semantics(mergeDescendants = true) {
-            contentDescription = book.a11yLabel()
+            contentDescription = book.a11yLabel(a11yStatus)
         },
     ) {
         Box(
@@ -147,7 +152,12 @@ fun BookGridItem(
             overflow = TextOverflow.Ellipsis,
         )
         Text(
-            text = book.format.label,
+            // 无进度 → 只显示格式；有进度 → 「格式 · 已读 45%」。
+            text = if (progressLabel == null) {
+                book.format.label
+            } else {
+                book.format.label + " · " + progressLabel
+            },
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1,
@@ -156,10 +166,12 @@ fun BookGridItem(
     }
 }
 
-private fun Book.a11yLabel(): String {
+private fun Book.a11yLabel(progress: String): String {
+    // progress 已保证非空：「已读 45%」或「未读」。
     val builder = StringBuilder("《").append(title).append("》")
     builder.append("，").append(authorLabel)
     builder.append("，").append(format.label)
+    builder.append("，").append(progress)
     return builder.toString()
 }
 

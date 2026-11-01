@@ -10,6 +10,7 @@ import android.graphics.pdf.PdfRenderer
 import android.os.ParcelFileDescriptor
 import android.os.SystemClock
 import android.util.Log
+import android.view.Window
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
@@ -28,6 +29,7 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -99,6 +101,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.window.DialogWindowProvider
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -509,7 +513,10 @@ private fun PdfReadingPane(book: Book, source: PdfSource, onBack: () -> Unit) {
         ModalBottomSheet(
             onDismissRequest = { tocOpen = false },
             sheetState = sheetState,
+            // spec §5.3：insets 不交给 sheet 组件，底部由内容自己 navigationBarsPadding()。
+            contentWindowInsets = { WindowInsets(0) },
         ) {
+            ImmersiveDialogWindow()
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -556,9 +563,12 @@ private fun PdfReadingPane(book: Book, source: PdfSource, onBack: () -> Unit) {
     if (detailsOpen) {
         AlertDialog(
             onDismissRequest = { detailsOpen = false },
+            // spec §5.3：dialog 自己处理 insets，窗口不做系统栏 fit，避免开合时整页下移。
+            properties = DialogProperties(decorFitsSystemWindows = false),
             title = { Text("书籍详情") },
             text = {
                 Column {
+                    ImmersiveDialogWindow()
                     Text("书名：" + book.title, style = MaterialTheme.typography.bodyMedium)
                     Text("作者：" + book.authorLabel, style = MaterialTheme.typography.bodyMedium)
                     Text("格式：" + book.format.label, style = MaterialTheme.typography.bodyMedium)
@@ -899,6 +909,34 @@ private fun ImmersiveSystemBars() {
         onDispose {
             controller?.show(WindowInsetsCompat.Type.systemBars())
         }
+    }
+}
+
+/**
+ * spec §5.3：ModalBottomSheet / AlertDialog 各自跑在独立 Dialog window 里，活动窗口的沉浸设置
+ * 不会带过去 —— 一打开系统栏就重新出现、底层页面被 insets 顶下去。这里在 dialog 窗口里再隐藏一次。
+ */
+@Composable
+private fun ImmersiveDialogWindow() {
+    val view = LocalView.current
+    DisposableEffect(view) {
+        var node: Any? = view
+        var dialogWindow: Window? = null
+        while (node != null) {
+            if (node is DialogWindowProvider) {
+                dialogWindow = node.window
+                break
+            }
+            node = (node as? android.view.View)?.parent
+        }
+        val window = dialogWindow
+        if (window != null) {
+            val controller = WindowCompat.getInsetsController(window, view)
+            controller.systemBarsBehavior =
+                WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            controller.hide(WindowInsetsCompat.Type.systemBars())
+        }
+        onDispose { }
     }
 }
 
