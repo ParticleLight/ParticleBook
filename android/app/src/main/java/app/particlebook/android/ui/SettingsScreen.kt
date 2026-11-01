@@ -9,9 +9,11 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material3.AlertDialog
@@ -21,6 +23,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
@@ -40,6 +43,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
@@ -86,6 +92,8 @@ fun SettingsScreen(
     } else {
         String.format(Locale.US, "%.1f MB", storageBytes / 1024.0 / 1024.0)
     }
+    // 字体放大到 1.4 倍以上时，三段按钮的三个中文 label 会横向放不下 → 换单选列表。
+    val largeFontScale = LocalDensity.current.fontScale >= 1.4f
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -123,21 +131,56 @@ fun SettingsScreen(
                     headlineContent = { Text("主题") },
                     supportingContent = { Text("深色模式跟随系统，或手动指定") },
                 )
-                SingleChoiceSegmentedButtonRow(
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = Spacing.screen),
-                ) {
-                    AppThemeMode.entries.forEachIndexed { index, mode ->
-                        SegmentedButton(
-                            selected = themeMode == mode,
-                            onClick = { onThemeModeChange(mode) },
-                            shape = SegmentedButtonDefaults.itemShape(
-                                index = index,
-                                count = AppThemeMode.entries.size,
-                            ),
-                        ) {
-                            Text(mode.label)
+                // 200% 字号下三段按钮放不下（label 换行会溢出胶囊），降级为单选列表行（§14.5 硬性要求）。
+                if (largeFontScale) {
+                    Column(Modifier.fillMaxWidth()) {
+                        AppThemeMode.entries.forEach { mode ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(min = 48.dp)
+                                    .selectable(
+                                        selected = themeMode == mode,
+                                        role = Role.RadioButton,
+                                        onClick = { onThemeModeChange(mode) },
+                                    )
+                                    .padding(horizontal = Spacing.screen),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                RadioButton(
+                                    selected = themeMode == mode,
+                                    onClick = null,
+                                )
+                                Spacer(Modifier.size(Spacing.sm))
+                                Text(
+                                    text = mode.label,
+                                    style = MaterialTheme.typography.bodyLarge,
+                                )
+                            }
+                        }
+                    }
+                } else {
+                    SingleChoiceSegmentedButtonRow(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = Spacing.screen),
+                    ) {
+                        AppThemeMode.entries.forEachIndexed { index, mode ->
+                            SegmentedButton(
+                                selected = themeMode == mode,
+                                onClick = { onThemeModeChange(mode) },
+                                shape = SegmentedButtonDefaults.itemShape(
+                                    index = index,
+                                    count = AppThemeMode.entries.size,
+                                ),
+                            ) {
+                                Text(
+                                    text = mode.label,
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
                         }
                     }
                 }

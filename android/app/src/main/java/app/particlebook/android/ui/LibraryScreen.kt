@@ -68,6 +68,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.semantics.LiveRegionMode
@@ -81,6 +82,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.style.TextAlign
 import app.particlebook.android.ui.data.Book
 import app.particlebook.android.ui.data.BookFormat
+import app.particlebook.android.ui.shelf.ShelfList
 
 /** 排序方式；评分排序需要书评数据，P0 只占位。 */
 enum class LibrarySort(val label: String) {
@@ -125,8 +127,14 @@ fun LibraryScreen(
     var sort by rememberSaveable { mutableStateOf(LibrarySort.RecentRead) }
     var formatFilter by rememberSaveable { mutableStateOf(FormatFilter.All) }
     var sortSheetOpen by rememberSaveable { mutableStateOf(false) }
-    var moreMenuOpen by remember { mutableStateOf(false) }
     var formatDialogOpen by rememberSaveable { mutableStateOf(false) }
+
+    val configuration = LocalConfiguration.current
+    // 手机横屏（宽 ≥600dp 且高 <480dp）：可用高度只剩 400dp 出头，2:3 封面网格放不下完整首行，
+    // 改走「列表 + 左侧 NavigationRail」（spec §2.1.8 C 方案）。竖屏/平板高度够，仍用网格。
+    val compactLandscape =
+        configuration.screenWidthDp >= 600 && configuration.screenHeightDp < 480
+    val gridCells = GridCells.Adaptive(148.dp)
 
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior(rememberTopAppBarState())
     val haptics = LocalHapticFeedback.current
@@ -165,6 +173,18 @@ fun LibraryScreen(
                     onSearch = { keyboard?.hide() },
                 )
 
+                compactLandscape -> TopAppBar(
+                    // 横屏高度有限：单行 64dp 顶栏，不折叠（spec §2.1.8）。
+                    title = { Text("书架", style = MaterialTheme.typography.titleLarge) },
+                    actions = {
+                        LibraryTopBarActions(
+                            onSearchClick = { searchActive = true },
+                            onStartSelectionMode = onStartSelectionMode,
+                            onRetry = onRetry,
+                        )
+                    },
+                )
+
                 else -> MediumTopAppBar(
                     title = {
                         val collapsed = scrollBehavior.state.collapsedFraction > 0.5f
@@ -178,43 +198,11 @@ fun LibraryScreen(
                         )
                     },
                     actions = {
-                        IconButton(onClick = { searchActive = true }) {
-                            Icon(Icons.Outlined.Search, contentDescription = "搜索")
-                        }
-                        Box {
-                            IconButton(onClick = { moreMenuOpen = true }) {
-                                Icon(Icons.Outlined.MoreVert, contentDescription = "更多")
-                            }
-                            DropdownMenu(
-                                expanded = moreMenuOpen,
-                                onDismissRequest = { moreMenuOpen = false },
-                            ) {
-                                DropdownMenuItem(
-                                    text = { Text("选择书籍") },
-                                    onClick = {
-                                        moreMenuOpen = false
-                                        onStartSelectionMode()
-                                    },
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("刷新书架") },
-                                    onClick = {
-                                        moreMenuOpen = false
-                                        onRetry()
-                                    },
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("阅读统计") },
-                                    onClick = {},
-                                    enabled = false,
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("下载历史") },
-                                    onClick = {},
-                                    enabled = false,
-                                )
-                            }
-                        }
+                        LibraryTopBarActions(
+                            onSearchClick = { searchActive = true },
+                            onStartSelectionMode = onStartSelectionMode,
+                            onRetry = onRetry,
+                        )
                     },
                     scrollBehavior = scrollBehavior,
                 )
@@ -255,8 +243,27 @@ fun LibraryScreen(
                     },
                 )
 
+                compactLandscape -> ShelfList(
+                    books = visible,
+                    headerTitle = when {
+                        query.isNotBlank() -> "搜索结果"
+                        filterActive -> "筛选结果"
+                        else -> "全部书籍"
+                    },
+                    headerCount = if (query.isNotBlank() || filterActive) visible.size else books.size,
+                    filterLabel = if (filterActive) formatFilter.label else null,
+                    selectionMode = selectionMode,
+                    selectedIds = selectedIds,
+                    onOpenBook = onOpenBook,
+                    onEnterSelection = onEnterSelection,
+                    onToggleSelection = onToggleSelection,
+                    onSortClick = { sortSheetOpen = true },
+                    onEditFilter = { sortSheetOpen = true },
+                    onClearFilter = { formatFilter = FormatFilter.All },
+                )
+
                 else -> LazyVerticalGrid(
-                    columns = GridCells.Adaptive(148.dp),
+                    columns = gridCells,
                     modifier = Modifier
                         .fillMaxSize()
                         .nestedScroll(scrollBehavior.nestedScrollConnection),
@@ -494,7 +501,7 @@ private fun SearchTopBar(
 }
 
 @Composable
-private fun FilterActiveChip(
+internal fun FilterActiveChip(
     label: String,
     onEdit: () -> Unit,
     onClear: () -> Unit,
@@ -517,6 +524,53 @@ private fun FilterActiveChip(
                 )
             },
         )
+    }
+}
+
+/** 顶栏右侧两个动作（搜索 / 更多）；竖屏 MediumTopAppBar 与横屏 64dp TopAppBar 共用。 */
+@Composable
+private fun LibraryTopBarActions(
+    onSearchClick: () -> Unit,
+    onStartSelectionMode: () -> Unit,
+    onRetry: () -> Unit,
+) {
+    var menuOpen by remember { mutableStateOf(false) }
+    IconButton(onClick = onSearchClick) {
+        Icon(Icons.Outlined.Search, contentDescription = "搜索")
+    }
+    Box {
+        IconButton(onClick = { menuOpen = true }) {
+            Icon(Icons.Outlined.MoreVert, contentDescription = "更多")
+        }
+        DropdownMenu(
+            expanded = menuOpen,
+            onDismissRequest = { menuOpen = false },
+        ) {
+            DropdownMenuItem(
+                text = { Text("选择书籍") },
+                onClick = {
+                    menuOpen = false
+                    onStartSelectionMode()
+                },
+            )
+            DropdownMenuItem(
+                text = { Text("刷新书架") },
+                onClick = {
+                    menuOpen = false
+                    onRetry()
+                },
+            )
+            DropdownMenuItem(
+                text = { Text("阅读统计") },
+                onClick = {},
+                enabled = false,
+            )
+            DropdownMenuItem(
+                text = { Text("下载历史") },
+                onClick = {},
+                enabled = false,
+            )
+        }
     }
 }
 

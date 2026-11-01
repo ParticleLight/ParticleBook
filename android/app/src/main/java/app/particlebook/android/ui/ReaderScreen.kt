@@ -97,6 +97,7 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -115,7 +116,9 @@ import java.io.Closeable
 import java.io.File
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import kotlin.math.min
 import kotlin.math.roundToInt
+import kotlin.math.sqrt
 
 /** 日志 tag：安装后由 Lead 抓 logcat 用。 */
 private const val TAG = "PBReader"
@@ -128,6 +131,12 @@ private val PageGap = 8.dp
 
 /** A4 高宽比，只用于未渲染页的占位块高度，渲染完成后按真实尺寸。 */
 private const val PlaceholderAspect = 1.414f
+
+/** 页面宽/高（A4）。用来估算「按视口高度适配」时该渲染多宽。 */
+private const val PageWidthOverHeight = 0.7071f
+
+/** 单页位图内存上限（ARGB_8888 = 宽×高×4 字节）。横屏撑满宽度时曾到 2400×3398 ≈ 32MB。 */
+private const val MaxPageBitmapBytes = 12 * 1024 * 1024
 
 /**
  * 阅读器：PDF 走原生纵向连续滚动；EPUB 暂未迁移，给「兼容模式」出口。
@@ -287,6 +296,8 @@ private fun PdfReadingPane(book: Book, source: PdfSource, onBack: () -> Unit) {
         context.getSharedPreferences("pb_reading", Context.MODE_PRIVATE)
     }
     val progressKey = "page_" + book.id
+    // 总页数也存一份：横屏书架列表要按进度显示「已读 xx%」（见 ui/shelf/ShelfListRow.kt）。
+    val pagesKey = "pages_" + book.id
     val startPage = remember(book.id, pageCount) {
         progressPrefs.getInt(progressKey, 0).coerceIn(0, pageCount - 1)
     }
@@ -326,9 +337,12 @@ private fun PdfReadingPane(book: Book, source: PdfSource, onBack: () -> Unit) {
         if (!sliderDragging) sliderValue = currentPage.toFloat()
     }
     // 阅读进度落在 SharedPreferences：退出再进入回到上次页码（首帧布局前不写，避免把进度清成 0）。
-    LaunchedEffect(currentPage) {
+    LaunchedEffect(currentPage, pageCount) {
         if (listState.layoutInfo.totalItemsCount > 0) {
-            progressPrefs.edit().putInt(progressKey, currentPage).apply()
+            progressPrefs.edit()
+                .putInt(progressKey, currentPage)
+                .putInt(pagesKey, pageCount)
+                .apply()
         }
     }
     LaunchedEffect(chromeVisible, chromeTick, tocOpen, moreMenuOpen, detailsOpen, sliderDragging) {
@@ -351,7 +365,11 @@ private fun PdfReadingPane(book: Book, source: PdfSource, onBack: () -> Unit) {
             .background(MaterialTheme.colorScheme.surfaceContainerLowest),
     ) {
         val density = LocalDensity.current
-        val pageWidthPx = with(density) { maxWidth.toPx().roundToInt() }.coerceAtLeast(1)
+        val viewportWidthPx = with(density) { maxWidth.toPx() }
+        val viewportHeightPx = with(density) { maxHeight.toPx() }
+        // 渲染宽度三重取小：视口宽 / 按高度整页可见 / 单页 12MB 上限，横屏不会再把整页裁掉。
+        val pageWidthPx = computeRenderWidthPx(viewportWidthPx, viewportHeightPx)
+        val pageWidthDp = with(density) { pageWidthPx.toDp() }
         val chromeShiftPx = with(density) { 8.dp.roundToPx() }
         val chromeMotion = tween<androidx.compose.ui.unit.IntOffset>(durationMillis = 150)
         val chromeFade = tween<Float>(durationMillis = 150)
@@ -370,6 +388,7 @@ private fun PdfReadingPane(book: Book, source: PdfSource, onBack: () -> Unit) {
                     source = source,
                     pageIndex = index,
                     widthPx = pageWidthPx,
+                    widthDp = pageWidthDp,
                 )
             }
         }
@@ -651,7 +670,7 @@ private sealed interface PageRender {
 
 /** 单页：渲染成功显示位图，未完成显示占位块（不插 spinner），失败给内联错误 + 重试。 */
 @Composable
-private fun PdfPageItem(source: PdfSource, pageIndex: Int, widthPx: Int) {
+private fun PdfPageItem(source: PdfSource, pageIndex: Int, widthPx: Int, widthDp: Dp) {
     var retry by remember { mutableIntStateOf(0) }
     val render by produceState<PageRender>(
         initialValue = PageRender.Loading,
@@ -677,27 +696,29 @@ private fun PdfPageItem(source: PdfSource, pageIndex: Int, widthPx: Int) {
         }
     }
 
-    when (val current = render) {
-        is PageRender.Loading -> PagePlaceholder(pageIndex = pageIndex)
-        is PageRender.Ready -> Image(
-            bitmap = current.bitmap.asImageBitmap(),
-            contentDescription = "第 " + (pageIndex + 1) + " 页",
-            contentScale = ContentScale.FillWidth,
-            modifier = Modifier.fillMaxWidth(),
-        )
-        is PageRender.Failed -> PageRenderError(
-            pageIndex = pageIndex,
-            message = current.message,
-            onRetry = { retry++ },
-        )
+    Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+        when (val current = render) {
+            is PageRender.Loading -> PagePlaceholder(pageIndex = pageIndex, width = widthDp)
+            is PageRender.Ready -> Image(
+                bitmap = current.bitmap.asImageBitmap(),
+                contentDescription = "第 " + (pageIndex + 1) + " 页",
+                contentScale = ContentScale.FillWidth,
+                modifier = Modifier.width(widthDp),
+            )
+            is PageRender.Failed -> PageRenderError(
+                pageIndex = pageIndex,
+                message = current.message,
+                onRetry = { retry++ },
+            )
+        }
     }
 }
 
 @Composable
-private fun PagePlaceholder(pageIndex: Int) {
+private fun PagePlaceholder(pageIndex: Int, width: Dp) {
     Box(
         modifier = Modifier
-            .fillMaxWidth()
+            .width(width)
             .aspectRatio(1f / PlaceholderAspect)
             .background(MaterialTheme.colorScheme.surfaceContainerLow),
         contentAlignment = Alignment.Center,
@@ -748,6 +769,18 @@ private fun PageRenderError(pageIndex: Int, message: String, onRetry: () -> Unit
             }
         }
     }
+}
+
+/**
+ * 单页渲染宽度（px）：
+ * 1. 不超过视口宽度；
+ * 2. 横屏等「矮窗口」按高度适配（整页可见，不再只看到局部）；
+ * 3. 单页位图不超过 [MaxPageBitmapBytes]（ARGB_8888，A4 比例约 1490px 宽）。
+ */
+private fun computeRenderWidthPx(viewportWidthPx: Float, viewportHeightPx: Float): Int {
+    val fitHeight = viewportHeightPx * PageWidthOverHeight
+    val areaCap = sqrt(MaxPageBitmapBytes / 4f * PageWidthOverHeight)
+    return min(min(viewportWidthPx, fitHeight), areaCap).roundToInt().coerceIn(160, 4096)
 }
 
 /** 当前页 = 视口内可见面积最大的那一项。 */

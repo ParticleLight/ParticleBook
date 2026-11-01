@@ -6,9 +6,15 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.automirrored.outlined.MenuBook
@@ -20,6 +26,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationRail
+import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -37,7 +45,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextOverflow
 import app.particlebook.android.ui.data.Book
 import app.particlebook.android.ui.data.BookFormat
 import app.particlebook.android.ui.data.LibraryStore
@@ -90,6 +100,9 @@ private class AppPreferences(context: Context) {
 /**
  * App 根：底栏两目的地（书架 / 设置）；打开书籍时全屏进入阅读器（不带底栏）。
  * 导航用最朴素的状态机，避免为两个目的地引入 navigation-compose。
+ *
+ * 手机横屏（宽 ≥600dp 且高 <480dp）时竖向空间被底栏吃光，改左侧 NavigationRail + 书架列表
+ * （spec §2.1.8 C 方案）：不允许再用「缩小列数的大封面网格」。
  */
 @Composable
 fun ParticleBookApp() {
@@ -159,99 +172,73 @@ fun ParticleBookApp() {
         if (openBook != null) {
             ReaderScreen(book = openBook, onBack = { openBookId = -1L })
         } else {
-            Scaffold(
-                modifier = Modifier.fillMaxSize(),
-                contentWindowInsets = WindowInsets(0, 0, 0, 0),
-                snackbarHost = { SnackbarHost(snackbarHostState) },
-                bottomBar = {
-                    if (selectionMode) {
-                        SelectionBar(
-                            onDelete = { deleteDialogOpen = true },
-                        )
-                    } else {
-                        NavigationBar {
-                            TopLevel.entries.forEachIndexed { index, destination ->
-                                NavigationBarItem(
-                                    selected = tabIndex == index,
-                                    onClick = { tabIndex = index },
-                                    icon = {
-                                        Icon(
-                                            imageVector = if (tabIndex == index) {
-                                                destination.selectedIcon
-                                            } else {
-                                                destination.icon
-                                            },
-                                            contentDescription = null,
-                                        )
-                                    },
-                                    label = { Text(destination.label) },
-                                )
+            val configuration = LocalConfiguration.current
+            // 914×411dp 的手机横屏命中；竖屏、以及高度 ≥480dp 的平板横屏都不命中，保持底栏。
+            val compactLandscape =
+                configuration.screenWidthDp >= 600 && configuration.screenHeightDp < 480
+            AppShell(
+                compactLandscape = compactLandscape,
+                tabIndex = tabIndex,
+                onTabSelected = { tabIndex = it },
+                snackbarHostState = snackbarHostState,
+                selectionMode = selectionMode,
+                onDelete = { deleteDialogOpen = true },
+            ) {
+                when (tabIndex) {
+                    0 -> LibraryScreen(
+                        books = books,
+                        loading = store.loading,
+                        error = store.error,
+                        selectionMode = selectionMode,
+                        selectedIds = selectedIds,
+                        onOpenBook = { book ->
+                            exitSelection()
+                            openBookId = book.id
+                        },
+                        onEnterSelection = { book ->
+                            selectionMode = true
+                            selectedIds = setOf(book.id)
+                        },
+                        onToggleSelection = { book ->
+                            val next = if (book.id in selectedIds) {
+                                selectedIds - book.id
+                            } else {
+                                selectedIds + book.id
                             }
-                        }
-                    }
-                },
-            ) { innerPadding ->
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(bottom = innerPadding.calculateBottomPadding()),
-                ) {
-                    when (tabIndex) {
-                        0 -> LibraryScreen(
-                            books = books,
-                            loading = store.loading,
-                            error = store.error,
-                            selectionMode = selectionMode,
-                            selectedIds = selectedIds,
-                            onOpenBook = { book ->
+                            if (next.isEmpty()) {
                                 exitSelection()
-                                openBookId = book.id
-                            },
-                            onEnterSelection = { book ->
-                                selectionMode = true
-                                selectedIds = setOf(book.id)
-                            },
-                            onToggleSelection = { book ->
-                                val next = if (book.id in selectedIds) {
-                                    selectedIds - book.id
-                                } else {
-                                    selectedIds + book.id
-                                }
-                                if (next.isEmpty()) {
-                                    exitSelection()
-                                } else {
-                                    selectedIds = next
-                                }
-                            },
-                            onSelectAll = { selectedIds = books.map { it.id }.toSet() },
-                            onExitSelection = { exitSelection() },
-                            onStartSelectionMode = {
-                                selectionMode = true
-                                selectedIds = emptySet()
-                            },
-                            onImportClick = launchImport,
-                            onRetry = { scope.launch { store.reload() } },
-                        )
+                            } else {
+                                selectedIds = next
+                            }
+                        },
+                        onSelectAll = { selectedIds = books.map { it.id }.toSet() },
+                        onExitSelection = { exitSelection() },
+                        onStartSelectionMode = {
+                            selectionMode = true
+                            selectedIds = emptySet()
+                        },
+                        onImportClick = launchImport,
+                        onRetry = { scope.launch { store.reload() } },
+                    )
 
-                        else -> SettingsScreen(
-                            themeMode = themeMode,
-                            onThemeModeChange = { mode ->
-                                themeModeName = mode.name
-                                preferences.themeMode = mode
-                            },
-                            fontSize = fontSize,
-                            onFontSizeChange = { size ->
-                                fontSize = size
-                                preferences.fontSize = size
-                            },
-                            onImportClick = launchImport,
-                            onClearReadingRecords = {
-                                scope.launch {
-                                    snackbarHostState.showSnackbar("已清除本会话的阅读记录")
-                                }
-                            },
-                        )
-                    }
+                    else -> SettingsScreen(
+                        themeMode = themeMode,
+                        onThemeModeChange = { mode ->
+                            themeModeName = mode.name
+                            preferences.themeMode = mode
+                        },
+                        fontSize = fontSize,
+                        onFontSizeChange = { size ->
+                            fontSize = size
+                            preferences.fontSize = size
+                        },
+                        onImportClick = launchImport,
+                        onClearReadingRecords = {
+                            scope.launch {
+                                snackbarHostState.showSnackbar("已清除本会话的阅读记录")
+                            }
+                        },
+                    )
                 }
             }
         }
@@ -272,6 +259,119 @@ fun ParticleBookApp() {
                     TextButton(onClick = { deleteDialogOpen = false }) { Text("取消") }
                 },
             )
+        }
+    }
+}
+
+/**
+ * 导航外壳：竖屏 = 底部 NavigationBar；手机横屏 = 左侧 NavigationRail 80dp（标签常显）。
+ * 多选时底部换成 SelectionBar，rail 仍显示（spec §2.1.8）。
+ */
+@Composable
+private fun AppShell(
+    compactLandscape: Boolean,
+    tabIndex: Int,
+    onTabSelected: (Int) -> Unit,
+    snackbarHostState: SnackbarHostState,
+    selectionMode: Boolean,
+    onDelete: () -> Unit,
+    content: @Composable () -> Unit,
+) {
+    if (compactLandscape) {
+        // 整个区域先避让右侧系统栏（横屏三键导航是右侧竖条）：TopAppBar / FAB 都在这个 Row 里，
+        // 这样 FAB 不会被导航条压住；insets 在这里被消费，子级不会重复加内边距。
+        Row(
+            Modifier
+                .fillMaxSize()
+                .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.End)),
+        ) {
+            NavigationRail(modifier = Modifier.fillMaxHeight()) {
+                TopLevel.entries.forEachIndexed { index, destination ->
+                    NavigationRailItem(
+                        selected = tabIndex == index,
+                        onClick = { onTabSelected(index) },
+                        icon = {
+                            Icon(
+                                imageVector = if (tabIndex == index) {
+                                    destination.selectedIcon
+                                } else {
+                                    destination.icon
+                                },
+                                contentDescription = null,
+                            )
+                        },
+                        label = {
+                            Text(
+                                text = destination.label,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        },
+                    )
+                }
+            }
+            Scaffold(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight(),
+                contentWindowInsets = WindowInsets(0, 0, 0, 0),
+                snackbarHost = { SnackbarHost(snackbarHostState) },
+                bottomBar = {
+                    if (selectionMode) SelectionBar(onDelete = onDelete)
+                },
+            ) { innerPadding ->
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(bottom = innerPadding.calculateBottomPadding()),
+                ) {
+                    content()
+                }
+            }
+        }
+    } else {
+        Scaffold(
+            modifier = Modifier.fillMaxSize(),
+            contentWindowInsets = WindowInsets(0, 0, 0, 0),
+            snackbarHost = { SnackbarHost(snackbarHostState) },
+            bottomBar = {
+                if (selectionMode) {
+                    SelectionBar(onDelete = onDelete)
+                } else {
+                    NavigationBar {
+                        TopLevel.entries.forEachIndexed { index, destination ->
+                            NavigationBarItem(
+                                selected = tabIndex == index,
+                                onClick = { onTabSelected(index) },
+                                icon = {
+                                    Icon(
+                                        imageVector = if (tabIndex == index) {
+                                            destination.selectedIcon
+                                        } else {
+                                            destination.icon
+                                        },
+                                        contentDescription = null,
+                                    )
+                                },
+                                label = { Text(destination.label) },
+                            )
+                        }
+                    }
+                }
+            },
+        ) { innerPadding ->
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(bottom = innerPadding.calculateBottomPadding())
+                    // 横屏时系统三键导航在屏幕右侧（edge-to-edge 之后内容会画到它下面）：
+                    // 只避让左右安全区，底部由 bottomBar 高度负责，避免双倍 inset。
+                    .windowInsetsPadding(
+                        WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal),
+                    ),
+            ) {
+                content()
+            }
         }
     }
 }
