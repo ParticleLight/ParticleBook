@@ -15,3 +15,15 @@ MEMORY.md
 # AI/agent 工作区指令：本地会话文件，非产品内容，不入库
 AGENTS.md
 CLAUDE.md
+
+# Android 移植 / spike 工作区：构建输出、APK、原始日志不入库
+/android/**/build/
+/android/.gradle/
+/android/local.properties
+/android/app/.cxx/
+/spikes/**/build/
+/spikes/**/.gradle/
+/spikes/**/.cxx/
+/spikes/**/*.apk
+/spikes/spike2-results/raw/
+/spikes/spike2-results/audit/*.pyc
