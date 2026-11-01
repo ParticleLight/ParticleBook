@@ -27,3 +27,6 @@ CLAUDE.md
 /spikes/**/*.apk
 /spikes/spike2-results/raw/
 /spikes/spike2-results/audit/*.pyc
+
+__pycache__/
+*.pyc
