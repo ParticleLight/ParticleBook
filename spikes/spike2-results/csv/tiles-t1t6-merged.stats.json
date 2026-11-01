@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "tool": "scripts/android/spike2/parse.py",
-  "generated_at": "2026-11-01T20:59:29+08:00",
+  "generated_at": "2026-11-01T21:00:10+08:00",
   "name": "tiles-t1t6-merged",
   "options": {
     "app": "spike2t",
@@ -58,6 +58,29 @@
       ]
     },
     {
+      "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\tiles-t1t6-run1-20261101-205938.log",
+      "lines": 259,
+      "record_lines": 29,
+      "parse_failures": 0,
+      "run_id": "tiles-t1t6-run1-20261101-205938",
+      "app": "spike2t",
+      "runenv": [
+        {
+          "app": "spike2t",
+          "run_id": "tiles-t1t6-run1-20261101-205938",
+          "apk": "spikes/spike2-tiles/app/build/outputs/apk/debug/app-debug.apk",
+          "apk_md5": "7ab3634ff0d97dcad0a759c988304e5d",
+          "apk_bytes": "7300534",
+          "scenario": "T1,T6",
+          "api": "35",
+          "model": "Android_SDK_built_for_x86_64",
+          "abi": "x86_64",
+          "build": "12368160",
+          "ts": "2026-11-01T20:59:45+0800"
+        }
+      ]
+    },
+    {
       "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\tiles-t1t6-run2-20261101-205718.log",
       "lines": 225,
       "record_lines": 29,
@@ -105,23 +128,23 @@
     }
   ],
   "counts": {
-    "files": 4,
-    "lines": 881,
-    "records": 116,
-    "source_record_lines": 116,
+    "files": 5,
+    "lines": 1140,
+    "records": 145,
+    "source_record_lines": 145,
     "parse_failures": 0,
     "by_record": {
-      "AMSTART": 4,
-      "PBDONE": 12,
-      "PBPERF": 84,
-      "PBTIME": 12,
-      "RUNENV": 4
+      "AMSTART": 5,
+      "PBDONE": 15,
+      "PBPERF": 105,
+      "PBTIME": 15,
+      "RUNENV": 5
     },
-    "warmup": 52,
-    "warmup_dropped": 52,
+    "warmup": 65,
+    "warmup_dropped": 65,
     "error": 0,
-    "pss": 8,
-    "stats_samples": 48
+    "pss": 10,
+    "stats_samples": 60
   },
   "groups": [
     {
@@ -204,6 +227,48 @@
           "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\tiles-t1t6-run1-20261101-205821.log",
           "min_line": 216,
           "max_line": 225,
+          "n": 4
+        }
+      ]
+    },
+    {
+      "scope": "run",
+      "run_id": "tiles-t1t6-run1-20261101-205938",
+      "app": "spike2t",
+      "scenario": "T1",
+      "phase": "tile",
+      "n": 8,
+      "median": 12.314,
+      "p50": 8.618,
+      "p95": 248.108,
+      "max": 248.108,
+      "min": 0.268,
+      "sources": [
+        {
+          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\tiles-t1t6-run1-20261101-205938.log",
+          "min_line": 156,
+          "max_line": 165,
+          "n": 8
+        }
+      ]
+    },
+    {
+      "scope": "run",
+      "run_id": "tiles-t1t6-run1-20261101-205938",
+      "app": "spike2t",
+      "scenario": "T6",
+      "phase": "first_screen",
+      "n": 4,
+      "median": 304.75,
+      "p50": 291.418,
+      "p95": 397.091,
+      "max": 397.091,
+      "min": 282.46,
+      "sources": [
+        {
+          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\tiles-t1t6-run1-20261101-205938.log",
+          "min_line": 193,
+          "max_line": 203,
           "n": 4
         }
       ]
@@ -298,11 +363,11 @@
       "app": "spike2t",
       "scenario": "T1",
       "phase": "tile",
-      "n": 32,
+      "n": 40,
       "median": 13.111,
       "p50": 11.452,
       "p95": 203.918,
-      "max": 208.669,
+      "max": 248.108,
       "min": 0.206,
       "sources": [
         {
@@ -315,6 +380,12 @@
           "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\tiles-t1t6-run1-20261101-205821.log",
           "min_line": 189,
           "max_line": 197,
+          "n": 8
+        },
+        {
+          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\tiles-t1t6-run1-20261101-205938.log",
+          "min_line": 156,
+          "max_line": 165,
           "n": 8
         },
         {
@@ -337,10 +408,10 @@
       "app": "spike2t",
       "scenario": "T6",
       "phase": "first_screen",
-      "n": 16,
-      "median": 378.299,
-      "p50": 372.998,
-      "p95": 600.994,
+      "n": 20,
+      "median": 345.539,
+      "p50": 318.081,
+      "p95": 509.539,
       "max": 600.994,
       "min": 263.677,
       "sources": [
@@ -354,6 +425,12 @@
           "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\tiles-t1t6-run1-20261101-205821.log",
           "min_line": 216,
           "max_line": 225,
+          "n": 4
+        },
+        {
+          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\tiles-t1t6-run1-20261101-205938.log",
+          "min_line": 193,
+          "max_line": 203,
           "n": 4
         },
         {
@@ -582,6 +659,114 @@
     },
     {
       "run_id": "tiles-t1t6-run1-20261101-205821",
+      "app": "spike2t",
+      "scenario": "cold_start",
+      "phase": "am_start",
+      "n": 0,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "tiles-t1t6-run1-20261101-205938",
+      "app": "spike2t",
+      "scenario": "ALL",
+      "phase": "pss",
+      "n": 0,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "tiles-t1t6-run1-20261101-205938",
+      "app": "spike2t",
+      "scenario": "PBTIME",
+      "phase": "first_frame",
+      "n": 0,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "tiles-t1t6-run1-20261101-205938",
+      "app": "spike2t",
+      "scenario": "PBTIME",
+      "phase": "read_path",
+      "n": 0,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "tiles-t1t6-run1-20261101-205938",
+      "app": "spike2t",
+      "scenario": "PBTIME",
+      "phase": "refresh_hz",
+      "n": 0,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "tiles-t1t6-run1-20261101-205938",
+      "app": "spike2t",
+      "scenario": "T1",
+      "phase": "first_screen",
+      "n": 0,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "tiles-t1t6-run1-20261101-205938",
+      "app": "spike2t",
+      "scenario": "T1",
+      "phase": "lowres",
+      "n": 0,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "tiles-t1t6-run1-20261101-205938",
+      "app": "spike2t",
+      "scenario": "T1",
+      "phase": "open",
+      "n": 0,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "tiles-t1t6-run1-20261101-205938",
+      "app": "spike2t",
+      "scenario": "T1",
+      "phase": "tileprobe",
+      "n": 0,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "tiles-t1t6-run1-20261101-205938",
+      "app": "spike2t",
+      "scenario": "T6",
+      "phase": "first_screen",
+      "n": 4,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "tiles-t1t6-run1-20261101-205938",
+      "app": "spike2t",
+      "scenario": "T6",
+      "phase": "open",
+      "n": 0,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "tiles-t1t6-run1-20261101-205938",
+      "app": "spike2t",
+      "scenario": "T6",
+      "phase": "pss",
+      "n": 0,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "tiles-t1t6-run1-20261101-205938",
       "app": "spike2t",
       "scenario": "cold_start",
       "phase": "am_start",
@@ -838,6 +1023,22 @@
         "abi": "x86_64",
         "build": "12368160",
         "ts": "2026-11-01T20:58:29+0800"
+      }
+    },
+    {
+      "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\tiles-t1t6-run1-20261101-205938.log",
+      "fields": {
+        "app": "spike2t",
+        "run_id": "tiles-t1t6-run1-20261101-205938",
+        "apk": "spikes/spike2-tiles/app/build/outputs/apk/debug/app-debug.apk",
+        "apk_md5": "7ab3634ff0d97dcad0a759c988304e5d",
+        "apk_bytes": "7300534",
+        "scenario": "T1,T6",
+        "api": "35",
+        "model": "Android_SDK_built_for_x86_64",
+        "abi": "x86_64",
+        "build": "12368160",
+        "ts": "2026-11-01T20:59:45+0800"
       }
     },
     {

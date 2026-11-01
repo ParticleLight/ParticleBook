@@ -1,0 +1,320 @@
+{
+  "schema": 1,
+  "tool": "scripts/android/spike2/parse.py",
+  "generated_at": "2026-11-01T21:07:24+08:00",
+  "name": "render-r3-merged",
+  "options": {
+    "app": "spike2",
+    "drop_first": 0,
+    "drop_mode": "first-per-phase",
+    "min_samples": 5,
+    "out": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\csv"
+  },
+  "inputs": [
+    {
+      "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r3-run1-20261101-210622.log",
+      "lines": 228,
+      "record_lines": 34,
+      "parse_failures": 0,
+      "run_id": "render-r3-run1-20261101-210622",
+      "app": "spike2",
+      "runenv": [
+        {
+          "app": "spike2",
+          "run_id": "render-r3-run1-20261101-210622",
+          "apk": "spikes/spike2-pdf/app/build/outputs/apk/debug/app-debug.apk",
+          "apk_md5": "8ea3edc683ebf0b5be2f32f32dc57bb9",
+          "apk_bytes": "7287902",
+          "scenario": "S6,S7,S8",
+          "api": "35",
+          "model": "Android_SDK_built_for_x86_64",
+          "abi": "x86_64",
+          "build": "12368160",
+          "ts": "2026-11-01T21:06:33+0800"
+        }
+      ]
+    }
+  ],
+  "counts": {
+    "files": 1,
+    "lines": 228,
+    "records": 34,
+    "source_record_lines": 34,
+    "parse_failures": 0,
+    "by_record": {
+      "AMSTART": 1,
+      "PBDONE": 5,
+      "PBPERF": 26,
+      "PBTIME": 1,
+      "RUNENV": 1
+    },
+    "warmup": 6,
+    "warmup_dropped": 6,
+    "error": 0,
+    "pss": 4,
+    "stats_samples": 22
+  },
+  "groups": [
+    {
+      "scope": "run",
+      "run_id": "render-r3-run1-20261101-210622",
+      "app": "spike2",
+      "scenario": "S1",
+      "phase": "open",
+      "n": 1,
+      "median": 1685.539,
+      "p50": 1685.539,
+      "p95": 1685.539,
+      "max": 1685.539,
+      "min": 1685.539,
+      "sources": [
+        {
+          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r3-run1-20261101-210622.log",
+          "min_line": 146,
+          "max_line": 146,
+          "n": 1
+        }
+      ]
+    },
+    {
+      "scope": "run",
+      "run_id": "render-r3-run1-20261101-210622",
+      "app": "spike2",
+      "scenario": "S6",
+      "phase": "render",
+      "n": 14,
+      "median": 467.117,
+      "p50": 417.063,
+      "p95": 1311.447,
+      "max": 1311.447,
+      "min": 135.844,
+      "sources": [
+        {
+          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r3-run1-20261101-210622.log",
+          "min_line": 175,
+          "max_line": 201,
+          "n": 14
+        }
+      ]
+    },
+    {
+      "scope": "run",
+      "run_id": "render-r3-run1-20261101-210622",
+      "app": "spike2",
+      "scenario": "S8",
+      "phase": "render_hw",
+      "n": 4,
+      "median": 8.44,
+      "p50": 5.588,
+      "p95": 16.155,
+      "max": 16.155,
+      "min": 0.107,
+      "sources": [
+        {
+          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r3-run1-20261101-210622.log",
+          "min_line": 217,
+          "max_line": 225,
+          "n": 4
+        }
+      ]
+    },
+    {
+      "scope": "all",
+      "run_id": "",
+      "app": "spike2",
+      "scenario": "S1",
+      "phase": "open",
+      "n": 1,
+      "median": 1685.539,
+      "p50": 1685.539,
+      "p95": 1685.539,
+      "max": 1685.539,
+      "min": 1685.539,
+      "sources": [
+        {
+          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r3-run1-20261101-210622.log",
+          "min_line": 146,
+          "max_line": 146,
+          "n": 1
+        }
+      ]
+    },
+    {
+      "scope": "all",
+      "run_id": "",
+      "app": "spike2",
+      "scenario": "S6",
+      "phase": "render",
+      "n": 14,
+      "median": 467.117,
+      "p50": 417.063,
+      "p95": 1311.447,
+      "max": 1311.447,
+      "min": 135.844,
+      "sources": [
+        {
+          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r3-run1-20261101-210622.log",
+          "min_line": 175,
+          "max_line": 201,
+          "n": 14
+        }
+      ]
+    },
+    {
+      "scope": "all",
+      "run_id": "",
+      "app": "spike2",
+      "scenario": "S8",
+      "phase": "render_hw",
+      "n": 4,
+      "median": 8.44,
+      "p50": 5.588,
+      "p95": 16.155,
+      "max": 16.155,
+      "min": 0.107,
+      "sources": [
+        {
+          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r3-run1-20261101-210622.log",
+          "min_line": 217,
+          "max_line": 225,
+          "n": 4
+        }
+      ]
+    }
+  ],
+  "mem": [
+    {
+      "scope": "run",
+      "run_id": "render-r3-run1-20261101-210622",
+      "app": "spike2",
+      "scenario": "S7",
+      "n": 3,
+      "sources": [
+        {
+          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r3-run1-20261101-210622.log",
+          "min_line": 203,
+          "max_line": 208,
+          "n": 3
+        }
+      ],
+      "pss_kb": {
+        "n": 3,
+        "min": 71635.0,
+        "median": 72458.0,
+        "max": 75493.0
+      },
+      "native_kb": {
+        "n": 3,
+        "min": 42234.0,
+        "median": 42643.0,
+        "max": 42694.0
+      },
+      "java_kb": {
+        "n": 3,
+        "min": 689.0,
+        "median": 693.0,
+        "max": 701.0
+      }
+    },
+    {
+      "scope": "all",
+      "run_id": "",
+      "app": "spike2",
+      "scenario": "S7",
+      "n": 3,
+      "sources": [
+        {
+          "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r3-run1-20261101-210622.log",
+          "min_line": 203,
+          "max_line": 208,
+          "n": 3
+        }
+      ],
+      "pss_kb": {
+        "n": 3,
+        "min": 71635.0,
+        "median": 72458.0,
+        "max": 75493.0
+      },
+      "native_kb": {
+        "n": 3,
+        "min": 42234.0,
+        "median": 42643.0,
+        "max": 42694.0
+      },
+      "java_kb": {
+        "n": 3,
+        "min": 689.0,
+        "median": 693.0,
+        "max": 701.0
+      }
+    }
+  ],
+  "low_confidence_groups": [
+    {
+      "run_id": "render-r3-run1-20261101-210622",
+      "app": "spike2",
+      "scenario": "PBTIME",
+      "phase": "first_frame",
+      "n": 0,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "render-r3-run1-20261101-210622",
+      "app": "spike2",
+      "scenario": "S1",
+      "phase": "open",
+      "n": 1,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "render-r3-run1-20261101-210622",
+      "app": "spike2",
+      "scenario": "S7",
+      "phase": "pss",
+      "n": 3,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "render-r3-run1-20261101-210622",
+      "app": "spike2",
+      "scenario": "S8",
+      "phase": "render_hw",
+      "n": 4,
+      "errors": 0,
+      "warmup": 1
+    },
+    {
+      "run_id": "render-r3-run1-20261101-210622",
+      "app": "spike2",
+      "scenario": "cold_start",
+      "phase": "am_start",
+      "n": 0,
+      "errors": 0,
+      "warmup": 1
+    }
+  ],
+  "missing_pbdone": [],
+  "runenv": [
+    {
+      "file": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r3-run1-20261101-210622.log",
+      "fields": {
+        "app": "spike2",
+        "run_id": "render-r3-run1-20261101-210622",
+        "apk": "spikes/spike2-pdf/app/build/outputs/apk/debug/app-debug.apk",
+        "apk_md5": "8ea3edc683ebf0b5be2f32f32dc57bb9",
+        "apk_bytes": "7287902",
+        "scenario": "S6,S7,S8",
+        "api": "35",
+        "model": "Android_SDK_built_for_x86_64",
+        "abi": "x86_64",
+        "build": "12368160",
+        "ts": "2026-11-01T21:06:33+0800"
+      }
+    }
+  ],
+  "parse_failures": []
+}

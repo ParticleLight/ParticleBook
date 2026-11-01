@@ -1,0 +1,254 @@
+{
+ "name": "render-r3",
+ "generated_at": "2026-11-01T21:07:24+08:00",
+ "factor": 1.8,
+ "min_samples": 5,
+ "drift_warn_ratio": 0.2,
+ "inputs": [
+  {
+   "path": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\csv\\render-r3-merged.csv",
+   "rows": 34
+  }
+ ],
+ "env": [
+  {
+   "app": "spike2",
+   "run_id": "render-r3-run1-20261101-210622",
+   "src": "F:\\VScode\\Read\\.agents\\worktrees\\dsh-2998e44b-11d5\\spikes\\spike2-results\\raw\\render-r3-run1-20261101-210622.log:1",
+   "apk": "spikes/spike2-pdf/app/build/outputs/apk/debug/app-debug.apk",
+   "apk_md5": "8ea3edc683ebf0b5be2f32f32dc57bb9",
+   "apk_bytes": "7287902",
+   "scenario": "S6",
+   "api": "35",
+   "model": "Android_SDK_built_for_x86_64",
+   "abi": "x86_64",
+   "build": "12368160",
+   "ts": "2026-11-01T21:06:33+0800",
+   "host": ""
+  }
+ ],
+ "groups": [
+  {
+   "n": 1,
+   "min": 1685.539,
+   "p50": 1685.539,
+   "p95": 1685.539,
+   "max": 1685.539,
+   "est_p50": 3034.0,
+   "src": "F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r3-run1-20261101-210622.log:146-146",
+   "runs": [
+    "render-r3-run1-20261101-210622"
+   ],
+   "dims": [],
+   "low_confidence": true,
+   "app": "spike2",
+   "scenario": "S1",
+   "phase": "open"
+  },
+  {
+   "n": 14,
+   "min": 135.844,
+   "p50": 467.117,
+   "p95": 1311.447,
+   "max": 1311.447,
+   "est_p50": 840.8,
+   "src": "F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r3-run1-20261101-210622.log:175-201",
+   "runs": [
+    "render-r3-run1-20261101-210622"
+   ],
+   "dims": [
+    "1073x1518",
+    "1650x2336",
+    "594x841"
+   ],
+   "low_confidence": false,
+   "app": "spike2",
+   "scenario": "S6",
+   "phase": "render"
+  },
+  {
+   "n": 4,
+   "min": 0.107,
+   "p50": 8.44,
+   "p95": 16.155,
+   "max": 16.155,
+   "est_p50": 15.2,
+   "src": "F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r3-run1-20261101-210622.log:217-225",
+   "runs": [
+    "render-r3-run1-20261101-210622"
+   ],
+   "dims": [
+    "1188x1682"
+   ],
+   "low_confidence": true,
+   "app": "spike2",
+   "scenario": "S8",
+   "phase": "render_hw"
+  }
+ ],
+ "by_temp": [
+  {
+   "n": 3,
+   "min": 556.25,
+   "p50": 588.464,
+   "p95": 1311.447,
+   "max": 1311.447,
+   "est_p50": 1059.2,
+   "src": "F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r3-run1-20261101-210622.log:175-186",
+   "runs": [
+    "render-r3-run1-20261101-210622"
+   ],
+   "dims": [
+    "1073x1518",
+    "1650x2336",
+    "594x841"
+   ],
+   "low_confidence": true,
+   "app": "spike2",
+   "scenario": "S6",
+   "phase": "render",
+   "temp": "cold"
+  },
+  {
+   "n": 11,
+   "min": 135.844,
+   "p50": 384.174,
+   "p95": 782.025,
+   "max": 782.025,
+   "est_p50": 691.5,
+   "src": "F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r3-run1-20261101-210622.log:191-201",
+   "runs": [
+    "render-r3-run1-20261101-210622"
+   ],
+   "dims": [
+    "1073x1518",
+    "1650x2336",
+    "594x841"
+   ],
+   "low_confidence": false,
+   "app": "spike2",
+   "scenario": "S6",
+   "phase": "render",
+   "temp": "warm"
+  }
+ ],
+ "by_annot": [],
+ "aggregates": [],
+ "first_screen": [],
+ "mem": [
+  {
+   "run_id": "render-r3-run1-20261101-210622",
+   "app": "spike2",
+   "scenario": "S7",
+   "phase": "pss",
+   "pss_kb": "24228",
+   "native_kb": "3887",
+   "java_kb": "678",
+   "tag": "cold",
+   "hit": "",
+   "evict": "",
+   "miss": "",
+   "bytes": "",
+   "limit": "",
+   "tiles": "",
+   "cycles": "",
+   "src": "F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r3-run1-20261101-210622.log:126"
+  },
+  {
+   "run_id": "render-r3-run1-20261101-210622",
+   "app": "spike2",
+   "scenario": "S7",
+   "phase": "pss",
+   "pss_kb": "71635",
+   "native_kb": "42643",
+   "java_kb": "689",
+   "tag": "open",
+   "hit": "",
+   "evict": "",
+   "miss": "",
+   "bytes": "",
+   "limit": "",
+   "tiles": "",
+   "cycles": "",
+   "src": "F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r3-run1-20261101-210622.log:203"
+  },
+  {
+   "run_id": "render-r3-run1-20261101-210622",
+   "app": "spike2",
+   "scenario": "S7",
+   "phase": "pss",
+   "pss_kb": "72458",
+   "native_kb": "42694",
+   "java_kb": "693",
+   "tag": "10pages",
+   "hit": "",
+   "evict": "",
+   "miss": "",
+   "bytes": "",
+   "limit": "",
+   "tiles": "",
+   "cycles": "",
+   "src": "F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r3-run1-20261101-210622.log:206"
+  },
+  {
+   "run_id": "render-r3-run1-20261101-210622",
+   "app": "spike2",
+   "scenario": "S7",
+   "phase": "pss",
+   "pss_kb": "75493",
+   "native_kb": "42234",
+   "java_kb": "701",
+   "tag": "30pages",
+   "hit": "",
+   "evict": "",
+   "miss": "",
+   "bytes": "",
+   "limit": "",
+   "tiles": "",
+   "cycles": "",
+   "src": "F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r3-run1-20261101-210622.log:208"
+  }
+ ],
+ "drift": {
+  "scenario": "S1",
+  "phase": "open",
+  "page": null,
+  "runs": [
+   {
+    "run_id": "render-r3-run1-20261101-210622",
+    "avg": 1685.539,
+    "med": 1685.539,
+    "n": 1,
+    "ts": "11-01 13:06:50.428",
+    "app": "spike2",
+    "src": "F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r3-run1-20261101-210622.log:146-146"
+   }
+  ],
+  "first": {
+   "run_id": "render-r3-run1-20261101-210622",
+   "avg": 1685.539,
+   "med": 1685.539,
+   "n": 1,
+   "ts": "11-01 13:06:50.428",
+   "app": "spike2",
+   "src": "F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r3-run1-20261101-210622.log:146-146"
+  },
+  "last": {
+   "run_id": "render-r3-run1-20261101-210622",
+   "avg": 1685.539,
+   "med": 1685.539,
+   "n": 1,
+   "ts": "11-01 13:06:50.428",
+   "app": "spike2",
+   "src": "F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r3-run1-20261101-210622.log:146-146"
+  },
+  "ratio": null,
+  "flag": "",
+  "src": "F:/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5/spikes/spike2-results/raw/render-r3-run1-20261101-210622.log:146-146"
+ },
+ "row_counts": {
+  "total": 34,
+  "countable": 19,
+  "runs": 1
+ }
+}
