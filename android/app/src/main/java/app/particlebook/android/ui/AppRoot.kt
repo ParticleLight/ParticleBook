@@ -6,6 +6,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
@@ -214,12 +215,17 @@ fun ParticleBookApp() {
     BackHandler(enabled = openBook == null && selectionMode) { exitSelection() }
     BackHandler(enabled = openBook == null && !selectionMode && tabIndex != 0) { tabIndex = 0 }
 
+    val reduceMotion = Motion.isReducedMotion(LocalContext.current)
+
     ParticleBookTheme(mode = themeMode) {
         AnimatedContent(
             targetState = openBook,
             transitionSpec = {
-                // 书架 ↔ 阅读器：缩放 + 淡入淡出（SharedTransitionLayout 没有稳定 API，spec 允许的降级方案）。
-                if (targetState != null) {
+                // 无障碍：系统移除动画时只做瞬时切换，不做缩放/位移。
+                if (reduceMotion) {
+                    fadeIn(tween(0)).togetherWith(fadeOut(tween(0)))
+                } else if (targetState != null) {
+                    // 书架 ↔ 阅读器：缩放 + 淡入淡出（SharedTransitionLayout 没有稳定 API，spec 允许的降级方案）。
                     (fadeIn(Motion.enterFade<Float>()) +
                         scaleIn(initialScale = 0.94f, animationSpec = Motion.enterSpatial<Float>()))
                         .togetherWith(fadeOut(Motion.exitFade<Float>()))

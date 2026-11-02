@@ -1,5 +1,7 @@
 package app.particlebook.android.ui
 
+import android.content.Context
+import android.provider.Settings
 import androidx.compose.animation.core.FastOutLinearInEasing
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.DurationBasedAnimationSpec
@@ -46,4 +48,15 @@ object Motion {
 
     /** stagger：只对首屏前 8 项生效，每项 35ms 阶梯。 */
     fun staggerDelay(index: Int): Long = 35L * index.coerceAtMost(7)
+
+    /**
+     * 系统「移除动画」（开发者选项 / 无障碍）开关：ANIMATOR_DURATION_SCALE == 0 时成立。
+     * 命中时跳过 stagger 与共享元素过渡，避免前庭敏感用户看到位移。
+     */
+    fun isReducedMotion(context: Context): Boolean =
+        Settings.Global.getFloat(
+            context.contentResolver,
+            Settings.Global.ANIMATOR_DURATION_SCALE,
+            1f,
+        ) == 0f
 }

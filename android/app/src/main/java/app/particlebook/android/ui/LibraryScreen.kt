@@ -550,7 +550,9 @@ fun LibraryScreen(
 /** 首屏前 8 项的 stagger 进入（§17.1.5）：延迟 35ms×index，淡入 + 上移 14dp；滚回不重播。 */
 @Composable
 private fun StaggeredAppear(index: Int, content: @Composable () -> Unit) {
-    val animate = index < 8
+    // 无障碍：系统移除动画时直接静态呈现，不做位移/淡入。
+    val reduceMotion = Motion.isReducedMotion(LocalContext.current)
+    val animate = index < 8 && !reduceMotion
     var appeared by remember { mutableStateOf(!animate) }
     LaunchedEffect(Unit) {
         if (animate) {
@@ -608,6 +610,12 @@ private fun ShelfHeroCard(
     val context = LocalContext.current
     val fraction = ReadingProgress.fraction(context, book.id) ?: 0f
     val percentLabel = ReadingProgress.percentLabel(context, book.id) ?: ""
+    // R4: 读完（≥99%）换文案；Hero 只显示主标题（全角括号/冒号之前），完整书名留给详情与阅读器。
+    val finished = fraction >= 0.99f
+    val chipLabel = if (finished) "已读完" else "继续阅读"
+    val progressText = if (finished) "已读完" else percentLabel
+    val ctaLabel = if (finished) "重新阅读" else "继续阅读 →"
+    val heroTitle = mainTitleOf(book.title)
     val shape = RoundedCornerShape(Spacing.heroCorner)
     // V2：默认字号严格 176dp（462px），大字号才允许撑到 240dp，避免文字被裁同时又不能超验收高度。
     val largeFont = LocalDensity.current.fontScale >= 1.3f
@@ -643,10 +651,16 @@ private fun ShelfHeroCard(
         }
         // 深色主题下模糊封面会发灰，再叠一层 40% 黑，保证 Hero 文字区仍是深底（V 验收 B3）。
         if (MaterialTheme.colorScheme.surface.luminance() < 0.5f) {
+            // 深色下模糊封面会泛灰白：45% 黑压暗 + 10% surface 调色，让文字区回到深底。
             Box(
                 Modifier
                     .matchParentSize()
-                    .background(Color.Black.copy(alpha = 0.40f)),
+                    .background(Color.Black.copy(alpha = 0.45f)),
+            )
+            Box(
+                Modifier
+                    .matchParentSize()
+                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.10f)),
             )
         }
         // 60% 深色渐变遮罩（保证白字对比度）。
@@ -673,7 +687,7 @@ private fun ShelfHeroCard(
                     color = MaterialTheme.colorScheme.tertiaryContainer,
                 ) {
                     Text(
-                        text = "继续阅读",
+                        text = chipLabel,
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onTertiaryContainer,
                         modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
@@ -681,11 +695,11 @@ private fun ShelfHeroCard(
                 }
                 Spacer(Modifier.height(6.dp))
                 Text(
-                    text = book.title,
+                    text = heroTitle,
                     style = AppType.heroTitle,
                     color = Color.White,
-                    // 固定高度（176dp，大字号最长 240dp）下只放得下一行标题；两行会把「继续阅读」按钮挤出可视区。
-                    maxLines = 1,
+                    // 主标题通常一行；大字号（Hero 最长 260dp）允许两行，避免长标题被截。
+                    maxLines = if (largeFont) 2 else 1,
                     overflow = TextOverflow.Ellipsis,
                 )
                 Spacer(Modifier.height(8.dp))
@@ -701,7 +715,7 @@ private fun ShelfHeroCard(
                     )
                     Spacer(Modifier.width(Spacing.xs))
                     Text(
-                        text = percentLabel,
+                        text = progressText,
                         style = MaterialTheme.typography.labelSmall,
                         color = Color.White.copy(alpha = 0.9f),
                         maxLines = 1,
@@ -714,7 +728,7 @@ private fun ShelfHeroCard(
                     modifier = Modifier.heightIn(min = 48.dp),
                     contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                 ) {
-                    Text("继续阅读 →", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(ctaLabel, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
             Spacer(Modifier.width(Spacing.sm))
@@ -996,4 +1010,15 @@ private object ShelfScrollMemory {
     var gridOffset: Int = 0
     var listIndex: Int = 0
     var listOffset: Int = 0
+}
+
+/**
+ * Hero 主标题：书名里第一个全角「（」/半角「(」/全角「：」/半角「:」之前的部分。
+ * 例：「统计之美（第二册）」→「统计之美」；「Reading: A Very Short Introduction」→「Reading」。
+ * 没有分隔符时返回完整书名；完整书名仍用于详情 dialog 与阅读器。
+ */
+private fun mainTitleOf(title: String): String {
+    val cut = title.indexOfFirst { it == '（' || it == '(' || it == '：' || it == ':' }
+    val base = if (cut > 0) title.substring(0, cut).trim() else title.trim()
+    return base.ifEmpty { title }
 }
