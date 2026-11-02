@@ -1,5 +1,6 @@
 package app.particlebook.android.ui
 
+import android.net.Uri
 import android.text.format.DateUtils
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -14,7 +15,6 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -23,6 +23,7 @@ import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.ErrorOutline
+import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -45,10 +46,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.particlebook.android.ui.data.Book
+import app.particlebook.android.ui.data.DownloadLocation
 import app.particlebook.android.ui.data.LibraryStore
 import kotlinx.coroutines.launch
 import java.io.File
@@ -68,6 +71,7 @@ fun ZlibDownloadsScreen(
     modifier: Modifier = Modifier,
 ) {
     val records by ZlibDownloadManager.history.collectAsState()
+    val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     var importingBookId by remember { mutableStateOf<String?>(null) }
@@ -95,6 +99,22 @@ fun ZlibDownloadsScreen(
                         )
                     }
                 },
+                actions = {
+                    IconButton(
+                        onClick = {
+                            if (!DownloadLocation.openFolder(context)) {
+                                scope.launch { snackbarHostState.showSnackbar("无法打开文件管理器") }
+                            }
+                        },
+                        modifier = Modifier.size(48.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.FolderOpen,
+                            contentDescription = "打开所在文件夹",
+                            tint = MaterialTheme.colorScheme.onSurface,
+                        )
+                    }
+                },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
                 ),
@@ -105,14 +125,15 @@ fun ZlibDownloadsScreen(
             EmptyDownloads(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(innerPadding),
+                    .padding(innerPadding)
+                    .bottomBarPadding(),
             )
         } else {
             LazyColumn(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(innerPadding)
-                    .navigationBarsPadding(),
+                    .bottomBarPadding(),
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(
                     start = Spacing.screen,
                     end = Spacing.screen,
@@ -121,8 +142,13 @@ fun ZlibDownloadsScreen(
                 ),
             ) {
                 items(records, key = { it.bookId }) { record ->
-                    val imported = store.books.firstOrNull { it.filePath == record.destPath }
-                    val fileExists = remember(record.destPath) { File(record.destPath).isFile }
+                    val imported = store.books.firstOrNull {
+                        it.filePath == record.destPath ||
+                            it.tags.contains(zlibBookTag(record.bookId))
+                    }
+                    val fileExists = remember(record.destPath) {
+                        DownloadLocation.exists(context, record.destPath)
+                    }
                     DownloadRecordRow(
                         record = record,
                         imported = imported,
@@ -133,11 +159,22 @@ fun ZlibDownloadsScreen(
                             if (importingBookId != null) return@DownloadRecordRow
                             importingBookId = record.bookId
                             scope.launch {
-                                val result = store.adoptLocalFile(
-                                    file = File(record.destPath),
-                                    title = record.title,
-                                    author = record.author,
-                                )
+                                val result = if (record.saf || record.destPath.startsWith("content://")) {
+                                    store.adoptDocument(
+                                        uri = Uri.parse(record.destPath),
+                                        displayName = record.fileName,
+                                        title = record.title,
+                                        author = record.author,
+                                        extraTag = zlibBookTag(record.bookId),
+                                    )
+                                } else {
+                                    store.adoptLocalFile(
+                                        file = File(record.destPath),
+                                        title = record.title,
+                                        author = record.author,
+                                        extraTag = zlibBookTag(record.bookId),
+                                    )
+                                }
                                 importingBookId = null
                                 result.fold(
                                     onSuccess = { book ->
@@ -155,7 +192,7 @@ fun ZlibDownloadsScreen(
                 item {
                     Spacer(Modifier.height(Spacing.lg))
                     Text(
-                        text = "P1c 将提供下载目录选择；当前文件保存在应用专属下载目录。",
+                        text = "下载目录：" + DownloadLocation.summary(context) + "；可在设置中更改。",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -202,8 +239,12 @@ private fun DownloadRecordRow(
     onOpen: () -> Unit,
     onImport: () -> Unit,
 ) {
-    val completed = record.status == ZlibDownloadStatus.COMPLETED && fileExists
-    val clickable = completed && imported != null
+    // 记录本身是否下载完成（文件是否还在另算）；SAF 目录下原文件可能被系统清理，
+    // 但书已导入书架时「打开」仍应可用（task-38③）。
+    val recordCompleted = record.status == ZlibDownloadStatus.COMPLETED
+    val clickable = recordCompleted && imported != null
+    // P1-6：200% 字号下三行都只有省略号 → 书名放到 2 行、隐藏文件名行（标题已足够识别）。
+    val largeFont = LocalDensity.current.fontScale >= 1.3f
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -213,10 +254,10 @@ private fun DownloadRecordRow(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(
-            imageVector = if (completed) Icons.Outlined.CheckCircle else Icons.Outlined.ErrorOutline,
-            contentDescription = if (completed) "下载完成" else "下载失败",
+            imageVector = if (recordCompleted) Icons.Outlined.CheckCircle else Icons.Outlined.ErrorOutline,
+            contentDescription = if (recordCompleted) "下载完成" else "下载失败",
             modifier = Modifier.size(24.dp),
-            tint = if (completed) {
+            tint = if (recordCompleted) {
                 MaterialTheme.colorScheme.tertiary
             } else {
                 MaterialTheme.colorScheme.error
@@ -228,23 +269,25 @@ private fun DownloadRecordRow(
                 text = record.title,
                 style = MaterialTheme.typography.titleSmall,
                 color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 1,
+                maxLines = if (largeFont) 2 else 1,
                 overflow = TextOverflow.Ellipsis,
             )
+            if (!largeFont) {
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    text = record.fileName,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
             Spacer(Modifier.height(2.dp))
             Text(
-                text = record.fileName,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Spacer(Modifier.height(2.dp))
-            Text(
-                text = recordMetaLine(record, completed),
+                text = recordMetaLine(record, recordCompleted),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
+                maxLines = if (largeFont) 2 else 1,
                 overflow = TextOverflow.Ellipsis,
             )
         }
@@ -256,23 +299,34 @@ private fun DownloadRecordRow(
                 strokeWidth = 2.dp,
             )
 
-            !completed -> Text(
-                text = if (!fileExists) "文件缺失" else "未完成",
+            !recordCompleted -> Text(
+                text = "未完成",
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = Spacing.xs),
             )
 
+            // 已导入书架：无论下载目录里的原文件还在不在，都能直接打开阅读器。
             imported != null -> TextButton(onClick = onOpen) {
                 Text("打开")
             }
 
-            else -> TextButton(onClick = onImport) {
+            fileExists -> TextButton(onClick = onImport) {
                 Text("导入书架")
             }
+
+            else -> Text(
+                text = "文件缺失",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = Spacing.xs),
+            )
         }
     }
 }
+
+/** 下载完成后给书架书籍打的标记（SAF 目录会复制成本地文件，filePath 无法与记录直接对齐）。 */
+private fun zlibBookTag(bookId: String): String = "zlib:" + bookId
 
 private fun recordMetaLine(record: ZlibDownloadTask, completed: Boolean): String {
     val size = formatDownloadBytes(if (record.received > 0) record.received else record.total)
@@ -288,5 +342,7 @@ private fun recordMetaLine(record: ZlibDownloadTask, completed: Boolean): String
         record.status == ZlibDownloadStatus.FAILED -> "失败"
         else -> "未完成"
     }
-    return "$size · $time · $status"
+    // P2-2：空值不产生前导「— ·」。
+    return listOfNotNull(size.takeIf { it != "—" && it.isNotBlank() }, time, status)
+        .joinToString(" · ")
 }

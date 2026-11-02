@@ -44,6 +44,15 @@ object ZlibDetailParser {
     private val Z_COVER = Regex("""<z-cover\b([^>]*)>""", RegexOption.IGNORE_CASE)
     private val NO_COVER_SUFFIX = "/img/cover-not-exists.png"
 
+    /** P1c：简介块（实测在 div.details-book 内的静态 HTML，无 JS/papi；没有简介的书整个 div 不存在）。 */
+    private val DESCRIPTION_BOX = Regex(
+        """<div\b[^>]*\bid\s*=\s*["']bookDescriptionBox["'][^>]*>([\s\S]*?)</div>""",
+        RegexOption.IGNORE_CASE,
+    )
+    private val BR_TAG = Regex("""<br\s*/?>""", RegexOption.IGNORE_CASE)
+    private val TAB_OR_SPACE = Regex("[ \\t\\u00A0]+")
+    private val BLANK_LINES = Regex("\\n{3,}")
+
     /**
      * @param baseUrl 详情页 URL（把相对封面/路径转绝对）
      * @param hash 调用方已知的 book hash（可空；解析不出时从 reader 链接补）
@@ -97,7 +106,27 @@ object ZlibDetailParser {
             coverUrl = coverUrl,
             detailPath = detailPath,
             downloadPath = downloadPath,
+            description = description(main),
         )
+    }
+
+    /**
+     * 解析简介：`<br>` → 换行，剥剩余标签，实体解码，按行 trim、去空行。
+     * 块不存在 / 只有空白时返回 null（UI 整块不显示，不造占位文案）。
+     */
+    private fun description(main: String): String? {
+        val raw = DESCRIPTION_BOX.find(main)?.groupValues?.get(1) ?: return null
+        val withBreaks = BR_TAG.replace(raw, "\n")
+        val decoded = ZlibHtml.decodeEntities(ZlibHtml.stripTags(withBreaks))
+        val normalized = decoded
+            .replace("\r\n", "\n")
+            .replace('\r', '\n')
+            .split('\n')
+            .map { TAB_OR_SPACE.replace(it, " ").trim() }
+            .filter { it.isNotEmpty() }
+            .joinToString("\n")
+        val collapsed = BLANK_LINES.replace(normalized, "\n\n").trim()
+        return collapsed.takeIf { it.isNotEmpty() }
     }
 
     private fun parseAuthors(main: String): List<String> {

@@ -1,8 +1,10 @@
 package app.particlebook.android.ui
 
 import android.graphics.Bitmap
+import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
@@ -36,7 +38,11 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -45,6 +51,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import app.particlebook.android.ui.data.Book
 import app.particlebook.android.ui.data.LibraryStore
 import app.particlebook.android.zlib.ZBookDetail
@@ -213,11 +220,15 @@ private fun DetailContent(
     } ?: ZlibDownloadManager.historyForBook(detail.bookId)
         ?.takeIf { it.status == ZlibDownloadStatus.COMPLETED }
     val completedBook = completedTask?.let { task ->
-        store.books.firstOrNull { it.filePath == task.destPath }
+        // P1c：SAF 下载会复制成本地文件再入书架，filePath 对不上记录，用下载标记兜底。
+        store.books.firstOrNull {
+            it.filePath == task.destPath || it.tags.contains("zlib:" + task.bookId)
+        }
     }
 
     LazyColumn(
-        modifier = modifier,
+        // P0：底部先吃导航栏 inset，再由 contentPadding 给悬浮胶囊留位。
+        modifier = modifier.bottomBarPadding(),
         contentPadding = androidx.compose.foundation.layout.PaddingValues(
             start = Spacing.screen,
             end = Spacing.screen,
@@ -230,15 +241,17 @@ private fun DetailContent(
                 ZlibCoverImage(
                     bitmap = coverBitmap,
                     title = detail.title,
+                    // 3:4 封面比例（与书架卡一致，2026 观感 §17）。
                     modifier = Modifier
                         .width(112.dp)
-                        .height(160.dp),
+                        .aspectRatio(3f / 4f),
                 )
                 Spacer(Modifier.width(Spacing.md))
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = detail.title,
-                        style = MaterialTheme.typography.titleLarge,
+                        // 与登录页大标题同一层级（34sp Serif 体系），详情页书名不再用 20sp Sans。
+                        style = AppType.pageTitle,
                         color = MaterialTheme.colorScheme.onSurface,
                         maxLines = 3,
                         overflow = TextOverflow.Ellipsis,
@@ -282,6 +295,11 @@ private fun DetailContent(
                 )
             }
         }
+        // P1c 简介区块占位：task-28 未确认数据源，ZBookDetail 目前也没有简介字段（不改 zlib/ 契约）。
+        // 传 null → 区块完全不渲染，避免出现任何占位/假内容；数据源落地后把真实简介传进来即可。
+        item {
+            ZlibDetailDescription(text = detail.description)
+        }
         item {
             Spacer(Modifier.height(Spacing.lg))
             DownloadAction(
@@ -306,9 +324,52 @@ private fun DetailContent(
     }
 }
 
+/**
+ * 详情页简介区块（站点 https://…/book/<hash>/… 的 div#bookDescriptionBox，无 JS）。
+ * text 为 null/空白时不渲染任何内容（zlib 解析落地前保持零高度）。
+ * 样式：小标「简介」+ 15sp/行高 1.7 正文 + 最多 8 行折叠（展开/收起），放在 ISBN 之后、下载按钮之前。
+ */
+@Composable
+private fun ZlibDetailDescription(text: String?) {
+    if (text.isNullOrBlank()) return
+    var expanded by rememberSaveable(text) { mutableStateOf(false) }
+    var hasOverflow by remember(text) { mutableStateOf(false) }
+    Column(Modifier.fillMaxWidth()) {
+        Spacer(Modifier.height(Spacing.lg))
+        Text(
+            text = "简介",
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        Spacer(Modifier.height(Spacing.xs))
+        Text(
+            text = text,
+            style = MaterialTheme.typography.bodyMedium.copy(fontSize = 15.sp, lineHeight = 25.5.sp),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = if (expanded) Int.MAX_VALUE else 8,
+            overflow = TextOverflow.Ellipsis,
+            // task-38②：展开/收起高度动画。
+            modifier = Modifier.animateContentSize(animationSpec = Motion.enterSpatial()),
+            onTextLayout = { layout ->
+                if (!expanded) hasOverflow = layout.hasVisualOverflow
+            },
+        )
+        if (hasOverflow || expanded) {
+            TextButton(
+                onClick = { expanded = !expanded },
+                modifier = Modifier.heightIn(min = 48.dp),
+            ) {
+                Text(if (expanded) "收起" else "更多")
+            }
+        }
+    }
+}
+
 @Composable
 private fun PropertyChip(label: String) {
+    // P2-6：属性 chip 高度 ≥28dp，触控/读数都更稳。
     Surface(
+        modifier = Modifier.heightIn(min = 28.dp),
         shape = RoundedCornerShape(Radius.chip),
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
     ) {
@@ -316,7 +377,7 @@ private fun PropertyChip(label: String) {
             text = label,
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
         )
     }
 }

@@ -1,5 +1,7 @@
 package app.particlebook.android.ui
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -59,6 +61,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import app.particlebook.android.ui.data.DownloadLocation
 import app.particlebook.android.zlib.ZAccount
 import app.particlebook.android.zlib.ZMirrorInfo
 import app.particlebook.android.zlib.ZlibClient
@@ -99,8 +102,21 @@ fun SettingsScreen(
     var mirrorInfo by remember { mutableStateOf<ZMirrorInfo?>(null) }
     var mirrorSheetOpen by rememberSaveable { mutableStateOf(false) }
     var logoutDialogOpen by rememberSaveable { mutableStateOf(false) }
-    val downloadDir = remember {
-        ZlibDownloadManager.downloadDir(context.applicationContext).absolutePath
+    // P1c：下载目录可在默认目录与用户选择的 SAF 文件夹之间切换（选择结果持久化在 DownloadLocation）。
+    var downloadLabel by remember {
+        mutableStateOf(DownloadLocation.summary(context.applicationContext))
+    }
+    val treeLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocumentTree(),
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        val persisted = DownloadLocation.setTree(context.applicationContext, uri)
+        downloadLabel = DownloadLocation.summary(context.applicationContext)
+        scope.launch {
+            snackbarHostState.showSnackbar(
+                if (persisted) "已切换下载目录" else "无法使用该文件夹，请换一个",
+            )
+        }
     }
     LaunchedEffect(Unit) {
         mirrorInfo = withContext(Dispatchers.IO) {
@@ -133,6 +149,8 @@ fun SettingsScreen(
     }
     // 字体放大到 1.4 倍以上时，三段按钮的三个中文 label 会横向放不下 → 换单选列表。
     val largeFontScale = LocalDensity.current.fontScale >= 1.4f
+    // P0-1 / P2-8：设置页没有 bottomBar：内容直接到屏底，底留白须自己盖过胶囊上沿（124dp；200% 132dp）。
+    val bottomInset = if (largeFontScale) 140.dp else Spacing.listBottomInset + Spacing.xs
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -145,8 +163,7 @@ fun SettingsScreen(
                 .fillMaxSize()
                 .padding(innerPadding)
                 .windowInsetsPadding(WindowInsets.statusBars.only(WindowInsetsSides.Top)),
-            // 底部留出悬浮胶囊导航的位置（64 + 12 + 系统栏），免得最后一组被压住。
-            contentPadding = PaddingValues(bottom = 132.dp),
+            contentPadding = PaddingValues(bottom = bottomInset),
         ) {
             item {
                 Text(
@@ -280,8 +297,24 @@ fun SettingsScreen(
                     )
                     SettingsRow(
                         title = "下载目录",
-                        support = downloadDir,
+                        support = downloadLabel,
+                        showChevron = true,
+                        onClick = { treeLauncher.launch(null) },
                     )
+                    if (DownloadLocation.isCustom(context.applicationContext)) {
+                        SettingsRow(
+                            title = "恢复默认目录",
+                            support = DownloadLocation.defaultDir(context.applicationContext)
+                                .absolutePath,
+                            onClick = {
+                                DownloadLocation.reset(context.applicationContext)
+                                downloadLabel = DownloadLocation.summary(context.applicationContext)
+                                scope.launch {
+                                    snackbarHostState.showSnackbar("已恢复默认下载目录")
+                                }
+                            },
+                        )
+                    }
                     SettingsRow(
                         title = "下载记录",
                         showChevron = true,

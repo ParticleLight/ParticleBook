@@ -1,9 +1,10 @@
 package app.particlebook.android.ui
 
 import android.content.Context
-import android.os.Environment
+import android.net.Uri
 import android.os.SystemClock
 import android.util.Log
+import app.particlebook.android.ui.data.DownloadLocation
 import app.particlebook.android.ui.data.LibraryStore
 import app.particlebook.android.zlib.ZBookDetail
 import app.particlebook.android.zlib.ZlibClient
@@ -40,6 +41,8 @@ data class ZlibDownloadTask(
     val downloadPath: String,
     val fileName: String,
     val destPath: String,
+    /** true = 目标为 SAF 目录（destPath 是 content:// URI）；false = 普通 File 路径。 */
+    val saf: Boolean = false,
     val received: Long = 0L,
     val total: Long = -1L,
     val status: ZlibDownloadStatus = ZlibDownloadStatus.PREPARING,
@@ -94,15 +97,8 @@ object ZlibDownloadManager {
         }
     }
 
-    /** 下载目录：getExternalFilesDir(DOWNLOADS)/Z-Library，失败退 filesDir/downloads/Z-Library。 */
-    fun downloadDir(context: Context): File {
-        val base = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
-        val external = File(base ?: context.filesDir, DEFAULT_DIR_NAME)
-        if (external.exists() || external.mkdirs()) return external
-        val fallback = File(File(context.filesDir, "downloads"), DEFAULT_DIR_NAME)
-        fallback.mkdirs()
-        return fallback
-    }
+    /** 默认下载目录（未选择 SAF 时使用）：getExternalFilesDir(DOWNLOADS)/Z-Library。 */
+    fun downloadDir(context: Context): File = DownloadLocation.defaultDir(context)
 
     fun taskForBook(bookId: String): ZlibDownloadTask? =
         _tasks.value.firstOrNull { it.bookId == bookId }
@@ -110,17 +106,32 @@ object ZlibDownloadManager {
     fun historyForBook(bookId: String): ZlibDownloadTask? =
         _history.value.firstOrNull { it.bookId == bookId }
 
-    /** 详情页点「下载」：已在下载中则忽略；失败任务会被重置；已完成且有文件则不重复下载。 */
+    /** 详情页点「下载」：已在下载中则忽略；失败任务会被重置；已完成且文件仍存在则不重复下载。 */
     fun start(detail: ZBookDetail, store: LibraryStore) {
         val context = appContext ?: return
         val running = _tasks.value.firstOrNull {
             it.bookId == detail.bookId && it.isActive
         }
         if (running != null) return
-        val dir = downloadDir(context)
         val done = historyForBook(detail.bookId)
-        if (done != null && File(done.destPath).isFile) return
-        val fileName = uniqueFileName(dir, detail)
+        if (done != null && done.status == ZlibDownloadStatus.COMPLETED &&
+            DownloadLocation.exists(context, done.destPath)
+        ) {
+            return
+        }
+        // P1c：自定义 SAF 目录 → 下载完成后 createDocument；默认仍是 File 路径（行为不变）。
+        val saf = DownloadLocation.isCustom(context)
+        val fileName: String
+        val destPath: String
+        if (saf) {
+            fileName = suggestedFileName(detail)
+            // SAF 目标 uri 在真正下载时创建（主线程不做 IO），完成后再回填。
+            destPath = ""
+        } else {
+            val dir = downloadDir(context)
+            fileName = uniqueFileName(dir, detail)
+            destPath = File(dir, fileName).absolutePath
+        }
         val task = ZlibDownloadTask(
             id = taskId(detail.bookId),
             bookId = detail.bookId,
@@ -129,7 +140,8 @@ object ZlibDownloadManager {
             format = detail.format,
             downloadPath = detail.downloadPath,
             fileName = fileName,
-            destPath = File(dir, fileName).absolutePath,
+            destPath = destPath,
+            saf = saf,
             status = ZlibDownloadStatus.PREPARING,
         )
         _tasks.update { list -> list.filterNot { it.id == task.id } + task }
@@ -166,54 +178,30 @@ object ZlibDownloadManager {
             val began = SystemClock.elapsedRealtime()
             val client = ZlibClient.get(context)
             val lastNotify = AtomicLong(0L)
+            val onProgress: (Long, Long) -> Unit = { received, total ->
+                val now = SystemClock.elapsedRealtime()
+                val shouldNotify = now - lastNotify.get() >= PROGRESS_THROTTLE_MS ||
+                    (total > 0L && received >= total)
+                if (shouldNotify && lastNotify.getAndSet(now) != now) {
+                    updateTask(task.id) {
+                        it.copy(
+                            received = received,
+                            total = total,
+                            status = ZlibDownloadStatus.DOWNLOADING,
+                        )
+                    }
+                }
+            }
             try {
                 _tasks.update { list ->
                     list.map {
                         if (it.id == task.id) it.copy(status = ZlibDownloadStatus.DOWNLOADING) else it
                     }
                 }
-                val file = withContext(Dispatchers.IO) {
-                    client.download(task.downloadPath, File(task.destPath)) { received, total ->
-                        val now = SystemClock.elapsedRealtime()
-                        val shouldNotify = now - lastNotify.get() >= PROGRESS_THROTTLE_MS ||
-                            (total > 0L && received >= total)
-                        if (shouldNotify && lastNotify.getAndSet(now) != now) {
-                            updateTask(task.id) {
-                                it.copy(
-                                    received = received,
-                                    total = total,
-                                    status = ZlibDownloadStatus.DOWNLOADING,
-                                )
-                            }
-                        }
-                    }
-                }
-                val completed = updateTask(task.id) {
-                    it.copy(
-                        status = ZlibDownloadStatus.COMPLETED,
-                        received = maxOf(it.received, file.length()),
-                        total = file.length().takeIf { length -> length > 0L } ?: it.total,
-                        fileName = file.name,
-                        destPath = file.absolutePath,
-                        finishedAt = System.currentTimeMillis(),
-                    )
-                } ?: task
-                addHistory(completed, file.length())
-                store.adoptLocalFile(file, task.title, task.author).onFailure { throwable ->
-                    Log.e(TAG, "adopt downloaded file failed path=" + file.absolutePath, throwable)
-                }
-                Log.i(
-                    PERF_TAG,
-                    "zlib_download|ms=" + (SystemClock.elapsedRealtime() - began) +
-                        "|extra=book:" + task.bookId + ",bytes:" + file.length() + ",status:ok",
-                )
-                scope.launch {
-                    delay(COMPLETED_VISIBLE_MS)
-                    _tasks.update { list ->
-                        list.filterNot {
-                            it.id == task.id && it.status == ZlibDownloadStatus.COMPLETED
-                        }
-                    }
+                if (task.saf || task.destPath.startsWith("content://")) {
+                    downloadToSaf(context, client, task, store, onProgress, began)
+                } else {
+                    downloadToFile(client, task, store, onProgress, began)
                 }
             } catch (cancellation: CancellationException) {
                 throw cancellation
@@ -226,13 +214,135 @@ object ZlibDownloadManager {
                         finishedAt = System.currentTimeMillis(),
                     )
                 } ?: task
-                addHistory(failed, File(failed.destPath).length())
+                val size = if (failed.saf) failed.received else File(failed.destPath).length()
+                addHistory(failed, size)
                 Log.i(
                     PERF_TAG,
                     "zlib_download|ms=" + (SystemClock.elapsedRealtime() - began) +
                         "|extra=book:" + task.bookId + ",bytes:" + failed.received +
-                        ",status:fail:" + (failed.errorKind ?: "UNKNOWN"),
+                        ",status:fail:" + (failed.errorKind ?: "UNKNOWN") +
+                        ",target:" + if (failed.saf) "saf" else "file",
                 )
+            }
+        }
+    }
+
+    /** P1b 原有路径：直接下载到外部应用目录 File。 */
+    private suspend fun downloadToFile(
+        client: ZlibClient,
+        task: ZlibDownloadTask,
+        store: LibraryStore,
+        onProgress: (Long, Long) -> Unit,
+        began: Long,
+    ) {
+        val file = withContext(Dispatchers.IO) {
+            client.download(task.downloadPath, File(task.destPath), onProgress)
+        }
+        val completed = updateTask(task.id) {
+            it.copy(
+                status = ZlibDownloadStatus.COMPLETED,
+                received = maxOf(it.received, file.length()),
+                total = file.length().takeIf { length -> length > 0L } ?: it.total,
+                fileName = file.name,
+                destPath = file.absolutePath,
+                finishedAt = System.currentTimeMillis(),
+            )
+        } ?: task
+        addHistory(completed, file.length())
+        store.adoptLocalFile(
+            file = file,
+            title = task.title,
+            author = task.author,
+            extraTag = bookTag(task.bookId),
+        ).onFailure { throwable ->
+            Log.e(TAG, "adopt downloaded file failed path=" + file.absolutePath, throwable)
+        }
+        Log.i(
+            PERF_TAG,
+            "zlib_download|ms=" + (SystemClock.elapsedRealtime() - began) +
+                "|extra=book:" + task.bookId + ",bytes:" + file.length() + ",status:ok,target:file",
+        )
+        removeCompletedCardLater(task.id)
+    }
+
+    /**
+     * P1c：SAF 目录。先下到 cacheDir 临时文件（网络层契约只接受 File），
+     * 再用 DocumentsContract.createDocument + ContentResolver.openOutputStream 写入用户选的文件夹；
+     * 成功后把 SAF 文档复制回本地书架（LibraryStore.adoptDocument）。
+     */
+    private suspend fun downloadToSaf(
+        context: Context,
+        client: ZlibClient,
+        task: ZlibDownloadTask,
+        store: LibraryStore,
+        onProgress: (Long, Long) -> Unit,
+        began: Long,
+    ) {
+        val tempDir = File(context.cacheDir, "zlib-downloads").apply { mkdirs() }
+        val temp = File(tempDir, task.id.replace(':', '_') + ".part")
+        try {
+            val file = withContext(Dispatchers.IO) {
+                client.download(task.downloadPath, temp, onProgress)
+            }
+            val bytes = file.length()
+            // 失败重试时若已创建过文档则复用（openOutputStream 截断重写），避免重复文件。
+            val reused = task.destPath.takeIf { it.startsWith("content://") }
+                ?.let { raw -> runCatching { Uri.parse(raw) }.getOrNull() }
+            val target = reused ?: DownloadLocation.createDocument(
+                context = context,
+                displayName = task.fileName,
+                mimeType = DownloadLocation.mimeFor(task.format),
+            ) ?: error("无法在所选文件夹中创建文件")
+            // 先把目标 uri 记进任务：复制失败后重试会复用同一文档（截断重写），不会在用户目录留下孤儿文件。
+            if (task.destPath != target.toString()) {
+                updateTask(task.id) { it.copy(destPath = target.toString()) }
+            }
+            withContext(Dispatchers.IO) {
+                val output = DownloadLocation.openOutput(context, target)
+                    ?: error("无法写入所选文件夹")
+                output.use { sink ->
+                    file.inputStream().use { input -> input.copyTo(sink) }
+                }
+            }
+            val actualName = DownloadLocation.displayName(context, target) ?: task.fileName
+            val completed = updateTask(task.id) {
+                it.copy(
+                    status = ZlibDownloadStatus.COMPLETED,
+                    received = bytes,
+                    total = bytes,
+                    fileName = actualName,
+                    destPath = target.toString(),
+                    finishedAt = System.currentTimeMillis(),
+                )
+            } ?: task
+            addHistory(completed, bytes)
+            store.adoptDocument(
+                uri = target,
+                displayName = actualName,
+                title = task.title,
+                author = task.author,
+                extraTag = bookTag(task.bookId),
+            ).onFailure { throwable ->
+                Log.e(TAG, "adopt saf downloaded document failed uri=" + target, throwable)
+            }
+            Log.i(
+                PERF_TAG,
+                "zlib_download|ms=" + (SystemClock.elapsedRealtime() - began) +
+                    "|extra=book:" + task.bookId + ",bytes:" + bytes + ",status:ok,target:saf",
+            )
+            removeCompletedCardLater(task.id)
+        } finally {
+            withContext(Dispatchers.IO) { runCatching { temp.delete() } }
+        }
+    }
+
+    private fun bookTag(bookId: String): String = "zlib:" + bookId
+
+    private fun removeCompletedCardLater(id: String) {
+        scope.launch {
+            delay(COMPLETED_VISIBLE_MS)
+            _tasks.update { list ->
+                list.filterNot { it.id == id && it.status == ZlibDownloadStatus.COMPLETED }
             }
         }
     }
@@ -262,9 +372,7 @@ object ZlibDownloadManager {
     // ------------------------------------------------------------ 历史持久化
 
     private fun uniqueFileName(dir: File, detail: ZBookDetail): String {
-        val extension = detail.format?.trim()?.lowercase()
-            ?.takeIf { it == "pdf" || it == "epub" }
-            ?: "pdf"
+        val extension = extensionOf(detail)
         val base = sanitizeFileName(detail.title).ifBlank { "book" }
         var candidate = base + "." + extension
         var index = 2
@@ -274,6 +382,13 @@ object ZlibDownloadManager {
         }
         return candidate
     }
+
+    /** SAF 目录的文件名（同一目录内同名时由 provider 自动改名，完成后回读真实名字）。 */
+    private fun suggestedFileName(detail: ZBookDetail): String =
+        sanitizeFileName(detail.title).ifBlank { "book" } + "." + extensionOf(detail)
+
+    private fun extensionOf(detail: ZBookDetail): String =
+        detail.format?.trim()?.lowercase()?.takeIf { it == "pdf" || it == "epub" } ?: "pdf"
 
     private fun sanitizeFileName(title: String): String =
         title.replace(Regex("[\\\\/:*?\"<>|\n\r\t]"), " ")
@@ -300,8 +415,11 @@ object ZlibDownloadManager {
                     author = item.optString("author").takeUnless { it.isBlank() || it == "null" },
                     format = item.optString("format").takeUnless { it.isBlank() || it == "null" },
                     downloadPath = item.optString("downloadPath"),
-                    fileName = item.optString("fileName").ifBlank { File(destPath).name },
+                    fileName = item.optString("fileName").ifBlank {
+                        if (destPath.startsWith("content://")) "下载文件" else File(destPath).name
+                    },
                     destPath = destPath,
+                    saf = item.optString("storage") == "saf" || destPath.startsWith("content://"),
                     received = item.optLong("size", 0L),
                     total = item.optLong("size", 0L),
                     status = if (item.optString("status") == "FAILED") {
@@ -330,6 +448,10 @@ object ZlibDownloadManager {
                     .put("downloadPath", record.downloadPath)
                     .put("fileName", record.fileName)
                     .put("filePath", record.destPath)
+                    .put(
+                        "storage",
+                        if (record.saf || record.destPath.startsWith("content://")) "saf" else "file",
+                    )
                     .put("size", record.received)
                     .put("status", record.status.name)
                     .put("errorKind", record.errorKind ?: JSONObject.NULL)

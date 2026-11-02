@@ -19,6 +19,7 @@ import java.net.URI
 import java.net.URLEncoder
 import java.nio.charset.Charset
 import java.util.Locale
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Z-Library 只读搜索客户端（阻塞 API，调用方必须放到 IO 线程）。
@@ -64,6 +65,9 @@ class ZlibClient(
 
     @Volatile
     private var uaLogged: Boolean = false
+
+    /** P1c ③：动态镜像名单后台刷新单飞标记（源站 zz.ggonav.com 已 NXDOMAIN，仅 best-effort，不阻塞探测）。 */
+    private val navRefreshRunning = AtomicBoolean(false)
 
     /**
      * 构造函数禁止网络/DNS/IO：本类可能由 Compose 在主线程 `ZlibClient.get(context)` 创建。
@@ -164,6 +168,10 @@ class ZlibClient(
         val body: String,
         val server: String? = null,
         val setCookieCount: Int = 0,
+        /** 最终响应 Content-Type（/dl 判定 HTML vs 二进制用；不跟随重定向时是 302 自身的）。 */
+        val contentType: String? = null,
+        /** 3xx 的 Location（/dl 探测拿 CDN 直链用）。 */
+        val location: String? = null,
     )
 
     // ---------------------------------------------------------------- public API
@@ -198,8 +206,9 @@ class ZlibClient(
     /**
      * 探测可用镜像。
      *
-     * 顺序：缓存（上次成功）→ [MIRRORS]；已知 DiamWall 站点（307 + __diamwall → 513 空 body，
-     * 需要执行 JS）排到候选末尾，只在候选不足时才占名额。最多 [MAX_PROBE_MIRRORS] 个、
+     * 顺序：缓存（上次成功）→ 静态 [MIRRORS] + 已缓存的动态名单（zz.ggonav.com 源站已 NXDOMAIN，
+     * 仅 best-effort：命中镜像后再后台刷新，1h 缓存，失败静默回退静态，绝不拖慢首次搜索）；
+     * 已知 DiamWall 站点（307 + __diamwall → 513 空 body，需要执行 JS）排到候选末尾，只在候选不足时才占名额。最多 [MAX_PROBE_MIRRORS] 个、
      * 整轮 <= [PROBE_BUDGET_MS]、单镜像 <= [PER_MIRROR_BUDGET_MS]；只对 SHA1 挑战站点
      * （[SHA1_CHALLENGE_HOSTS]，即 z-lib.by 类）重试，最多 [MAX_MIRROR_ATTEMPTS] 次（含首次）。
      *
@@ -211,7 +220,10 @@ class ZlibClient(
         val candidates = ArrayList<String>()
         val cached = mirror ?: prefs?.getString(KEY_MIRROR, null)
         cached?.trim()?.takeIf { it.isNotEmpty() }?.let { candidates.add(it.trimEnd('/')) }
-        MIRRORS.forEach { if (it !in candidates) candidates.add(it) }
+        mergedMirrors().forEach { candidate ->
+            val normalized = candidate.trimEnd('/')
+            if (normalized !in candidates) candidates.add(normalized)
+        }
 
         // z-lib.by 优先；已知 DiamWall 站点排后面，避免占掉仅有的 3 个探测名额。
         val preferred = candidates.filterNot { hostOf(it) in KNOWN_UNSUPPORTED_HOSTS }
@@ -255,6 +267,8 @@ class ZlibClient(
                         prefs?.edit()?.putString(KEY_MIRROR, candidate)?.apply()
                         debugLog("mirror=$host stage=ok status=${res.status} attempt=$attempt/$maxAttempts ms=$elapsed")
                         debugLog("probe_result ok=$host")
+                        // P1c ③：命中镜像后再后台刷新名单（不占用户等待时间；源站已 NXDOMAIN 时静默失败）。
+                        maybeRefreshMirrorListInBackground()
                         return candidate
                     }
                     // DiamWall：307 后 513 空 body + Server: DiamWall，需执行 JS，原生客户端不可用。
@@ -433,11 +447,52 @@ class ZlibClient(
     }
 
     /**
+     * 分类 / 榜单 / 作者页（P1c ④）：拉一页站内 HTML，解析成与搜索同构的 [ZBook] 列表。
+     *
+     * @param path 站内路径（如 `/popular`、`/s/thinking%20fast?page=2`）；传绝对 URL 时只取 path+query，
+     *   仍拼到当前镜像上执行（防止外部 URL 把请求带去任意主机）。
+     * @throws ZlibException HTTP/PARSE
+     */
+    @Throws(ZlibException::class)
+    fun fetchCategory(path: String): List<ZBook> {
+        val clean = path.trim()
+        require(clean.isNotEmpty()) { "path must not be blank" }
+        ensureInitialized()
+        val base = mirror ?: probeMirrors()
+        val sitePath = sitePathOf(clean)
+        val target = absoluteSiteUrl(base, sitePath)
+        val res = getWithChallenge(URI(target))
+        if (res.status !in 200..299) {
+            debugLog("category_fail path=" + sitePath + " status=" + res.status + " body_len=" + res.body.length)
+            throw ZlibException(
+                "category page unavailable (path=" + sitePath + ", status=" + res.status + ")",
+                if (res.status in 400..499) ZlibException.Kind.HTTP else ZlibException.Kind.PARSE,
+            )
+        }
+        val books = ZlibCategoryParser.parse(res.body, sitePath)
+        debugLog("category path=" + hostOf(target) + sitePath + " status=" + res.status + " cards=" + books.size)
+        return books
+    }
+
+    /** 绝对 URL 只保留 path+query，避免 [fetchCategory] 被传入外部主机。 */
+    private fun sitePathOf(raw: String): String {
+        if (!raw.startsWith("http://", ignoreCase = true) && !raw.startsWith("https://", ignoreCase = true)) return raw
+        val parsed = runCatching { URI(raw) }.getOrNull() ?: return raw
+        val path = parsed.rawPath?.takeIf { it.isNotEmpty() } ?: "/"
+        val query = parsed.rawQuery
+        return if (query.isNullOrEmpty()) path else path + "?" + query
+    }
+
+    /**
      * 解析 /dl 页面为直链（P1b 3.3 状态机）：
      * 限额 → DAILY_LIMIT；登录墙 → LOGIN_REQUIRED；倒计时 → 等待后重取（总等待 <= 20s）；
      * 候选直链 → GET 前 1KB 判定 content-type；最多 4 跳，否则 PARSE（debug 打页面片段）。
      */
-    fun resolveDownload(downloadPath: String): ZDownloadHandle {
+    fun resolveDownload(downloadPath: String): ZDownloadHandle = resolveDownloadInternal(downloadPath, null)
+
+    /** [resolveDownload] 内部版：`cancelFlag` 在每次请求 / 倒计时等待 / 候选探测前检查。 */
+    private fun resolveDownloadInternal(downloadPath: String, cancelFlag: AtomicBoolean?): ZDownloadHandle {
+        checkCancelled(cancelFlag)
         ensureInitialized()
         val base = mirror ?: probeMirrors()
         val startUrl = absoluteSiteUrl(base, downloadPath)
@@ -447,8 +502,51 @@ class ZlibClient(
         var countdownRounds = 0
         var waitedSeconds = 0
         while (true) {
+            checkCancelled(cancelFlag)
             if (pageHops >= MAX_DL_HOPS) break
-            val res = getWithChallenge(URI(current))
+            // R7-F 诊断：每次 /dl 状态机请求前打印 URL + 实际会带上的 cookie 名。
+            val dlTarget = URI(current)
+            debugLog(
+                "dl_req url=${hostOf(current)} path=${dlTarget.path ?: "-"} " +
+                    "cookies=${cookieNames(dlTarget)}",
+            )
+            // R7-G：/dl 探测阶段不跟随重定向 —— 302 的 Location 就是 CDN 直链；
+            // 跟随会把整本书（PDF/EPUB，最大 18MB）当 HTML 读进 String 再 classify=unknown（下载卡死真因）。
+            val res = getWithChallenge(dlTarget, followRedirects = false, htmlOnlyBody = true)
+            val location = res.location
+            if (res.status in 300..399 && !location.isNullOrBlank()) {
+                pageHops++
+                val direct = absoluteSiteUrl(current, location)
+                debugLog("dl_redirect host=" + hostOf(current) + " status=" + res.status + " to=" + hostOf(direct))
+                // R7-G②：CDN 签名直链（跨 host / 带 filename|expires|md5 参数）只能取一次。
+                // 任何额外探测（Range/HEAD/GET）都会消耗它，正式流式时被 CDN 断连（实测 connection closed）。
+                // 因此这里不再探测，直接把 Location 当 directUrl 交给流式一次读完。
+                if (!sameHost(current, direct) || isSignedDownloadUrl(direct) || isSignedDownloadUrl(location)) {
+                    debugLog("dl_resolved host=" + hostOf(direct) + " via=redirect_signed")
+                    return ZDownloadHandle(direct, null)
+                }
+                val handle = probeDirectLink(direct)
+                if (handle != null) {
+                    debugLog(
+                        "dl_resolved host=" + hostOf(handle.directUrl) +
+                            " type=" + (handle.contentType ?: "none") + " via=redirect",
+                    )
+                    return handle
+                }
+                if (pageHops >= MAX_DL_HOPS) break
+                // 直链不像文件（可能仍是 HTML 页面）：当普通页面继续解析，但不再跟随重定向。
+                debugLog("dl_redirect_not_file host=" + hostOf(direct))
+                current = direct
+                continue
+            }
+            if (res.status in 200..299 && !isHtmlContentType(res.contentType)) {
+                // 少数镜像把 /dl 做成二进制直出：当前 URL 即直链，body 未读（htmlOnlyBody）。
+                debugLog(
+                    "dl_resolved host=" + hostOf(current) +
+                        " type=" + (res.contentType ?: "none") + " via=direct",
+                )
+                return ZDownloadHandle(current, res.contentType)
+            }
             lastBody = res.body
             val state = ZlibDownloadParser.classify(res.body, current)
             if (state is ZlibDownloadParser.PageState.Countdown) {
@@ -458,7 +556,7 @@ class ZlibClient(
                 val wait = minOf(state.seconds, budget, 15)
                 if (wait <= 0) break
                 debugLog("dl_countdown wait=" + wait + " total=" + waitedSeconds + " url=" + hostOf(current))
-                Thread.sleep(wait * 1_000L)
+                sleepCancellable(wait * 1_000L, cancelFlag)
                 waitedSeconds += wait
                 continue
             }
@@ -474,6 +572,7 @@ class ZlibClient(
                 }
                 is ZlibDownloadParser.PageState.Candidates -> {
                     for (link in state.links) {
+                        checkCancelled(cancelFlag)
                         val direct = absoluteSiteUrl(current, link)
                         val handle = probeDirectLink(direct)
                         if (handle != null) {
@@ -499,23 +598,68 @@ class ZlibClient(
         downloadPath: String,
         destFile: File,
         onProgress: (received: Long, total: Long) -> Unit,
+    ): File = download(downloadPath, destFile, onProgress, null)
+
+    /**
+     * 可取消下载（P1c ①）：`cancelFlag` 置 true 后最多一个 8KB buffer 内停下，
+     * 删除半成品 .part 并抛 [ZlibException.Kind.CANCELLED]（msg=cancelled）。
+     *
+     * P1c ②：若 `destFile.part` 已存在且服务端支持 `Range`（206），自动续传；
+     * 服务端回 200 或 Content-Range 起点不一致时从头下（不拼坏文件）。
+     *
+     * @param cancelFlag 可空；null 等价于不可取消（保持 P1b 行为）。
+     */
+    fun download(
+        downloadPath: String,
+        destFile: File,
+        onProgress: (received: Long, total: Long) -> Unit,
+        cancelFlag: AtomicBoolean?,
     ): File {
+        // 早退：已取消时不建立网络连接，也不留 .part。
+        checkCancelled(cancelFlag)
         val startedAt = System.nanoTime()
         try {
-            val handle = resolveDownload(downloadPath)
-            val file = streamToFile(handle, destFile, onProgress)
+            var handle = resolveDownloadInternal(downloadPath, cancelFlag)
+            // R7-G④：CDN 直链可能一次有效。首包未到就断连（streamToFile 抛 NETWORK 且 .part 为空）时，
+            // 重新走一次 /dl 拿新签名 URL 再试一次，而不是直接失败。
+            var freshRetried = false
+            var file: File? = null
+            while (file == null) {
+                try {
+                    file = streamToFile(handle, destFile, onProgress, cancelFlag)
+                } catch (e: ZlibException) {
+                    if (!freshRetried && e.kind == ZlibException.Kind.NETWORK && partIsEmpty(destFile)) {
+                        freshRetried = true
+                        debugLog("dl_retry reason=first_packet_lost")
+                        handle = resolveDownloadInternal(downloadPath, cancelFlag)
+                    } else {
+                        throw e
+                    }
+                }
+            }
+            val downloaded = file
+            perfLog(
+                "PBPERF|phase=zlib_dl_done|ms=" + elapsedMs(startedAt) +
+                    "|extra=host:" + hostOf(handle.directUrl) + ",bytes:" + downloaded.length(),
+            )
             perfLog(
                 "PBPERF|phase=zlib_download|ms=" + elapsedMs(startedAt) +
-                    "|extra=ok,bytes:" + file.length(),
+                    "|extra=ok,bytes:" + downloaded.length(),
             )
-            return file
+            return downloaded
         } catch (e: ZlibException) {
+            if (e.kind == ZlibException.Kind.CANCELLED) deletePartFile(destFile)
+            debugLog(
+                "dl_fail kind=" + e.kind + " ms=" + elapsedMs(startedAt) +
+                    " msg=" + (e.message?.take(120) ?: "none"),
+            )
             perfLog(
                 "PBPERF|phase=zlib_download|ms=" + elapsedMs(startedAt) +
                     "|extra=fail,kind:" + e.kind,
             )
             throw e
         } catch (e: Exception) {
+            if (cancelFlag?.get() == true) deletePartFile(destFile)
             perfLog(
                 "PBPERF|phase=zlib_download|ms=" + elapsedMs(startedAt) +
                     "|extra=fail,kind:DOWNLOAD",
@@ -570,24 +714,88 @@ class ZlibClient(
 
     /** 线路信息（P1b 线路弹层）：index 从 1 开始，未知为 0。 */
     fun mirrorInfo(): ZMirrorInfo {
+        // 只读内存缓存（零网络）：UI 线程可安全调用；动态名单由 probeMirrors() 在 IO 线程刷新。
+        val available = mergedMirrors()
         val current = normalizeMirror(mirror ?: prefs?.getString(KEY_MIRROR, null))
-        val index = MIRRORS.indexOfFirst { normalizeMirror(it) == current } + 1
+        val index = available.indexOfFirst { normalizeMirror(it) == current } + 1
         return ZMirrorInfo(
             index = if (current.isNotEmpty() && index > 0) index else 0,
-            total = MIRRORS.size,
-            mirrors = MIRRORS.toList(),
+            total = available.size,
+            mirrors = available,
         )
     }
 
     /** 切换线路（P1b 4.7）：越界 false；写 prefs mirror 并清探测/代理临时态。 */
     fun switchMirror(index: Int): Boolean {
-        if (index !in MIRRORS.indices) return false
-        val target = MIRRORS[index]
+        val available = mergedMirrors()
+        if (index !in available.indices) return false
+        val target = available[index]
         mirror = target
         prefs?.edit()?.putString(KEY_MIRROR, target)?.apply()
         resetStateLocked()
         debugLog("switch_mirror index=" + (index + 1) + " mirror=" + hostOf(target))
         return true
+    }
+
+    // ---------------------------------------------------------------- P1c: 动态镜像名单
+
+    /** 静态名单 + 动态发现合并（只读内存缓存，零网络）。 */
+    private fun mergedMirrors(): List<String> =
+        ZlibMirrorList.merge(MIRRORS, ZlibMirrorList.cached()).map { it.trimEnd('/') }
+
+    /**
+     * 名单缓存过期时在后台线程抓一次导航页（源站 zz.ggonav.com 已 NXDOMAIN，仅 best-effort）：
+     * 不阻塞镜像探测/首次搜索；失败静默回退静态名单并记录本次尝试（1h 内不重试）。
+     */
+    private fun maybeRefreshMirrorListInBackground() {
+        val now = System.currentTimeMillis()
+        if (!ZlibMirrorList.shouldRefresh(now)) return
+        if (!navRefreshRunning.compareAndSet(false, true)) return
+        Thread {
+            try {
+                val html = try {
+                    fetchNavHtml()
+                } catch (e: Exception) {
+                    null
+                }
+                val parsed = if (html.isNullOrBlank()) emptyList() else ZlibMirrorList.parse(html)
+                ZlibMirrorList.markAttempt(parsed, System.currentTimeMillis())
+                debugLog(
+                    "mirror_list nav_len=" + (html?.length ?: 0) + " discovered=" + parsed.size +
+                        " hosts=" + parsed.joinToString(",") { ZlibMirrorList.hostOf(it) },
+                )
+            } catch (t: Throwable) {
+                debugLog("mirror_list refresh_err=" + t.javaClass.simpleName + ":" + (t.message ?: "").take(80))
+            } finally {
+                navRefreshRunning.set(false)
+            }
+        }.apply {
+            name = "zlib-mirror-refresh"
+            isDaemon = true
+        }.start()
+    }
+
+    /** GET 导航页（绝对 URL，非镜像相对路径）；整轮 <= [NAV_FETCH_BUDGET_MS]，失败返回 null。 */
+    private fun fetchNavHtml(): String? {
+        val deadline = System.nanoTime() + NAV_FETCH_BUDGET_MS * 1_000_000L
+        for (proxy in proxyCandidates()) {
+            var conn: HttpURLConnection? = null
+            try {
+                conn = openConnection(URI(ZlibMirrorList.NAV_URL), proxy, deadline)
+                val status = conn.responseCode
+                if (status !in 200..299) {
+                    debugLog("mirror_list nav_status=$status")
+                    continue
+                }
+                val body = readBody(conn)
+                if (body.isNotEmpty()) return body
+            } catch (e: Exception) {
+                debugLog("mirror_list nav_err=" + e.javaClass.simpleName + ":" + (e.message ?: "").take(80))
+            } finally {
+                conn?.disconnect()
+            }
+        }
+        return null
     }
 
     // ---------------------------------------------------------------- HTTP
@@ -599,14 +807,34 @@ class ZlibClient(
     }
 
     /** 发请求；遇到挑战页则求解并重放（最多 [MAX_CHALLENGE_ROUNDS] 轮）。 */
-    private fun getWithChallenge(uri: URI, deadlineNanos: Long? = null, formBody: ByteArray? = null): HttpResult {
-        var res = request(uri, deadlineNanos, formBody)
+    private fun getWithChallenge(
+        uri: URI,
+        deadlineNanos: Long? = null,
+        formBody: ByteArray? = null,
+        followRedirects: Boolean = true,
+        htmlOnlyBody: Boolean = false,
+    ): HttpResult {
+        var target = uri
+        var res = request(uri, deadlineNanos, formBody, followRedirects, htmlOnlyBody)
         var round = 0
         val startedAt = System.nanoTime()
-        val host = uri.host ?: "unknown"
         while (isChallengeResponse(res)) {
-            // 挑战页诊断：503 响应体长度、常量提取、nonce 计算耗时、重放状态码。
-            debugLog("challenge host=$host status=${res.status} body_len=${res.body.length} round=$round")
+            // 挑战只对「最终 host」有效：request() 内部可能已经跟随 301/302（如 zlib.re → zlib.bz）。
+            // cookie 不跨 host，若仍在发起 host 上求解，重放必然 503。这里改用响应实际地址求解并重放。
+            if (res.uri.host != target.host) {
+                debugLog(
+                    "challenge_follow from=" + (target.host ?: "-") +
+                        " to=" + (res.uri.host ?: "-") + " path=" + (res.uri.path ?: "-"),
+                )
+            }
+            target = res.uri
+            val host = target.host ?: "unknown"
+            // 挑战页原文诊断（R7-A）：hash + 前 300 字符 + 原文落盘，供与桌面 9592B 页面逐字节对比。
+            val bodySha1 = sha1Of(res.body)
+            debugLog(
+                "challenge host=$host status=${res.status} body_len=${res.body.length} round=$round " +
+                    "sha1=$bodySha1 file=${saveChallengeBody(res.body)} head=${headOf(res.body, 300)}",
+            )
             val solveStarted = System.nanoTime()
             val solution = ZlibChallenge.solve(res.body)
             val solveMs = (System.nanoTime() - solveStarted) / 1_000_000L
@@ -623,11 +851,16 @@ class ZlibClient(
             )
             val elapsedSec = (System.nanoTime() - startedAt) / 1_000_000_000.0
             // CookieManager 不会回传无 domain/path 的 cookie，挑战 cookie 必须手动并入 Cookie 头。
-            setChallengeCookie(uri, "c_token", solution.token)
-            setChallengeCookie(uri, "c_time", String.format(Locale.US, "%.3f", elapsedSec))
-            debugLog("challenge_cookie host=$host cookie_names=${cookieNames(uri)}")
+            setChallengeCookie(target, "c_token", solution.token)
+            setChallengeCookie(target, "c_time", String.format(Locale.US, "%.3f", elapsedSec))
+            debugLog(
+                "challenge_cookie host=$host cookie_names=${cookieNames(target)} " +
+                    "bsrv=${cookieValue(target, "bsrv")} c_time=" +
+                    String.format(Locale.US, "%.3f", elapsedSec) +
+                    " header=${ZlibCookieHeader.redact(cookieHeader(target))}",
+            )
             val replayStarted = System.nanoTime()
-            res = request(uri, deadlineNanos, formBody)
+            res = request(target, deadlineNanos, formBody, followRedirects, htmlOnlyBody)
             round++
             debugLog(
                 "challenge_replay host=$host round=$round status=${res.status} " +
@@ -645,7 +878,13 @@ class ZlibClient(
     }
 
     /** 逐个尝试代理候选（系统代理 / debug 兜底 / 默认 ProxySelector），首个成功即用。 */
-    private fun request(uri: URI, deadlineNanos: Long? = null, formBody: ByteArray? = null): HttpResult {
+    private fun request(
+        uri: URI,
+        deadlineNanos: Long? = null,
+        formBody: ByteArray? = null,
+        followRedirects: Boolean = true,
+        htmlOnlyBody: Boolean = false,
+    ): HttpResult {
         var last: Exception? = null
         var attempt = 0
         for (proxy in proxyCandidates()) {
@@ -656,7 +895,7 @@ class ZlibClient(
             attempt++
             debugLog("net_attempt host=${uri.host} proxy=${proxyLabel(proxy)} attempt=$attempt")
             try {
-                return requestWithProxy(uri, proxy, deadlineNanos, formBody)
+                return requestWithProxy(uri, proxy, deadlineNanos, formBody, followRedirects, htmlOnlyBody)
             } catch (e: Exception) {
                 // 挑战/HTTP 类 ZlibException 原样上抛，避免被包成 "network error" 丢信息。
                 if (e is ZlibException && e.kind != ZlibException.Kind.NETWORK) throw e
@@ -678,6 +917,8 @@ class ZlibClient(
         proxy: Proxy?,
         deadlineNanos: Long? = null,
         formBody: ByteArray? = null,
+        followRedirects: Boolean = true,
+        htmlOnlyBody: Boolean = false,
     ): HttpResult {
         var current = uri
         var pendingForm = formBody
@@ -694,12 +935,23 @@ class ZlibClient(
                     conn.outputStream.use { out -> out.write(requestBody) }
                 }
                 val status = conn.responseCode
-                val body = readBody(conn)
+                val contentType = conn.contentType
                 val location = conn.getHeaderField("Location")
+                // R7-G：/dl 探测只关心 HTML 状态页（限额/登录/倒计时/候选）与 302 Location；
+                // 二进制响应（CDN 直出的整本书）绝不读 body，否则整包进 String（2MB~18MB）拖死内存。
+                val shouldReadBody = !htmlOnlyBody || isHtmlContentType(contentType) || status == 503
+                val body = if (shouldReadBody) readBody(conn) else ""
                 val server = conn.getHeaderField("Server")
                 val setCookieCount = storeResponseCookies(current, conn)
+                // 503 挑战页也会下发新 bsrv：确认它真的落进 jar（含挑战响应）。
+                if (setCookieCount > 0) {
+                    debugLog(
+                        "cookie_store host=${current.host ?: "-"} status=$status " +
+                            "set_cookie=$setCookieCount now=${cookieNames(current)}",
+                    )
+                }
 
-                if (status in 300..399 && !location.isNullOrBlank() && hops < MAX_REDIRECTS) {
+                if (followRedirects && status in 300..399 && !location.isNullOrBlank() && hops < MAX_REDIRECTS) {
                     hops++
                     val next = resolveLocation(current, location)
                     debugLog("net_redirect host=${current.host} status=$status to=${next.host} set_cookie=$setCookieCount")
@@ -707,11 +959,17 @@ class ZlibClient(
                     pendingForm = null
                     continue
                 }
-                return HttpResult(current, status, body, server, setCookieCount)
+                return HttpResult(current, status, body, server, setCookieCount, contentType, location)
             } finally {
                 conn.disconnect()
             }
         }
+    }
+
+    /** Content-Type 是否可当 HTML 状态页解析（text/html、xhtml、空值保守当作非 HTML）。 */
+    private fun isHtmlContentType(contentType: String?): Boolean {
+        val lower = contentType?.lowercase().orEmpty()
+        return lower.contains("text/html") || lower.contains("application/xhtml")
     }
 
     private fun openConnection(
@@ -742,7 +1000,15 @@ class ZlibClient(
         conn.setRequestProperty("Accept-Language", ACCEPT_LANGUAGE)
         conn.setRequestProperty("Accept", ACCEPT_HTML)
         conn.setRequestProperty("Accept-Encoding", "identity")
-        cookieHeader(uri)?.let { conn.setRequestProperty("Cookie", it) }
+        val outgoingCookie = cookieHeader(uri)
+        outgoingCookie?.let { conn.setRequestProperty("Cookie", it) }
+        // R7-F 诊断：/dl 请求必须带登录 cookie（remix_userkey）；打实际发送的头，值截 6 位。
+        if (uri.path?.startsWith("/dl") == true) {
+            debugLog(
+                "dl_cookie_hdr host=${uri.host ?: "-"} path=${uri.path ?: "-"} " +
+                    "hdr=${ZlibCookieHeader.redact(outgoingCookie)}",
+            )
+        }
         if (!uaLogged) {
             uaLogged = true
             debugLog(
@@ -771,9 +1037,18 @@ class ZlibClient(
         val bytes = stream.use { input ->
             val out = ByteArrayOutputStream(64 * 1024)
             val buffer = ByteArray(16 * 1024)
+            var total = 0L
             while (true) {
                 val read = input.read(buffer)
                 if (read < 0) break
+                total += read
+                // R7-G 兜底：任何响应体都不许无上限读进内存（/dl 误读整本书的教训）。
+                if (total > MAX_RESPONSE_BYTES) {
+                    throw ZlibException(
+                        "response too large (> " + MAX_RESPONSE_BYTES + " bytes)",
+                        ZlibException.Kind.HTTP,
+                    )
+                }
                 out.write(buffer, 0, read)
             }
             out.toByteArray()
@@ -792,20 +1067,16 @@ class ZlibClient(
 
     // ---------------------------------------------------------------- cookies
 
-    /** 发送用 Cookie 头：CookieManager 保存的 Set-Cookie（bsrv 等）+ 手动维护的挑战 cookie。 */
-    private fun cookieHeader(uri: URI): String? {
-        val fromJar = cookieStore.cookieHeader(uri)
-        val host = uri.host ?: return fromJar
-        val manual = challengeCookies[host]
-        if (manual.isNullOrEmpty()) return fromJar
-        val merged = java.util.LinkedHashMap<String, String>()
-        fromJar?.split(";")?.forEach { part ->
-            val index = part.indexOf('=')
-            if (index > 0) merged[part.substring(0, index).trim()] = part.substring(index + 1).trim()
-        }
-        manual.forEach { (name, value) -> merged[name] = value }
-        return merged.entries.joinToString("; ") { "${it.key}=${it.value}" }.ifEmpty { null }
-    }
+    /**
+     * 发送用 Cookie 头：CookieManager 保存的 Set-Cookie（remix_* / bsrv 等）+ 手动挑战 cookie。
+     *
+     * 注意：CookieManager.get() 对 Version=1 的 cookie 会返回 RFC 2965 格式的**单条拼接串**
+     * （Android 12 AOSP：`$Version="1"; remix_userkey="…";$Path="/";$Domain=".z-lib.by"; …`，
+     * JDK 可能拆成多个 header 值）；直接拼接会被服务端识别失败（R7-F 根因：/dl 拿不到登录态）。
+     * 统一由 [ZlibCookieHeader] 解析成 version-0 的 `name=value; ...` 后再发送。
+     */
+    private fun cookieHeader(uri: URI): String? =
+        ZlibCookieHeader.merge(cookieStore.cookieHeader(uri), uri.host?.let { challengeCookies[it] })
 
     /** 记录某 host 的挑战 cookie（重放/后续搜索都会带上）。 */
     private fun setChallengeCookie(uri: URI, name: String, value: String) {
@@ -958,6 +1229,17 @@ class ZlibClient(
 
     private fun elapsedMs(startedAt: Long): Long = (System.nanoTime() - startedAt) / 1_000_000L
 
+    /** PBPERF extra 值清洗：去空格/竖线（日志契约不许出现空格或竖线）。 */
+    private fun metaValue(raw: String?): String =
+        (raw ?: "none").replace(' ', '_').replace('|', '/')
+
+    /** 平均吞吐（KB/s），用于 dl_progress 心跳区分「慢」与「卡」。 */
+    private fun kbpsOf(bytes: Long, startedAtNanos: Long): Long {
+        val ms = (System.nanoTime() - startedAtNanos) / 1_000_000L
+        if (ms <= 0L) return 0L
+        return bytes * 1_000L / ms / 1_024L
+    }
+
     private fun normalizeSlug(slug: String): String {
         val cleaned = slug.trim().trim('/')
         return if (cleaned.endsWith(".html")) cleaned else cleaned + ".html"
@@ -994,24 +1276,60 @@ class ZlibClient(
 
     private data class DirectProbe(
         val url: String,
+        val method: String,
         val status: Int,
         val location: String?,
         val contentType: String?,
         val disposition: String?,
         val prefix: ByteArray,
+        val contentRange: String? = null,
+        val contentLength: Long = -1L,
     )
 
-    /** GET 前 1KB 判定候选直链；最多跟 2 次跳转。 */
+    /**
+     * 探测候选直链是否可下载（R7-G）：`Range: bytes=0-0` 只看响应头 + 最多 1KB 前缀，**不读整包**。
+     * Content-Range 或 Content-Type/Content-Disposition 像文件即返回 handle；HTML/4xx 返回 null。
+     */
     private fun probeDirectLink(url: String): ZDownloadHandle? {
         var current = url
         var hops = 0
         while (hops < 3) {
             hops++
-            val probe = probeOnce(current)
+            // R7-G③：优先 HEAD（不消耗 body、不写 Range），HEAD 不可用/不被支持时才退回 GET + Range。
+            val head = try {
+                probeOnce(current, "HEAD")
+            } catch (e: ZlibException) {
+                debugLog("dl_probe host=" + hostOf(current) + " method=HEAD err=" + e.kind)
+                null
+            }
+            val probe = if (head != null && head.status in 200..399) head else try {
+                probeOnce(current)
+            } catch (e: ZlibException) {
+                debugLog("dl_probe host=" + hostOf(current) + " method=GET err=" + e.kind)
+                return null
+            }
+            debugLog(
+                "dl_probe host=" + hostOf(current) + " method=" + probe.method +
+                    " status=" + probe.status +
+                    " ct=" + (probe.contentType ?: "none") +
+                    " cl=" + probe.contentLength +
+                    " cr=" + (probe.contentRange ?: "none"),
+            )
             when {
-                probe.status in 300..399 && !probe.location.isNullOrBlank() ->
-                    current = absoluteSiteUrl(current, probe.location)
+                probe.status in 300..399 && !probe.location.isNullOrBlank() -> {
+                    val next = absoluteSiteUrl(current, probe.location)
+                    // 跨 host 或签名直链：只能取一次，探测到此为止，把 URL 原样交给流式。
+                    if (!sameHost(current, next) || isSignedDownloadUrl(next)) {
+                        return ZDownloadHandle(next, probe.contentType)
+                    }
+                    current = next
+                }
+                // 416 = 该 URL 存在但不支持 Range：不判「不是文件」，直接当直链流式。
+                probe.status == 416 -> return ZDownloadHandle(current, probe.contentType)
                 probe.status !in 200..299 -> return null
+                probe.status == 206 && !probe.contentRange.isNullOrBlank() &&
+                    !isHtmlContentType(probe.contentType) ->
+                    return ZDownloadHandle(current, probe.contentType)
                 looksLikeBookFile(probe.contentType, probe.disposition, probe.prefix) ->
                     return ZDownloadHandle(current, probe.contentType)
                 else -> return null
@@ -1020,19 +1338,36 @@ class ZlibClient(
         return null
     }
 
-    private fun probeOnce(url: String): DirectProbe {
+    private fun probeOnce(url: String, method: String = "GET"): DirectProbe {
         var last: Exception? = null
         for (proxy in proxyCandidates()) {
             var conn: HttpURLConnection? = null
             try {
-                conn = openConnection(URI(url), proxy)
-                conn.setRequestProperty("Range", "bytes=0-1023")
+                conn = openConnection(URI(url), proxy, method = method)
+                // R7-G：HEAD 只看响应头；GET 只做首字节范围探测，服务端忽略 Range 时也只读 1KB 就断开。
+                if (method != "HEAD") conn.setRequestProperty("Range", "bytes=0-0")
                 val status = conn.responseCode
                 val contentType = conn.contentType
                 val disposition = conn.getHeaderField("Content-Disposition")
                 val location = conn.getHeaderField("Location")
-                val prefix = if (status in 200..299) readPrefix(conn, 1_024) else ByteArray(0)
-                return DirectProbe(url, status, location, contentType, disposition, prefix)
+                val contentRange = conn.getHeaderField("Content-Range")
+                val contentLength = conn.contentLengthLong
+                // 只在需要嗅探 HTML 时才读前缀；明确的二进制响应（pdf/epub/octet-stream）
+                // 直接返回，避免服务器忽略 Range 时 close 引发隐性整包读取。
+                val needPrefix = method != "HEAD" &&
+                    (isHtmlContentType(contentType) || contentType.isNullOrBlank())
+                val prefix = if (status in 200..299 && needPrefix) readPrefix(conn, 1_024) else ByteArray(0)
+                return DirectProbe(
+                    url = url,
+                    method = method,
+                    status = status,
+                    location = location,
+                    contentType = contentType,
+                    disposition = disposition,
+                    prefix = prefix,
+                    contentRange = contentRange,
+                    contentLength = contentLength,
+                )
             } catch (e: Exception) {
                 last = e
             } finally {
@@ -1079,27 +1414,36 @@ class ZlibClient(
         val disposition: String?,
     )
 
-    /** 逐个代理尝试流式下载；首个成功即 rename 返回。 */
+    /**
+     * 逐个代理尝试流式下载；首个成功即 rename 返回。
+     *
+     * P1c ②：保留 .part 供下次续传——代理级网络失败/长度不足时不删半成品；
+     * 只有取消（CANCELLED）与「不是书/太小」这类不可续传错误才删。
+     */
     private fun streamToFile(
         handle: ZDownloadHandle,
         destFile: File,
         onProgress: (received: Long, total: Long) -> Unit,
+        cancelFlag: AtomicBoolean?,
     ): File {
         val target = destFile.absoluteFile
         val parent = target.parentFile ?: File(".")
         parent.mkdirs()
         var lastError: Exception? = null
         for (proxy in proxyCandidates()) {
+            checkCancelled(cancelFlag)
             val part = File(parent, target.name + PART_SUFFIX)
             try {
-                val stats = streamOnce(handle, part, proxy, onProgress)
+                val stats = streamOnce(handle, part, proxy, onProgress, cancelFlag)
                 if (stats.received < MIN_DOWNLOAD_BYTES) {
+                    part.delete()
                     throw ZlibException("download too small: " + stats.received, ZlibException.Kind.DOWNLOAD)
                 }
                 if (stats.total > 0 && stats.received < stats.total) {
+                    // 半成品保留：下次调用会带 Range 续传。
                     throw ZlibException(
                         "incomplete download: " + stats.received + "/" + stats.total,
-                        ZlibException.Kind.DOWNLOAD,
+                        ZlibException.Kind.NETWORK,
                     )
                 }
                 val finalFile = withExtension(target, stats.disposition, stats.finalUrl)
@@ -1109,10 +1453,12 @@ class ZlibClient(
                 }
                 return finalFile
             } catch (e: ZlibException) {
-                part.delete()
+                if (e.kind == ZlibException.Kind.CANCELLED || e.kind == ZlibException.Kind.DOWNLOAD) {
+                    part.delete()
+                }
                 throw e
             } catch (e: Exception) {
-                part.delete()
+                // 网络中断：保留 .part，下一个代理/下次重试可续传。
                 lastError = e
             }
         }
@@ -1128,14 +1474,24 @@ class ZlibClient(
         partFile: File,
         proxy: Proxy?,
         onProgress: (received: Long, total: Long) -> Unit,
+        cancelFlag: AtomicBoolean?,
     ): StreamStats {
+        val resumeFrom = if (partFile.isFile) partFile.length() else 0L
+        val startedAt = System.nanoTime()
         var current = handle.directUrl
         var conn: HttpURLConnection? = null
         var hops = 0
         try {
+            var append = false
+            var total = 0L
+            var statusUsed = 0
             while (true) {
+                checkCancelled(cancelFlag)
                 conn = openConnection(URI(current), proxy)
+                // P1c ②：有 .part 就请求续传；服务端不支持会回 200，届时从头写。
+                if (resumeFrom > 0L) conn.setRequestProperty("Range", "bytes=" + resumeFrom + "-")
                 val status = conn.responseCode
+                statusUsed = status
                 val location = conn.getHeaderField("Location")
                 if (status in 300..399 && !location.isNullOrBlank() && hops < MAX_DOWNLOAD_REDIRECTS) {
                     hops++
@@ -1147,11 +1503,34 @@ class ZlibClient(
                 if (status !in 200..299) {
                     throw ZlibException("HTTP " + status + " for " + current, ZlibException.Kind.HTTP)
                 }
+                val decision = ZlibResumePolicy.decide(
+                    partLength = resumeFrom,
+                    status = status,
+                    contentRange = conn.getHeaderField("Content-Range"),
+                    contentLength = conn.contentLengthLong,
+                )
+                append = decision.append
+                total = decision.total
                 break
             }
             val contentType = conn.contentType
             val disposition = conn.getHeaderField("Content-Disposition")
-            val total = conn.contentLengthLong
+            val contentRange = conn.getHeaderField("Content-Range")
+            val contentLength = conn.contentLengthLong
+            val transferEncoding = conn.getHeaderField("Transfer-Encoding")
+            // R7-G：改 PBPERF 打点，release 包也能看到 total/Content-Range 等关键信息（验收用）。
+            perfLog(
+                "PBPERF|phase=zlib_dl_stream|ms=" + elapsedMs(startedAt) +
+                    "|extra=host:" + hostOf(current) +
+                    ",status:" + statusUsed +
+                    ",resume_from:" + resumeFrom +
+                    ",append:" + append +
+                    ",total:" + (if (total > 0L) total else 0L) +
+                    ",cl:" + contentLength +
+                    ",cr:" + metaValue(contentRange) +
+                    ",chunked:" + (transferEncoding?.contains("chunked", ignoreCase = true) == true) +
+                    ",ct:" + metaValue(contentType),
+            )
             val stream = try {
                 conn.inputStream
             } catch (e: IOException) {
@@ -1160,13 +1539,15 @@ class ZlibClient(
 
             var received = 0L
             var lastProgressAt = 0L
+            var lastProgressLogAt = 0L
             val buffer = ByteArray(DOWNLOAD_BUFFER_BYTES)
-            FileOutputStream(partFile).use { output ->
+            FileOutputStream(partFile, append).use { output ->
                 stream.use { input ->
                     while (true) {
+                        checkCancelled(cancelFlag)
                         val read = input.read(buffer)
                         if (read < 0) break
-                        if (received == 0L &&
+                        if (received == 0L && !append &&
                             contentType?.contains("text/html", ignoreCase = true) == true &&
                             looksLikeHtmlStart(buffer, read)
                         ) {
@@ -1182,31 +1563,122 @@ class ZlibClient(
                             )
                         }
                         received += read
+                        val written = (if (append) resumeFrom else 0L) + received
                         val now = System.nanoTime()
                         if (now - lastProgressAt > PROGRESS_THROTTLE_MS * 1_000_000L) {
                             lastProgressAt = now
-                            onProgress(received, total)
+                            onProgress(written, total)
+                        }
+                        // 每 2s 一条心跳：total=0（chunked/无 Content-Length）也照打，
+                        // 用 received 增长 + kbps 区分「慢」与「卡」。
+                        if (now - lastProgressLogAt > PROGRESS_LOG_INTERVAL_MS * 1_000_000L) {
+                            lastProgressLogAt = now
+                            // PBPERF 心跳（release 可见）：received/total/pct/kbps，用来区分「慢」与「卡」。
+                            perfLog(
+                                "PBPERF|phase=zlib_dl_progress|ms=" + elapsedMs(startedAt) +
+                                    "|extra=host:" + hostOf(current) +
+                                    ",received:" + written +
+                                    ",total:" + (if (total > 0L) total else 0L) +
+                                    ",pct:" + (if (total > 0L) (written * 100 / total) else -1) +
+                                    ",kbps:" + kbpsOf(written, startedAt) +
+                                    ",final:false",
+                            )
                         }
                     }
                 }
             }
-            onProgress(received, total)
-            return StreamStats(current, received, total, contentType, disposition)
+            val finalSize = (if (append) resumeFrom else 0L) + received
+            perfLog(
+                "PBPERF|phase=zlib_dl_progress|ms=" + elapsedMs(startedAt) +
+                    "|extra=host:" + hostOf(current) +
+                    ",received:" + finalSize +
+                    ",total:" + (if (total > 0L) total else 0L) +
+                    ",pct:" + (if (total > 0L) (finalSize * 100 / total) else -1) +
+                    ",kbps:" + kbpsOf(finalSize, startedAt) +
+                    ",final:true",
+            )
+            onProgress(finalSize, total)
+            return StreamStats(current, finalSize, total, contentType, disposition)
         } finally {
             conn?.disconnect()
         }
     }
 
+    // ---------------------------------------------------------------- P1c helpers
+
+    /** 取消检查：置位即抛 CANCELLED（调用方负责清 .part）。 */
+    private fun checkCancelled(cancelFlag: AtomicBoolean?) {
+        if (cancelFlag?.get() == true) {
+            throw ZlibException("cancelled", ZlibException.Kind.CANCELLED)
+        }
+    }
+
+    /** 可取消 sleep：倒计时等待期间每 250ms 检查一次，取消后立即返回（抛 CANCELLED）。 */
+    private fun sleepCancellable(totalMs: Long, cancelFlag: AtomicBoolean?) {
+        var remaining = totalMs
+        while (remaining > 0L) {
+            checkCancelled(cancelFlag)
+            val step = minOf(remaining, 250L)
+            Thread.sleep(step)
+            remaining -= step
+        }
+    }
+
+    private fun deletePartFile(destFile: File) {
+        val parent = destFile.absoluteFile.parentFile ?: File(".")
+        runCatching { File(parent, destFile.name + PART_SUFFIX).delete() }
+    }
+
+    /** 首包是否未到：`.part` 不存在或长度为 0（用于「断连后重取一次直链」判定）。 */
+    private fun partIsEmpty(destFile: File): Boolean {
+        val parent = destFile.absoluteFile.parentFile ?: File(".")
+        val part = File(parent, destFile.name + PART_SUFFIX)
+        return !part.isFile || part.length() == 0L
+    }
+
+    /** host 归一比较（忽略大小写）。 */
+    private fun sameHost(a: String, b: String): Boolean =
+        hostOf(a).equals(hostOf(b), ignoreCase = true)
+
+    /** CDN 签名直链特征：带 filename / expires / md5 查询参数（一次有效，不可重复探测）。 */
+    private fun isSignedDownloadUrl(raw: String?): Boolean {
+        val value = raw ?: return false
+        return value.contains("filename=", ignoreCase = true) ||
+            value.contains("expires=", ignoreCase = true) ||
+            value.contains("md5=", ignoreCase = true)
+    }
+
+    /** 从签名直链的 `filename=` 参数解出文件名（URLDecode，去路径分隔符）。 */
+    private fun downloadFileNameOf(url: String): String? {
+        val rawQuery = runCatching { URI(url).rawQuery }.getOrNull() ?: return null
+        for (pair in rawQuery.split('&')) {
+            val index = pair.indexOf('=')
+            if (index <= 0) continue
+            if (!pair.substring(0, index).equals("filename", ignoreCase = true)) continue
+            val decoded = runCatching {
+                java.net.URLDecoder.decode(pair.substring(index + 1), "UTF-8")
+            }.getOrNull() ?: continue
+            return decoded.substringAfterLast('/').substringAfterLast('\\')
+                .takeIf { it.isNotBlank() }
+        }
+        return null
+    }
     /** 扩展名缺失时按 Content-Disposition（优先）→ URL 末段 → 默认 pdf 补齐。 */
     private fun withExtension(destFile: File, disposition: String?, finalUrl: String): File {
         if (destFile.extension.isNotBlank()) return destFile
         val fromName = ZlibDownloadParser.filenameFromDisposition(disposition)
             ?.substringAfterLast('.', "")
             ?.takeIf { it.isNotBlank() && it.length <= 5 }
+        // R7-G：签名直链把真实文件名放在 filename= 查询参数里（URLEncode），优先于 URL path 末段。
+        val fromParam = downloadFileNameOf(finalUrl)
+            ?.substringAfterLast('.', "")
+            ?.takeIf { it.isNotBlank() && it.length <= 5 }
         val fromUrl = runCatching { URI(finalUrl).path.substringAfterLast('.', "") }
             .getOrDefault("")
             .takeIf { it.isNotBlank() && it.length <= 5 }
-        val extension = (fromName ?: fromUrl ?: "pdf").lowercase().filter { it.isLetterOrDigit() }
+        val extension = (fromName ?: fromParam ?: fromUrl ?: "pdf")
+            .lowercase()
+            .filter { it.isLetterOrDigit() }
         return File(destFile.parentFile, destFile.name + "." + extension)
     }
 
@@ -1280,6 +1752,42 @@ class ZlibClient(
 
     private fun hostOf(mirrorUrl: String): String =
         runCatching { URI(mirrorUrl).host }.getOrNull() ?: mirrorUrl
+
+    /** SHA-1（十六进制）——挑战页原文指纹，用于与桌面样本对比是否为同一版页面。 */
+    private fun sha1Of(text: String): String = try {
+        val digest = java.security.MessageDigest.getInstance("SHA-1")
+            .digest(text.toByteArray(Charsets.UTF_8))
+        digest.joinToString("") { String.format(Locale.US, "%02x", it) }
+    } catch (e: Exception) {
+        "error"
+    }
+
+    /** 挑战页前 N 字符（空白压成单空格、去掉换行，避免 logcat 多行）。 */
+    private fun headOf(text: String, max: Int): String {
+        val cleaned = text.replace(Regex("[\\s\\u00A0]+"), " ").trim()
+        return if (cleaned.length <= max) cleaned else cleaned.substring(0, max)
+    }
+
+    /** debug 包把挑战页原文落盘（files/zlib_challenge_last.html），供桌面端逐字节对比。 */
+    private fun saveChallengeBody(body: String): String {
+        if (!isDebuggable) return "none"
+        val dir = appContext?.filesDir ?: return "none"
+        return try {
+            File(dir, "zlib_challenge_last.html").writeText(body, Charsets.UTF_8)
+            "files/zlib_challenge_last.html"
+        } catch (e: Exception) {
+            "none"
+        }
+    }
+
+    /** 取某 host 当前 Cookie 头里单个 cookie 的短值（诊断 bsrv 是否已更新，值截 8 位）。 */
+    private fun cookieValue(uri: URI, name: String): String {
+        val header = cookieHeader(uri) ?: return "none"
+        val value = ZlibCookieHeader.parse(header).entries
+            .firstOrNull { it.key.equals(name, ignoreCase = true) }
+            ?.value ?: return "none"
+        return if (value.length <= 8) value else value.substring(0, 8)
+    }
 
     /** 当前 Cookie 头里的 cookie 名（诊断 bsrv / c_token / c_time 是否带全）。 */
     private fun cookieNames(uri: URI): String = try {
@@ -1376,15 +1884,24 @@ class ZlibClient(
         /** P1b：下载/图片上限与节流。 */
         private const val PART_SUFFIX = ".part"
         private const val MAX_IMAGE_BYTES = 8 * 1_024 * 1_024
+
+        /** 单个响应体上限（HTML/JSON 状态页远小于此；二进制下载走流式，不经过 readBody）。 */
+        private const val MAX_RESPONSE_BYTES = 8L * 1_024 * 1_024
         private const val MIN_DOWNLOAD_BYTES = 1_024L
         private const val DOWNLOAD_BUFFER_BYTES = 8 * 1_024
         private const val PROGRESS_THROTTLE_MS = 150L
+
+        /** 下载心跳日志间隔（Lead 要求每 2s 一条 dl_progress，卡住时也能看出最后进度）。 */
+        private const val PROGRESS_LOG_INTERVAL_MS = 2_000L
         private const val MAX_DOWNLOAD_REDIRECTS = 5
 
         /** P1b：/dl 状态机跳数与倒计时等待上限。 */
         private const val MAX_DL_HOPS = 4
         private const val MAX_COUNTDOWN_ROUNDS = 8
         private const val MAX_COUNTDOWN_WAIT_S = 20
+
+        /** P1c：导航页（zz.ggonav.com 已 NXDOMAIN，仅 best-effort）后台抓取总预算。 */
+        private const val NAV_FETCH_BUDGET_MS = 8_000L
 
         /** 性能日志 tag（与 app 其他 phase 一致）。 */
         private const val PERF_TAG = "PBPERF"

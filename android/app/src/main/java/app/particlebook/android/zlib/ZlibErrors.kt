@@ -16,6 +16,7 @@ object ZlibErrorMessages {
     const val PARSE: String = "页面格式无法识别，请稍后重试"
     const val NETWORK: String = "网络异常，请检查网络后重试"
     const val DOWNLOAD: String = "下载失败，请重试"
+    const val CANCELLED: String = "下载已取消"
 
     /** 按异常类型取用户可读文案；非 [ZlibException] 一律按网络异常。 */
     fun from(error: Throwable): String = when (error) {
@@ -32,5 +33,6 @@ object ZlibErrorMessages {
         ZlibException.Kind.DAILY_LIMIT -> DAILY_LIMIT
         ZlibException.Kind.LOGIN_REQUIRED -> LOGIN_REQUIRED
         ZlibException.Kind.DOWNLOAD -> DOWNLOAD
+        ZlibException.Kind.CANCELLED -> CANCELLED
     }
 }

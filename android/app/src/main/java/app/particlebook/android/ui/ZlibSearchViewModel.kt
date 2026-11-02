@@ -26,8 +26,8 @@ sealed interface ZlibSearchState {
     /** 首屏搜索中。 */
     data object Loading : ZlibSearchState
 
-    /** 搜索成功但没有结果。 */
-    data class Empty(val query: String) : ZlibSearchState
+    /** 搜索成功但没有结果（category 非空表示这是热门分类结果）。 */
+    data class Empty(val query: String, val category: String? = null) : ZlibSearchState
 
     /** 搜索失败：message 已按 kind 转成中文，kindLabel 保留原始枚举便于排查。 */
     data class Error(val message: String, val kindLabel: String) : ZlibSearchState
@@ -40,6 +40,8 @@ sealed interface ZlibSearchState {
         val totalPages: Int,
         val loadingMore: Boolean = false,
         val loadMoreError: String? = null,
+        /** 非空表示分类榜单（/s/&lt;中文&gt;）而不是关键词搜索。 */
+        val category: String? = null,
     ) : ZlibSearchState
 }
 
@@ -57,6 +59,7 @@ class ZlibSearchViewModel(
         private set
 
     private var currentQuery: String = ""
+    private var currentCategory: String? = null
     private var firstPageJob: Job? = null
     private var nextPageJob: Job? = null
 
@@ -65,6 +68,7 @@ class ZlibSearchViewModel(
         val trimmed = query.trim()
         if (trimmed.isEmpty()) return
         currentQuery = trimmed
+        currentCategory = null
         firstPageJob?.cancel()
         nextPageJob?.cancel()
         state = ZlibSearchState.Loading
@@ -93,6 +97,49 @@ class ZlibSearchViewModel(
         }
     }
 
+    /**
+     * 热门分类 / 榜单：直接拉 /s/<中文>?page=1（research §8：8 个分类全部可用，51 条/页，解析同搜索页）。
+     * 站点分类页不返回总页数，用「一页满 51 条就认为还有下一页」推进；返回空页即到底。
+     */
+    fun searchCategory(category: String) {
+        val trimmed = category.trim()
+        if (trimmed.isEmpty()) return
+        currentQuery = ""
+        currentCategory = trimmed
+        firstPageJob?.cancel()
+        nextPageJob?.cancel()
+        state = ZlibSearchState.Loading
+        firstPageJob = scope.launch {
+            val began = SystemClock.elapsedRealtime()
+            try {
+                val books = withContext(Dispatchers.IO) {
+                    client.fetchCategory(categoryPath(trimmed, 1))
+                }.distinctBy { it.id }
+                Log.i(
+                    PERF_TAG,
+                    "zlib_category|ms=" + (SystemClock.elapsedRealtime() - began) +
+                        "|extra=mirror:" + mirrorHost() + ",results:" + books.size +
+                        ",category:" + trimmed,
+                )
+                state = if (books.isEmpty()) {
+                    ZlibSearchState.Empty(query = "", category = trimmed)
+                } else {
+                    ZlibSearchState.Success(
+                        query = "",
+                        books = books,
+                        page = 1,
+                        totalPages = if (books.size >= CATEGORY_PAGE_SIZE) 2 else 1,
+                        category = trimmed,
+                    )
+                }
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (throwable: Throwable) {
+                state = toErrorState(throwable)
+            }
+        }
+    }
+
     /** 列表滑到底：totalPages > page 时追加下一页；失败只在尾部显示重试行。 */
     fun loadNextPage() {
         val current = state as? ZlibSearchState.Success ?: return
@@ -102,25 +149,51 @@ class ZlibSearchViewModel(
         nextPageJob = scope.launch {
             val began = SystemClock.elapsedRealtime()
             try {
-                val next = withContext(Dispatchers.IO) {
-                    client.search(current.query, current.page + 1)
+                if (current.category != null) {
+                    val nextPage = current.page + 1
+                    val more = withContext(Dispatchers.IO) {
+                        client.fetchCategory(categoryPath(current.category, nextPage))
+                    }
+                    val latest = state as? ZlibSearchState.Success ?: return@launch
+                    if (latest.category != current.category) return@launch
+                    if (more.isEmpty()) {
+                        // 空页 = 分类到底；页码不前进，footer 显示「已经到底了」。
+                        state = latest.copy(loadingMore = false, totalPages = latest.page)
+                        return@launch
+                    }
+                    val knownIds = latest.books.mapTo(HashSet()) { it.id }
+                    state = latest.copy(
+                        books = latest.books + more.filter { knownIds.add(it.id) },
+                        page = nextPage,
+                        totalPages = if (more.size >= CATEGORY_PAGE_SIZE) {
+                            nextPage + 1
+                        } else {
+                            nextPage
+                        },
+                        loadingMore = false,
+                        loadMoreError = null,
+                    )
+                } else {
+                    val next = withContext(Dispatchers.IO) {
+                        client.search(current.query, current.page + 1)
+                    }
+                    logSearch(began, next)
+                    val latest = state as? ZlibSearchState.Success ?: return@launch
+                    if (latest.query != current.query || latest.category != null) return@launch
+                    val knownIds = latest.books.mapTo(HashSet()) { it.id }
+                    state = latest.copy(
+                        books = latest.books + next.books.filter { knownIds.add(it.id) },
+                        page = next.page,
+                        totalPages = next.totalPages,
+                        loadingMore = false,
+                        loadMoreError = null,
+                    )
                 }
-                logSearch(began, next)
-                val latest = state as? ZlibSearchState.Success ?: return@launch
-                if (latest.query != current.query) return@launch
-                val knownIds = latest.books.mapTo(HashSet()) { it.id }
-                state = latest.copy(
-                    books = latest.books + next.books.filter { knownIds.add(it.id) },
-                    page = next.page,
-                    totalPages = next.totalPages,
-                    loadingMore = false,
-                    loadMoreError = null,
-                )
             } catch (cancellation: CancellationException) {
                 throw cancellation
             } catch (throwable: Throwable) {
                 val latest = state as? ZlibSearchState.Success ?: return@launch
-                if (latest.query != current.query) return@launch
+                if (latest.query != current.query || latest.category != current.category) return@launch
                 recordError(throwable)
                 state = latest.copy(loadingMore = false, loadMoreError = errorMessage(throwable))
             }
@@ -135,8 +208,14 @@ class ZlibSearchViewModel(
         loadNextPage()
     }
 
-    /** 错误态「重试」：重置连接状态（重新探测代理/镜像）后重搜当前关键词。 */
+    /** 错误态「重试」：重置连接状态（重新探测代理/镜像）后重搜当前关键词或分类。 */
     fun retry() {
+        val category = currentCategory
+        if (category != null) {
+            client.resetConnectionState()
+            searchCategory(category)
+            return
+        }
         if (currentQuery.isEmpty()) return
         client.resetConnectionState()
         search(currentQuery)
@@ -147,6 +226,7 @@ class ZlibSearchViewModel(
         firstPageJob?.cancel()
         nextPageJob?.cancel()
         currentQuery = ""
+        currentCategory = null
         state = ZlibSearchState.Idle
     }
 
@@ -175,6 +255,12 @@ class ZlibSearchViewModel(
         )
     }
 
+    /** /s/<URL-encoded 分类>?page=N：分类名是中文，必须转义后再拼站内路径。 */
+    private fun categoryPath(category: String, page: Int): String {
+        val encoded = java.net.URLEncoder.encode(category, "UTF-8")
+        return "/s/" + encoded + "?page=" + page
+    }
+
     private fun mirrorHost(): String {
         val raw = runCatching { client.mirror }.getOrNull() ?: return "unknown"
         return runCatching { URI(raw).host }.getOrNull() ?: raw
@@ -183,6 +269,9 @@ class ZlibSearchViewModel(
     private companion object {
         const val TAG = "PBZlib"
         const val PERF_TAG = "PBPERF"
+
+        /** research §8 实测：分类页每页 51 条。 */
+        const val CATEGORY_PAGE_SIZE = 51
 
         fun errorMessage(throwable: Throwable): String {
             val kind = (throwable as? ZlibException)?.kind

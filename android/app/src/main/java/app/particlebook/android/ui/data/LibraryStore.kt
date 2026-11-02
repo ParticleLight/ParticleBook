@@ -100,7 +100,12 @@ class LibraryStore(private val context: Context) {
      * - 与 [importDocument] 共用 id 分配与索引写入逻辑；
      * - 文件不存在/不是文件：失败。
      */
-    suspend fun adoptLocalFile(file: File, title: String?, author: String?): Result<Book> {
+    suspend fun adoptLocalFile(
+        file: File,
+        title: String?,
+        author: String?,
+        extraTag: String? = null,
+    ): Result<Book> {
         if (!file.isFile) {
             return Result.failure(IllegalArgumentException("下载文件不存在或不可读"))
         }
@@ -119,7 +124,10 @@ class LibraryStore(private val context: Context) {
             format = detectFormat(file),
             filePath = file.absolutePath,
             fileSize = file.length(),
-            tags = listOf(DOWNLOAD_TAG),
+            tags = buildList {
+                add(DOWNLOAD_TAG)
+                extraTag?.takeIf { it.isNotBlank() && it != DOWNLOAD_TAG }?.let(::add)
+            },
         )
         val current = books
         val result = withContext(Dispatchers.IO) {
@@ -140,6 +148,62 @@ class LibraryStore(private val context: Context) {
             )
         }
         return result
+    }
+
+    /**
+     * P1c：下载目录是 SAF 时，下载完成的文档先复制回 filesDir/_pb_files 再登记进书架。
+     * 书架索引只接受本地 File（外部 uri 的授权/文档可能在重启后失效），复制后再走 [adoptLocalFile]。
+     */
+    suspend fun adoptDocument(
+        uri: Uri,
+        displayName: String?,
+        title: String?,
+        author: String?,
+        extraTag: String? = null,
+    ): Result<Book> {
+        val local = withContext(Dispatchers.IO) {
+            runCatching {
+                val name = displayName?.takeIf { it.isNotBlank() }
+                    ?: queryDisplayName(uri)
+                    ?: "未命名"
+                val extension = name.substringAfterLast('.', "").lowercase()
+                val mimeType = runCatching { context.contentResolver.getType(uri) }.getOrNull()
+                val format = when {
+                    extension == "pdf" || mimeType == "application/pdf" -> BookFormat.Pdf
+                    extension == "epub" || mimeType == "application/epub+zip" -> BookFormat.Epub
+                    else -> BookFormat.Epub
+                }
+                val safeExtension = extension.ifEmpty { if (format == BookFormat.Pdf) "pdf" else "epub" }
+                val destination = File(
+                    libraryDir(),
+                    "zlib-" + System.currentTimeMillis() + "." + safeExtension,
+                )
+                val input = context.contentResolver.openInputStream(uri)
+                    ?: error("无法读取下载文件")
+                input.use { source ->
+                    destination.outputStream().use { sink -> source.copyTo(sink) }
+                }
+                destination
+            }
+        }
+        return local.fold(
+            onSuccess = { file ->
+                adoptLocalFile(
+                    file = file,
+                    title = title?.takeIf { it.isNotBlank() }
+                        ?: displayName?.substringBeforeLast('.', ""),
+                    author = author,
+                    extraTag = extraTag,
+                ).onFailure { throwable ->
+                    runCatching { file.delete() }
+                    Log.e(TAG, "adopt saf document failed uri=" + uri, throwable)
+                }
+            },
+            onFailure = { throwable ->
+                Log.e(TAG, "copy saf document failed uri=" + uri, throwable)
+                Result.failure(throwable)
+            },
+        )
     }
 
     /** 删除选中的书：从书架移除、删掉 _pb_files 里的文件、重写索引。 */

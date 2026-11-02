@@ -18,6 +18,8 @@ data class ZBookDetail(
     val coverUrl: String?,
     val detailPath: String,
     val downloadPath: String,
+    /** P1c：详情页 `div#bookDescriptionBox` 的纯文本简介（`<br>` 已转换行）；无简介的书为 null。 */
+    val description: String? = null,
 )
 
 /** 已登录账号（来自页面 `const CurrentUser = new User({...})` 或 prefs 缓存）。 */

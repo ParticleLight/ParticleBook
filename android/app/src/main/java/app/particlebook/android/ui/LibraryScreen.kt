@@ -173,6 +173,10 @@ fun LibraryScreen(
         GridCells.Fixed(2)
     }
 
+    // 200% 字号：胶囊升到 72dp（上沿 132dp），列表底部留白同步加到 136dp。
+    val largeFontScale = LocalDensity.current.fontScale >= 1.3f
+    val shelfBottomInset = if (largeFontScale) Spacing.listBottomInsetLarge else Spacing.listBottomInset
+
     val haptics = LocalHapticFeedback.current
     val focusRequester = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
@@ -368,7 +372,7 @@ fun LibraryScreen(
                             start = Spacing.screen,
                             end = Spacing.screen,
                             top = Spacing.xxs,
-                            bottom = Spacing.listBottomInset,
+                            bottom = shelfBottomInset,
                         ),
                         horizontalArrangement = Arrangement.spacedBy(Spacing.gridColumn),
                         verticalArrangement = Arrangement.spacedBy(Spacing.md),

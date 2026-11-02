@@ -3,6 +3,7 @@ package app.particlebook.android.ui
 import android.app.Activity
 import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Shapes
@@ -68,7 +69,12 @@ object Spacing {
     val cardTitleGap = 10.dp
 
     /** 网格底部为悬浮胶囊预留的空间。 */
-    val listBottomInset = 96.dp
+    /**
+     * 列表/网格底部留白（P0-1）：悬浮胶囊上沿距屏底 124dp（导航区 48 + 间距 12 + 胶囊 64），
+     * 取 128dp = 124 + 4dp 呼吸；[listBottomInsetLarge] 供 200% 字号（胶囊 72dp → 上沿 132dp）使用。
+     */
+    val listBottomInset = 128.dp
+    val listBottomInsetLarge = 136.dp
 
     /** 阅读器底栏高度。 */
     val readerBottomBar = 72.dp
@@ -290,6 +296,14 @@ fun Modifier.coverShadow(shape: Shape, tint: Color, elevation: Dp = Spacing.cove
 /** §17.1.4：blur 仅在 API ≥31 生效；低版本返回原样（调用方用 alpha 0.86 兜底）。 */
 fun Modifier.adaptiveBlur(radius: Dp): Modifier =
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) blur(radius) else this
+
+/**
+ * P1b/P1c 页面底部统一留白（R7-D-UI-FIX P0）：
+ * 先吃掉系统导航栏 inset，再由页面自己用 [Spacing.listBottomInset] 给悬浮胶囊（64dp + 12dp）留位，
+ * 两段互不重复，避免「内容 padding 看起来够、实际被 inset 吃掉」导致最后一行被胶囊压住。
+ */
+@Composable
+fun Modifier.bottomBarPadding(): Modifier = this.navigationBarsPadding()
 
 /**
  * 应用主题。

@@ -34,6 +34,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
@@ -171,7 +172,7 @@ fun ShelfListRow(
     }
 }
 
-/** 横屏书架主体：段头（+生效中的筛选 chip）+ 书籍行；底部留 96dp 给 FAB。 */
+/** 横屏书架主体：段头（+生效中的筛选 chip）+ 书籍行；底部按胶囊上沿留白（128dp / 200% 136dp）。 */
 @Composable
 fun ShelfList(
     books: List<Book>,
@@ -191,13 +192,18 @@ fun ShelfList(
     state: LazyListState = rememberLazyListState(),
 ) {
     val haptics = LocalHapticFeedback.current
+    val bottomInset = if (LocalDensity.current.fontScale >= 1.3f) {
+        Spacing.listBottomInsetLarge
+    } else {
+        Spacing.listBottomInset
+    }
     LazyColumn(
         state = state,
         modifier = modifier.fillMaxSize(),
         contentPadding = PaddingValues(
             start = Spacing.screen,
             end = Spacing.screen,
-            bottom = Spacing.listBottomInset,
+            bottom = bottomInset,
         ),
     ) {
         item(key = "shelf-header") {

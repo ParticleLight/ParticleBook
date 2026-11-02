@@ -159,3 +159,49 @@ object ZlibDownloadParser {
         return result
     }
 }
+
+/**
+ * Range 断点续传决策（P1c ②）：纯函数、可单测。
+ *
+ * 规则：.part 存在时先带 `Range: bytes=<len>-` 请求；
+ * - 服务端回 206 且 Content-Range 起点一致 → append（续传）；
+ * - 回 200 / 起点不一致 / 无 .part → 从头写（truncate），不信任残留文件；
+ * - 完成后仍由调用方校验长度并 rename。
+ */
+internal object ZlibResumePolicy {
+
+    /** append=true 表示追加写；offset 为已有字节数；total 为文件总长（未知时 0）。 */
+    data class Decision(val append: Boolean, val offset: Long, val total: Long)
+
+    private val CONTENT_RANGE = Regex("""bytes\s+(\d+)-(\d+)/(\d+|\*)""", RegexOption.IGNORE_CASE)
+
+    /** Content-Range → (起点, 总长)；总长为 `*` 或解析失败时第二项为 null。 */
+    fun contentRange(header: String?): Pair<Long, Long?>? {
+        val raw = header?.trim().orEmpty()
+        if (raw.isEmpty()) return null
+        val match = CONTENT_RANGE.find(raw) ?: return null
+        val start = match.groupValues[1].toLongOrNull() ?: return null
+        val total = match.groupValues[3].takeIf { it != "*" }?.toLongOrNull()
+        return start to total
+    }
+
+    /**
+     * @param partLength 已有 .part 的字节数（0 = 无）
+     * @param status 响应码（200/206）
+     * @param contentRange 响应 Content-Range 头
+     * @param contentLength 响应 Content-Length（本次响应体长度）
+     */
+    fun decide(partLength: Long, status: Int, contentRange: String?, contentLength: Long): Decision {
+        val range = contentRange(contentRange)
+        val totalFromHeader = range?.second
+        val base = if (status == 206) partLength else 0L
+        val total = totalFromHeader ?: if (contentLength > 0) base + contentLength else 0L
+        if (partLength <= 0 || status != 206) return Decision(false, 0L, total)
+        val start = range?.first
+        if (start != null && start != partLength) {
+            // 服务端给了别的区间：不能追加，从头下，避免拼出损坏文件。
+            return Decision(false, 0L, totalFromHeader ?: 0L)
+        }
+        return Decision(true, partLength, total)
+    }
+}

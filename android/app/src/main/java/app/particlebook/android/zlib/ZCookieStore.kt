@@ -49,9 +49,19 @@ internal class ZCookieStore(
         loadFromDisk()
     }
 
-    /** 与 URI 匹配的 Cookie 头（不含手动挑战 cookie，由 ZlibClient 合并）。 */
+    /**
+     * 与 URI 匹配的 Cookie 原始头（不含手动挑战 cookie，由 ZlibClient 合并）。
+     *
+     * 注意：CookieManager 对 Version=1 的 cookie 会按 RFC 2965 输出（含 `$Version/$Path/$Domain`）。
+     * Android 12 实测返回**单条拼接串**（AOSP InMemoryCookieStore.sortByPath 用 `; ` 拼接），
+     * JDK 实现则可能是多个 header 值；这里全部拼接（防御两种形态），
+     * 由 [ZlibCookieHeader] 统一规范化成 version-0 后再发。
+     */
     fun cookieHeader(uri: URI): String? = try {
-        manager.get(uri, emptyMap<String, List<String>>())?.get("Cookie")?.firstOrNull()
+        manager.get(uri, emptyMap<String, List<String>>())?.get("Cookie")
+            ?.filter { it.isNotBlank() }
+            ?.joinToString("; ")
+            ?.takeIf { it.isNotBlank() }
     } catch (e: Exception) {
         null
     }
@@ -60,13 +70,44 @@ internal class ZCookieStore(
     fun store(uri: URI, headers: Map<String, List<String>>): Int {
         var count = 0
         try {
-            manager.put(uri, headers)
-            count = headers["Set-Cookie"]?.size ?: 0
+            // HttpURLConnection.headerFields 的 key 大小写不保证；CookieManager.put 只认
+            // "Set-Cookie"/"Set-Cookie2"，这里统一归一后再喂，避免任何实现差异导致丢 cookie。
+            val responseHeaders = LinkedHashMap<String, List<String>>()
+            headers.entries.forEach { entry ->
+                val key = entry.key as String?
+                if (key != null && (key.equals("Set-Cookie", ignoreCase = true) ||
+                        key.equals("Set-Cookie2", ignoreCase = true))) {
+                    responseHeaders["Set-Cookie"] =
+                        (responseHeaders["Set-Cookie"] ?: emptyList()) + entry.value
+                }
+            }
+            count = responseHeaders["Set-Cookie"]?.size ?: 0
+            manager.put(uri, responseHeaders)
+            // 关键：把 Version=1 的 cookie 归一到 version-0，否则 CookieManager.get() 输出
+            // RFC 2965 格式（$Version/$Path/$Domain + 引号值），服务端识别不到登录 cookie。
+            normalizeVersions()
         } catch (e: Exception) {
             log("cookie_put_err=${e.javaClass.simpleName}")
         }
         if (count > 0) schedulePersist()
         return count
+    }
+
+    /** 把 jar 里所有 Version=1 cookie 归一到 version-0（RFC 6265 发送格式）。 */
+    private fun normalizeVersions() {
+        try {
+            manager.cookieStore.cookies.forEach { cookie ->
+                if (cookie.version != 0) {
+                    try {
+                        cookie.version = 0
+                    } catch (e: Exception) {
+                        // 单条失败不影响其他 cookie；发送前 [ZlibCookieHeader] 仍会兜底规范化。
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            log("cookie_version_err=${e.javaClass.simpleName}")
+        }
     }
 
     /** 当前 cookie 条数（日志用）。 */
@@ -184,6 +225,7 @@ internal class ZCookieStore(
                 // 单条损坏不影响其他 cookie
             }
         }
+        normalizeVersions()
         log("cookie_loaded count=${cookieCount()}")
     }
 

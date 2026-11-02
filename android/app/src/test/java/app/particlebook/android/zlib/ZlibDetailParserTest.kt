@@ -1,6 +1,7 @@
 package app.particlebook.android.zlib
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
@@ -112,5 +113,45 @@ class ZlibDetailParserTest {
         } catch (e: ZlibException) {
             assertEquals(ZlibException.Kind.PARSE, e.kind)
         }
+    }
+
+    /** P1c：真实有简介的书（The Love Hypothesis）→ 静态 div#bookDescriptionBox 解析为纯文本。 */
+    @Test
+    fun parsesStaticDescriptionBoxAsPlainText() {
+        val detail = ZlibDetailParser.parse(
+            fixture("book-detail-desc.html"),
+            "https://z-lib.by/book/7oYX6Rbz9k/the-love-hypothesis.html",
+            "7oYX6Rbz9k",
+        )
+
+        val description = detail.description
+        assertTrue("真实详情页应解析出简介", description != null && description.length > 500)
+        val text = description!!
+        assertFalse("标签必须剥掉", text.contains("<br") || text.contains("<b>") || text.contains("<i>"))
+        assertTrue("br 必须转换成换行", text.contains("\n"))
+        assertTrue(text.contains("When a fake relationship"))
+    }
+
+    /** 无简介的书：整个 div 不存在 → null（UI 不显示占位）。 */
+    @Test
+    fun descriptionIsNullWhenBoxMissing() {
+        val detail = ZlibDetailParser.parse(fixture("book-detail.html"), baseUrl, bookHash)
+        assertNull(detail.description)
+    }
+
+    /** 合成用例：br 转换行、实体解码、连续空白折叠、空行剔除。 */
+    @Test
+    fun descriptionConvertsBreaksAndDropsTags() {
+        val html = """
+            <div class="details-book cardBooks" data-book_id="5">
+              <h1 class="book-title">With Desc</h1>
+              <a class="btn btn-default dlButton addDownloadedBook" href="/dl/DESC">pdf, 1 MB</a>
+              <div style="font-size:10pt" id="bookDescriptionBox">  <b>Bold start</b><br>Line two &amp; more<br><br><i>Italic</i> end  </div>
+            </div>
+        """.trimIndent()
+
+        val detail = ZlibDetailParser.parse(html, "https://z-lib.by/book/abc/withdesc.html")
+
+        assertEquals("Bold start\nLine two & more\nItalic end", detail.description)
     }
 }

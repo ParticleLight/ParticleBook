@@ -33,6 +33,9 @@ class ZlibException(
 
         /** 下载失败（写入失败 / 不是书 / 不完整）。 */
         DOWNLOAD,
+
+        /** 用户取消下载（半成品 .part 已删除）。 */
+        CANCELLED,
     }
 
     override fun toString(): String = "ZlibException(kind=$kind, message=$message)"

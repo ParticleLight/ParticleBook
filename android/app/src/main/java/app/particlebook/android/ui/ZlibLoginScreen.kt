@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
@@ -58,7 +57,6 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 
 /**
@@ -101,7 +99,7 @@ fun ZlibLoginScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .windowInsetsPadding(WindowInsets.statusBars)
-                .navigationBarsPadding()
+                .bottomBarPadding()
                 .imePadding()
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = Spacing.screen),
@@ -142,6 +140,7 @@ fun ZlibLoginScreen(
                 placeholder = { Text("you@example.com") },
                 singleLine = true,
                 enabled = !busy,
+                isError = error != null,
                 shape = RoundedCornerShape(Radius.cover),
                 keyboardOptions = KeyboardOptions(
                     keyboardType = KeyboardType.Email,
@@ -165,6 +164,17 @@ fun ZlibLoginScreen(
                 label = { Text("密码") },
                 singleLine = true,
                 enabled = !busy,
+                isError = error != null,
+                // P1-4：错误挂在字段上（M3 supportingText 位置），TalkBack 能与输入框关联。
+                supportingText = error?.let { message ->
+                    {
+                        Text(
+                            text = message,
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+                        )
+                    }
+                },
                 shape = RoundedCornerShape(Radius.cover),
                 visualTransformation = if (passwordVisible) {
                     VisualTransformation.None
@@ -192,17 +202,6 @@ fun ZlibLoginScreen(
                 ),
                 keyboardActions = KeyboardActions(onDone = { submit() }),
             )
-            if (error != null) {
-                Spacer(Modifier.height(Spacing.md))
-                Text(
-                    text = error,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .semantics { liveRegion = LiveRegionMode.Polite },
-                )
-            }
             Spacer(Modifier.height(Spacing.lg))
             Button(
                 onClick = { submit() },
@@ -234,7 +233,7 @@ fun ZlibLoginScreen(
                 text = "登录凭据仅保存在本机，用于访问你账号可下载的内容。",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center,
+                // P2-1：与左对齐的字段/错误同一条左缘，不再居中。
                 modifier = Modifier.fillMaxWidth(),
             )
             Spacer(Modifier.height(Spacing.xxl))

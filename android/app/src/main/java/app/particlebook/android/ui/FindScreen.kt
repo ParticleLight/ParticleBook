@@ -38,7 +38,6 @@ import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.SearchOff
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -67,6 +66,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
@@ -108,6 +108,12 @@ fun DiscoverScreen(
     }
     val state = viewModel.state
     val listState = rememberLazyListState()
+    // P0-1：列表底边留白要盖过胶囊上沿（124dp；200% 字号胶囊 72dp → 132dp）。
+    val bottomInset = if (LocalDensity.current.fontScale >= 1.3f) {
+        Spacing.listBottomInsetLarge
+    } else {
+        Spacing.listBottomInset
+    }
 
     val runSearch: () -> Unit = {
         val trimmed = query.trim()
@@ -140,7 +146,8 @@ fun DiscoverScreen(
                 hostState = snackbarHostState,
                 modifier = Modifier
                     .navigationBarsPadding()
-                    .padding(bottom = 96.dp),
+                    // P0-1：Snackbar 底边要落在胶囊上方（132dp = 胶囊上沿 124 + 8）。
+                    .padding(bottom = 132.dp),
             )
         },
     ) { innerPadding ->
@@ -170,7 +177,10 @@ fun DiscoverScreen(
                     onDownloadsClick = onDownloadsClick,
                     onLogoutRequest = { logoutDialogOpen = true },
                 )
-                TopOverflowMenu(onMirrorsClick = { mirrorSheetOpen = true })
+                TopOverflowMenu(
+                    onMirrorsClick = { mirrorSheetOpen = true },
+                    onDownloadsClick = onDownloadsClick,
+                )
             }
             val errorState = state as? ZlibSearchState.Error
             if (errorState != null && errorState.kindLabel == "NO_MIRROR") {
@@ -192,21 +202,48 @@ fun DiscoverScreen(
                         overflow = TextOverflow.Ellipsis,
                     )
                 },
-                leadingIcon = {
-                    Icon(
-                        imageVector = Icons.Outlined.Search,
-                        contentDescription = null,
-                        modifier = Modifier.size(24.dp),
-                    )
-                },
-                trailingIcon = if (query.isNotEmpty()) {
-                    {
-                        IconButton(onClick = { query = "" }) {
-                            Icon(Icons.Filled.Close, contentDescription = "清除")
+                // 用户 23:43 指令：不再用整宽按钮，搜索动作收进搜索框最右侧（48dp 触控区）。
+                trailingIcon = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (query.isNotEmpty() && state !is ZlibSearchState.Loading) {
+                            IconButton(
+                                onClick = { query = "" },
+                                modifier = Modifier.size(48.dp),
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.Close,
+                                    contentDescription = "清除",
+                                    modifier = Modifier.size(20.dp),
+                                )
+                            }
+                        }
+                        val loading = state is ZlibSearchState.Loading
+                        val enabled = query.isNotBlank() && !loading
+                        IconButton(
+                            onClick = runSearch,
+                            enabled = enabled,
+                            modifier = Modifier.size(48.dp),
+                        ) {
+                            if (loading) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(20.dp),
+                                    strokeWidth = 2.dp,
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
+                            } else {
+                                Icon(
+                                    imageVector = Icons.Outlined.Search,
+                                    contentDescription = "搜索",
+                                    modifier = Modifier.size(24.dp),
+                                    tint = if (enabled) {
+                                        MaterialTheme.colorScheme.primary
+                                    } else {
+                                        MaterialTheme.colorScheme.primary.copy(alpha = 0.38f)
+                                    },
+                                )
+                            }
                         }
                     }
-                } else {
-                    null
                 },
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                 keyboardActions = KeyboardActions(onSearch = { runSearch() }),
@@ -214,34 +251,19 @@ fun DiscoverScreen(
                     .fillMaxWidth()
                     .heightIn(min = 56.dp),
             )
-            Spacer(Modifier.height(Spacing.xs))
-            FilledTonalButton(
-                onClick = runSearch,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = 48.dp),
-                shape = CircleShape,
-                colors = ButtonDefaults.filledTonalButtonColors(
-                    contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                ),
-            ) {
-                if (state is ZlibSearchState.Loading) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(18.dp),
-                        strokeWidth = 2.dp,
-                        color = MaterialTheme.colorScheme.primary,
-                    )
-                    Spacer(Modifier.width(Spacing.xs))
-                    Text("搜索中…", maxLines = 1)
-                } else {
-                    Text("搜索", maxLines = 1)
-                }
-            }
+            // 删掉整宽按钮后，搜索框与「热门分类」之间只留这一个自然间距。
+            Spacer(Modifier.height(Spacing.sm))
 
             when (val current = state) {
                 is ZlibSearchState.Idle -> IdleContent(
                     category = category,
-                    onCategoryClick = { category = if (category == it) null else it },
+                    onCategoryClick = { term ->
+                        // task-38：热门分类直接走 /s/<中文> 真实分类页，不再塞进关键词搜索。
+                        category = term
+                        query = ""
+                        keyboard?.hide()
+                        viewModel.searchCategory(term)
+                    },
                     modifier = Modifier.weight(1f),
                 )
 
@@ -271,10 +293,12 @@ fun DiscoverScreen(
                 }
 
                 is ZlibSearchState.Empty -> EmptyResult(
+                    categoryHint = current.category,
                     onSearchCategory = { term ->
-                        query = term
+                        category = term
+                        query = ""
                         keyboard?.hide()
-                        viewModel.search(term)
+                        viewModel.searchCategory(term)
                     },
                     modifier = Modifier.weight(1f),
                 )
@@ -287,23 +311,26 @@ fun DiscoverScreen(
                 )
 
                 is ZlibSearchState.Success -> {
-                    // 新查询的结果回来时回到列表顶部；翻页（同 query）不会重触发。
-                    LaunchedEffect(current.query) { listState.scrollToItem(0) }
+                    // 新查询/新分类的结果回来时回到列表顶部；翻页（同 query+category）不会重触发。
+                    LaunchedEffect(current.query, current.category) { listState.scrollToItem(0) }
                     LazyColumn(
                         state = listState,
                         modifier = Modifier
                             .fillMaxWidth()
                             .weight(1f),
-                        contentPadding = PaddingValues(bottom = Spacing.listBottomInset + Spacing.xs),
+                        contentPadding = PaddingValues(bottom = bottomInset),
                     ) {
                         item(key = "summary") {
                             Text(
-                                text = "已加载 " + current.books.size + " 本" +
+                                text = buildString {
+                                    // task-38：分类搜素表头标明「分类：文学」，与关键词搜索区分。
+                                    current.category?.let { append("分类：").append(it).append(" · ") }
+                                    append("已加载 ").append(current.books.size).append(" 本")
                                     if (current.totalPages >= 1) {
-                                        " · 第 " + current.page + " / " + current.totalPages + " 页"
-                                    } else {
-                                        ""
-                                    },
+                                        append(" · 第 ").append(current.page)
+                                            .append(" / ").append(current.totalPages).append(" 页")
+                                    }
+                                },
                                 style = MaterialTheme.typography.labelMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.padding(vertical = Spacing.sm),
@@ -485,9 +512,12 @@ private fun AccountArea(
     }
 }
 
-/** 顶部溢出菜单（§4.7）：线路入口。 */
+/** 顶部溢出菜单（§4.7）：线路 / 下载记录（P2-4：避免菜单只有一项显得空）。 */
 @Composable
-private fun TopOverflowMenu(onMirrorsClick: () -> Unit) {
+private fun TopOverflowMenu(
+    onMirrorsClick: () -> Unit,
+    onDownloadsClick: () -> Unit,
+) {
     var open by remember { mutableStateOf(false) }
     Box {
         IconButton(
@@ -506,6 +536,13 @@ private fun TopOverflowMenu(onMirrorsClick: () -> Unit) {
                 onClick = {
                     open = false
                     onMirrorsClick()
+                },
+            )
+            DropdownMenuItem(
+                text = { Text("下载记录") },
+                onClick = {
+                    open = false
+                    onDownloadsClick()
                 },
             )
         }
@@ -690,6 +727,7 @@ private fun zlibMetaLine(book: ZBook): String {
 private fun EmptyResult(
     onSearchCategory: (String) -> Unit,
     modifier: Modifier = Modifier,
+    categoryHint: String? = null,
 ) {
     Box(modifier = modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
         Column(
@@ -706,7 +744,10 @@ private fun EmptyResult(
                 modifier = Modifier.size(48.dp),
             )
             Spacer(Modifier.height(Spacing.sm))
-            Text("没有找到相关书籍", style = MaterialTheme.typography.titleMedium)
+            Text(
+                text = categoryHint?.let { "分类「" + it + "」暂无结果" } ?: "没有找到相关书籍",
+                style = MaterialTheme.typography.titleMedium,
+            )
             Spacer(Modifier.height(Spacing.xxs))
             Text(
                 text = "换个书名或作者再试试，也可以直接点热门分类：",

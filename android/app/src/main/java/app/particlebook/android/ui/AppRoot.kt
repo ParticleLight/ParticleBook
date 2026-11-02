@@ -451,7 +451,14 @@ fun ParticleBookApp() {
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .navigationBarsPadding()
-                    .padding(bottom = Spacing.listBottomInset),
+                    // P0-1：下载卡排在胶囊上方（128dp；200% 字号胶囊升到 72dp → 136dp）。
+                    .padding(
+                        bottom = if (LocalDensity.current.fontScale >= 1.3f) {
+                            Spacing.listBottomInsetLarge
+                        } else {
+                            Spacing.listBottomInset
+                        },
+                    ),
             )
         }
         }
@@ -607,7 +614,8 @@ private fun NavCapsule(
             .height(capsuleHeight)
             .floatingShadow(shape),
         shape = shape,
-        color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.92f),
+        // P1-1：92% 半透明会让下方文字透出（对比 ≈1.9:1）→ 提到 98%，观感接近实底但仍带一点层次。
+        color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.98f),
         border = BorderStroke(1.dp, Color.White.copy(alpha = 0.12f)),
     ) {
         Row(
