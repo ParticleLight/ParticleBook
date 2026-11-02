@@ -296,6 +296,7 @@ fun LibraryScreen(
                             onSearchClick = { searchActive = true },
                             onStartSelectionMode = onStartSelectionMode,
                             onRetry = onRetry,
+                            onImportClick = onImportClick,
                         )
                     },
                 )
@@ -305,6 +306,7 @@ fun LibraryScreen(
                     onSearchClick = { searchActive = true },
                     onStartSelectionMode = onStartSelectionMode,
                     onRetry = onRetry,
+                    onImportClick = onImportClick,
                 )
             }
         },
@@ -793,6 +795,7 @@ private fun ShelfTopBar(
     onSearchClick: () -> Unit,
     onStartSelectionMode: () -> Unit,
     onRetry: () -> Unit,
+    onImportClick: () -> Unit,
 ) {
     val container = if (collapsed) {
         MaterialTheme.colorScheme.surface.copy(alpha = 0.86f)
@@ -817,6 +820,7 @@ private fun ShelfTopBar(
                 onSearchClick = onSearchClick,
                 onStartSelectionMode = onStartSelectionMode,
                 onRetry = onRetry,
+                onImportClick = onImportClick,
             )
         },
         colors = TopAppBarDefaults.topAppBarColors(containerColor = container),
@@ -930,6 +934,7 @@ private fun LibraryTopBarActions(
     onSearchClick: () -> Unit,
     onStartSelectionMode: () -> Unit,
     onRetry: () -> Unit,
+    onImportClick: () -> Unit,
 ) {
     var menuOpen by remember { mutableStateOf(false) }
     IconButton(onClick = onSearchClick) {
@@ -943,6 +948,13 @@ private fun LibraryTopBarActions(
             expanded = menuOpen,
             onDismissRequest = { menuOpen = false },
         ) {
+            DropdownMenuItem(
+                text = { Text("导入本地文件") },
+                onClick = {
+                    menuOpen = false
+                    onImportClick()
+                },
+            )
             DropdownMenuItem(
                 text = { Text("选择书籍") },
                 onClick = {

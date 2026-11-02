@@ -16,6 +16,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -36,14 +37,13 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.automirrored.outlined.MenuBook
-import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.outlined.Explore
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.BottomAppBar
-import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationRail
 import androidx.compose.material3.NavigationRailItem
@@ -80,7 +80,7 @@ import app.particlebook.android.ui.data.BookFormat
 import app.particlebook.android.ui.data.LibraryStore
 import kotlinx.coroutines.launch
 
-/** 导航两个目的地：书架 / 设置（找书 P0 未实现，FindScreen 保留待 P1 插回）。阅读器是全屏任务页，不在这里。 */
+/** 导航三个等权目的地：书架 / Z-Library / 设置。阅读器是全屏任务页，不在这里。 */
 private enum class TopLevel(
     val label: String,
     val icon: ImageVector,
@@ -90,6 +90,11 @@ private enum class TopLevel(
         label = "书架",
         icon = Icons.AutoMirrored.Outlined.MenuBook,
         selectedIcon = Icons.AutoMirrored.Filled.MenuBook,
+    ),
+    Discover(
+        label = "Z-Library",
+        icon = Icons.Outlined.Explore,
+        selectedIcon = Icons.Filled.Explore,
     ),
     Settings(
         label = "设置",
@@ -256,7 +261,6 @@ fun ParticleBookApp() {
                 compactLandscape = compactLandscape,
                 tabIndex = tabIndex,
                 onTabSelected = { tabIndex = it },
-                onImport = launchImport,
                 snackbarHostState = snackbarHostState,
                 selectionMode = selectionMode,
                 onDelete = { deleteDialogOpen = true },
@@ -299,6 +303,8 @@ fun ParticleBookApp() {
                         defaultSort = defaultSort,
                         progressEpoch = progressEpoch,
                     )
+
+                    1 -> DiscoverScreen()
 
                     else -> SettingsScreen(
                         themeMode = themeMode,
@@ -355,7 +361,7 @@ fun ParticleBookApp() {
 
 /**
  * 导航外壳：
- * - 竖屏：内容全屏 + 底部悬浮胶囊 [NavCapsule]（宽 250 / 高 64 / 距底 insets+12dp）；
+ * - 竖屏：内容全屏 + 底部悬浮胶囊 [NavCapsule]（288×64dp 三等分 / 距底 insets+12dp）；
  * - 手机横屏：左侧 NavigationRail 80dp（A2 几何不变，无底部胶囊）。
  * 多选时底部换成 SelectionBar（横屏 rail 仍显示）。
  */
@@ -364,7 +370,6 @@ private fun AppShell(
     compactLandscape: Boolean,
     tabIndex: Int,
     onTabSelected: (Int) -> Unit,
-    onImport: () -> Unit,
     snackbarHostState: SnackbarHostState,
     selectionMode: Boolean,
     onDelete: () -> Unit,
@@ -446,7 +451,6 @@ private fun AppShell(
                     NavCapsule(
                         tabIndex = tabIndex,
                         onTabSelected = onTabSelected,
-                        onImport = onImport,
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
                             .navigationBarsPadding()
@@ -458,16 +462,18 @@ private fun AppShell(
     }
 }
 
-/** 悬浮胶囊底栏（§17.2.1）：250×64dp、full 圆角、surfaceContainerHigh@92% + 1dp 白 12% 描边 + 柔和投影。 */
+/**
+ * 悬浮胶囊底栏（§17.2.4 / R5）：288×64dp 三等分（88dp/项），无导入圆钮、无竖分隔。
+ * full 圆角、surfaceContainerHigh@92% + 1dp 白 12% 描边 + 柔和投影；选中项为 primaryContainer 药丸。
+ */
 @Composable
 private fun NavCapsule(
     tabIndex: Int,
     onTabSelected: (Int) -> Unit,
-    onImport: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val shape = CircleShape
-    // 200% 字号下固定 250dp 会把「书架 / 设置」压成「书… / 设…」→ 大字号改成随屏宽伸展、标签完整可读。
+    // 200% 字号：胶囊全宽（288dp 不够分），高 72dp（V7 允许）；图标在上、标签在下，避免「Z-Libr…」截断。
     val largeFont = LocalDensity.current.fontScale >= 1.3f
     val widthModifier = if (largeFont) {
         Modifier
@@ -476,10 +482,12 @@ private fun NavCapsule(
     } else {
         Modifier.width(Spacing.navCapsuleWidth)
     }
+    val capsuleHeight = if (largeFont) 72.dp else Spacing.navCapsuleHeight
+    val itemHeight = if (largeFont) 64.dp else 48.dp
     Surface(
         modifier = modifier
             .then(widthModifier)
-            .height(Spacing.navCapsuleHeight)
+            .height(capsuleHeight)
             .floatingShadow(shape),
         shape = shape,
         color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.92f),
@@ -488,72 +496,72 @@ private fun NavCapsule(
         Row(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = Spacing.xs),
+                .padding(horizontal = Spacing.sm),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             TopLevel.entries.forEachIndexed { index, destination ->
                 val selected = tabIndex == index
-                Row(
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(48.dp)
-                        .clip(CircleShape)
-                        .background(
-                            if (selected) {
-                                MaterialTheme.colorScheme.primaryContainer
-                            } else {
-                                Color.Transparent
-                            },
-                        )
-                        .selectable(
-                            selected = selected,
-                            role = Role.Tab,
-                            onClick = { onTabSelected(index) },
-                        )
-                        .padding(horizontal = Spacing.xs),
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(
-                        imageVector = if (selected) destination.selectedIcon else destination.icon,
-                        contentDescription = null,
-                        tint = if (selected) {
-                            MaterialTheme.colorScheme.onPrimaryContainer
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        },
-                        modifier = Modifier.size(20.dp),
-                    )
-                    Spacer(Modifier.width(6.dp))
-                    Text(
-                        text = destination.label,
-                        style = MaterialTheme.typography.labelMedium,
-                        color = if (selected) {
-                            MaterialTheme.colorScheme.onPrimaryContainer
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        },
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
+                val contentColor = if (selected) {
+                    MaterialTheme.colorScheme.onPrimaryContainer
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
                 }
-            }
-            Box(
-                Modifier
-                    .width(1.dp)
-                    .height(24.dp)
-                    .background(MaterialTheme.colorScheme.outlineVariant),
-            )
-            Spacer(Modifier.width(Spacing.xs))
-            FilledIconButton(
-                onClick = onImport,
-                modifier = Modifier.size(48.dp),
-                colors = IconButtonDefaults.filledIconButtonColors(
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary,
-                ),
-            ) {
-                Icon(Icons.Filled.Add, contentDescription = "导入本地文件")
+                val itemModifier = Modifier
+                    .weight(1f)
+                    .height(itemHeight)
+                    .clip(CircleShape)
+                    .background(
+                        if (selected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
+                    )
+                    .selectable(
+                        selected = selected,
+                        role = Role.Tab,
+                        onClick = { onTabSelected(index) },
+                    )
+                    .padding(horizontal = 2.dp)
+                if (largeFont) {
+                    Column(
+                        modifier = itemModifier,
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center,
+                    ) {
+                        Icon(
+                            imageVector = if (selected) destination.selectedIcon else destination.icon,
+                            contentDescription = null,
+                            tint = contentColor,
+                            modifier = Modifier.size(24.dp),
+                        )
+                        Spacer(Modifier.height(2.dp))
+                        Text(
+                            text = destination.label,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = contentColor,
+                            maxLines = 1,
+                            softWrap = false,
+                        )
+                    }
+                } else {
+                    Row(
+                        modifier = itemModifier,
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(
+                            imageVector = if (selected) destination.selectedIcon else destination.icon,
+                            contentDescription = null,
+                            tint = contentColor,
+                            modifier = Modifier.size(24.dp),
+                        )
+                        Spacer(Modifier.width(4.dp))
+                        Text(
+                            text = destination.label,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = contentColor,
+                            maxLines = 1,
+                            softWrap = false,
+                        )
+                    }
+                }
             }
         }
     }

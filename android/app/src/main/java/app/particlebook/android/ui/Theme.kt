@@ -91,7 +91,8 @@ object Spacing {
     val heroCoverHeight = 123.dp
     val recentCardWidth = 132.dp
     val recentCoverHeight = 176.dp
-    val navCapsuleWidth = 250.dp
+    // R5：三等分导航 3×88 + 左右各 12 = 288dp（756px @2.625）。
+    val navCapsuleWidth = 288.dp
     val navCapsuleHeight = 64.dp
     val thumbCorner = 8.dp
 }
