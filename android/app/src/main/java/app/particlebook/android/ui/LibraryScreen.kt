@@ -1,55 +1,63 @@
 package app.particlebook.android.ui
 
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items as lazyItems
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.SelectAll
-import androidx.compose.material.icons.outlined.Sort
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.MediumTopAppBar
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
@@ -60,39 +68,45 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberModalBottomSheetState
-import androidx.compose.material3.rememberTopAppBarState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.snapshotFlow
-import androidx.compose.runtime.withFrameNanos
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.ui.text.style.TextAlign
+import app.particlebook.android.ui.cover.BookCover
 import app.particlebook.android.ui.data.Book
 import app.particlebook.android.ui.data.BookFormat
+import app.particlebook.android.ui.data.ReadingProgress
 import app.particlebook.android.ui.shelf.ShelfList
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.launch
 
 /** 排序方式；评分排序需要书评数据，P0 只占位。 */
 enum class LibrarySort(val label: String) {
@@ -111,8 +125,9 @@ enum class FormatFilter(val label: String) {
 }
 
 /**
- * 书架：MediumTopAppBar + 自适应网格 + Extended FAB。
- * 排序/筛选收进 ModalBottomSheet，只有筛选生效时才出现一行可关闭的 FilterChip。
+ * 书架（2026 观感版，§17.2.1）：
+ * 透明顶栏 + 34sp Serif 大标题 + 继续阅读 Hero + 最近添加横滑 + 2 列 3:4 网格。
+ * 排序/筛选收进 ModalBottomSheet；多选/搜索沿用 v3.1 交互，底部导航在 AppRoot（悬浮胶囊）。
  */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
@@ -133,7 +148,10 @@ fun LibraryScreen(
     modifier: Modifier = Modifier,
     // 设置里的「默认排序」；书架自己仍可在排序 sheet 里临时改。
     defaultSort: LibrarySort = LibrarySort.RecentRead,
+    // 从阅读器返回时递增，用来重算 Hero 的「最近阅读」。
+    progressEpoch: Int = 0,
 ) {
+    val context = LocalContext.current
     var query by rememberSaveable { mutableStateOf("") }
     var searchActive by rememberSaveable { mutableStateOf(false) }
     var sort by rememberSaveable { mutableStateOf(defaultSort) }
@@ -142,16 +160,20 @@ fun LibraryScreen(
     var formatDialogOpen by rememberSaveable { mutableStateOf(false) }
 
     val configuration = LocalConfiguration.current
-    // 手机横屏（宽 ≥600dp 且高 <480dp）：可用高度只剩 400dp 出头，2:3 封面网格放不下完整首行，
-    // 改走「列表 + 左侧 NavigationRail」（spec §2.1.8 C 方案）。竖屏/平板高度够，仍用网格。
+    // 手机横屏（宽 ≥600dp 且高 <480dp）：A2 几何不变 —— 列表 + 左侧 NavigationRail（AppRoot）。
     val compactLandscape =
         configuration.screenWidthDp >= 600 && configuration.screenHeightDp < 480
-    val gridCells = GridCells.Adaptive(148.dp)
+    // 竖屏 2 列（411dp 宽 → 186dp 卡片）；宽屏（平板）自适应 186dp。
+    val gridColumns = if (configuration.screenWidthDp >= 600) {
+        GridCells.Adaptive(186.dp)
+    } else {
+        GridCells.Fixed(2)
+    }
 
-    val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior(rememberTopAppBarState())
     val haptics = LocalHapticFeedback.current
     val focusRequester = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
+    val scope = rememberCoroutineScope()
 
     LaunchedEffect(searchActive) {
         if (searchActive) focusRequester.requestFocus()
@@ -162,34 +184,40 @@ fun LibraryScreen(
     }
     val filterActive = formatFilter != FormatFilter.All
 
-    // §9.2 D1（首版复测 FAIL 后按 verify 定位重做）：两个布局各存一份索引，切换布局时只把
-    // 「另一个布局」的已存索引恢复过来；恢复的那几帧冻结快照记录 —— 否则新布局首帧的
-    // firstVisibleItemIndex = 0 会把目标索引冲掉，scrollToItem 的恢复值等于没生效。
-    // 两套布局 item 0 都是段头、书籍顺序同源（visible），索引 1:1 互用。
+    // Hero：有进度的书里挑最近读过的（last_read_<id>）；老数据没有时间戳时取第一本有进度的。
+    val heroBook = remember(books, progressEpoch) {
+        books.filter { ReadingProgress.hasProgress(context, it.id) }
+            .maxByOrNull { ReadingProgress.lastReadAt(context, it.id) }
+            ?: books.firstOrNull { ReadingProgress.hasProgress(context, it.id) }
+    }
+    val readingCount = remember(books, progressEpoch) {
+        books.count { ReadingProgress.hasProgress(context, it.id) }
+    }
+    val recentBooks = remember(books) {
+        books.sortedWith(
+            compareByDescending<Book> { it.addedAt ?: "" }.thenByDescending { it.id },
+        ).take(8)
+    }
+
+    // D1：滚动位置记忆。两套布局各存一份（竖屏网格的 item 结构与横屏列表不同，不能共用索引）。
     val gridState: LazyGridState = rememberLazyGridState()
     val listState: LazyListState = rememberLazyListState()
-    // 实测：旋转时若 Activity 被重建，rememberSaveable 里的值在恢复时仍是旧值（0），
-    // 位置记忆会丢。书架滚动位置是纯 UI 记忆，放进程级单例最稳 —— 不管重建与否都能读到。
-    // （读取点直接写 ShelfScrollMemory.xxx，见下方恢复/记录两处）
-    // true = 正在恢复位置，此期间 snapshotFlow 不写回（避免首帧 0 覆盖）。
     var restoring by remember { mutableStateOf(false) }
 
     LaunchedEffect(compactLandscape) {
-        // 恢复的是「刚离开的那个布局」记下的位置：进横屏用竖屏索引，回竖屏用横屏索引，
-        // 这样两种旋转都停在读者刚才看的那本书附近。
-        val target = ShelfScrollMemory.index
-        val targetOffset = ShelfScrollMemory.offset
+        val target = if (compactLandscape) ShelfScrollMemory.listIndex else ShelfScrollMemory.gridIndex
+        val targetOffset = if (compactLandscape) {
+            ShelfScrollMemory.listOffset
+        } else {
+            ShelfScrollMemory.gridOffset
+        }
         restoring = true
         try {
-            // 关键：新布局首帧还没测量，suspend 版 scrollToItem 会被钳到 0（上一版实测
-            // 永远回顶部的根因）。requestScrollToItem 是「下次测量时再定位」，不依赖
-            // 当前 item 数，正好用于旋转后恢复。
             if (compactLandscape) {
                 listState.requestScrollToItem(target.coerceAtLeast(0), targetOffset)
             } else {
                 gridState.requestScrollToItem(target.coerceAtLeast(0), targetOffset)
             }
-            // 等新布局至少完成一次测量，再解除冻结。
             withFrameNanos { }
             withFrameNanos { }
         } catch (cancellation: kotlinx.coroutines.CancellationException) {
@@ -210,16 +238,33 @@ fun LibraryScreen(
             }
         }.collect { (index, offset) ->
             if (restoring) return@collect
-            // 两套布局共用一份「当前阅读位置」：旋转后新布局按它恢复，用户不滚动时
-            // 也不会被覆盖（恢复期间冻结），所以「转出去再转回来」能回到原处。
-            ShelfScrollMemory.index = index
-            ShelfScrollMemory.offset = offset
+            if (compactLandscape) {
+                ShelfScrollMemory.listIndex = index
+                ShelfScrollMemory.listOffset = offset
+            } else {
+                ShelfScrollMemory.gridIndex = index
+                ShelfScrollMemory.gridOffset = offset
+            }
         }
     }
 
+    // 顶栏滚动状态：>24dp 后容器变 surface@86% 并淡入 16sp 标题（§17.2.1）。
+    val scrolled = remember { derivedStateOf { gridState.firstVisibleItemIndex > 0 || gridState.firstVisibleItemScrollOffset > 24 } }
+
     Scaffold(
-        modifier = modifier.fillMaxSize(),
-        containerColor = MaterialTheme.colorScheme.background,
+        modifier = modifier
+            .fillMaxSize()
+            // §17.1.4：顶部 160dp 微渐变（surfaceDim → surface）画在 Scaffold 外层，顶栏透明叠在上面，
+            // 避免顶栏与内容之间出现一条硬边（R2 / V1）。
+            .background(
+                Brush.verticalGradient(
+                    listOf(
+                        MaterialTheme.colorScheme.surfaceDim,
+                        MaterialTheme.colorScheme.surface,
+                    ),
+                ),
+            ),
+        containerColor = Color.Transparent,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             when {
@@ -241,7 +286,7 @@ fun LibraryScreen(
                 )
 
                 compactLandscape -> TopAppBar(
-                    // 横屏高度有限：单行 64dp 顶栏，不折叠（spec §2.1.8）。
+                    // 横屏高度有限：单行 64dp 顶栏，不折叠（spec §2.1.8 / A2）。
                     title = { Text("书架", style = MaterialTheme.typography.titleLarge) },
                     actions = {
                         LibraryTopBarActions(
@@ -252,38 +297,11 @@ fun LibraryScreen(
                     },
                 )
 
-                else -> MediumTopAppBar(
-                    title = {
-                        val collapsed = scrollBehavior.state.collapsedFraction > 0.5f
-                        Text(
-                            text = "书架",
-                            style = if (collapsed) {
-                                MaterialTheme.typography.titleLarge
-                            } else {
-                                MaterialTheme.typography.headlineSmall
-                            },
-                        )
-                    },
-                    actions = {
-                        LibraryTopBarActions(
-                            onSearchClick = { searchActive = true },
-                            onStartSelectionMode = onStartSelectionMode,
-                            onRetry = onRetry,
-                        )
-                    },
-                    scrollBehavior = scrollBehavior,
-                )
-            }
-        },
-        floatingActionButton = {
-            // 空态/骨架/错误态里已有自己的动作入口，避免「导入」重复出现（§14.2 S2-④）。
-            if (!selectionMode && books.isNotEmpty()) {
-                ExtendedFloatingActionButton(
-                    onClick = onImportClick,
-                    icon = { Icon(Icons.Filled.Add, contentDescription = null) },
-                    text = { Text("导入") },
-                    containerColor = MaterialTheme.colorScheme.primaryContainer,
-                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                else -> ShelfTopBar(
+                    collapsed = scrolled.value,
+                    onSearchClick = { searchActive = true },
+                    onStartSelectionMode = onStartSelectionMode,
+                    onRetry = onRetry,
                 )
             }
         },
@@ -332,42 +350,64 @@ fun LibraryScreen(
                     state = listState,
                 )
 
-                else -> LazyVerticalGrid(
-                    columns = gridCells,
-                    state = gridState,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .nestedScroll(scrollBehavior.nestedScrollConnection),
-                    contentPadding = PaddingValues(
-                        start = Spacing.screen,
-                        end = Spacing.screen,
-                        bottom = Spacing.listBottomInset,
-                    ),
-                    horizontalArrangement = Arrangement.spacedBy(Spacing.gridColumn),
-                    verticalArrangement = Arrangement.spacedBy(Spacing.gridRow),
-                ) {
-                    item(span = { GridItemSpan(maxLineSpan) }) {
-                        Column {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(top = Spacing.sectionTop, bottom = Spacing.sectionBottom),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Text(
-                                    text = when {
-                                        query.isNotBlank() -> "搜索结果 · " + visible.size + " 本"
-                                        filterActive -> "筛选结果 · " + visible.size + " 本"
-                                        else -> "全部书籍 · " + books.size + " 本书"
-                                    },
-                                    style = MaterialTheme.typography.titleMedium,
-                                    modifier = Modifier.weight(1f),
+                else -> {
+                    // 「全部书籍」段头在网格里的下标（用于「全部 →」跳转）。
+                    val allBooksHeaderIndex = 1 +
+                        (if (heroBook != null) 1 else 0) +
+                        (if (recentBooks.isNotEmpty()) 2 else 0)
+                    LazyVerticalGrid(
+                        columns = gridColumns,
+                        state = gridState,
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(
+                            start = Spacing.screen,
+                            end = Spacing.screen,
+                            top = Spacing.xxs,
+                            bottom = Spacing.listBottomInset,
+                        ),
+                        horizontalArrangement = Arrangement.spacedBy(Spacing.gridColumn),
+                        verticalArrangement = Arrangement.spacedBy(Spacing.md),
+                    ) {
+                        item(span = { GridItemSpan(maxLineSpan) }) {
+                            ShelfTitleBlock(bookCount = books.size, readingCount = readingCount)
+                        }
+                        if (heroBook != null) {
+                            item(span = { GridItemSpan(maxLineSpan) }) {
+                                ShelfHeroCard(
+                                    book = heroBook,
+                                    onOpen = { onOpenBook(heroBook) },
+                                    modifier = Modifier.padding(bottom = Spacing.xs),
                                 )
-                                IconButton(onClick = { sortSheetOpen = true }) {
-                                    Icon(Icons.Outlined.Sort, contentDescription = "排序与筛选")
-                                }
                             }
-                            if (filterActive) {
+                        }
+                        if (recentBooks.isNotEmpty()) {
+                            item(span = { GridItemSpan(maxLineSpan) }) {
+                                SectionHeader(
+                                    title = "最近添加",
+                                    actionLabel = "全部",
+                                    onAction = {
+                                        scope.launch {
+                                            gridState.animateScrollToItem(allBooksHeaderIndex)
+                                        }
+                                    },
+                                )
+                            }
+                            item(span = { GridItemSpan(maxLineSpan) }) {
+                                RecentBookRow(books = recentBooks, onOpenBook = onOpenBook)
+                            }
+                        }
+                        item(span = { GridItemSpan(maxLineSpan) }) {
+                            SectionHeader(
+                                title = if (query.isNotBlank()) {
+                                    "搜索结果 · " + visible.size + " 本"
+                                } else {
+                                    "全部书籍"
+                                },
+                                modifier = Modifier.padding(top = Spacing.xs),
+                            )
+                        }
+                        if (filterActive) {
+                            item(span = { GridItemSpan(maxLineSpan) }) {
                                 FilterActiveChip(
                                     label = "格式：" + formatFilter.label,
                                     onEdit = { sortSheetOpen = true },
@@ -375,20 +415,20 @@ fun LibraryScreen(
                                 )
                             }
                         }
-                    }
-                    items(visible, key = { book -> book.id }) { book ->
-                        BookGridItem(
-                            book = book,
-                            onClick = {
-                                if (selectionMode) onToggleSelection(book) else onOpenBook(book)
-                            },
-                            onLongClick = {
-                                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                                if (selectionMode) onToggleSelection(book) else onEnterSelection(book)
-                            },
-                            selectionMode = selectionMode,
-                            selected = book.id in selectedIds,
-                        )
+                        gridItems(visible, key = { book -> book.id }) { book ->
+                            BookGridItem(
+                                book = book,
+                                onClick = {
+                                    if (selectionMode) onToggleSelection(book) else onOpenBook(book)
+                                },
+                                onLongClick = {
+                                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    if (selectionMode) onToggleSelection(book) else onEnterSelection(book)
+                                },
+                                selectionMode = selectionMode,
+                                selected = book.id in selectedIds,
+                            )
+                        }
                     }
                 }
             }
@@ -500,6 +540,235 @@ fun LibraryScreen(
     }
 }
 
+// ---------------------------------------------------------------- 首页三段
+
+/** 大标题区块：34sp Serif「书架」+ 「N 本书 · M 本在读」。 */
+@Composable
+private fun ShelfTitleBlock(bookCount: Int, readingCount: Int) {
+    Column(
+        Modifier.padding(top = Spacing.xs, bottom = Spacing.xxs),
+    ) {
+        Text("书架", style = AppType.pageTitle)
+        Spacer(Modifier.height(2.dp))
+        Text(
+            text = bookCount.toString() + " 本书 · " + readingCount + " 本在读",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+/**
+ * Hero「继续阅读」卡（§17.2.1 / §17.3 #1）：380×176dp、圆角 24、
+ * 模糊封面底 + 60% 深色渐变、延续进度条（tertiary 橙）与右侧 92×123 封面。
+ * API < 31 时 blur 自动降级（仍是封面 + 深色遮罩，可读性不变）。
+ */
+@Composable
+private fun ShelfHeroCard(
+    book: Book,
+    onOpen: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val context = LocalContext.current
+    val fraction = ReadingProgress.fraction(context, book.id) ?: 0f
+    val percentLabel = ReadingProgress.percentLabel(context, book.id) ?: ""
+    val shape = RoundedCornerShape(Spacing.heroCorner)
+    // V2：默认字号严格 176dp（462px），大字号才允许撑到 240dp，避免文字被裁同时又不能超验收高度。
+    val largeFont = LocalDensity.current.fontScale >= 1.3f
+    val heroHeight = if (largeFont) {
+        Modifier.heightIn(min = Spacing.heroHeight, max = 240.dp)
+    } else {
+        Modifier.height(Spacing.heroHeight)
+    }
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .then(heroHeight)
+            .clip(shape)
+            .floatingShadow(shape)
+            .clickable(onClick = onOpen)
+            .semantics(mergeDescendants = true) {
+                contentDescription = "继续阅读《" + book.title + "》，" + percentLabel + "，打开"
+            },
+    ) {
+        // 模糊封面底（真实封面 / 程序化渐变都会作为底图）。
+        Box(
+            Modifier
+                .matchParentSize()
+                .adaptiveBlur(28.dp),
+        ) {
+            BookCover(
+                book = book,
+                modifier = Modifier.fillMaxSize(),
+                shape = RectangleShape,
+                compact = true,
+            )
+        }
+        // 深色主题下模糊封面会发灰，再叠一层 40% 黑，保证 Hero 文字区仍是深底（V 验收 B3）。
+        if (MaterialTheme.colorScheme.surface.luminance() < 0.5f) {
+            Box(
+                Modifier
+                    .matchParentSize()
+                    .background(Color.Black.copy(alpha = 0.40f)),
+            )
+        }
+        // 60% 深色渐变遮罩（保证白字对比度）。
+        Box(
+            Modifier
+                .matchParentSize()
+                .background(
+                    Brush.verticalGradient(
+                        listOf(
+                            Color.Black.copy(alpha = 0.30f),
+                            Color.Black.copy(alpha = 0.68f),
+                        ),
+                    ),
+                ),
+        )
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(Spacing.md),
+        ) {
+            Column(Modifier.weight(1f)) {
+                Surface(
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.tertiaryContainer,
+                ) {
+                    Text(
+                        text = "继续阅读",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onTertiaryContainer,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                    )
+                }
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    text = book.title,
+                    style = AppType.heroTitle,
+                    color = Color.White,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Spacer(Modifier.height(8.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    LinearProgressIndicator(
+                        progress = { fraction },
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(4.dp)
+                            .clip(CircleShape),
+                        color = MaterialTheme.colorScheme.tertiary,
+                        trackColor = Color.White.copy(alpha = 0.24f),
+                    )
+                    Spacer(Modifier.width(Spacing.xs))
+                    Text(
+                        text = percentLabel,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.White.copy(alpha = 0.9f),
+                        maxLines = 1,
+                    )
+                }
+                Spacer(Modifier.height(Spacing.xs))
+                FilledTonalButton(
+                    onClick = onOpen,
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                ) {
+                    Text("继续阅读 →", maxLines = 1)
+                }
+            }
+            Spacer(Modifier.width(Spacing.sm))
+            BookCover(
+                book = book,
+                modifier = Modifier
+                    .width(Spacing.heroCoverWidth)
+                    .height(Spacing.heroCoverHeight),
+                shape = RoundedCornerShape(Radius.thumb),
+            )
+        }
+    }
+}
+
+/** 「最近添加」横滑（§17.3 #2）：卡 132dp 宽、封面 132×176、圆角 20，右侧自然露出下一张。 */
+@Composable
+private fun RecentBookRow(
+    books: List<Book>,
+    onOpenBook: (Book) -> Unit,
+) {
+    LazyRow(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+        lazyItems(books, key = { it.id }) { book ->
+            Column(
+                Modifier
+                    .width(Spacing.recentCardWidth)
+                    .clickable { onOpenBook(book) }
+                    .semantics(mergeDescendants = true) {
+                        contentDescription = "《" + book.title + "》，" + book.authorLabel
+                    },
+            ) {
+                BookCover(
+                    book = book,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(Spacing.recentCoverHeight),
+                    shape = RoundedCornerShape(Radius.card),
+                )
+                Spacer(Modifier.height(Spacing.xs))
+                Text(
+                    text = book.title,
+                    style = AppType.bookTitle,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = book.authorLabel,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+    }
+}
+
+/** 顶部透明栏：初始完全透明（大标题在内容里），滚动 >24dp 后 surface@86% + 16sp 标题淡入。 */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ShelfTopBar(
+    collapsed: Boolean,
+    onSearchClick: () -> Unit,
+    onStartSelectionMode: () -> Unit,
+    onRetry: () -> Unit,
+) {
+    val container = if (collapsed) {
+        MaterialTheme.colorScheme.surface.copy(alpha = 0.86f)
+    } else {
+        Color.Transparent
+    }
+    val titleAlpha by animateFloatAsState(
+        targetValue = if (collapsed) 1f else 0f,
+        animationSpec = Motion.enterFade<Float>(),
+        label = "shelfTopBarTitle",
+    )
+    TopAppBar(
+        title = {
+            Text(
+                text = "书架",
+                style = AppType.topBarTitle,
+                modifier = Modifier.alpha(titleAlpha),
+            )
+        },
+        actions = {
+            LibraryTopBarActions(
+                onSearchClick = onSearchClick,
+                onStartSelectionMode = onStartSelectionMode,
+                onRetry = onRetry,
+            )
+        },
+        colors = TopAppBarDefaults.topAppBarColors(containerColor = container),
+    )
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ContextualTopBar(
@@ -601,7 +870,7 @@ internal fun FilterActiveChip(
     }
 }
 
-/** 顶栏右侧两个动作（搜索 / 更多）；竖屏 MediumTopAppBar 与横屏 64dp TopAppBar 共用。 */
+/** 顶栏右侧两个动作（搜索 / 更多）；竖屏透明顶栏与横屏 64dp TopAppBar 共用。 */
 @Composable
 private fun LibraryTopBarActions(
     onSearchClick: () -> Unit,
@@ -679,13 +948,12 @@ private fun filterBooks(
 /**
  * 书架滚动位置记忆（进程级）。
  *
- * 为什么不用 rememberSaveable：旋转时若 Activity 被系统重建，实测恢复到的仍是旧值（0），
- * 位置记忆会丢；这里只是 UI 记忆，不需要参与状态恢复语义，放单例最稳。
- * 记录 index + offset 两段：只有 4 本书时 grid 的 firstVisibleItemIndex 可能一直是 0，
- * 光存 index 表达不了「滚了 300px」这种位置。
+ * 两套布局（竖屏网格 / 横屏列表）的 item 结构不同，各存一份 index+offset；
+ * 旋转时恢复「目标布局上次停留的位置」。
  */
 private object ShelfScrollMemory {
-    /** 当前阅读位置：两套布局共用（item 0 都是段头、书籍顺序同源，索引 1:1）。 */
-    var index: Int = 0
-    var offset: Int = 0
+    var gridIndex: Int = 0
+    var gridOffset: Int = 0
+    var listIndex: Int = 0
+    var listOffset: Int = 0
 }

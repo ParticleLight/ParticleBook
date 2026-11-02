@@ -39,7 +39,9 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.particlebook.android.ui.FilterActiveChip
+import app.particlebook.android.ui.Radius
 import app.particlebook.android.ui.Spacing
+import app.particlebook.android.ui.cover.BookCover
 import app.particlebook.android.ui.data.Book
 import app.particlebook.android.ui.data.ReadingProgress
 
@@ -115,10 +117,15 @@ fun ShelfListRow(
             modifier = Modifier
                 .width(ShelfThumbWidth)
                 .height(ShelfThumbHeight)
-                .clip(RoundedCornerShape(4.dp))
-                .background(MaterialTheme.colorScheme.surfaceContainerHigh),
-            contentAlignment = Alignment.Center,
+                .clip(RoundedCornerShape(Radius.thumb)),
         ) {
+            // 横屏列表也用真实封面（PDF 首页 / EPUB OPF 封面），无封面时 GradientCover 兜底。
+            BookCover(
+                book = book,
+                modifier = Modifier.fillMaxSize(),
+                shape = RoundedCornerShape(Radius.thumb),
+                compact = true,
+            )
             if (selected) {
                 Box(
                     Modifier
@@ -126,16 +133,6 @@ fun ShelfListRow(
                         .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.32f)),
                 )
             }
-            Icon(
-                imageVector = Icons.AutoMirrored.Outlined.MenuBook,
-                contentDescription = null,
-                tint = if (selected) {
-                    MaterialTheme.colorScheme.primary
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                },
-                modifier = Modifier.size(20.dp),
-            )
         }
         Spacer(Modifier.width(Spacing.sm))
         Column(Modifier.weight(1f)) {

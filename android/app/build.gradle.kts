@@ -45,6 +45,9 @@ dependencies {
     implementation(project(":bench"))
 
     // M3 mobile UI（L1 Compose 外壳；见 docs/android-port/android-ui-m3.md）
+    // M3 Expressive 正式版（2026-09）：material3 1.4.0 起 MotionScheme / MaterialShapes /
+    // ButtonGroup / SplitButton / FABMenu / FloatingToolbar / LoadingIndicator 均为稳定 API。
+    implementation("androidx.compose.material3:material3:1.4.0")
     implementation(platform("androidx.compose:compose-bom:2024.12.01"))
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-graphics")

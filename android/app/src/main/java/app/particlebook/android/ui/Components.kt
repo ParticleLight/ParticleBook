@@ -8,6 +8,7 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
@@ -15,6 +16,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
@@ -24,6 +26,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -40,22 +44,31 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import app.particlebook.android.ui.cover.BookCover
+import app.particlebook.android.ui.cover.coverPalette
+import app.particlebook.android.ui.cover.GeneratedCoverStack
 import app.particlebook.android.ui.data.Book
 import app.particlebook.android.ui.data.ReadingProgress
 
 /**
- * 书卡：没有容器（封面自身就是视觉单元），文字直接排在 surface 上。
- * 文本固定 1 + 2 + 1 行：书名 2 行、作者 1 行、元数据 1 行。
+ * 2026 网格卡（§17.3 #5）：3:4 封面（16dp 圆角 + 封面彩色投影）+ 卡下 3 行文字。
+ * 卡本身无底色、无边框、无 elevation——封面即视觉主体；格式信息并入元数据行。
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -71,26 +84,37 @@ fun BookGridItem(
     // spec §2.1.3 / §7.3：视觉上无进度只显示格式（不写「未读」），TalkBack 末位才补「未读」。
     val progressLabel = ReadingProgress.percentLabel(context, book.id)
     val a11yStatus = progressLabel ?: "未读"
+    val coverShape = RoundedCornerShape(Spacing.coverCornerLarge)
+    val shadowTint = remember(book.id, book.title) { coverPalette(book).first }
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val pressScale by animateFloatAsState(
+        targetValue = if (pressed) 0.97f else 1f,
+        animationSpec = Motion.press<Float>(),
+        label = "cardPress",
+    )
     Column(
-        modifier = modifier.semantics(mergeDescendants = true) {
-            contentDescription = book.a11yLabel(a11yStatus)
-        },
+        modifier = modifier
+            .scale(pressScale)
+            .semantics(mergeDescendants = true) {
+                contentDescription = book.a11yLabel(a11yStatus)
+            },
     ) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .aspectRatio(2f / 3f)
-                .clip(RoundedCornerShape(Spacing.coverCorner))
-                .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-                .combinedClickable(onClick = onClick, onLongClick = onLongClick),
+                .aspectRatio(3f / 4f)
+                .coverShadow(shape = coverShape, tint = shadowTint)
+                .clip(coverShape)
+                .combinedClickable(
+                    interactionSource = interaction,
+                    indication = LocalIndication.current,
+                    onClick = onClick,
+                    onLongClick = onLongClick,
+                ),
             contentAlignment = Alignment.Center,
         ) {
-            Icon(
-                imageVector = Icons.AutoMirrored.Outlined.MenuBook,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(32.dp),
-            )
+            BookCover(book = book, modifier = Modifier.fillMaxSize(), shape = coverShape)
             if (selectionMode) {
                 if (selected) {
                     Box(
@@ -135,30 +159,31 @@ fun BookGridItem(
             }
         }
 
-        Spacer(Modifier.height(Spacing.coverToTitle))
+        Spacer(Modifier.height(Spacing.cardTitleGap))
         Text(
             text = book.title,
-            style = MaterialTheme.typography.titleSmall,
+            style = AppType.bookTitle,
             color = MaterialTheme.colorScheme.onSurface,
-            maxLines = 2,
+            maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
-        Spacer(Modifier.height(Spacing.xxs))
+        Spacer(Modifier.height(2.dp))
         Text(
             text = book.authorLabel,
-            style = MaterialTheme.typography.bodySmall,
+            style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
+        Spacer(Modifier.height(2.dp))
         Text(
-            // 无进度 → 只显示格式；有进度 → 「格式 · 已读 45%」。
+            // 一行元数据：格式 · 进度（§17.1.2：不再把格式/进度拆成多行小字）。
             text = if (progressLabel == null) {
                 book.format.label
             } else {
                 book.format.label + " · " + progressLabel
             },
-            style = MaterialTheme.typography.labelMedium,
+            style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
@@ -175,20 +200,30 @@ private fun Book.a11yLabel(progress: String): String {
     return builder.toString()
 }
 
-/** 设置页分组标题：labelLarge + primary，上 24dp / 下 4dp。 */
+/** 区块标题（§17.3 #8）：Headline 22 Serif + 可选右侧文本按钮。 */
 @Composable
-fun SectionHeader(title: String, modifier: Modifier = Modifier) {
-    Text(
-        text = title,
-        style = MaterialTheme.typography.labelLarge,
-        color = MaterialTheme.colorScheme.primary,
-        modifier = modifier.padding(
-            start = Spacing.screen,
-            end = Spacing.screen,
-            top = Spacing.lg,
-            bottom = Spacing.xxs,
-        ),
-    )
+fun SectionHeader(
+    title: String,
+    modifier: Modifier = Modifier,
+    actionLabel: String? = null,
+    onAction: (() -> Unit)? = null,
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(start = Spacing.screen, end = Spacing.xs, top = Spacing.lg, bottom = Spacing.xxs),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = title,
+            style = AppType.sectionTitle,
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.weight(1f),
+        )
+        if (actionLabel != null && onAction != null) {
+            TextButton(onClick = onAction) { Text(actionLabel) }
+        }
+    }
 }
 
 /** 空书架：主动作导入，次动作打开「支持的格式」说明 dialog。 */
@@ -205,14 +240,9 @@ fun EmptyLibrary(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        Icon(
-            imageVector = Icons.AutoMirrored.Outlined.MenuBook,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.size(64.dp),
-        )
-        Spacer(Modifier.height(Spacing.md))
-        Text("书架是空的", style = MaterialTheme.typography.titleMedium)
+        GeneratedCoverStack()
+        Spacer(Modifier.height(Spacing.lg))
+        Text("书架是空的", style = MaterialTheme.typography.headlineSmall)
         Spacer(Modifier.height(Spacing.xs))
         Text(
             text = "从手机里导入 EPUB / PDF，就会出现在这里。",
@@ -309,7 +339,7 @@ fun LibrarySkeleton(modifier: Modifier = Modifier) {
             initialValue = 1f,
             targetValue = 0.6f,
             animationSpec = infiniteRepeatable(
-                animation = tween(durationMillis = 1100, easing = LinearEasing),
+                animation = Motion.pulse(),
                 repeatMode = RepeatMode.Reverse,
             ),
             label = "skeletonAlpha",
@@ -340,8 +370,8 @@ private fun SkeletonCard(alpha: Float) {
         Box(
             Modifier
                 .fillMaxWidth()
-                .aspectRatio(2f / 3f)
-                .clip(RoundedCornerShape(Spacing.coverCorner))
+                .aspectRatio(3f / 4f)
+                .clip(RoundedCornerShape(Spacing.coverCornerLarge))
                 .background(MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = alpha)),
         )
         Spacer(Modifier.height(Spacing.coverToTitle))

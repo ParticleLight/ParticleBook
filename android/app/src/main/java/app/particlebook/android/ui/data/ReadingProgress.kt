@@ -25,6 +25,23 @@ object ReadingProgress {
         return "已读 " + percent + "%"
     }
 
+    /** 是否有真实阅读进度（Hero「继续阅读」只看有进度的书）。 */
+    fun hasProgress(context: Context, bookId: Long): Boolean =
+        prefs(context).getInt("pages_" + bookId, 0) > 1
+
+    /** 最近一次阅读时间（毫秒，0 = 未知）；Hero 用它挑「最近读的那本」。 */
+    fun lastReadAt(context: Context, bookId: Long): Long =
+        prefs(context).getLong("last_read_" + bookId, 0L)
+
+    /** 封面底部细进度条的填充比例 0..1；没有进度返回 null。 */
+    fun fraction(context: Context, bookId: Long): Float? {
+        val store = prefs(context)
+        val pages = store.getInt("pages_" + bookId, 0)
+        if (pages <= 1) return null
+        val current = store.getInt("page_" + bookId, 0).coerceIn(0, pages - 1)
+        return ((current + 1).toFloat() / pages.toFloat()).coerceIn(0f, 1f)
+    }
+
     /** 无障碍用：没有进度时补「未读」（屏幕阅读器感知不到「进度条缺失」）。 */
     fun a11yStatus(context: Context, bookId: Long): String =
         percentLabel(context, bookId) ?: "未读"

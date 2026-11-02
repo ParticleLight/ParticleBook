@@ -1,27 +1,33 @@
 package app.particlebook.android.ui
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
-import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.RadioButton
@@ -30,9 +36,9 @@ import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Slider
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -43,6 +49,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
@@ -56,8 +63,8 @@ import java.util.Locale
 import kotlin.math.roundToInt
 
 /**
- * 设置：分组 ListItem 列表，不用卡片包裹行、不用 leading 图标。
- * 修改即时生效，没有保存按钮。
+ * 设置（§17.4）：34sp Serif 大标题 + 分组容器（28dp 圆角 / 1dp outlineVariant 边框 / 行高 ≥64dp），
+ * 行内不用 Card、不用 leading 图标，跳转行右侧是「当前值 + chevron」。修改即时生效，没有保存按钮。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -104,97 +111,109 @@ fun SettingsScreen(
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
-        containerColor = MaterialTheme.colorScheme.background,
+        containerColor = MaterialTheme.colorScheme.surface,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
-        topBar = { TopAppBar(title = { Text("设置") }) },
     ) { innerPadding ->
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                // spec §5.3：insets 只消费一次，避免面板开合时整页跳动。
-                .consumeWindowInsets(innerPadding),
-            contentPadding = PaddingValues(bottom = 88.dp),
+                .windowInsetsPadding(WindowInsets.statusBars.only(WindowInsetsSides.Top)),
+            // 底部留出悬浮胶囊导航的位置（64 + 12 + 系统栏），免得最后一组被压住。
+            contentPadding = PaddingValues(bottom = 132.dp),
         ) {
             item {
-                SectionHeader("阅读")
-                ListItem(
-                    headlineContent = { Text("字号") },
-                    supportingContent = { Text("EPUB 正文字号（PDF 保持原版式）") },
-                    trailingContent = { ValueTrailing(value = fontSize.toString() + " sp", showChevron = true) },
-                    modifier = Modifier.clickable { fontSheetOpen = true },
-                )
-                ListItem(
-                    headlineContent = { Text("行距") },
-                    supportingContent = { Text("EPUB 正文行距（PDF 保持原版式）") },
-                    trailingContent = {
-                        ValueTrailing(value = formatLineHeight(lineHeight), showChevron = true)
-                    },
-                    modifier = Modifier.clickable { lineHeightSheetOpen = true },
-                )
-                ListItem(
-                    headlineContent = { Text("默认排序") },
-                    supportingContent = { Text("打开书架时的排序方式") },
-                    trailingContent = { ValueTrailing(value = defaultSort.label, showChevron = true) },
-                    modifier = Modifier.clickable { sortSheetOpen = true },
+                Text(
+                    text = "设置",
+                    style = AppType.pageTitle,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.padding(
+                        start = Spacing.screen + 4.dp,
+                        top = Spacing.md,
+                        bottom = Spacing.xs,
+                    ),
                 )
             }
 
             item {
-                SectionHeader("外观")
-                ListItem(
-                    headlineContent = { Text("主题") },
-                    supportingContent = { Text("深色模式跟随系统，或手动指定") },
-                )
-                // 200% 字号下三段按钮放不下（label 换行会溢出胶囊），降级为单选列表行（§14.5 硬性要求）。
-                if (largeFontScale) {
-                    Column(Modifier.fillMaxWidth()) {
-                        AppThemeMode.entries.forEach { mode ->
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .heightIn(min = 48.dp)
-                                    .selectable(
-                                        selected = themeMode == mode,
-                                        role = Role.RadioButton,
-                                        onClick = { onThemeModeChange(mode) },
+                SettingsGroup(title = "阅读") {
+                    SettingsRow(
+                        title = "字号",
+                        support = "EPUB 正文字号（PDF 保持原版式）",
+                        value = fontSize.toString() + " sp",
+                        showChevron = true,
+                        onClick = { fontSheetOpen = true },
+                    )
+                    SettingsRow(
+                        title = "行距",
+                        support = "EPUB 正文行距（PDF 保持原版式）",
+                        value = formatLineHeight(lineHeight),
+                        showChevron = true,
+                        onClick = { lineHeightSheetOpen = true },
+                    )
+                    SettingsRow(
+                        title = "默认排序",
+                        support = "打开书架时的排序方式",
+                        value = defaultSort.label,
+                        showChevron = true,
+                        onClick = { sortSheetOpen = true },
+                    )
+                }
+            }
+
+            item {
+                SettingsGroup(title = "外观") {
+                    SettingsRow(
+                        title = "主题",
+                        support = "深色模式跟随系统，或手动指定",
+                    )
+                    // 200% 字号下三段按钮放不下（label 换行会溢出胶囊），降级为单选列表行（§14.5 硬性要求）。
+                    if (largeFontScale) {
+                        Column(Modifier.fillMaxWidth()) {
+                            AppThemeMode.entries.forEach { mode ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .heightIn(min = 56.dp)
+                                        .selectable(
+                                            selected = themeMode == mode,
+                                            role = Role.RadioButton,
+                                            onClick = { onThemeModeChange(mode) },
+                                        )
+                                        .padding(horizontal = 20.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    RadioButton(selected = themeMode == mode, onClick = null)
+                                    Spacer(Modifier.size(Spacing.sm))
+                                    Text(
+                                        text = mode.label,
+                                        style = MaterialTheme.typography.bodyLarge,
                                     )
-                                    .padding(horizontal = Spacing.screen),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                RadioButton(
-                                    selected = themeMode == mode,
-                                    onClick = null,
-                                )
-                                Spacer(Modifier.size(Spacing.sm))
-                                Text(
-                                    text = mode.label,
-                                    style = MaterialTheme.typography.bodyLarge,
-                                )
+                                }
                             }
                         }
-                    }
-                } else {
-                    SingleChoiceSegmentedButtonRow(
-                        Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = Spacing.screen),
-                    ) {
-                        AppThemeMode.entries.forEachIndexed { index, mode ->
-                            SegmentedButton(
-                                selected = themeMode == mode,
-                                onClick = { onThemeModeChange(mode) },
-                                shape = SegmentedButtonDefaults.itemShape(
-                                    index = index,
-                                    count = AppThemeMode.entries.size,
-                                ),
-                            ) {
-                                Text(
-                                    text = mode.label,
-                                    maxLines = 1,
-                                    softWrap = false,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
+                    } else {
+                        SingleChoiceSegmentedButtonRow(
+                            Modifier
+                                .fillMaxWidth()
+                                .padding(start = 20.dp, end = 20.dp, bottom = Spacing.md),
+                        ) {
+                            AppThemeMode.entries.forEachIndexed { index, mode ->
+                                SegmentedButton(
+                                    selected = themeMode == mode,
+                                    onClick = { onThemeModeChange(mode) },
+                                    shape = SegmentedButtonDefaults.itemShape(
+                                        index = index,
+                                        count = AppThemeMode.entries.size,
+                                    ),
+                                ) {
+                                    Text(
+                                        text = mode.label,
+                                        maxLines = 1,
+                                        softWrap = false,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
                             }
                         }
                     }
@@ -202,58 +221,45 @@ fun SettingsScreen(
             }
 
             item {
-                SectionHeader("书库")
-                ListItem(
-                    headlineContent = { Text("导入本地文件") },
-                    supportingContent = { Text("EPUB / PDF，从系统文件选择器添加") },
-                    trailingContent = { ValueTrailing(value = "", showChevron = true) },
-                    modifier = Modifier.clickable(onClick = onImportClick),
-                )
-                ListItem(
-                    headlineContent = { Text("存储占用") },
-                    trailingContent = { ValueTrailing(value = storageLabel) },
-                )
-                ListItem(
-                    headlineContent = { Text("书源管理") },
-                    supportingContent = { Text("后续版本") },
-                )
+                SettingsGroup(title = "书库") {
+                    SettingsRow(
+                        title = "导入本地文件",
+                        support = "EPUB / PDF，从系统文件选择器添加",
+                        showChevron = true,
+                        onClick = onImportClick,
+                    )
+                    SettingsRow(title = "存储占用", value = storageLabel)
+                    SettingsRow(title = "书源管理", support = "后续版本")
+                }
             }
 
             item {
-                SectionHeader("数据")
-                ListItem(
-                    headlineContent = { Text("阅读统计") },
-                    supportingContent = { Text("后续版本") },
-                )
-                ListItem(
-                    headlineContent = {
-                        Text("清除阅读记录", color = MaterialTheme.colorScheme.error)
-                    },
-                    supportingContent = { Text("移除所有书籍的阅读进度") },
-                    modifier = Modifier.clickable { clearDialogOpen = true },
-                )
+                SettingsGroup(title = "数据") {
+                    SettingsRow(title = "阅读统计", support = "后续版本")
+                    SettingsRow(
+                        title = "清除阅读记录",
+                        support = "移除所有书籍的阅读进度",
+                        destructive = true,
+                        onClick = { clearDialogOpen = true },
+                    )
+                }
             }
 
             item {
-                SectionHeader("关于")
-                ListItem(
-                    headlineContent = { Text("版本") },
-                    trailingContent = { ValueTrailing(value = versionName) },
-                )
-                ListItem(
-                    headlineContent = { Text("更新日志") },
-                    supportingContent = { Text("后续版本") },
-                )
-                ListItem(
-                    headlineContent = { Text("开源许可") },
-                    supportingContent = { Text("后续版本") },
-                )
+                SettingsGroup(title = "关于") {
+                    SettingsRow(title = "版本", value = versionName)
+                    SettingsRow(title = "更新日志", support = "后续版本")
+                    SettingsRow(title = "开源许可", support = "后续版本")
+                }
             }
         }
     }
 
     if (fontSheetOpen) {
-        ModalBottomSheet(onDismissRequest = { fontSheetOpen = false }) {
+        ModalBottomSheet(
+            onDismissRequest = { fontSheetOpen = false },
+            contentWindowInsets = { WindowInsets(0, 0, 0, 0) },
+        ) {
             Column(
                 Modifier
                     .fillMaxWidth()
@@ -289,7 +295,10 @@ fun SettingsScreen(
     }
 
     if (lineHeightSheetOpen) {
-        ModalBottomSheet(onDismissRequest = { lineHeightSheetOpen = false }) {
+        ModalBottomSheet(
+            onDismissRequest = { lineHeightSheetOpen = false },
+            contentWindowInsets = { WindowInsets(0, 0, 0, 0) },
+        ) {
             Column(
                 Modifier
                     .fillMaxWidth()
@@ -338,7 +347,10 @@ fun SettingsScreen(
     }
 
     if (sortSheetOpen) {
-        ModalBottomSheet(onDismissRequest = { sortSheetOpen = false }) {
+        ModalBottomSheet(
+            onDismissRequest = { sortSheetOpen = false },
+            contentWindowInsets = { WindowInsets(0, 0, 0, 0) },
+        ) {
             Column(
                 Modifier
                     .fillMaxWidth()
@@ -360,11 +372,7 @@ fun SettingsScreen(
                             ),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        RadioButton(
-                            selected = defaultSort == option,
-                            onClick = null,
-                            enabled = enabled,
-                        )
+                        RadioButton(selected = defaultSort == option, onClick = null, enabled = enabled)
                         Spacer(Modifier.size(Spacing.sm))
                         Text(
                             text = option.label + if (enabled) "" else "（后续版本）",
@@ -410,17 +418,71 @@ fun SettingsScreen(
     }
 }
 
-/** 行距可选项：4 档，够用且不会在 200% 字号下溢出。 */
-private val LineHeightOptions = listOf(1.3f, 1.5f, 1.7f, 2.0f)
-
-/** 行距显示成「1.7」而不是「1.700000」。 */
-private fun formatLineHeight(value: Float): String = String.format(Locale.US, "%.1f", value)
-
-/** 行尾值：当前值 + 可选 chevron。 */
+/** 分组容器（§17.4）：28dp 圆角 + 1dp outlineVariant 边框，内部行之间不用分割线。 */
 @Composable
-private fun ValueTrailing(value: String, showChevron: Boolean = false) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        if (value.isNotEmpty()) {
+private fun SettingsGroup(
+    title: String,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    Column(Modifier.fillMaxWidth().padding(horizontal = Spacing.screen)) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.padding(start = 4.dp, top = Spacing.lg, bottom = Spacing.xs),
+        )
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(Radius.group),
+            color = MaterialTheme.colorScheme.surfaceContainerLow,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        ) {
+            Column(Modifier.padding(vertical = 4.dp), content = content)
+        }
+    }
+}
+
+/** 设置行（§17.4）：高 ≥64dp、左右 20dp，标题 bodyLarge、说明 bodySmall、值 bodyMedium + 20dp chevron。 */
+@Composable
+private fun SettingsRow(
+    title: String,
+    support: String? = null,
+    value: String? = null,
+    showChevron: Boolean = false,
+    destructive: Boolean = false,
+    onClick: (() -> Unit)? = null,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = if (support == null) 60.dp else 64.dp)
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+            .padding(horizontal = 20.dp, vertical = Spacing.xs),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodyLarge,
+                color = if (destructive) {
+                    MaterialTheme.colorScheme.error
+                } else {
+                    MaterialTheme.colorScheme.onSurface
+                },
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (support != null) {
+                Text(
+                    text = support,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+        if (value != null) {
             Text(
                 text = value,
                 style = MaterialTheme.typography.bodyMedium,
@@ -439,3 +501,9 @@ private fun ValueTrailing(value: String, showChevron: Boolean = false) {
         }
     }
 }
+
+/** 行距可选项：4 档，够用且不会在 200% 字号下溢出。 */
+private val LineHeightOptions = listOf(1.3f, 1.5f, 1.7f, 2.0f)
+
+/** 行距显示成「1.7」而不是「1.700000」。 */
+private fun formatLineHeight(value: Float): String = String.format(Locale.US, "%.1f", value)

@@ -44,6 +44,7 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -87,6 +88,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
@@ -131,7 +133,7 @@ private const val TAG = "PBReader"
 private const val CHROME_AUTO_HIDE_MS = 4000L
 
 /** 页与页之间的间距。 */
-private val PageGap = 8.dp
+private val PageGap = 12.dp
 
 /** A4 高宽比，只用于未渲染页的占位块高度，渲染完成后按真实尺寸。 */
 private const val PlaceholderAspect = 1.414f
@@ -346,6 +348,8 @@ private fun PdfReadingPane(book: Book, source: PdfSource, onBack: () -> Unit) {
             progressPrefs.edit()
                 .putInt(progressKey, currentPage)
                 .putInt(pagesKey, pageCount)
+                // 「继续阅读」取最近一次打开的书（Hero 卡排序用）。
+                .putLong("last_read_" + book.id, System.currentTimeMillis())
                 .apply()
         }
     }
@@ -375,8 +379,10 @@ private fun PdfReadingPane(book: Book, source: PdfSource, onBack: () -> Unit) {
         val pageWidthPx = computeRenderWidthPx(viewportWidthPx, viewportHeightPx)
         val pageWidthDp = with(density) { pageWidthPx.toDp() }
         val chromeShiftPx = with(density) { 8.dp.roundToPx() }
-        val chromeMotion = tween<androidx.compose.ui.unit.IntOffset>(durationMillis = 150)
-        val chromeFade = tween<Float>(durationMillis = 150)
+        val chromeMotion = Motion.enterSpatial<androidx.compose.ui.unit.IntOffset>()
+        val chromeFade = Motion.enterFade<Float>()
+        val chromeMotionOut = Motion.exitSpatial<androidx.compose.ui.unit.IntOffset>()
+        val chromeFadeOut = Motion.exitFade<Float>()
 
         LazyColumn(
             state = listState,
@@ -386,6 +392,10 @@ private fun PdfReadingPane(book: Book, source: PdfSource, onBack: () -> Unit) {
                     detectTapGestures(onTap = { toggleChrome() })
                 },
             verticalArrangement = Arrangement.spacedBy(PageGap),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                top = Spacing.sm,
+                bottom = 96.dp,
+            ),
         ) {
             items(count = pageCount, key = { index -> index }) { index ->
                 PdfPageItem(
@@ -397,21 +407,46 @@ private fun PdfReadingPane(book: Book, source: PdfSource, onBack: () -> Unit) {
             }
         }
 
+        // chrome 收起后，屏幕最上方留一条 2dp 阅读进度线（点按切回 chrome 后隐藏，避免和顶栏重影）。
+        if (!chromeVisible) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .fillMaxWidth()
+                    .height(2.dp),
+            ) {
+                Box(
+                    Modifier
+                        .fillMaxWidth(((displayPage + 1f) / pageCount).coerceIn(0f, 1f))
+                        .height(2.dp)
+                        .background(MaterialTheme.colorScheme.tertiary),
+                )
+            }
+        }
+
         AnimatedVisibility(
             visible = chromeVisible,
             enter = fadeIn(chromeFade) + slideInVertically(chromeMotion) { -chromeShiftPx },
-            exit = fadeOut(chromeFade) + slideOutVertically(chromeMotion) { -chromeShiftPx },
+            exit = fadeOut(chromeFadeOut) + slideOutVertically(chromeMotionOut) { -chromeShiftPx },
             modifier = Modifier.align(Alignment.TopCenter),
         ) {
+            // E3 取舍：不做真实 backdrop blur（成本高），用 0.88 alpha 的半透明底；
+            // 关键是不能把 TopAppBar 的文字一起 blur 掉（会导致返回/书名看不见）。
             Surface(
-                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
-                tonalElevation = 3.dp,
+                modifier = Modifier.fillMaxWidth(),
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
             ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(88.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
                 TopAppBar(
                     title = {
                         Text(
                             text = book.title,
-                            style = MaterialTheme.typography.titleMedium,
+                            style = AppType.topBarTitle,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
@@ -474,16 +509,17 @@ private fun PdfReadingPane(book: Book, source: PdfSource, onBack: () -> Unit) {
                         }
                     },
                     colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = MaterialTheme.colorScheme.surface,
+                        containerColor = androidx.compose.ui.graphics.Color.Transparent,
                     ),
                 )
+                }
             }
         }
 
         AnimatedVisibility(
             visible = chromeVisible,
             enter = fadeIn(chromeFade) + slideInVertically(chromeMotion) { chromeShiftPx },
-            exit = fadeOut(chromeFade) + slideOutVertically(chromeMotion) { chromeShiftPx },
+            exit = fadeOut(chromeFadeOut) + slideOutVertically(chromeMotionOut) { chromeShiftPx },
             modifier = Modifier.align(Alignment.BottomCenter),
         ) {
             PdfBottomBar(
@@ -619,6 +655,7 @@ private fun TocPageCell(pageIndex: Int, selected: Boolean, onClick: () -> Unit) 
     }
 }
 
+/** 底部悬浮胶囊（§17.3）：surfaceContainerHigh@92% + 1dp 白描边 + 柔和投影，距底 insets + 12dp。 */
 @Composable
 private fun PdfBottomBar(
     pageCount: Int,
@@ -628,15 +665,22 @@ private fun PdfBottomBar(
     onSliderFinished: () -> Unit,
     onOpenToc: () -> Unit,
 ) {
+    val shape = CircleShape
     Surface(
-        color = MaterialTheme.colorScheme.surface,
-        tonalElevation = 3.dp,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = Spacing.xl)
+            .navigationBarsPadding()
+            .padding(bottom = Spacing.md)
+            .height(64.dp)
+            .floatingShadow(shape),
+        shape = shape,
+        color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.92f),
+        border = BorderStroke(1.dp, androidx.compose.ui.graphics.Color.White.copy(alpha = 0.12f)),
     ) {
         Row(
             modifier = Modifier
-                .fillMaxWidth()
-                .navigationBarsPadding()
-                .height(Spacing.readerBottomBar)
+                .fillMaxSize()
                 .padding(horizontal = Spacing.md),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -651,7 +695,7 @@ private fun PdfBottomBar(
                 style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.onSurface,
                 textAlign = TextAlign.Center,
-                modifier = Modifier.widthIn(min = 72.dp),
+                modifier = Modifier.widthIn(min = 64.dp),
             )
             if (pageCount > 1) {
                 Spacer(Modifier.width(Spacing.xs))
@@ -713,7 +757,9 @@ private fun PdfPageItem(source: PdfSource, pageIndex: Int, widthPx: Int, widthDp
                 bitmap = current.bitmap.asImageBitmap(),
                 contentDescription = "第 " + (pageIndex + 1) + " 页",
                 contentScale = ContentScale.FillWidth,
-                modifier = Modifier.width(widthDp),
+                modifier = Modifier
+                    .width(widthDp)
+                    .clip(RoundedCornerShape(Spacing.xxs)),
             )
             is PageRender.Failed -> PageRenderError(
                 pageIndex = pageIndex,
