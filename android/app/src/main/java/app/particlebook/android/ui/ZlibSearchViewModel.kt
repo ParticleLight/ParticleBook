@@ -8,6 +8,7 @@ import androidx.compose.runtime.setValue
 import app.particlebook.android.zlib.ZBook
 import app.particlebook.android.zlib.ZSearchPage
 import app.particlebook.android.zlib.ZlibClient
+import app.particlebook.android.zlib.ZlibErrorMessages
 import app.particlebook.android.zlib.ZlibException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -134,9 +135,11 @@ class ZlibSearchViewModel(
         loadNextPage()
     }
 
-    /** 错误态「重试」：重搜当前关键词。 */
+    /** 错误态「重试」：重置连接状态（重新探测代理/镜像）后重搜当前关键词。 */
     fun retry() {
-        if (currentQuery.isNotEmpty()) search(currentQuery)
+        if (currentQuery.isEmpty()) return
+        client.resetConnectionState()
+        search(currentQuery)
     }
 
     /** 空结果页「看看热门分类」：回到初始态。 */
@@ -189,7 +192,10 @@ class ZlibSearchViewModel(
                 ZlibException.Kind.HTTP -> "服务器返回错误，请稍后重试。"
                 ZlibException.Kind.PARSE -> "页面解析失败：镜像可能已改版。"
                 ZlibException.Kind.NETWORK -> "网络连接失败，请检查网络后重试。"
-                null -> throwable.message ?: "搜索失败，请稍后重试。"
+                ZlibException.Kind.DAILY_LIMIT -> ZlibErrorMessages.DAILY_LIMIT
+                ZlibException.Kind.LOGIN_REQUIRED -> ZlibErrorMessages.LOGIN_REQUIRED
+                ZlibException.Kind.DOWNLOAD -> ZlibErrorMessages.DOWNLOAD
+                else -> throwable.message ?: "搜索失败，请稍后重试。"
             }
         }
     }

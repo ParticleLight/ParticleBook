@@ -55,6 +55,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -69,6 +70,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -78,6 +80,8 @@ import androidx.compose.ui.unit.dp
 import app.particlebook.android.ui.data.Book
 import app.particlebook.android.ui.data.BookFormat
 import app.particlebook.android.ui.data.LibraryStore
+import app.particlebook.android.zlib.ZAccount
+import app.particlebook.android.zlib.ZlibClient
 import kotlinx.coroutines.launch
 
 /** 导航三个等权目的地：书架 / Z-Library / 设置。阅读器是全屏任务页，不在这里。 */
@@ -171,6 +175,25 @@ fun ParticleBookApp() {
 
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+
+    // Z-Library P1b：账号状态、全屏二级页（登录 / 详情 / 下载记录）、下载卡片。
+    val appContext = context.applicationContext
+    val accountViewModel = remember(scope, appContext) {
+        ZlibAccountViewModel(scope, appContext)
+    }
+    val detailViewModel = remember(scope, appContext) {
+        ZlibDetailViewModel(scope, appContext)
+    }
+    LaunchedEffect(appContext) { ZlibDownloadManager.init(appContext) }
+    var route by rememberSaveable { mutableStateOf("") }
+    var loginReturnRoute by rememberSaveable { mutableStateOf("") }
+    var detailHash by rememberSaveable { mutableStateOf("") }
+    var detailSlug by rememberSaveable { mutableStateOf("") }
+    val openLogin: (String) -> Unit = { returnTo ->
+        loginReturnRoute = returnTo
+        route = "login"
+    }
+    val downloadTasks by ZlibDownloadManager.tasks.collectAsState()
     val books: List<Book> = store.books
     val openBook = remember(books, openBookId) { books.firstOrNull { it.id == openBookId } }
 
@@ -218,11 +241,23 @@ fun ParticleBookApp() {
     }
 
     BackHandler(enabled = openBook == null && selectionMode) { exitSelection() }
-    BackHandler(enabled = openBook == null && !selectionMode && tabIndex != 0) { tabIndex = 0 }
+    BackHandler(enabled = openBook == null && route.isNotEmpty()) {
+        route = if (route == "login") {
+            val target = loginReturnRoute
+            loginReturnRoute = ""
+            target
+        } else {
+            ""
+        }
+    }
+    BackHandler(enabled = openBook == null && route.isEmpty() && !selectionMode && tabIndex != 0) {
+        tabIndex = 0
+    }
 
     val reduceMotion = Motion.isReducedMotion(LocalContext.current)
 
     ParticleBookTheme(mode = themeMode) {
+        Box(modifier = Modifier.fillMaxSize()) {
         AnimatedContent(
             targetState = openBook,
             transitionSpec = {
@@ -304,7 +339,17 @@ fun ParticleBookApp() {
                         progressEpoch = progressEpoch,
                     )
 
-                    1 -> DiscoverScreen()
+                    1 -> DiscoverScreen(
+                        account = accountViewModel.account,
+                        onLoginClick = { openLogin("") },
+                        onLogout = { accountViewModel.logout() },
+                        onDownloadsClick = { route = "downloads" },
+                        onOpenDetail = { hash, slug ->
+                            detailHash = hash
+                            detailSlug = slug ?: ""
+                            route = "detail"
+                        },
+                    )
 
                     else -> SettingsScreen(
                         themeMode = themeMode,
@@ -333,9 +378,81 @@ fun ParticleBookApp() {
                                 snackbarHostState.showSnackbar("已清除本会话的阅读记录")
                             }
                         },
+                        account = accountViewModel.account,
+                        onLoginClick = { openLogin("") },
+                        onLogout = { accountViewModel.logout() },
+                        onDownloadsClick = { route = "downloads" },
                     )
                 }
             }
+        }
+        }
+
+        // 全屏二级页叠在书架/设置之上：书架留组合状态，返回后搜索词与结果不丢。
+        // 外层 Box 自带 pointerInput：空白处的点按不会穿透到下层导航胶囊/列表。
+        if (route.isNotEmpty()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .pointerInput(Unit) {
+                        awaitPointerEventScope {
+                            while (true) {
+                                awaitPointerEvent()
+                            }
+                        }
+                    },
+            ) {
+            when (route) {
+                "login" -> ZlibLoginScreen(
+                    viewModel = accountViewModel,
+                    onBack = {
+                        val target = loginReturnRoute
+                        loginReturnRoute = ""
+                        route = target
+                    },
+                    onLoginSuccess = {
+                        val target = loginReturnRoute
+                        loginReturnRoute = ""
+                        route = target
+                    },
+                )
+
+                "detail" -> ZlibDetailScreen(
+                    viewModel = detailViewModel,
+                    store = store,
+                    hash = detailHash,
+                    slug = detailSlug.ifBlank { null },
+                    onBack = { route = "" },
+                    onOpenBook = { book ->
+                        route = ""
+                        openBookId = book.id
+                    },
+                    onRequireLogin = { openLogin("detail") },
+                )
+
+                "downloads" -> ZlibDownloadsScreen(
+                    store = store,
+                    onBack = { route = "" },
+                    onOpenBook = { book ->
+                        route = ""
+                        openBookId = book.id
+                    },
+                )
+            }
+            }
+        }
+
+        // 登录页是模态任务页：下载卡片会压住表单/错误行，按 Lead 口径此页不渲染 overlay。
+        if (route != "login") {
+            ZlibDownloadCardsOverlay(
+                tasks = downloadTasks,
+                onRetry = { id -> ZlibDownloadManager.retry(id, store) },
+                onDismiss = { id -> ZlibDownloadManager.dismiss(id) },
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .navigationBarsPadding()
+                    .padding(bottom = Spacing.listBottomInset),
+            )
         }
         }
     }

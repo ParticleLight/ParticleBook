@@ -32,6 +32,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
@@ -45,6 +47,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -56,7 +59,11 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import app.particlebook.android.zlib.ZAccount
+import app.particlebook.android.zlib.ZMirrorInfo
+import app.particlebook.android.zlib.ZlibClient
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.Locale
@@ -79,9 +86,27 @@ fun SettingsScreen(
     onDefaultSortChange: (LibrarySort) -> Unit,
     onImportClick: () -> Unit,
     onClearReadingRecords: () -> Unit,
+    account: ZAccount?,
+    onLoginClick: () -> Unit,
+    onLogout: () -> Unit,
+    onDownloadsClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val snackbarHostState = remember { SnackbarHostState() }
+    val client = remember { ZlibClient.get(context.applicationContext) }
+    var mirrorInfo by remember { mutableStateOf<ZMirrorInfo?>(null) }
+    var mirrorSheetOpen by rememberSaveable { mutableStateOf(false) }
+    var logoutDialogOpen by rememberSaveable { mutableStateOf(false) }
+    val downloadDir = remember {
+        ZlibDownloadManager.downloadDir(context.applicationContext).absolutePath
+    }
+    LaunchedEffect(Unit) {
+        mirrorInfo = withContext(Dispatchers.IO) {
+            runCatching { client.mirrorInfo() }.getOrNull()
+        }
+    }
     val versionName = remember {
         runCatching {
             context.packageManager.getPackageInfo(context.packageName, 0).versionName
@@ -113,6 +138,7 @@ fun SettingsScreen(
         modifier = modifier.fillMaxSize(),
         containerColor = MaterialTheme.colorScheme.surface,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
+        snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { innerPadding ->
         LazyColumn(
             modifier = Modifier
@@ -230,6 +256,47 @@ fun SettingsScreen(
                     )
                     SettingsRow(title = "存储占用", value = storageLabel)
                     SettingsRow(title = "书源管理", support = "后续版本")
+                }
+            }
+
+            item {
+                SettingsGroup(title = "Z-Library") {
+                    SettingsRow(
+                        title = "账号",
+                        support = if (account == null) {
+                            "登录后可下载更多书籍"
+                        } else {
+                            "已登录"
+                        },
+                        value = account?.email?.take(24) ?: "登录",
+                        showChevron = true,
+                        onClick = {
+                            if (account == null) {
+                                onLoginClick()
+                            } else {
+                                logoutDialogOpen = true
+                            }
+                        },
+                    )
+                    SettingsRow(
+                        title = "下载目录",
+                        support = downloadDir,
+                    )
+                    SettingsRow(
+                        title = "下载记录",
+                        showChevron = true,
+                        onClick = onDownloadsClick,
+                    )
+                    SettingsRow(
+                        title = "线路",
+                        value = mirrorInfo?.let { "线路 " + it.index + " / " + it.total } ?: "—",
+                        showChevron = true,
+                        onClick = { mirrorSheetOpen = true },
+                    )
+                    SettingsRow(
+                        title = "说明",
+                        support = "下载的书籍会自动导入书架；线路不通时可手动切换。",
+                    )
                 }
             }
 
@@ -413,6 +480,44 @@ fun SettingsScreen(
             },
             dismissButton = {
                 TextButton(onClick = { clearDialogOpen = false }) { Text("取消") }
+            },
+        )
+    }
+
+    if (logoutDialogOpen) {
+        AlertDialog(
+            onDismissRequest = { logoutDialogOpen = false },
+            title = { Text("退出登录？") },
+            text = { Text("退出后可以随时重新登录；已下载的书仍保留在书架。") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        logoutDialogOpen = false
+                        onLogout()
+                        scope.launch { snackbarHostState.showSnackbar("已退出登录") }
+                    },
+                ) {
+                    Text("退出登录", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { logoutDialogOpen = false }) { Text("取消") }
+            },
+        )
+    }
+
+    if (mirrorSheetOpen) {
+        ZlibMirrorSheet(
+            client = client,
+            onDismiss = { mirrorSheetOpen = false },
+            onSwitched = { host ->
+                mirrorSheetOpen = false
+                scope.launch {
+                    snackbarHostState.showSnackbar("已切换到 " + host)
+                    mirrorInfo = withContext(Dispatchers.IO) {
+                        runCatching { client.mirrorInfo() }.getOrNull()
+                    }
+                }
             },
         )
     }

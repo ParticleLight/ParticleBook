@@ -94,6 +94,54 @@ class LibraryStore(private val context: Context) {
         return result
     }
 
+    /**
+     * P1b：把已经落盘的下载文件直接登记进书架（不二次复制，文件留在下载目录）。
+     * - 同一路径已在书架：幂等返回已有条目；
+     * - 与 [importDocument] 共用 id 分配与索引写入逻辑；
+     * - 文件不存在/不是文件：失败。
+     */
+    suspend fun adoptLocalFile(file: File, title: String?, author: String?): Result<Book> {
+        if (!file.isFile) {
+            return Result.failure(IllegalArgumentException("下载文件不存在或不可读"))
+        }
+        val began = SystemClock.elapsedRealtime()
+        val targetPath = pathKey(file.absolutePath)
+        books.firstOrNull { pathKey(it.filePath) == targetPath }?.let { existing ->
+            return Result.success(existing)
+        }
+        val usedIds = books.mapTo(HashSet()) { it.id }
+        val book = Book(
+            id = freshId(usedIds),
+            title = title?.takeIf { it.isNotBlank() }
+                ?: file.nameWithoutExtension.takeIf { it.isNotBlank() }
+                ?: "未命名",
+            author = author?.takeIf { it.isNotBlank() },
+            format = detectFormat(file),
+            filePath = file.absolutePath,
+            fileSize = file.length(),
+            tags = listOf(DOWNLOAD_TAG),
+        )
+        val current = books
+        val result = withContext(Dispatchers.IO) {
+            runCatching {
+                writeIndex(current + book)
+                book
+            }.onFailure { throwable ->
+                // 索引写失败不删下载文件（下载目录归用户/记录页所有），只作失败返回。
+                Log.e(TAG, "adopt local file failed path=" + file.absolutePath, throwable)
+            }
+        }
+        result.onSuccess {
+            books = books.filterNot { existing -> existing.id == book.id } + book
+            Log.i(
+                PERF_TAG,
+                "PBPERF|phase=library_adopt|ms=" + (SystemClock.elapsedRealtime() - began) +
+                    "|extra=books:" + books.size,
+            )
+        }
+        return result
+    }
+
     /** 删除选中的书：从书架移除、删掉 _pb_files 里的文件、重写索引。 */
     suspend fun removeBooks(ids: Set<Long>) {
         if (ids.isEmpty()) return
@@ -160,6 +208,25 @@ class LibraryStore(private val context: Context) {
     }
 
     private fun pathKey(path: String): String = runCatching { File(path).absolutePath }.getOrDefault(path)
+
+    /** 下载文件的格式：先看扩展名，再看文件头（%PDF / PK）。 */
+    private fun detectFormat(file: File): BookFormat {
+        when (file.extension.lowercase()) {
+            "pdf" -> return BookFormat.Pdf
+            "epub" -> return BookFormat.Epub
+        }
+        val header = runCatching {
+            file.inputStream().use { input -> ByteArray(4).also { input.read(it) } }
+        }.getOrNull()
+        return if (header != null && header.size >= 4 &&
+            header[0] == 0x25.toByte() && header[1] == 0x50.toByte() &&
+            header[2] == 0x44.toByte() && header[3] == 0x46.toByte()
+        ) {
+            BookFormat.Pdf
+        } else {
+            BookFormat.Epub
+        }
+    }
 
     /** 时间戳 id + 冲突时 +1（比 maxOfOrNull+1 更抗「fixture 重新出现」导致的重复）。 */
     private fun freshId(used: MutableSet<Long>): Long {
@@ -290,5 +357,6 @@ class LibraryStore(private val context: Context) {
         const val INDEX_NAME = "books.json"
         const val INDEX_TMP_NAME = "books.json.tmp"
         const val INDEX_VERSION = 1
+        const val DOWNLOAD_TAG = "zlib-download"
     }
 }

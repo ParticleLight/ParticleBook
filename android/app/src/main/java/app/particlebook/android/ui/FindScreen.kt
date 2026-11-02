@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
@@ -33,10 +34,14 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.SearchOff
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
@@ -67,6 +72,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import app.particlebook.android.zlib.ZAccount
 import app.particlebook.android.zlib.ZBook
 import app.particlebook.android.zlib.ZlibClient
 import kotlinx.coroutines.flow.collect
@@ -80,9 +86,18 @@ import kotlinx.coroutines.launch
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun DiscoverScreen(modifier: Modifier = Modifier) {
+fun DiscoverScreen(
+    account: ZAccount?,
+    onLoginClick: () -> Unit,
+    onLogout: () -> Unit,
+    onDownloadsClick: () -> Unit,
+    onOpenDetail: (hash: String, slug: String?) -> Unit,
+    modifier: Modifier = Modifier,
+) {
     var query by rememberSaveable { mutableStateOf("") }
     var category by rememberSaveable { mutableStateOf<String?>(null) }
+    var mirrorSheetOpen by rememberSaveable { mutableStateOf(false) }
+    var logoutDialogOpen by rememberSaveable { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val keyboard = LocalSoftwareKeyboardController.current
@@ -123,7 +138,9 @@ fun DiscoverScreen(modifier: Modifier = Modifier) {
         snackbarHost = {
             SnackbarHost(
                 hostState = snackbarHostState,
-                modifier = Modifier.padding(bottom = 96.dp),
+                modifier = Modifier
+                    .navigationBarsPadding()
+                    .padding(bottom = 96.dp),
             )
         },
     ) { innerPadding ->
@@ -132,16 +149,34 @@ fun DiscoverScreen(modifier: Modifier = Modifier) {
                 .fillMaxSize()
                 .padding(innerPadding)
                 .windowInsetsPadding(WindowInsets.statusBars)
+                // 底部预留系统导航条：悬浮导航胶囊叠在内容之上，列表/空态不能钻到它下面。
+                .navigationBarsPadding()
                 .padding(horizontal = Spacing.screen),
         ) {
             Spacer(Modifier.height(Spacing.lg))
-            Text("Z-Library", style = AppType.pageTitle)
-            Spacer(Modifier.height(2.dp))
-            Text(
-                text = "内置书源 · P1a 检索",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            Row(verticalAlignment = Alignment.Top) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Z-Library", style = AppType.pageTitle)
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        text = "内置书源 · 检索 · 下载",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                AccountArea(
+                    account = account,
+                    onLoginClick = onLoginClick,
+                    onDownloadsClick = onDownloadsClick,
+                    onLogoutRequest = { logoutDialogOpen = true },
+                )
+                TopOverflowMenu(onMirrorsClick = { mirrorSheetOpen = true })
+            }
+            val errorState = state as? ZlibSearchState.Error
+            if (errorState != null && errorState.kindLabel == "NO_MIRROR") {
+                Spacer(Modifier.height(Spacing.sm))
+                NoMirrorBanner(onSwitchLines = { mirrorSheetOpen = true })
+            }
             Spacer(Modifier.height(Spacing.lg))
 
             OutlinedTextField(
@@ -224,11 +259,23 @@ fun DiscoverScreen(modifier: Modifier = Modifier) {
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
+                        Spacer(Modifier.height(Spacing.xxs))
+                        Text(
+                            text = "正在连接镜像，首次可能需要几秒…",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.padding(horizontal = Spacing.lg),
+                        )
                     }
                 }
 
                 is ZlibSearchState.Empty -> EmptyResult(
-                    onReset = { viewModel.resetToIdle() },
+                    onSearchCategory = { term ->
+                        query = term
+                        keyboard?.hide()
+                        viewModel.search(term)
+                    },
                     modifier = Modifier.weight(1f),
                 )
 
@@ -247,12 +294,16 @@ fun DiscoverScreen(modifier: Modifier = Modifier) {
                         modifier = Modifier
                             .fillMaxWidth()
                             .weight(1f),
-                        contentPadding = PaddingValues(bottom = Spacing.listBottomInset),
+                        contentPadding = PaddingValues(bottom = Spacing.listBottomInset + Spacing.xs),
                     ) {
                         item(key = "summary") {
                             Text(
-                                text = "找到 " + current.books.size + " 本 · 第 " +
-                                    current.page + " / " + current.totalPages + " 页",
+                                text = "已加载 " + current.books.size + " 本" +
+                                    if (current.totalPages >= 1) {
+                                        " · 第 " + current.page + " / " + current.totalPages + " 页"
+                                    } else {
+                                        ""
+                                    },
                                 style = MaterialTheme.typography.labelMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.padding(vertical = Spacing.sm),
@@ -262,7 +313,14 @@ fun DiscoverScreen(modifier: Modifier = Modifier) {
                             ZlibResultRow(
                                 book = book,
                                 onClick = {
-                                    scope.launch { snackbarHostState.showSnackbar("P1b 接入后可下载") }
+                                    val ref = parseBookRef(book.href)
+                                    if (ref != null) {
+                                        onOpenDetail(ref.first, ref.second)
+                                    } else {
+                                        scope.launch {
+                                            snackbarHostState.showSnackbar("无法打开详情：链接格式异常")
+                                        }
+                                    }
                                 },
                             )
                         }
@@ -313,6 +371,191 @@ fun DiscoverScreen(modifier: Modifier = Modifier) {
             }
         }
     }
+
+    if (mirrorSheetOpen) {
+        ZlibMirrorSheet(
+            client = ZlibClient.get(appContext),
+            onDismiss = { mirrorSheetOpen = false },
+            onSwitched = { host ->
+                mirrorSheetOpen = false
+                scope.launch { snackbarHostState.showSnackbar("已切换到 " + host) }
+                val term = query.trim()
+                if (term.isNotEmpty() && (
+                        state is ZlibSearchState.Success ||
+                            state is ZlibSearchState.Empty ||
+                            state is ZlibSearchState.Error
+                        )
+                ) {
+                    viewModel.search(term)
+                }
+            },
+        )
+    }
+
+    if (logoutDialogOpen) {
+        AlertDialog(
+            onDismissRequest = { logoutDialogOpen = false },
+            title = { Text("退出登录？") },
+            text = { Text("退出后可以随时重新登录；已下载的书仍保留在书架。") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        logoutDialogOpen = false
+                        onLogout()
+                        scope.launch { snackbarHostState.showSnackbar("已退出登录") }
+                    },
+                ) {
+                    Text("退出登录")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { logoutDialogOpen = false }) {
+                    Text("取消")
+                }
+            },
+        )
+    }
+}
+
+/** 账号区（§4.1）：未登录 → 「登录」按钮；已登录 → 邮箱前缀 + 32dp 圆头像 + 菜单。 */
+@Composable
+private fun AccountArea(
+    account: ZAccount?,
+    onLoginClick: () -> Unit,
+    onDownloadsClick: () -> Unit,
+    onLogoutRequest: () -> Unit,
+) {
+    if (account == null) {
+        TextButton(
+            onClick = onLoginClick,
+            modifier = Modifier.heightIn(min = 48.dp),
+        ) {
+            Text("登录")
+        }
+        return
+    }
+    var menuOpen by remember { mutableStateOf(false) }
+    val prefix = account.email?.substringBefore('@')?.take(24)?.takeIf { it.isNotBlank() }
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.heightIn(min = 48.dp),
+    ) {
+        if (prefix != null) {
+            Text(
+                text = prefix,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(end = Spacing.xs),
+            )
+        }
+        Box {
+            Surface(
+                onClick = { menuOpen = true },
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.primaryContainer,
+                modifier = Modifier.size(32.dp),
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Text(
+                        text = prefix?.firstOrNull()?.uppercaseChar()?.toString() ?: "?",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                    )
+                }
+            }
+            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                DropdownMenuItem(
+                    text = { Text("下载记录") },
+                    onClick = {
+                        menuOpen = false
+                        onDownloadsClick()
+                    },
+                )
+                DropdownMenuItem(
+                    text = { Text("退出登录") },
+                    onClick = {
+                        menuOpen = false
+                        onLogoutRequest()
+                    },
+                )
+            }
+        }
+    }
+}
+
+/** 顶部溢出菜单（§4.7）：线路入口。 */
+@Composable
+private fun TopOverflowMenu(onMirrorsClick: () -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    Box {
+        IconButton(
+            onClick = { open = true },
+            modifier = Modifier.size(48.dp),
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.MoreVert,
+                contentDescription = "更多操作",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            DropdownMenuItem(
+                text = { Text("线路") },
+                onClick = {
+                    open = false
+                    onMirrorsClick()
+                },
+            )
+        }
+    }
+}
+
+/** 全线路失败 banner（§4.8）：只在 NO_MIRROR 错误态出现，成功搜索后自然消失。 */
+@Composable
+private fun NoMirrorBanner(onSwitchLines: () -> Unit) {
+    Surface(
+        shape = RoundedCornerShape(Radius.card),
+        color = MaterialTheme.colorScheme.errorContainer,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            modifier = Modifier.padding(start = Spacing.md, end = Spacing.xs, top = Spacing.xs, bottom = Spacing.xs),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.ErrorOutline,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onErrorContainer,
+                modifier = Modifier.size(20.dp),
+            )
+            Spacer(Modifier.size(Spacing.xs))
+            Text(
+                text = "所有 Z-Library 镜像暂时不可达，请稍后重试或手动切换线路",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onErrorContainer,
+                modifier = Modifier.weight(1f),
+            )
+            TextButton(onClick = onSwitchLines) {
+                Text("切换线路")
+            }
+        }
+    }
+}
+
+/** 从结果 href（/book/<hash>/<slug>.html）解析详情页参数。 */
+private fun parseBookRef(href: String): Pair<String, String?>? {
+    val segments = runCatching {
+        android.net.Uri.parse(href.trim()).pathSegments
+    }.getOrNull() ?: return null
+    val bookIndex = segments.indexOf("book")
+    if (bookIndex < 0 || bookIndex + 1 >= segments.size) return null
+    val hash = segments[bookIndex + 1].takeIf { it.isNotBlank() } ?: return null
+    val slug = segments.getOrNull(bookIndex + 2)
+        ?.removeSuffix(".html")
+        ?.takeIf { it.isNotBlank() }
+    return hash to slug
 }
 
 /** 初始态：热门分类 + 最近搜索 + P1a 说明卡（不请求网络）。 */
@@ -351,7 +594,7 @@ private fun IdleContent(
         Text("最近搜索", style = AppType.sectionTitle)
         Spacer(Modifier.height(Spacing.xs))
         Text(
-            text = "还没有搜索记录。搜索记录将在 P1b 接入后显示。",
+            text = "还没有搜索记录。搜索历史将在后续版本提供。",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -374,10 +617,10 @@ private fun IdleContent(
                 )
                 Spacer(Modifier.size(Spacing.xs))
                 Column {
-                    Text("P1a 检索已接入", style = MaterialTheme.typography.titleSmall)
+                    Text("检索与下载已接入", style = MaterialTheme.typography.titleSmall)
                     Spacer(Modifier.height(Spacing.xxs))
                     Text(
-                        text = "搜索结果来自 Z-Library 镜像；下载将在 P1b 接入。",
+                        text = "搜索结果来自 Z-Library 镜像；下载完成后会自动加入书架。",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -442,29 +685,62 @@ private fun zlibMetaLine(book: ZBook): String {
     return parts.joinToString(" · ")
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun EmptyResult(onReset: () -> Unit, modifier: Modifier = Modifier) {
-    Column(
-        modifier = modifier.fillMaxWidth(),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-    ) {
-        Icon(
-            imageVector = Icons.Outlined.SearchOff,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.size(48.dp),
-        )
-        Spacer(Modifier.height(Spacing.sm))
-        Text("没有找到相关书籍", style = MaterialTheme.typography.titleMedium)
-        Spacer(Modifier.height(Spacing.xxs))
-        Text(
-            text = "换个书名或作者再试试。",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Spacer(Modifier.height(Spacing.sm))
-        TextButton(onClick = onReset) { Text("看看热门分类") }
+private fun EmptyResult(
+    onSearchCategory: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Box(modifier = modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .padding(vertical = Spacing.md),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.SearchOff,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(48.dp),
+            )
+            Spacer(Modifier.height(Spacing.sm))
+            Text("没有找到相关书籍", style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(Spacing.xxs))
+            Text(
+                text = "换个书名或作者再试试，也可以直接点热门分类：",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+            )
+            Spacer(Modifier.height(Spacing.md))
+            FlowRow(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = Spacing.xs),
+                horizontalArrangement = Arrangement.spacedBy(
+                    space = Spacing.xs,
+                    alignment = Alignment.CenterHorizontally,
+                ),
+                verticalArrangement = Arrangement.spacedBy(Spacing.xs),
+            ) {
+                HotCategories.forEach { category ->
+                    FilterChip(
+                        selected = false,
+                        onClick = { onSearchCategory(category) },
+                        label = {
+                            Text(
+                                text = category,
+                                style = MaterialTheme.typography.labelMedium,
+                                maxLines = 1,
+                            )
+                        },
+                        modifier = Modifier.heightIn(min = 32.dp),
+                    )
+                }
+            }
+        }
     }
 }
 

@@ -24,6 +24,15 @@ class ZlibException(
 
         /** 连接/读取失败（含超时）。 */
         NETWORK,
+
+        /** 匿名每日下载额度用尽（/dl 页面 "Daily limit reached"）。 */
+        DAILY_LIMIT,
+
+        /** 需要登录才能下载（被登录墙拦截）。 */
+        LOGIN_REQUIRED,
+
+        /** 下载失败（写入失败 / 不是书 / 不完整）。 */
+        DOWNLOAD,
     }
 
     override fun toString(): String = "ZlibException(kind=$kind, message=$message)"

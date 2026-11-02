@@ -6,9 +6,10 @@ import android.content.pm.ApplicationInfo
 import android.provider.Settings
 import android.util.Log
 import java.io.ByteArrayOutputStream
+import java.io.File
+import java.io.FileOutputStream
 import java.io.IOException
-import java.net.CookieManager
-import java.net.CookiePolicy
+import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.InetSocketAddress
 import java.net.Proxy
@@ -50,7 +51,8 @@ class ZlibClient(
      */
     var forceProxy: String? = null
 
-    private val cookieJar = CookieManager(null, CookiePolicy.ACCEPT_ALL)
+    /** Cookie 持久化（P1b 3.1）：内存 CookieManager + filesDir/zlib_cookies.json（Set-Cookie 后 200ms 节流落盘）。 */
+    private val cookieStore = ZCookieStore(appContext) { message -> debugLog(message) }
 
     /**
      * 挑战 cookie（c_token / c_time）按 host 手动维护。
@@ -82,8 +84,14 @@ class ZlibClient(
      * Android 的 HttpURLConnection 不保证读取 global http_proxy，因此不能依赖默认 ProxySelector；
      * 有值时必须显式传给 URL.openConnection(proxy)（见 [openConnection]）。
      * 延迟解析：构造发生在主线程，读 Settings / 建 InetSocketAddress 都可能触发 binder 或 DNS。
+     * 不用 lazy：断网/切网恢复后 [resetConnectionState] 要清掉缓存重新解析（见 [resolveSystemProxy]）。
      */
-    private val systemProxy: Proxy? by lazy(LazyThreadSafetyMode.SYNCHRONIZED) { readSystemProxy() }
+    @Volatile
+    private var systemProxy: Proxy? = null
+
+    /** 系统代理是否已解析过（一次性；resetConnectionState() 置回 false）。 */
+    @Volatile
+    private var systemProxyResolved: Boolean = false
 
     /** 代理来源：global（系统设置）/ fallback（debug 本地代理）/ none（直连）。诊断日志用。 */
     @Volatile
@@ -103,13 +111,51 @@ class ZlibClient(
     @Synchronized
     private fun ensureInitialized() {
         if (initialized) return
-        val proxy = systemProxy // 触发延迟解析（只读设置 + 构造 Proxy，无 socket）
+        val proxy = resolveSystemProxy()
         proxySource = if (proxy != null) "global" else "none"
+        cookieStore.ensureLoaded()
         debugLog(
             "proxy=${proxyLabelOrNone(proxy)} source=$proxySource " +
                 "selector=${describeSystemProxy()} debuggable=$isDebuggable",
         )
         initialized = true
+    }
+
+    /**
+     * 解析系统代理并缓存；进程内只解析一次（只读 Settings + 构造 Proxy，无 socket）。
+     * [resetConnectionState] 会把 [systemProxyResolved] 置回 false，让下一次调用重新读取。
+     */
+    @Synchronized
+    private fun resolveSystemProxy(): Proxy? {
+        if (!systemProxyResolved) {
+            systemProxy = readSystemProxy()
+            systemProxyResolved = true
+        }
+        return systemProxy
+    }
+
+    /**
+     * 断网/切网恢复后的进程内「重试」入口：清掉一次性解析与探测临时态，让下一次
+     * search()/probeMirrors() 重新解析系统代理、重新探测镜像（无需杀进程）。
+     *
+     * 只清内存态，不删 SharedPreferences 里的 mirror 缓存；幂等，可在主线程调用。
+     */
+    @Synchronized
+    fun resetConnectionState() {
+        resetStateLocked()
+        debugLog("reset_state reason=manual ok")
+    }
+
+    /** 清一次性状态（不碰 prefs 里的镜像缓存）。调用方需保证串行；本方法自身带锁。 */
+    @Synchronized
+    private fun resetStateLocked() {
+        initialized = false
+        systemProxy = null
+        systemProxyResolved = false
+        proxySource = "none"
+        fallbackProxy = null
+        fallbackChecked = false
+        challengeCookies.clear()
     }
 
     private data class HttpResult(
@@ -133,14 +179,20 @@ class ZlibClient(
         require(q.isNotEmpty()) { "query must not be blank" }
         require(page >= 1) { "page must be >= 1" }
         ensureInitialized()
-
-        val base = mirror ?: probeMirrors()
-        val url = searchUrl(base, q, page)
-        val res = getWithChallenge(URI(url))
-        if (res.status != 200) {
-            throw ZlibException("HTTP ${res.status} for $url", ZlibException.Kind.HTTP)
+        try {
+            val base = mirror ?: probeMirrors()
+            val url = searchUrl(base, q, page)
+            val res = getWithChallenge(URI(url))
+            if (res.status != 200) {
+                throw ZlibException("HTTP ${res.status} for $url", ZlibException.Kind.HTTP)
+            }
+            return ZlibSearchParser.parse(res.body, q, page)
+        } catch (e: ZlibException) {
+            // 失败后清一次性状态：网络恢复后（进程不重启）下一次 search() 自动重新解析代理并重探镜像。
+            debugLog("reset_state reason=search_failure kind=${e.kind}")
+            resetStateLocked()
+            throw e
         }
-        return ZlibSearchParser.parse(res.body, q, page)
     }
 
     /**
@@ -239,10 +291,303 @@ class ZlibClient(
         }
         val totalMs = (System.nanoTime() - startedAt) / 1_000_000L
         debugLog("probe_result fail_all tried=$tried elapsed_ms=$totalMs last=${lastError ?: "none"}")
+        // 探测失败同样清一次性状态：下次调用重新解析代理（断网恢复后不杀进程也能恢复）。
+        debugLog("reset_state reason=probe_failure")
+        resetStateLocked()
         throw ZlibException(
             "no available mirror (tried=$tried, ${totalMs}ms, last: $lastError)",
             ZlibException.Kind.NO_MIRROR,
         )
+    }
+
+    // ---------------------------------------------------------------- P1b: 登录 / 详情 / 下载 / 线路
+
+    /** 登录（P1b 3.2）：GET /login 拿 cookie → POST 表单 → form-error / CurrentUser / get-downloads 兜底。 */
+    fun login(email: String, password: String): ZLoginResult {
+        val startedAt = System.nanoTime()
+        val accountEmail = email.trim()
+        try {
+            ensureInitialized()
+            val base = mirror ?: probeMirrors()
+            val loginUri = URI(base + "/login")
+            val loginPage = getWithChallenge(loginUri)
+            if (loginPage.status != 200) {
+                return loginFailed(startedAt, ZLoginResult.Failed.Kind.HTTP, "HTTP " + loginPage.status)
+            }
+            val form = "email=" + URLEncoder.encode(accountEmail, "UTF-8") +
+                "&password=" + URLEncoder.encode(password, "UTF-8") +
+                "&site_mode=books&action=login&redirectUrl="
+            val posted = getWithChallenge(loginUri, formBody = form.toByteArray(Charsets.UTF_8))
+            ZlibLoginParser.formError(posted.body)?.let { message ->
+                return loginFailed(startedAt, ZLoginResult.Failed.Kind.BAD_CREDENTIALS, message)
+            }
+            var account = accountFrom(posted.body, accountEmail)
+            if (account == null && verifyLoggedInOnServer(base) == true) {
+                // 3.2 第 4 条兜底：CurrentUser 判不出时以只读 JSON 接口为准。
+                account = ZAccount(accountEmail, null)
+            }
+            if (account == null) {
+                return loginFailed(startedAt, ZLoginResult.Failed.Kind.PARSE, "无法确认登录状态")
+            }
+            saveAccount(account)
+            cookieStore.persistNow()
+            perfLog(
+                "PBPERF|phase=zlib_login|ms=" + elapsedMs(startedAt) +
+                    "|extra=ok,cookies:" + cookieStore.cookieCount(),
+            )
+            return ZLoginResult.Ok(account)
+        } catch (e: ZlibException) {
+            val kind = when (e.kind) {
+                ZlibException.Kind.CHALLENGE_FAILED -> ZLoginResult.Failed.Kind.CHALLENGE_FAILED
+                ZlibException.Kind.NETWORK -> ZLoginResult.Failed.Kind.NETWORK
+                ZlibException.Kind.PARSE -> ZLoginResult.Failed.Kind.PARSE
+                else -> ZLoginResult.Failed.Kind.HTTP
+            }
+            return loginFailed(startedAt, kind, e.message)
+        } catch (e: Exception) {
+            return loginFailed(startedAt, ZLoginResult.Failed.Kind.NETWORK, e.message)
+        }
+    }
+
+    /**
+     * 服务端校验登录态（阻塞，IO 线程）：GET /papi/user/get-downloads。
+     * 已登录返回 {"downloads":[...]}，未登录返回 {"success":0,...}；网络失败返回 false 且保留本地缓存。
+     * UI 展示用同步的 [isLoggedIn]（只读 prefs，无网络）。
+     */
+    fun verifyLoggedIn(): Boolean = try {
+        ensureInitialized()
+        val base = mirror ?: probeMirrors()
+        when (verifyLoggedInOnServer(base)) {
+            true -> {
+                debugLog("verify_login result=logged_in")
+                true
+            }
+            false -> {
+                clearAccount()
+                debugLog("verify_login result=anonymous")
+                false
+            }
+            null -> {
+                debugLog("verify_login result=unknown")
+                readAccount(prefs) != null
+            }
+        }
+    } catch (e: Exception) {
+        debugLog("verify_login err=" + e.javaClass.simpleName)
+        readAccount(prefs) != null
+    }
+
+    /** 登出（P1b 3.2）：清内存 cookie + filesDir/zlib_cookies.json + prefs 账号缓存。 */
+    fun logout() {
+        cookieStore.clear()
+        challengeCookies.clear()
+        clearAccount()
+        debugLog("logout ok")
+    }
+
+    /** 本地登录态（同步、无网络、主线程安全）：只看 prefs 账号缓存；服务端校验用 [verifyLoggedIn]。 */
+    fun isLoggedIn(context: Context): Boolean = cachedAccount(context) != null
+
+    /** 本地账号缓存（同步、无网络）；未登录返回 null。 */
+    fun cachedAccount(context: Context): ZAccount? = readAccount(prefsOf(context))
+
+    /** 书籍详情（P1b 1.3）：先 /book/hash，再带 slug；仍失败时跟 canonical 链接补一次。 */
+    fun fetchDetail(hash: String, slug: String? = null): ZBookDetail {
+        val cleanHash = hash.trim().trim('/')
+        require(cleanHash.isNotEmpty()) { "hash must not be blank" }
+        ensureInitialized()
+        val base = mirror ?: probeMirrors()
+        val candidates = ArrayList<String>()
+        candidates.add(base + "/book/" + cleanHash)
+        if (!slug.isNullOrBlank()) {
+            candidates.add(base + "/book/" + cleanHash + "/" + normalizeSlug(slug))
+        }
+        var lastStatus = 0
+        var lastBody: String? = null
+        val tried = ArrayList<String>()
+        for (url in candidates) {
+            tried.add(url)
+            val res = getWithChallenge(URI(url))
+            lastStatus = res.status
+            lastBody = res.body
+            if (res.status == 200 && looksLikeDetailPage(res.body)) {
+                return ZlibDetailParser.parse(res.body, res.uri.toString(), cleanHash)
+            }
+            val canonical = canonicalBookUrl(res.body)
+            if (canonical != null) {
+                val canonicalUrl = absoluteSiteUrl(base, canonical)
+                if (canonicalUrl !in tried) {
+                    tried.add(canonicalUrl)
+                    val follow = getWithChallenge(URI(canonicalUrl))
+                    if (follow.status == 200 && looksLikeDetailPage(follow.body)) {
+                        return ZlibDetailParser.parse(follow.body, follow.uri.toString(), cleanHash)
+                    }
+                }
+            }
+        }
+        debugLog("detail_fail hash=" + cleanHash + " status=" + lastStatus + " body_len=" + (lastBody?.length ?: 0))
+        throw ZlibException(
+            "detail page unavailable (hash=" + cleanHash + ", status=" + lastStatus + ", tried=" + tried.size + ")",
+            if (lastStatus in 400..499) ZlibException.Kind.HTTP else ZlibException.Kind.PARSE,
+        )
+    }
+
+    /**
+     * 解析 /dl 页面为直链（P1b 3.3 状态机）：
+     * 限额 → DAILY_LIMIT；登录墙 → LOGIN_REQUIRED；倒计时 → 等待后重取（总等待 <= 20s）；
+     * 候选直链 → GET 前 1KB 判定 content-type；最多 4 跳，否则 PARSE（debug 打页面片段）。
+     */
+    fun resolveDownload(downloadPath: String): ZDownloadHandle {
+        ensureInitialized()
+        val base = mirror ?: probeMirrors()
+        val startUrl = absoluteSiteUrl(base, downloadPath)
+        var current = startUrl
+        var lastBody: String? = null
+        var pageHops = 0
+        var countdownRounds = 0
+        var waitedSeconds = 0
+        while (true) {
+            if (pageHops >= MAX_DL_HOPS) break
+            val res = getWithChallenge(URI(current))
+            lastBody = res.body
+            val state = ZlibDownloadParser.classify(res.body, current)
+            if (state is ZlibDownloadParser.PageState.Countdown) {
+                countdownRounds++
+                if (countdownRounds > MAX_COUNTDOWN_ROUNDS) break
+                val budget = MAX_COUNTDOWN_WAIT_S - waitedSeconds
+                val wait = minOf(state.seconds, budget, 15)
+                if (wait <= 0) break
+                debugLog("dl_countdown wait=" + wait + " total=" + waitedSeconds + " url=" + hostOf(current))
+                Thread.sleep(wait * 1_000L)
+                waitedSeconds += wait
+                continue
+            }
+            pageHops++
+            when (state) {
+                is ZlibDownloadParser.PageState.DailyLimit -> {
+                    logDlPage(current, "daily_limit", lastBody)
+                    throw ZlibException(state.message, ZlibException.Kind.DAILY_LIMIT)
+                }
+                is ZlibDownloadParser.PageState.LoginRequired -> {
+                    logDlPage(current, "login_required", lastBody)
+                    throw ZlibException(state.message ?: "login required", ZlibException.Kind.LOGIN_REQUIRED)
+                }
+                is ZlibDownloadParser.PageState.Candidates -> {
+                    for (link in state.links) {
+                        val direct = absoluteSiteUrl(current, link)
+                        val handle = probeDirectLink(direct)
+                        if (handle != null) {
+                            debugLog("dl_resolved host=" + hostOf(handle.directUrl) + " type=" + (handle.contentType ?: "none"))
+                            return handle
+                        }
+                    }
+                    logDlPage(current, "candidates_unusable:" + state.links.size, lastBody)
+                    throw ZlibException(
+                        "download candidates unusable (" + state.links.size + ")",
+                        ZlibException.Kind.PARSE,
+                    )
+                }
+                else -> break
+            }
+        }
+        logDlPage(current, "unknown", lastBody)
+        throw ZlibException("cannot resolve download link", ZlibException.Kind.PARSE)
+    }
+
+    /** 下载到 destFile（P1b 3.4）：.part 流式 + 校验 + rename；失败删半成品并抛 DOWNLOAD/NETWORK/HTTP。 */
+    fun download(
+        downloadPath: String,
+        destFile: File,
+        onProgress: (received: Long, total: Long) -> Unit,
+    ): File {
+        val startedAt = System.nanoTime()
+        try {
+            val handle = resolveDownload(downloadPath)
+            val file = streamToFile(handle, destFile, onProgress)
+            perfLog(
+                "PBPERF|phase=zlib_download|ms=" + elapsedMs(startedAt) +
+                    "|extra=ok,bytes:" + file.length(),
+            )
+            return file
+        } catch (e: ZlibException) {
+            perfLog(
+                "PBPERF|phase=zlib_download|ms=" + elapsedMs(startedAt) +
+                    "|extra=fail,kind:" + e.kind,
+            )
+            throw e
+        } catch (e: Exception) {
+            perfLog(
+                "PBPERF|phase=zlib_download|ms=" + elapsedMs(startedAt) +
+                    "|extra=fail,kind:DOWNLOAD",
+            )
+            throw ZlibException("download failed: " + e.message, ZlibException.Kind.DOWNLOAD, e)
+        }
+    }
+
+    /** 抓小文件（封面，P1b 1.3）：带 UA/Cookie、跟随跳转、上限 8MB。 */
+    fun fetchBytes(url: String): ByteArray {
+        ensureInitialized()
+        val base = mirror ?: MIRRORS.first()
+        var last: Exception? = null
+        for (proxy in proxyCandidates()) {
+            var current = absoluteSiteUrl(base, url)
+            var hops = 0
+            try {
+                while (hops < MAX_REDIRECTS) {
+                    hops++
+                    val conn = openConnection(URI(current), proxy)
+                    try {
+                        val status = conn.responseCode
+                        val location = conn.getHeaderField("Location")
+                        if (status in 300..399 && !location.isNullOrBlank()) {
+                            current = absoluteSiteUrl(current, location)
+                            continue
+                        }
+                        if (status !in 200..299) {
+                            throw ZlibException("HTTP " + status + " for " + current, ZlibException.Kind.HTTP)
+                        }
+                        val declared = conn.contentLengthLong
+                        if (declared > MAX_IMAGE_BYTES) {
+                            throw ZlibException("file too large: " + declared, ZlibException.Kind.HTTP)
+                        }
+                        val stream = try {
+                            conn.inputStream
+                        } catch (e: IOException) {
+                            conn.errorStream
+                        } ?: throw ZlibException("empty response", ZlibException.Kind.HTTP)
+                        return stream.use { readCappedWithLimit(it, MAX_IMAGE_BYTES) }
+                    } finally {
+                        conn.disconnect()
+                    }
+                }
+                throw ZlibException("too many redirects", ZlibException.Kind.HTTP)
+            } catch (e: Exception) {
+                last = e
+            }
+        }
+        throw ZlibException("fetch bytes failed: " + (last?.message ?: "none"), ZlibException.Kind.NETWORK, last)
+    }
+
+    /** 线路信息（P1b 线路弹层）：index 从 1 开始，未知为 0。 */
+    fun mirrorInfo(): ZMirrorInfo {
+        val current = normalizeMirror(mirror ?: prefs?.getString(KEY_MIRROR, null))
+        val index = MIRRORS.indexOfFirst { normalizeMirror(it) == current } + 1
+        return ZMirrorInfo(
+            index = if (current.isNotEmpty() && index > 0) index else 0,
+            total = MIRRORS.size,
+            mirrors = MIRRORS.toList(),
+        )
+    }
+
+    /** 切换线路（P1b 4.7）：越界 false；写 prefs mirror 并清探测/代理临时态。 */
+    fun switchMirror(index: Int): Boolean {
+        if (index !in MIRRORS.indices) return false
+        val target = MIRRORS[index]
+        mirror = target
+        prefs?.edit()?.putString(KEY_MIRROR, target)?.apply()
+        resetStateLocked()
+        debugLog("switch_mirror index=" + (index + 1) + " mirror=" + hostOf(target))
+        return true
     }
 
     // ---------------------------------------------------------------- HTTP
@@ -254,8 +599,8 @@ class ZlibClient(
     }
 
     /** 发请求；遇到挑战页则求解并重放（最多 [MAX_CHALLENGE_ROUNDS] 轮）。 */
-    private fun getWithChallenge(uri: URI, deadlineNanos: Long? = null): HttpResult {
-        var res = request(uri, deadlineNanos)
+    private fun getWithChallenge(uri: URI, deadlineNanos: Long? = null, formBody: ByteArray? = null): HttpResult {
+        var res = request(uri, deadlineNanos, formBody)
         var round = 0
         val startedAt = System.nanoTime()
         val host = uri.host ?: "unknown"
@@ -282,7 +627,7 @@ class ZlibClient(
             setChallengeCookie(uri, "c_time", String.format(Locale.US, "%.3f", elapsedSec))
             debugLog("challenge_cookie host=$host cookie_names=${cookieNames(uri)}")
             val replayStarted = System.nanoTime()
-            res = request(uri, deadlineNanos)
+            res = request(uri, deadlineNanos, formBody)
             round++
             debugLog(
                 "challenge_replay host=$host round=$round status=${res.status} " +
@@ -300,7 +645,7 @@ class ZlibClient(
     }
 
     /** 逐个尝试代理候选（系统代理 / debug 兜底 / 默认 ProxySelector），首个成功即用。 */
-    private fun request(uri: URI, deadlineNanos: Long? = null): HttpResult {
+    private fun request(uri: URI, deadlineNanos: Long? = null, formBody: ByteArray? = null): HttpResult {
         var last: Exception? = null
         var attempt = 0
         for (proxy in proxyCandidates()) {
@@ -311,7 +656,7 @@ class ZlibClient(
             attempt++
             debugLog("net_attempt host=${uri.host} proxy=${proxyLabel(proxy)} attempt=$attempt")
             try {
-                return requestWithProxy(uri, proxy, deadlineNanos)
+                return requestWithProxy(uri, proxy, deadlineNanos, formBody)
             } catch (e: Exception) {
                 // 挑战/HTTP 类 ZlibException 原样上抛，避免被包成 "network error" 丢信息。
                 if (e is ZlibException && e.kind != ZlibException.Kind.NETWORK) throw e
@@ -328,15 +673,26 @@ class ZlibClient(
         throw ZlibException("network error: $detail", ZlibException.Kind.NETWORK, last)
     }
 
-    private fun requestWithProxy(uri: URI, proxy: Proxy?, deadlineNanos: Long? = null): HttpResult {
+    private fun requestWithProxy(
+        uri: URI,
+        proxy: Proxy?,
+        deadlineNanos: Long? = null,
+        formBody: ByteArray? = null,
+    ): HttpResult {
         var current = uri
+        var pendingForm = formBody
         var hops = 0
         while (true) {
             if (deadlineNanos != null && remainingMs(deadlineNanos) <= 0L) {
                 throw ZlibException("request budget exhausted", ZlibException.Kind.NETWORK)
             }
-            val conn = openConnection(current, proxy, deadlineNanos)
+            val method = if (pendingForm != null) "POST" else "GET"
+            val conn = openConnection(current, proxy, deadlineNanos, method, pendingForm)
             try {
+                val requestBody = pendingForm
+                if (requestBody != null) {
+                    conn.outputStream.use { out -> out.write(requestBody) }
+                }
                 val status = conn.responseCode
                 val body = readBody(conn)
                 val location = conn.getHeaderField("Location")
@@ -348,6 +704,7 @@ class ZlibClient(
                     val next = resolveLocation(current, location)
                     debugLog("net_redirect host=${current.host} status=$status to=${next.host} set_cookie=$setCookieCount")
                     current = next
+                    pendingForm = null
                     continue
                 }
                 return HttpResult(current, status, body, server, setCookieCount)
@@ -357,7 +714,13 @@ class ZlibClient(
         }
     }
 
-    private fun openConnection(uri: URI, proxy: Proxy?, deadlineNanos: Long? = null): HttpURLConnection {
+    private fun openConnection(
+        uri: URI,
+        proxy: Proxy?,
+        deadlineNanos: Long? = null,
+        method: String = "GET",
+        formBody: ByteArray? = null,
+    ): HttpURLConnection {
         val url = uri.toURL()
         val conn = if (proxy == null) {
             url.openConnection() as HttpURLConnection // 默认走 ProxySelector（系统代理）
@@ -367,8 +730,13 @@ class ZlibClient(
         conn.instanceFollowRedirects = false
         conn.connectTimeout = timeoutFor(CONNECT_TIMEOUT_MS, deadlineNanos)
         conn.readTimeout = timeoutFor(READ_TIMEOUT_MS, deadlineNanos)
-        conn.requestMethod = "GET"
+        conn.requestMethod = method
         conn.useCaches = false
+        if (formBody != null) {
+            conn.doOutput = true
+            conn.setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
+            conn.setFixedLengthStreamingMode(formBody.size)
+        }
         // 挑战首页 / 重放 / 重定向后续 / 搜索页都走本函数：每个 HttpURLConnection 都重新设置头。
         conn.setRequestProperty("User-Agent", DESKTOP_UA)
         conn.setRequestProperty("Accept-Language", ACCEPT_LANGUAGE)
@@ -426,11 +794,7 @@ class ZlibClient(
 
     /** 发送用 Cookie 头：CookieManager 保存的 Set-Cookie（bsrv 等）+ 手动维护的挑战 cookie。 */
     private fun cookieHeader(uri: URI): String? {
-        val fromJar = try {
-            cookieJar.get(uri, emptyMap<String, List<String>>())?.get("Cookie")?.firstOrNull()
-        } catch (e: Exception) {
-            null
-        }
+        val fromJar = cookieStore.cookieHeader(uri)
         val host = uri.host ?: return fromJar
         val manual = challengeCookies[host]
         if (manual.isNullOrEmpty()) return fromJar
@@ -452,19 +816,13 @@ class ZlibClient(
     /**
      * 保存 Set-Cookie（返回本次响应里的 Set-Cookie 条数，诊断用）。
      *
-     * 用 CookieManager.put 解析（带 Domain/Path 的标准 cookie 能正常回传，如 bsrv）；
-     * 挑战用的 c_token/c_time 由 [setChallengeCookie] 手动并入 Cookie 头。
+     * 交给 [ZCookieStore]：CookieManager.put 解析 + 200ms 节流落盘；
+     * 挑战用的 c_token/c_time 由 [setChallengeCookie] 手动并入 Cookie 头（不持久化）。
      */
-    private fun storeResponseCookies(uri: URI, conn: HttpURLConnection): Int {
-        var count = 0
-        try {
-            val fields = conn.headerFields ?: return 0
-            cookieJar.put(uri, fields)
-            count = fields["Set-Cookie"]?.size ?: 0
-        } catch (e: Exception) {
-            // 单个 Set-Cookie 解析失败不应让整次请求失败。
-        }
-        return count
+    private fun storeResponseCookies(uri: URI, conn: HttpURLConnection): Int = try {
+        cookieStore.store(uri, conn.headerFields ?: emptyMap())
+    } catch (e: Exception) {
+        0
     }
 
     // ---------------------------------------------------------------- proxy
@@ -476,7 +834,7 @@ class ZlibClient(
      * 3. 直连（null = 默认 ProxySelector，系统若另有 PAC 仍可能生效）。
      */
     private fun proxyCandidates(): List<Proxy?> {
-        systemProxy?.let { return listOf(it) }
+        resolveSystemProxy()?.let { return listOf(it) }
         if (isDebuggable) {
             if (!fallbackChecked) {
                 fallbackChecked = true
@@ -552,10 +910,346 @@ class ZlibClient(
         return Proxy(Proxy.Type.HTTP, InetSocketAddress(host, port))
     }
 
+    // ---------------------------------------------------------------- P1b private helpers
+
+    private fun accountFrom(html: String, submittedEmail: String): ZAccount? =
+        when (val state = ZlibLoginParser.accountState(html)) {
+            is ZlibLoginParser.AccountState.LoggedIn ->
+                ZAccount(state.account.email ?: submittedEmail, state.account.name)
+            else -> null
+        }
+
+    /** 登录态只读校验：/papi/user/get-downloads（200 + downloads 字段 = 已登录）。 */
+    private fun verifyLoggedInOnServer(base: String): Boolean? = try {
+        val res = getWithChallenge(URI(base + "/papi/user/get-downloads"))
+        if (res.status != 200) null else ZlibLoginParser.looksLoggedInByDownloads(res.body)
+    } catch (e: Exception) {
+        null
+    }
+
+    private fun prefsOf(context: Context): SharedPreferences? =
+        context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+
+    private fun readAccount(sharedPreferences: SharedPreferences?): ZAccount? {
+        val email = sharedPreferences?.getString(KEY_ACCOUNT_EMAIL, null)?.takeIf { it.isNotBlank() } ?: return null
+        val name = sharedPreferences.getString(KEY_ACCOUNT_NAME, null)?.takeIf { it.isNotBlank() }
+        return ZAccount(email, name)
+    }
+
+    private fun saveAccount(account: ZAccount) {
+        val editor = prefs?.edit() ?: return
+        if (!account.email.isNullOrBlank()) editor.putString(KEY_ACCOUNT_EMAIL, account.email)
+        if (!account.name.isNullOrBlank()) editor.putString(KEY_ACCOUNT_NAME, account.name)
+        editor.apply()
+    }
+
+    private fun clearAccount() {
+        prefs?.edit()?.remove(KEY_ACCOUNT_EMAIL)?.remove(KEY_ACCOUNT_NAME)?.apply()
+    }
+
+    private fun loginFailed(startedAt: Long, kind: ZLoginResult.Failed.Kind, message: String?): ZLoginResult.Failed {
+        perfLog("PBPERF|phase=zlib_login|ms=" + elapsedMs(startedAt) + "|extra=fail,kind:" + kind)
+        return ZLoginResult.Failed(kind, message)
+    }
+
+    private fun perfLog(line: String) {
+        Log.i(PERF_TAG, line)
+    }
+
+    private fun elapsedMs(startedAt: Long): Long = (System.nanoTime() - startedAt) / 1_000_000L
+
+    private fun normalizeSlug(slug: String): String {
+        val cleaned = slug.trim().trim('/')
+        return if (cleaned.endsWith(".html")) cleaned else cleaned + ".html"
+    }
+
+    private fun looksLikeDetailPage(html: String): Boolean =
+        html.contains("details-book") && html.contains("book-title")
+
+    private fun canonicalBookUrl(html: String): String? {
+        val tag = Regex("""<link[^>]*rel\s*=\s*["']canonical["'][^>]*>""", RegexOption.IGNORE_CASE)
+            .find(html)?.value ?: return null
+        val href = Regex("""href\s*=\s*["']([^"']+)["']""", RegexOption.IGNORE_CASE)
+            .find(tag)?.groupValues?.get(1) ?: return null
+        return href.takeIf { it.contains("/book/") }
+    }
+
+    private fun absoluteSiteUrl(base: String, raw: String): String {
+        val trimmed = raw.trim()
+        return when {
+            trimmed.startsWith("//") -> "https:" + trimmed
+            trimmed.startsWith("http://", ignoreCase = true) ||
+                trimmed.startsWith("https://", ignoreCase = true) -> trimmed
+            trimmed.startsWith("/") -> hostBaseOf(base) + trimmed
+            else -> base.trimEnd('/') + "/" + trimmed
+        }
+    }
+
+    private fun hostBaseOf(url: String): String = runCatching {
+        val uri = URI(url)
+        uri.scheme + "://" + uri.authority
+    }.getOrDefault(url.trimEnd('/'))
+
+    private fun normalizeMirror(url: String?): String = url?.trim()?.trimEnd('/')?.lowercase().orEmpty()
+
+    private data class DirectProbe(
+        val url: String,
+        val status: Int,
+        val location: String?,
+        val contentType: String?,
+        val disposition: String?,
+        val prefix: ByteArray,
+    )
+
+    /** GET 前 1KB 判定候选直链；最多跟 2 次跳转。 */
+    private fun probeDirectLink(url: String): ZDownloadHandle? {
+        var current = url
+        var hops = 0
+        while (hops < 3) {
+            hops++
+            val probe = probeOnce(current)
+            when {
+                probe.status in 300..399 && !probe.location.isNullOrBlank() ->
+                    current = absoluteSiteUrl(current, probe.location)
+                probe.status !in 200..299 -> return null
+                looksLikeBookFile(probe.contentType, probe.disposition, probe.prefix) ->
+                    return ZDownloadHandle(current, probe.contentType)
+                else -> return null
+            }
+        }
+        return null
+    }
+
+    private fun probeOnce(url: String): DirectProbe {
+        var last: Exception? = null
+        for (proxy in proxyCandidates()) {
+            var conn: HttpURLConnection? = null
+            try {
+                conn = openConnection(URI(url), proxy)
+                conn.setRequestProperty("Range", "bytes=0-1023")
+                val status = conn.responseCode
+                val contentType = conn.contentType
+                val disposition = conn.getHeaderField("Content-Disposition")
+                val location = conn.getHeaderField("Location")
+                val prefix = if (status in 200..299) readPrefix(conn, 1_024) else ByteArray(0)
+                return DirectProbe(url, status, location, contentType, disposition, prefix)
+            } catch (e: Exception) {
+                last = e
+            } finally {
+                conn?.disconnect()
+            }
+        }
+        throw ZlibException("direct probe failed: " + (last?.message ?: "none"), ZlibException.Kind.NETWORK, last)
+    }
+
+    private fun readPrefix(conn: HttpURLConnection, maxBytes: Int): ByteArray {
+        val stream = try {
+            conn.inputStream
+        } catch (e: IOException) {
+            conn.errorStream
+        } ?: return ByteArray(0)
+        return stream.use { readCapped(it, maxBytes) }
+    }
+
+    /** 候选直链是否像书籍文件：Content-Disposition 优先；HTML 前缀/类型判定不是书。 */
+    private fun looksLikeBookFile(contentType: String?, disposition: String?, prefix: ByteArray): Boolean {
+        if (!disposition.isNullOrBlank()) return true
+        val lower = contentType?.lowercase().orEmpty()
+        if (lower.contains("text/html")) return false
+        if (looksLikeHtmlStart(prefix, prefix.size)) return false
+        return lower.contains("pdf") || lower.contains("octet-stream") || lower.contains("epub") ||
+            lower.contains("zip") || lower.contains("mobi") || lower.startsWith("application/") ||
+            lower.startsWith("image/") || lower.isEmpty()
+    }
+
+    private fun looksLikeHtmlStart(buffer: ByteArray, read: Int): Boolean {
+        for (index in 0 until read) {
+            val ch = buffer[index].toInt().toChar()
+            if (ch.isWhitespace()) continue
+            return ch == '<'
+        }
+        return false
+    }
+
+    private data class StreamStats(
+        val finalUrl: String,
+        val received: Long,
+        val total: Long,
+        val contentType: String?,
+        val disposition: String?,
+    )
+
+    /** 逐个代理尝试流式下载；首个成功即 rename 返回。 */
+    private fun streamToFile(
+        handle: ZDownloadHandle,
+        destFile: File,
+        onProgress: (received: Long, total: Long) -> Unit,
+    ): File {
+        val target = destFile.absoluteFile
+        val parent = target.parentFile ?: File(".")
+        parent.mkdirs()
+        var lastError: Exception? = null
+        for (proxy in proxyCandidates()) {
+            val part = File(parent, target.name + PART_SUFFIX)
+            try {
+                val stats = streamOnce(handle, part, proxy, onProgress)
+                if (stats.received < MIN_DOWNLOAD_BYTES) {
+                    throw ZlibException("download too small: " + stats.received, ZlibException.Kind.DOWNLOAD)
+                }
+                if (stats.total > 0 && stats.received < stats.total) {
+                    throw ZlibException(
+                        "incomplete download: " + stats.received + "/" + stats.total,
+                        ZlibException.Kind.DOWNLOAD,
+                    )
+                }
+                val finalFile = withExtension(target, stats.disposition, stats.finalUrl)
+                if (!part.renameTo(finalFile)) {
+                    part.copyTo(finalFile, overwrite = true)
+                    part.delete()
+                }
+                return finalFile
+            } catch (e: ZlibException) {
+                part.delete()
+                throw e
+            } catch (e: Exception) {
+                part.delete()
+                lastError = e
+            }
+        }
+        throw ZlibException(
+            "download failed: " + (lastError?.message ?: "no proxy"),
+            ZlibException.Kind.NETWORK,
+            lastError,
+        )
+    }
+
+    private fun streamOnce(
+        handle: ZDownloadHandle,
+        partFile: File,
+        proxy: Proxy?,
+        onProgress: (received: Long, total: Long) -> Unit,
+    ): StreamStats {
+        var current = handle.directUrl
+        var conn: HttpURLConnection? = null
+        var hops = 0
+        try {
+            while (true) {
+                conn = openConnection(URI(current), proxy)
+                val status = conn.responseCode
+                val location = conn.getHeaderField("Location")
+                if (status in 300..399 && !location.isNullOrBlank() && hops < MAX_DOWNLOAD_REDIRECTS) {
+                    hops++
+                    current = absoluteSiteUrl(current, location)
+                    conn.disconnect()
+                    conn = null
+                    continue
+                }
+                if (status !in 200..299) {
+                    throw ZlibException("HTTP " + status + " for " + current, ZlibException.Kind.HTTP)
+                }
+                break
+            }
+            val contentType = conn.contentType
+            val disposition = conn.getHeaderField("Content-Disposition")
+            val total = conn.contentLengthLong
+            val stream = try {
+                conn.inputStream
+            } catch (e: IOException) {
+                conn.errorStream
+            } ?: throw ZlibException("empty response", ZlibException.Kind.DOWNLOAD)
+
+            var received = 0L
+            var lastProgressAt = 0L
+            val buffer = ByteArray(DOWNLOAD_BUFFER_BYTES)
+            FileOutputStream(partFile).use { output ->
+                stream.use { input ->
+                    while (true) {
+                        val read = input.read(buffer)
+                        if (read < 0) break
+                        if (received == 0L &&
+                            contentType?.contains("text/html", ignoreCase = true) == true &&
+                            looksLikeHtmlStart(buffer, read)
+                        ) {
+                            throw ZlibException("not a book (html response)", ZlibException.Kind.DOWNLOAD)
+                        }
+                        try {
+                            output.write(buffer, 0, read)
+                        } catch (e: IOException) {
+                            throw ZlibException(
+                                "file write failed: " + e.message,
+                                ZlibException.Kind.DOWNLOAD,
+                                e,
+                            )
+                        }
+                        received += read
+                        val now = System.nanoTime()
+                        if (now - lastProgressAt > PROGRESS_THROTTLE_MS * 1_000_000L) {
+                            lastProgressAt = now
+                            onProgress(received, total)
+                        }
+                    }
+                }
+            }
+            onProgress(received, total)
+            return StreamStats(current, received, total, contentType, disposition)
+        } finally {
+            conn?.disconnect()
+        }
+    }
+
+    /** 扩展名缺失时按 Content-Disposition（优先）→ URL 末段 → 默认 pdf 补齐。 */
+    private fun withExtension(destFile: File, disposition: String?, finalUrl: String): File {
+        if (destFile.extension.isNotBlank()) return destFile
+        val fromName = ZlibDownloadParser.filenameFromDisposition(disposition)
+            ?.substringAfterLast('.', "")
+            ?.takeIf { it.isNotBlank() && it.length <= 5 }
+        val fromUrl = runCatching { URI(finalUrl).path.substringAfterLast('.', "") }
+            .getOrDefault("")
+            .takeIf { it.isNotBlank() && it.length <= 5 }
+        val extension = (fromName ?: fromUrl ?: "pdf").lowercase().filter { it.isLetterOrDigit() }
+        return File(destFile.parentFile, destFile.name + "." + extension)
+    }
+
+    private fun readCapped(input: InputStream, maxBytes: Int): ByteArray {
+        val out = ByteArrayOutputStream(minOf(maxBytes, 16 * 1_024))
+        val buffer = ByteArray(8 * 1_024)
+        var total = 0
+        while (total < maxBytes) {
+            val read = input.read(buffer, 0, minOf(buffer.size, maxBytes - total))
+            if (read < 0) break
+            out.write(buffer, 0, read)
+            total += read
+        }
+        return out.toByteArray()
+    }
+
+    private fun readCappedWithLimit(input: InputStream, maxBytes: Int): ByteArray {
+        val out = ByteArrayOutputStream(minOf(maxBytes, 64 * 1_024))
+        val buffer = ByteArray(8 * 1_024)
+        var total = 0
+        while (true) {
+            val read = input.read(buffer)
+            if (read < 0) break
+            total += read
+            if (total > maxBytes) {
+                throw ZlibException("file exceeds " + maxBytes + " bytes", ZlibException.Kind.HTTP)
+            }
+            out.write(buffer, 0, read)
+        }
+        return out.toByteArray()
+    }
+
     // ---------------------------------------------------------------- debug helpers (debug 包才打印)
 
     private fun debugLog(message: String) {
         if (isDebuggable) Log.i(TAG, message)
+    }
+
+    /** /dl 页面结构在登录后尚未实测：debug 包打印状态 + 页面片段（release 不打），供设备端迭代。 */
+    private fun logDlPage(url: String, state: String, body: String?) {
+        if (!isDebuggable) return
+        val snippet = (body ?: "").take(1500).replace("\n", " ").replace("\r", " ")
+        Log.i(TAG, "dl_page state=" + state + " url=" + hostOf(url) + " len=" + (body?.length ?: 0) + " snippet=" + snippet)
     }
 
     private fun describeSystemProxy(): String = try {
@@ -674,6 +1368,26 @@ class ZlibClient(
     companion object {
         private const val PREFS_NAME = "zlib"
         private const val KEY_MIRROR = "zlib_mirror"
+
+        /** P1b：账号缓存键（本地展示缓存；真实登录态以 cookie + verifyLoggedIn 为准）。 */
+        private const val KEY_ACCOUNT_EMAIL = "zlib_account_email"
+        private const val KEY_ACCOUNT_NAME = "zlib_account_name"
+
+        /** P1b：下载/图片上限与节流。 */
+        private const val PART_SUFFIX = ".part"
+        private const val MAX_IMAGE_BYTES = 8 * 1_024 * 1_024
+        private const val MIN_DOWNLOAD_BYTES = 1_024L
+        private const val DOWNLOAD_BUFFER_BYTES = 8 * 1_024
+        private const val PROGRESS_THROTTLE_MS = 150L
+        private const val MAX_DOWNLOAD_REDIRECTS = 5
+
+        /** P1b：/dl 状态机跳数与倒计时等待上限。 */
+        private const val MAX_DL_HOPS = 4
+        private const val MAX_COUNTDOWN_ROUNDS = 8
+        private const val MAX_COUNTDOWN_WAIT_S = 20
+
+        /** 性能日志 tag（与 app 其他 phase 一致）。 */
+        private const val PERF_TAG = "PBPERF"
         private const val TAG = "PBZlib"
         private const val CONNECT_TIMEOUT_MS = 7_000
         private const val READ_TIMEOUT_MS = 15_000

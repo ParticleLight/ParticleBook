@@ -1,0 +1,1479 @@
+<!DOCTYPE html>
+<html lang="en" class=" ">
+<head>
+    <meta name="color-scheme" content="">
+    <script>
+        window.offlinePageDisabled = false;
+    </script>
+            <script>
+            if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+                document.querySelector("html").className = "dark"
+            }
+            window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e => {
+                document.querySelector('html').className = e.matches ? 'dark' : 'light';
+            });
+        </script>
+            <script src="/components/zlibrary.js?0.944"></script>
+    <script async src="/components/z-cover.js?0.944"></script>
+    <script type="text/javascript">
+        navigator.sayswho = (function () {
+            var ua = navigator.userAgent, tem,
+                M = ua.match(/(opera|chrome|safari|firefox|msie|trident(?=\/))\/?\s*(\d+)/i) || [];
+            if (/trident/i.test(M[1])) {
+                tem = /\brv[ :]+(\d+)/g.exec(ua) || [];
+                return 'IE ' + (tem[1] || '');
+            }
+            if (M[1] === 'Chrome') {
+                tem = ua.match(/\b(OPR|Edge)\/(\d+)/);
+                if (tem != null) return tem.slice(1).join(' ').replace('OPR', 'Opera');
+            }
+            M = M[2] ? [M[1], M[2]] : [navigator.appName, navigator.appVersion, '-?'];
+            if ((tem = ua.match(/version\/(\d+)/i)) != null) M.splice(1, 1, tem[1]);
+            return M.join(' ');
+        })();
+    </script>
+
+    <title>Android编程权威指南（中文版） | Android编程权威指南（中文版）.pdf | download on Z-Library</title>
+<base href="/">
+
+            <meta charset="utf-8">
+            <meta http-equiv="content-type" content="text/html; charset=UTF-8" />
+            <meta http-equiv="X-UA-Compatible" content="IE=edge">
+            <meta name="viewport" content="width=device-width, initial-scale=1">
+            <meta name="description" content="Read online or download for free from Z-Library the Book: Android编程权威指南（中文版）.pdf, Author: Android编程权威指南（中文版）.pdf, Language: Chinese, Format: , Filesize: 0 B">
+            <meta name="keywords" content="">
+            <meta name="robots" content="index,all">
+            <meta name="distribution" content="global">
+            <meta http-equiv="cache-control" content="no-cache">
+            <meta http-equiv="pragma" content="no-cache">
+
+            
+            <link rel="apple-touch-icon" sizes="180x180" href="/img/favicons/apple-touch-icon.png?v=1">
+            <link rel="icon" href="/img/favicons/favicon.svg">
+            <link rel="icon" type="image/svg+xml" href="/img/favicons/favicon-32x32.svg?v=2" sizes="32x32">
+            <link rel="icon" type="image/svg+xml" href="/img/favicons/favicon-16x16.svg?v=2" sizes="16x16">
+            <link rel="manifest" href="/img/favicons/manifest.json?v=1" crossorigin="use-credentials">
+            <link rel="mask-icon" href="/img/favicons/safari-pinned-tab.svg?v=1" color="#5bbad5">
+        
+            <meta name="apple-mobile-web-app-title" content="Z-Library">
+            <meta name="application-name" content="Z-Library">
+            <meta name="theme-color" content="#ffffff">
+
+            <meta name="propeller" content="49c350d528ba144cace841cac74260ab">
+            <meta name="alfacoins-site-verification" content="5ef0e7b2483f15ef0e7b2484275ef0e7b24845d_ALFAcoins">
+            <meta name="format-detection" content="telephone=no">
+            <style>z-recommended-search:not(.ready), z-dropdown:not(.ready), z-booklist:not(.ready), z-carousel:not(.ready){ opacity: 0; max-height: 250px; }</style>
+        
+<!-- CSS SET -->
+<!-- JS SET --> 
+<link rel="alternate" hreflang="en" href="https://z-lib.by/book/6y7KYwknyQ/android%E7%BC%96%E7%A8%8B%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%E4%B8%AD%E6%96%87%E7%89%88.html" />
+<link rel="alternate" hreflang="ru" href="https://ru.z-lib.by/book/6y7KYwknyQ/android%E7%BC%96%E7%A8%8B%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%E4%B8%AD%E6%96%87%E7%89%88.html" />
+<link rel="alternate" hreflang="es" href="https://es.z-lib.by/book/6y7KYwknyQ/android%E7%BC%96%E7%A8%8B%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%E4%B8%AD%E6%96%87%E7%89%88.html" />
+<link rel="alternate" hreflang="it" href="https://it.z-lib.by/book/6y7KYwknyQ/android%E7%BC%96%E7%A8%8B%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%E4%B8%AD%E6%96%87%E7%89%88.html" />
+<link rel="alternate" hreflang="el" href="https://el.z-lib.by/book/6y7KYwknyQ/android%E7%BC%96%E7%A8%8B%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%E4%B8%AD%E6%96%87%E7%89%88.html" />
+<link rel="alternate" hreflang="ar" href="https://ar.z-lib.by/book/6y7KYwknyQ/android%E7%BC%96%E7%A8%8B%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%E4%B8%AD%E6%96%87%E7%89%88.html" />
+<link rel="alternate" hreflang="id" href="https://id.z-lib.by/book/6y7KYwknyQ/android%E7%BC%96%E7%A8%8B%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%E4%B8%AD%E6%96%87%E7%89%88.html" />
+<link rel="alternate" hreflang="ms" href="https://ms.z-lib.by/book/6y7KYwknyQ/android%E7%BC%96%E7%A8%8B%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%E4%B8%AD%E6%96%87%E7%89%88.html" />
+<link rel="alternate" hreflang="hi" href="https://hi.z-lib.by/book/6y7KYwknyQ/android%E7%BC%96%E7%A8%8B%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%E4%B8%AD%E6%96%87%E7%89%88.html" />
+<link rel="alternate" hreflang="de" href="https://de.z-lib.by/book/6y7KYwknyQ/android%E7%BC%96%E7%A8%8B%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%E4%B8%AD%E6%96%87%E7%89%88.html" />
+<link rel="alternate" hreflang="fr" href="https://fr.z-lib.by/book/6y7KYwknyQ/android%E7%BC%96%E7%A8%8B%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%E4%B8%AD%E6%96%87%E7%89%88.html" />
+<link rel="alternate" hreflang="pt" href="https://pt.z-lib.by/book/6y7KYwknyQ/android%E7%BC%96%E7%A8%8B%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%E4%B8%AD%E6%96%87%E7%89%88.html" />
+<link rel="alternate" hreflang="uk" href="https://uk.z-lib.by/book/6y7KYwknyQ/android%E7%BC%96%E7%A8%8B%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%E4%B8%AD%E6%96%87%E7%89%88.html" />
+<link rel="alternate" hreflang="pl" href="https://pl.z-lib.by/book/6y7KYwknyQ/android%E7%BC%96%E7%A8%8B%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%E4%B8%AD%E6%96%87%E7%89%88.html" />
+<link rel="alternate" hreflang="zh" href="https://zh.z-lib.by/book/6y7KYwknyQ/android%E7%BC%96%E7%A8%8B%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%E4%B8%AD%E6%96%87%E7%89%88.html" />
+<link rel="alternate" hreflang="tw" href="https://tw.z-lib.by/book/6y7KYwknyQ/android%E7%BC%96%E7%A8%8B%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%E4%B8%AD%E6%96%87%E7%89%88.html" />
+<link rel="alternate" hreflang="ja" href="https://ja.z-lib.by/book/6y7KYwknyQ/android%E7%BC%96%E7%A8%8B%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%E4%B8%AD%E6%96%87%E7%89%88.html" />
+<link rel="alternate" hreflang="vi" href="https://vi.z-lib.by/book/6y7KYwknyQ/android%E7%BC%96%E7%A8%8B%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%E4%B8%AD%E6%96%87%E7%89%88.html" />
+<link rel="alternate" hreflang="az" href="https://az.z-lib.by/book/6y7KYwknyQ/android%E7%BC%96%E7%A8%8B%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%E4%B8%AD%E6%96%87%E7%89%88.html" />
+<link rel="alternate" hreflang="hy" href="https://hy.z-lib.by/book/6y7KYwknyQ/android%E7%BC%96%E7%A8%8B%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%E4%B8%AD%E6%96%87%E7%89%88.html" />
+<link rel="alternate" hreflang="th" href="https://th.z-lib.by/book/6y7KYwknyQ/android%E7%BC%96%E7%A8%8B%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%E4%B8%AD%E6%96%87%E7%89%88.html" />
+<link rel="alternate" hreflang="tr" href="https://tr.z-lib.by/book/6y7KYwknyQ/android%E7%BC%96%E7%A8%8B%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%E4%B8%AD%E6%96%87%E7%89%88.html" />
+<link rel="alternate" hreflang="ka" href="https://ka.z-lib.by/book/6y7KYwknyQ/android%E7%BC%96%E7%A8%8B%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%E4%B8%AD%E6%96%87%E7%89%88.html" />
+<link rel="alternate" hreflang="bn" href="https://bn.z-lib.by/book/6y7KYwknyQ/android%E7%BC%96%E7%A8%8B%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%E4%B8%AD%E6%96%87%E7%89%88.html" />
+<link rel="alternate" hreflang="ps" href="https://ps.z-lib.by/book/6y7KYwknyQ/android%E7%BC%96%E7%A8%8B%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%E4%B8%AD%E6%96%87%E7%89%88.html" />
+<link rel="alternate" hreflang="te" href="https://te.z-lib.by/book/6y7KYwknyQ/android%E7%BC%96%E7%A8%8B%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%E4%B8%AD%E6%96%87%E7%89%88.html" />
+<link rel="alternate" hreflang="ur" href="https://ur.z-lib.by/book/6y7KYwknyQ/android%E7%BC%96%E7%A8%8B%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%E4%B8%AD%E6%96%87%E7%89%88.html" />
+<link rel="alternate" hreflang="ko" href="https://ko.z-lib.by/book/6y7KYwknyQ/android%E7%BC%96%E7%A8%8B%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%E4%B8%AD%E6%96%87%E7%89%88.html" />
+<link rel="alternate" hreflang="sr" href="https://sr.z-lib.by/book/6y7KYwknyQ/android%E7%BC%96%E7%A8%8B%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%E4%B8%AD%E6%96%87%E7%89%88.html" />
+<link rel="alternate" hreflang="bg" href="https://bg.z-lib.by/book/6y7KYwknyQ/android%E7%BC%96%E7%A8%8B%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%E4%B8%AD%E6%96%87%E7%89%88.html" />
+
+    <link rel="search" type="application/opensearchdescription+xml" href="/search.xml"
+          title="Search for books in the library Z-Library"/>
+    <link rel="stylesheet" href="/resources/css/theme.css?0.944"/>
+
+            <meta name="version" value="0.944"/>
+        <link rel="stylesheet" type="text/css" href="/resources/build/main.css?0.944"/>
+        <script type="text/javascript" src="/resources/build/main.js?0.944"></script>
+        <link rel="stylesheet" type="text/css" href="/resources/build/global.css?0.944"/>
+    <link rel="preload" href="/resources/build/global-d.css?0.944" as="style"
+          onload="this.onload=null;this.rel='stylesheet'">
+        <noscript>
+            <link rel="stylesheet" href="/resources/build/global-d.css?0.944">
+        </noscript>
+        <script type="text/javascript" src="/resources/build/global.js?0.944"></script>
+            <script type="text/javascript" src="/resources/build/bootstrap.js?0.944"></script>
+        <script type="text/javascript" src="/resources/build/global-d.js?0.944" defer></script>
+            <script type="text/javascript" src="/resources/build/book-details.min.js?0.944"></script>
+            <link rel="stylesheet" type="text/css" href="/resources/build/book-details.min.css?0.944"/>
+            <noscript>
+        <link rel="stylesheet" type="text/css" href="/resources/css/noscript.css?0.944"/>
+    </noscript>
+
+    <script>
+        window != top ? window.stop() : null;
+        
+        const Config = {"domainHost":"z-lib.by","BRegion":"asia","Country":"jp","accessByIp":false,"supportEmail":"support@z-lib.fm","preferredDomain":"https:\/\/z-lib.sk","loginURL":"\/login?redirectUrl=%252Fbook%252F6y7KYwknyQ%252Fandroid%2525E7%2525BC%252596%2525E7%2525A8%25258B%2525E6%25259D%252583%2525E5%2525A8%252581%2525E6%25258C%252587%2525E5%25258D%252597%2525E4%2525B8%2525AD%2525E6%252596%252587%2525E7%252589%252588.html","regURL":"\/registration?redirectUrl=%252Fbook%252F6y7KYwknyQ%252Fandroid%2525E7%2525BC%252596%2525E7%2525A8%25258B%2525E6%25259D%252583%2525E5%2525A8%252581%2525E6%25258C%252587%2525E5%25258D%252597%2525E4%2525B8%2525AD%2525E6%252596%252587%2525E7%252589%252588.html","generalFilesProxy":"https:\/\/dln1.ncdn.ec\/general-files\/","isDesktopApp":false,"desktopAppVersion":null,"isTelegramBrowser":false,"isProxy":false};
+        const CurrentUser = new User(null);
+        const CurrentClientIP = "64.118.148.200";
+        const CurrentSiteMode = 'books';
+        const proxiesToCheck = []; //for google verification
+
+        document.addEventListener("readystatechange", () => setTimeout(documentChecker, 3000));
+
+        // i18next initialization
+        (() => {
+            const notLikelyString = '_~_';
+            i18next
+                .use(i18nextHttpBackend)
+                .init({
+                    // saveMissing: true,
+                    lng: 'en',
+                    fallbackLng: 'en',
+                    backend: {
+                        // addPath: '/papi/translations/add-missing-key',
+                        loadPath: '/langs/{{lng}}.json?v=0.944'
+                    },
+                    keySeparator: notLikelyString,
+                    nsSeparator: notLikelyString,
+                    pluralSeparator: notLikelyString,
+                    contextSeparator: notLikelyString,
+                })
+        })();
+
+
+        $(document).ready(function () {
+            $('.tooltip-init').tooltip({html: true})
+
+                    })
+
+        $(document).on('focus', '.form-email-field', function () {
+            $(this).tooltip('hide')
+        })
+
+        $(document).on('change', '.form-email-field', function () {
+            const $input = $(this)
+            const email = $input.val()
+
+            $input.parents('.form-group').find('.form-error').remove()
+        })
+
+        $(document).on('focus', '.form-email-field', function () {
+            $(this).tooltip('hide')
+        });
+    </script>
+        <script type="application/ld+json">
+        {
+            "@context": "https://schema.org",
+            "@type": "WebSite",
+            "name": "Z-Library",
+                "url": "https://z-lib.by",
+                "potentialAction": [{
+                    "@type": "SearchAction",
+                    "target": {
+                        "@type": "EntryPoint",
+                        "urlTemplate": "https://z-lib.by/s/{search_string}"
+                    },
+                    "query-input": "required name=search_string"
+               }]
+            }
+    </script>
+    <script type="application/ld+json">
+  {
+    "@context":"https://schema.org",
+    "@type":"Book",
+    "name":"Android编程权威指南（中文版）",
+    "description":"",
+    "author": [{
+                    "@type":"Person",
+                    "name":"{Android编程权威指南（中文版）.pdf}",
+                    "url":"{https://z-lib.by/author/Android%E7%BC%96%E7%A8%8B%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%EF%BC%88%E4%B8%AD%E6%96%87%E7%89%88%EF%BC%89.pdf}"
+                }],
+    "publisher":{
+        "@type":"Organization",
+        "name":""
+    },
+    "image": "/img/cover-not-exists.png",
+    "isbn":"",
+    "numberOfPages": 0,
+    "datePublished": ,
+    "inLanguage":{
+      "@type": "Language",
+      "name": "chinese"
+    },
+    "review":{
+        "@type": "Review",
+        "reviewBody": "",
+        "author": {
+          "@type": "Person",
+          "name": "John"
+        },
+        "reviewRating":{
+          "@type":"AggregateRating",
+          "ratingValue": "5.0",
+          "ratingCount": 1
+        },
+        "datePublished": "2021-06-05 11:43:37"
+    }
+  }
+</script>
+    
+    <script src="/components/zlibrary-startup-script.js"></script>
+    <link rel="stylesheet" href="/components/style.css?0.944">
+</head>
+
+<body style="margin:0px;padding:0px;"
+      class="books/details  super-puper-main-container"
+      data-proxy="false">
+        <div class="hidden-xs social-share-wrap">
+        <z-social-sharing class="social-share" domain="z-lib.sk"></z-social-sharing>
+    </div>
+
+
+
+<div class="container-fluid">
+    
+<div class="row hideInDesktopApp20">
+    <nav role="navigation" class="navigation ">
+        <div class="mode-switcher">
+            <a style="background: var(--primary-color);" href="/" title="Z-Library books" class="header-main-nav-link">
+                <span class="hidden-xs">Z-Library Home</span>
+                <span class="visible-xs">
+                    <span class="pair-icons">
+                        <span class="pair-icons__normal zlibicon-home"></span>
+                        <span class="pair-icons__hover zlibicon-home-fill"></span>
+                    </span>
+                </span>
+            </a>
+            <a style="background: var(--green-color);" href="/profile#tags" title="My Library" class="header-main-nav-link">
+                <span class="hidden-xs">My Library</span>
+                <span class="visible-xs">
+                    <span class="pair-icons">
+                        <span class="pair-icons__normal zlibicon-mylibrary"></span>
+                        <span class="pair-icons__hover zlibicon-mylibrary-fill"></span>
+                    </span>
+                </span>
+            </a>
+        </div>
+        <div class="lang-switcher">
+    <z-dropdown icon="zlibicon-language" arrow>
+        <a onclick="redirectToLink('en')" href="https://z-lib.by/book/6y7KYwknyQ/android%E7%BC%96%E7%A8%8B%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%E4%B8%AD%E6%96%87%E7%89%88.html" checked>English</a><a onclick="redirectToLink('ru')" href="http://ru.z-lib.by/book/6y7KYwknyQ/android%E7%BC%96%E7%A8%8B%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%E4%B8%AD%E6%96%87%E7%89%88.html">Русский</a><a onclick="redirectToLink('es')" href="http://es.z-lib.by/book/6y7KYwknyQ/android%E7%BC%96%E7%A8%8B%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%E4%B8%AD%E6%96%87%E7%89%88.html">Español</a><a onclick="redirectToLink('it')" href="http://it.z-lib.by/book/6y7KYwknyQ/android%E7%BC%96%E7%A8%8B%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%E4%B8%AD%E6%96%87%E7%89%88.html">Italiano</a><a onclick="redirectToLink('el')" href="http://el.z-lib.by/book/6y7KYwknyQ/android%E7%BC%96%E7%A8%8B%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%E4%B8%AD%E6%96%87%E7%89%88.html">Ελληνικά</a><a onclick="redirectToLink('ar')" href="http://ar.z-lib.by/book/6y7KYwknyQ/android%E7%BC%96%E7%A8%8B%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%E4%B8%AD%E6%96%87%E7%89%88.html">اللغة العربية</a><a onclick="redirectToLink('id')" href="http://id.z-lib.by/book/6y7KYwknyQ/android%E7%BC%96%E7%A8%8B%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%E4%B8%AD%E6%96%87%E7%89%88.html">Bahasa Indonesia</a><a onclick="redirectToLink('ms')" href="http://ms.z-lib.by/book/6y7KYwknyQ/android%E7%BC%96%E7%A8%8B%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%E4%B8%AD%E6%96%87%E7%89%88.html">Bahasa Malaysia</a><a onclick="redirectToLink('hi')" href="http://hi.z-lib.by/book/6y7KYwknyQ/android%E7%BC%96%E7%A8%8B%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%E4%B8%AD%E6%96%87%E7%89%88.html">हिन्दी</a><a onclick="redirectToLink('de')" href="http://de.z-lib.by/book/6y7KYwknyQ/android%E7%BC%96%E7%A8%8B%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%E4%B8%AD%E6%96%87%E7%89%88.html">Deutsch</a><a onclick="redirectToLink('fr')" href="http://fr.z-lib.by/book/6y7KYwknyQ/android%E7%BC%96%E7%A8%8B%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%E4%B8%AD%E6%96%87%E7%89%88.html">Français</a><a onclick="redirectToLink('pt')" href="http://pt.z-lib.by/book/6y7KYwknyQ/android%E7%BC%96%E7%A8%8B%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%E4%B8%AD%E6%96%87%E7%89%88.html">Português</a><a onclick="redirectToLink('uk')" href="http://uk.z-lib.by/book/6y7KYwknyQ/android%E7%BC%96%E7%A8%8B%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%E4%B8%AD%E6%96%87%E7%89%88.html">Українська</a><a onclick="redirectToLink('pl')" href="http://pl.z-lib.by/book/6y7KYwknyQ/android%E7%BC%96%E7%A8%8B%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%E4%B8%AD%E6%96%87%E7%89%88.html">Polski</a><a onclick="redirectToLink('zh')" href="http://zh.z-lib.by/book/6y7KYwknyQ/android%E7%BC%96%E7%A8%8B%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%E4%B8%AD%E6%96%87%E7%89%88.html">中文</a><a onclick="redirectToLink('tw')" href="http://tw.z-lib.by/book/6y7KYwknyQ/android%E7%BC%96%E7%A8%8B%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%E4%B8%AD%E6%96%87%E7%89%88.html">繁體中文</a><a onclick="redirectToLink('ja')" href="http://ja.z-lib.by/book/6y7KYwknyQ/android%E7%BC%96%E7%A8%8B%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%E4%B8%AD%E6%96%87%E7%89%88.html">日本語</a><a onclick="redirectToLink('vi')" href="http://vi.z-lib.by/book/6y7KYwknyQ/android%E7%BC%96%E7%A8%8B%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%E4%B8%AD%E6%96%87%E7%89%88.html">Tiếng Việt</a><a onclick="redirectToLink('az')" href="http://az.z-lib.by/book/6y7KYwknyQ/android%E7%BC%96%E7%A8%8B%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%E4%B8%AD%E6%96%87%E7%89%88.html">Azərbaycan Dili</a><a onclick="redirectToLink('hy')" href="http://hy.z-lib.by/book/6y7KYwknyQ/android%E7%BC%96%E7%A8%8B%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%E4%B8%AD%E6%96%87%E7%89%88.html">Հայոց լեզու</a><a onclick="redirectToLink('th')" href="http://th.z-lib.by/book/6y7KYwknyQ/android%E7%BC%96%E7%A8%8B%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%E4%B8%AD%E6%96%87%E7%89%88.html">ภาษาไทย</a><a onclick="redirectToLink('tr')" href="http://tr.z-lib.by/book/6y7KYwknyQ/android%E7%BC%96%E7%A8%8B%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%E4%B8%AD%E6%96%87%E7%89%88.html">Türk Dili</a><a onclick="redirectToLink('ka')" href="http://ka.z-lib.by/book/6y7KYwknyQ/android%E7%BC%96%E7%A8%8B%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%E4%B8%AD%E6%96%87%E7%89%88.html">ქართველი</a><a onclick="redirectToLink('bn')" href="http://bn.z-lib.by/book/6y7KYwknyQ/android%E7%BC%96%E7%A8%8B%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%E4%B8%AD%E6%96%87%E7%89%88.html">বাংলা</a><a onclick="redirectToLink('ps')" href="http://ps.z-lib.by/book/6y7KYwknyQ/android%E7%BC%96%E7%A8%8B%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%E4%B8%AD%E6%96%87%E7%89%88.html">پښتو</a><a onclick="redirectToLink('te')" href="http://te.z-lib.by/book/6y7KYwknyQ/android%E7%BC%96%E7%A8%8B%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%E4%B8%AD%E6%96%87%E7%89%88.html">తెలుగు</a><a onclick="redirectToLink('ur')" href="http://ur.z-lib.by/book/6y7KYwknyQ/android%E7%BC%96%E7%A8%8B%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%E4%B8%AD%E6%96%87%E7%89%88.html">اردو</a><a onclick="redirectToLink('ko')" href="http://ko.z-lib.by/book/6y7KYwknyQ/android%E7%BC%96%E7%A8%8B%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%E4%B8%AD%E6%96%87%E7%89%88.html">한국어</a><a onclick="redirectToLink('sr')" href="http://sr.z-lib.by/book/6y7KYwknyQ/android%E7%BC%96%E7%A8%8B%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%E4%B8%AD%E6%96%87%E7%89%88.html">Srpski</a><a onclick="redirectToLink('bg')" href="http://bg.z-lib.by/book/6y7KYwknyQ/android%E7%BC%96%E7%A8%8B%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%E4%B8%AD%E6%96%87%E7%89%88.html">Български</a>        <style>
+            .head {
+                color: var(--gray-7)
+            }
+
+            .arrow {
+                border-top-color: var(--gray-7)
+            }
+
+            .badge {
+                display: none;
+            }
+
+            .content-wrap {
+                right: auto;
+                left: 0;
+            }
+        </style>
+    </z-dropdown>
+    </div>
+        <div class="clear"></div>
+
+        
+        <div class="navigation-element donate-element ">
+            <a href="/how-to-donate" class="navigation-donate">Donate</a>        </div>
+
+        
+        <section class="navigation-element navigation-search-element hidden-xs" style="order: 1">
+    <div class="navigation-icon" onclick="openSearchLine()">
+        <div class="zlibicon-search-n"></div>
+    </div>
+    <div class="navigation-search-line" nextgen>
+        <input search placeholder="Search for title, author, ISBN, DOI, publisher, md5…" onsubmit="useHeaderSearch(event)" onreset="this.value = ''; useHeaderSearch('')" />
+    </div>
+</section>
+        <div class="navigation-element navigation-theme-switcher">
+    <div class="navigation-icon">
+        <div class="color-schema-switcher">
+            <div class="color-schema-switcher__trigger"></div>
+            <div class="zlibicon-light color-schema-switcher__light" onclick="switchTheme('light')"></div>
+            <div class="zlibicon-dark color-schema-switcher__dark" onclick="switchTheme('dark')"></div>
+            <div class="zlibicon-glass color-schema-switcher__glass" onclick="; showThemesBrowser(this);"></div>
+            <div class="mobile-trigger" onclick="showThemesBrowser(this)"></div>
+        </div>
+    </div>
+</div>
+
+<script>
+    function switchTheme(theme) {
+        const htmlNode = document.querySelector('html')
+        switch (theme) {
+            case "dark":
+            case "light":
+                htmlNode.classList.remove('dark', 'light', 'glass', 'g1', 'g2', 'g3')
+                htmlNode.classList.add(theme)
+                setCookie('prefers_color_scheme', theme, 86400 * 365 * 5 * 1000)
+                break;
+                    }
+    }
+
+    function showThemesBrowser(node) {
+        const htmlNode = document.querySelector('html')
+        htmlNode.classList.add('theme-browser-opened')
+
+        ZLibraryContextMenu({
+            node: node,
+            position: 'right',
+            offsetTop: 15,
+            offsetLeft: 15,
+            list: [{
+                type: 'component',
+                html: `
+                    <z-themes-browser  onchange="switchTheme(event.detail.theme)">
+                                                <div slot="info">New fantastic Aurora mode <br /> now available to <a href="/how-to-donate?d=10">Premium users</a></div>                    </z-themes-browser>`
+            }],
+            onClose: () => {
+                switchTheme(getCookie('prefers_color_scheme'))
+                htmlNode.classList.remove('theme-browser-opened')
+            }
+        })
+
+    }
+    ZLibrary.connect('z-themes-browser')
+</script>
+                <section class="navigation-element navigation-user-card-element not-logged" style="position: relative;">
+            <a href="/login?redirectUrl=%252Fbook%252F6y7KYwknyQ%252Fandroid%2525E7%2525BC%252596%2525E7%2525A8%25258B%2525E6%25259D%252583%2525E5%2525A8%252581%2525E6%25258C%252587%2525E5%25258D%252597%2525E4%2525B8%2525AD%2525E6%252596%252587%2525E7%252589%252588.html" data-mode="singlelogin" data-action="login">Log In</a>
+    </section>
+
+<script>
+    document.addEventListener('DOMContentLoaded', () => {
+        const singleloginLinks = document.querySelectorAll('[data-mode="singlelogin"]');
+
+                    singleloginLinks.forEach(link => {
+                link.addEventListener('click', (event) => {
+                    if (event.button !== 0) {
+                        event.stopImmediatePropagation();
+                    }
+                    event.preventDefault();
+                });
+            });
+                // Handles all actions except logout.
+        const singleloginAuthLinks = Array.from(singleloginLinks).filter(link => !link.hasAttribute('data-action') || link.getAttribute('data-action') !== 'logout');
+
+        singleloginAuthLinks.forEach(link => {
+            link.addEventListener('click', (event) => {
+                const authAction = event.target.closest('a')?.dataset.action;
+                if (authAction) {
+                    CurrentUser.showAuthPopup(authAction)
+                } else {
+                    new ZLibraryNotify().error(i18next.t('Something went wrong'))
+                }
+            });
+        });
+
+        // Handles logout action.
+        const singleloginLogoutLinks = Array.from(singleloginLinks).filter(link => link.getAttribute('data-action') === 'logout');
+        singleloginLogoutLinks.forEach(link => {
+            link.addEventListener('click', (event) => {
+                event.stopImmediatePropagation();
+                event.preventDefault();
+                const spinner = new ZLibrarySpinner(event.target).color('#666')
+                spinner.start()
+                CurrentUser.clearDownloadedBooks()
+                CurrentUser.logout()
+                    .then(() => location.reload())
+                    .catch(() => new ZLibraryNotify().error(i18next.t('Something went wrong')))
+                    .then(() => spinner.stop())
+            })
+        });
+
+    })
+</script>
+
+        <section class="navigation-element navigation-menu-element">
+    <div class="navigation-icon" onclick="openNavigationMenu()">
+        <span class="zlibicon-menu-n"></span>
+    </div>
+    <div class="navbar-menu">
+        <div class="navbar-menu-flex">
+            <div class="navbar-menu__bg"></div>
+            <a href="/" class="logo">
+                <img class="logo light dark" src="/img/logo.zlibrary.svg" style="width:200px;" alt="ZLibary Z-Library" title="Z-Library">
+                <img class="logo glass" src="/img/logo.zlibrary.glass.svg" style="width:200px;" alt="ZLibary Z-Library" title="Z-Library">
+            </a>
+            <div class="navbar-menu-flex__row">
+                <div class="user-data__sign-wrap">
+    <div class="user-data__sign">
+        <a href="/login?redirectUrl=%252Fbook%252F6y7KYwknyQ%252Fandroid%2525E7%2525BC%252596%2525E7%2525A8%25258B%2525E6%25259D%252583%2525E5%2525A8%252581%2525E6%25258C%252587%2525E5%25258D%252597%2525E4%2525B8%2525AD%2525E6%252596%252587%2525E7%252589%252588.html" data-mode="singlelogin" data-action="login" class="user-data__sign-title">Log In</a>
+        <div class="user-data__sign-note">to access more features</div>
+        <div class="user-data__sign-feature text-capitalize"><i class="zlibicon-arrow-right"></i>Online reading</div>
+        <div class="user-data__sign-feature text-capitalize"><i class="zlibicon-arrow-right"></i>Personal recommendations</div>
+        <div class="user-data__sign-feature                "><i class="zlibicon-arrow-right"></i>Sending to Email & eReaders</div>
+        <div class="user-data__sign-feature text-capitalize"><i class="zlibicon-arrow-right"></i>File converter</div>
+        <div class="user-data__sign-feature text-capitalize"><i class="zlibicon-arrow-right"></i>Telegram bot</div>
+        <div class="user-data__sign-feature text-capitalize"><i class="zlibicon-arrow-right"></i>Manage booklists</div>
+        <div class="user-data__sign-feature"><i class="zlibicon-arrow-right"></i>And much more…</div>
+    </div>
+</div>
+                <div class="navbar-menu__wrap">
+                    <section class="category"><input type="checkbox" id="cat0" option="Personal" /><label for="cat0" class="category-title">Personal<i class="zlibicon-slider-arr-right"></i></label><div class="category-list"><a href="/requests" ""><i class="zlibicon-request"></i><span>Book Requests</span></a></div></section><section class="category"><input type="checkbox" id="cat1" option="Explore" /><label for="cat1" class="category-title">Explore<i class="zlibicon-slider-arr-right"></i></label><div class="category-list"><a href="/users/zrecommended" ""><i class="zlibicon-recommended-feature"></i><span>Z-Recommend</span></a><a href="/booklists" ""><i class="zlibicon-flag"></i><span>Booklists</span></a><a href="/popular" ""><i class="zlibicon-popular"></i><span>Most Popular</span></a><a href="/categories" ""><i class="zlibicon-categories"></i><span>Categories</span></a></div></section><section class="category"><input type="checkbox" id="cat2" option="Contribution" /><label for="cat2" class="category-title">Contribution<i class="zlibicon-slider-arr-right"></i></label><div class="category-list"><a href="/how-to-donate" ""><i class="zlibicon-dollar"></i><span>Donate</span></a><a href="/book-add" ""><i class="zlibicon-cloud-upload"></i><span>Uploads</span></a></div></section><section class="category"><input type="checkbox" id="cat3" option="We recommend" /><label for="cat3" class="category-title">We recommend<i class="zlibicon-slider-arr-right"></i></label><div class="category-list"><a href="https://lib-talk.io/" target="_blank"><i class="zlibicon-libtalks orange-color"></i><span><span style="color: var(--libtalks-1-color)">Lib</span><span style="color: var(--libtalks-2-color)">Talks</span><span class="link zlibicon-blank-n"></span><span class="description">Forum for reading enthusiasts</span></span></a><a href="https://litera-reader.com/" target="_blank"><i class="zlibicon-open-book blue-color"></i><span>Litera Reader<span class="link zlibicon-blank-n"></span><span class="description">Open and read any files online</span></span></a><div class="sep"></div><a href="https://library-access.sk" target="_blank"><i class="gray-color"><img src="img/y.svg" /></i><span>Z-Access<span class="link zlibicon-blank-n"></span><span class="description">Stay connected to our library!</span></span></a><a href="/blog" target="_blank"><i class="gray-color zlibicon-blog"></i><span>Project blog<span class="link zlibicon-blank-n"></span><span class="description">Stay tuned for our news and upgrades!</span></span></a></div></section>                </div>
+            </div>
+            <section class="navbar-menu-antiscam">
+    <div>
+        <span class="check-icon">
+            <span class="zlibicon-check-bold"></span>
+        </span>
+        Z-Library        Domains    </div>
+    <div class="sep"></div>
+    <div class="navbar-menu-antiscam__sub navbar-menu-antiscam__domains">
+                    <a href="https://z-lib.sk" target="_blank">z-lib.sk</a>
+                    <a href="https://z-library.im" target="_blank">z-library.im</a>
+                    <a href="https://z-library.sk" target="_blank">z-library.sk</a>
+            </div>
+    <div class="sep"></div>
+    <div class="navbar-menu-antiscam__sub">
+        <div>
+            <span class="zlibicon-download-drive"></span>
+            <a href="/access-info" download="Z-Library_access_2026-11-02.txt">Save access info (TXT)</a>
+        </div>
+    </div>
+</section>
+        </div>
+    </div>
+</section>
+
+    </nav>
+</div>
+
+</div>
+
+<div class="container " style="padding-bottom: 40px;">
+    <div class="row">
+        <div class="col-md-12 itemFullText">
+            
+<div class="page-title">
+    <div class="page-title__name-wrapper">
+                    <a href="/" class="page-title__back-arrow"></a>
+                            <h2 class="page-title__name">Android编程权威指南（中文版）</h2>
+            </div>
+
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "BreadcrumbList",
+      "name": "Breadcrumbs",
+      "itemListElement":[
+    {
+  "@type": "ListItem",
+  "position": 1,
+  "item":{
+    "@id": "https://z-lib.by/",
+    "name": "Main",
+    "url": "https://z-lib.by/"
+  }
+},{
+  "@type": "ListItem",
+  "position": 2,
+  "item":{
+    "@id": "https://z-lib.by/book/6y7KYwknyQ/android%E7%BC%96%E7%A8%8B%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%E4%B8%AD%E6%96%87%E7%89%88.html",
+    "name": "Android编程权威指南（中文版）",
+    "url": "https://z-lib.by/book/6y7KYwknyQ/android%E7%BC%96%E7%A8%8B%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%E4%B8%AD%E6%96%87%E7%89%88.html"
+  }
+}    ]
+  }
+</script>
+
+<div class="page-title__breadcrumbs-wrapper">
+    <ul class="page-title__breadcrumbs-list hideInDesktopApp">
+        <li class="page-title__breadcrumb"><a href="/" title="Ebook library z-lib.by">Main</a></li><li class="page-title__breadcrumb page-title__breadcrumb_last"><span title="Android编程权威指南（中文版）">Android编程权威指南（中文版）</span></li>    </ul>
+</div>
+
+        <script>
+            // if we have some history - use previous page in history
+            if (document.referrer) {
+                $('.page-title__back-arrow').click( function (e) {
+                    e.preventDefault()
+                    location.replace(document.referrer)
+                })
+            }
+        </script>
+    </div>
+
+<script type="text/javascript">
+    const MyLibraryBook = null;
+    const CurrentBook = new Book({"id":15846767,"title":"Android\u7f16\u7a0b\u6743\u5a01\u6307\u5357\uff08\u4e2d\u6587\u7248\uff09","terms_hash":"35d9849aacb8d1ee61f40470b79848a3"});
+</script>
+
+<div>
+    <div class="details-book cardBooks" data-spelling-suggest="true" data-book_id="15846767">
+        <div class="details-book-cover-container">
+            <z-cover lightbox naturalRatio volume markButton id="15846767" isbn="" author="Android编程权威指南（中文版）.pdf" title="Android编程权威指南（中文版）">
+                <img src="/img/cover-not-exists.png">
+            </z-cover>
+        </div>
+
+        <div class="details-book-info-container">
+            <h1 class="book-title" itemprop="name" style="line-height: 140%;">Android编程权威指南（中文版）</h1>
+            <i class="authors"><a class='color1' title='Find all the author&apos;s book' href='/author/Android%E7%BC%96%E7%A8%8B%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%EF%BC%88%E4%B8%AD%E6%96%87%E7%89%88%EF%BC%89.pdf'>Android编程权威指南（中文版）.pdf</a></i>
+            <template><a href="/dl/EMa5Bl0xnM" rel="nofollow" aria-hidden="true" hidden></a></template>            <!-- Actions -->
+            <section class="book-actions-container">
+                                    <div class="details-buttons-container">
+                        <div class="book-actions-buttons">
+                            
+    <div class="book-details-button read-online ">
+        <div class="btn-group">
+                        <a class="btn btn-primary dlButton reader-link" href=https://reader.z-lib.by/read/026fde1c4967f41586cccc86df8e0433806d2dd55ed93fb56a8fd9dca508ab28/book/6y7KYwknyQ/android%E7%BC%96%E7%A8%8B%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%E4%B8%AD%E6%96%87%E7%89%88.html/android%E7%BC%96%E7%A8%8B%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%E4%B8%AD%E6%96%87%E7%89%88.html?client_key=1fFLi67gBrNRP1j1iPy1&extension=pdf&signature=a2f182827f32c659fdc146e54f66af7a3bb9d6cd48fdc65d25096d6599b5cbc9&file_access_token=eyJleHAiOjE3OTQyMzAxNDMsInZlciI6IjEuMCIsInR5cCI6IkpXVCIsImFsZyI6IkhTMjU2In0.eyJzdWIiOiJmaWxlX2FjY2VzcyIsImZpbGVfc2hhMjU2IjoiMDI2ZmRlMWM0OTY3ZjQxNTg2Y2NjYzg2ZGY4ZTA0MzM4MDZkMmRkNTVlZDkzZmI1NmE4ZmQ5ZGNhNTA4YWIyOCIsImFjY2Vzc19sZXZlbCI6ImxpbWl0ZWQiLCJpc19wdWJsaWMiOnRydWV9.wz89usDRKejbS8XHasJb2KbIpKWD-7ToEqghA7KWcac data-book_id="15846767" data-user_token="" target="_blank" rel="nofollow">
+                <i class="zlibicon-play"></i>Read Online            </a>
+        </div>
+    </div>
+
+<div class="book-details-button">
+    <div class="btn-group">
+        <div class="btn btn-primary btn-mylibrary dropdown-toggle" data-toggle="dropdown">
+            <i class="mylibrary-icon zlibicon-mylibrary"></i>Add to My Library            <i class="caret"></i>
+        </div>
+
+            </div>
+</div>
+
+<div class="details-buttons-container__divider"></div>
+
+        <div class="book-details-button" >
+        <div class="btn-group">
+            <a class="btn btn-default dlButton addDownloadedBook" href="/dl/AX1jDr5bOm"  data-book_id="15846767" data-isbn="" rel="nofollow">
+                <i class="zlibicon-bookcard-download"></i><span class="book-property__extension">pdf</span>, 9.96 MB            </a>
+
+            <button id="btnCheckOtherFormats"
+                    type="button"
+                    class="btn btn-default dropdown-toggle dlDropdownBtn"
+                    data-check-formats="2"
+                    data-convertation-available="0"
+            >
+                <span class="zlibicon-menu-dots"></span>
+                <span class="sr-only">Toggle Dropdown</span>
+            </button>
+
+            <ul class="dropdown-menu">
+                <li role="separator" class="divider other-formats-divider">
+                    <div class="divider-text">Download</div>
+                </li>
+                <li id="bookOtherFormatsContainer"></li>
+                <li role="separator" class="divider">
+                    <div class="divider-text">Convert to</div>
+                </li>
+
+                                    <ul class="convert-to-list disabled">
+                        <li class="convert-to-button">
+            <a href="javascript:void(0);" class="converterLink no-js__unavailable" data-book-id="" data-convert_to="epub">EPUB</a></li> , <li class="convert-to-button">
+            <a href="javascript:void(0);" class="converterLink no-js__unavailable" data-book-id="" data-convert_to="fb2">FB2</a></li> , <li class="convert-to-button">
+            <a href="javascript:void(0);" class="converterLink no-js__unavailable" data-book-id="" data-convert_to="mobi">MOBI</a></li> , <li class="convert-to-button">
+            <a href="javascript:void(0);" class="converterLink no-js__unavailable" data-book-id="" data-convert_to="txt">TXT</a></li> , <li class="convert-to-button">
+            <a href="javascript:void(0);" class="converterLink no-js__unavailable" data-book-id="" data-convert_to="rtf">RTF</a></li>                    </ul>
+                    <li class="convert-disclaimer premium-disclaimer disabled">
+                        Unlock conversion of files larger than your limit 3&nbsp;MB<span class="premium-modal-trigger">Premium</span>                    </li>
+                            </ul>
+        </div>
+    </div>
+
+    
+
+<div class="book-details-button">
+    <div class="btn-group" id="sendToButtonBox">
+        <button type="button" class="btn btn-default dropdown-toggle button-send-book" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+            Send to            <span class="sendToButtonBox__icons">
+                <i class="zlibicon-envelope menu-row__icon" style="font-size: 11px;"></i><i class="zlibicon-google-drive menu-row__icon" style="font-size: 11px;"></i><i class="zlibicon-Pocketbook menu-row__icon" style="font-size: 16px;"></i><i class="zlibicon-Amazon menu-row__icon" style="font-size: 16px;"></i>            </span>
+            <span class="caret"></span>
+        </button>
+            </div>
+</div>
+<script>
+    document.addEventListener('DOMContentLoaded', () => {
+        if(document.querySelector('.change-kindle-email-hint')){
+            document.querySelector('.change-kindle-email-hint').addEventListener('click', (event) => {
+                if(event.target.tagName = 'A'){
+                    event.stopPropagation()
+                }
+            })
+        }
+        if (window.localStorage.getItem('change-kindle-email-hint-hide')) {
+            document.querySelectorAll('.change-kindle-email-hint').forEach(el => el.style.display = 'none')
+        } else {
+            document.querySelectorAll('.change-kindle-email-hint__hide').forEach(el =>
+                el.addEventListener('click', (e) => {
+                    e.stopPropagation()
+                    document.querySelectorAll('.change-kindle-email-hint').forEach(hint => hint.style.display = 'none')
+                    window.localStorage.setItem('change-kindle-email-hint-hide', 1)
+                })
+            )
+        }
+    })
+</script>
+
+<script>
+    $('span.addDownloadedBook').on("click", function(event) {
+        CurrentUser.showAuthPopup('login')
+    })
+    $('.dropdown-menu.mylibrary-dropdown-menu').on("click", function(event) {
+        event.stopPropagation()
+    })
+
+    function checkIsInMyLibrary() {
+        if (MyLibraryBook.id ?? false) {
+            document.querySelector('.btn-mylibrary .mylibrary-icon')?.classList.replace('zlibicon-mylibrary', 'zlibicon-mylibrary-fill')
+            return true
+        } else {
+            document.querySelector('.btn-mylibrary .mylibrary-icon')?.classList.replace('zlibicon-mylibrary-fill', 'zlibicon-mylibrary')
+            return false
+        }
+    }
+
+    function checkBookIsFavorite() {
+        if (MyLibraryBook.attributes?.includes('favorites')) {
+            $('.dropdown-mylibrary-favorite .dropdown-mylibrary-icon').removeClass('zlibicon-heart').addClass('zlibicon-heart-fill')
+            return true
+        } else {
+            $('.dropdown-mylibrary-favorite .dropdown-mylibrary-icon').removeClass('zlibicon-heart-fill').addClass('zlibicon-heart')
+            return false
+        }
+    }
+
+    if (CurrentUser.id) {
+        checkIsInMyLibrary()
+        checkBookIsFavorite()
+
+        document.querySelector('.dropdown-mylibrary-favorite').addEventListener("click", function() {
+            checkBookIsFavorite()
+                ? CurrentUser.removeFromSavedBooks(CurrentBook.id)
+                : CurrentUser.addToSavedBooks(CurrentBook.id)
+        })
+    } else {
+        document.querySelector('.btn-mylibrary').addEventListener("click", function(e) {
+            e.stopPropagation()
+            const text = i18next.t('After authorization, you will be able to save books using the «Add to Favorites» option')
+            new User().showAuthPopup('login', text)
+        })
+    }
+
+    document.addEventListener('favoritesUpdated', () => {
+        checkBookIsFavorite()
+        checkIsInMyLibrary()
+    })
+</script>
+                        </div>
+                        <div class="book-actions-status">
+                            
+<div class="cBox1" id="sentToEmailInfo" style="display:none;">
+    The file will be sent to your email address. It may take up to 1-5 minutes before you receive it.</div>
+
+<div class="cBox1" id="sentToTelegramInfo" style="display:none;">
+    <p>The file will be sent to you via the Telegram messenger. It may take up to 1-5 minutes before you receive it.</p>
+    <p>Note: Make sure you have linked your account to Z-Library Telegram bot.</p>
+</div>
+
+<div class="cBox1" id="sentToEmailInfoKindle" style="display:none;">
+    <p>The file will be sent to your Kindle account. It may take up to 1–5 minutes before you receive it.</p>
+    <p><b>Please note</b>: you need to verify every book you want to send to your Kindle. Check your mailbox for the verification email from Amazon Kindle.</p>
+</div>
+
+<div class="cBox1" id="sendToGoogleDriveMessage" style="display:none; position: relative;"></div>
+
+<div class="cBox1Danger" id="errorMessage" style="display:none;">
+    </div>
+
+<div id="converterCurrentStatusesBoxContainer">
+    <div id="converterCurrentStatusesBox">
+            </div>
+</div>
+<div id="convertationStatusTemplates">
+    <div class="status-new" data-job_id=""><div class="spinner-content"></div><div class="message">Conversion to <b class="book-property__extension"></b> is in progress</div></div>    <div class="status-error"><span class="zlibicon-close-circle status-icon"></span><div class="message">Conversion to <b class="book-property__extension"></b> is failed</div><span class="zlibicon-cross icon-hovered delete-btn" data-job_id=""></span></div></div>
+<div id="shareToTooltipsContainer"></div>
+                        </div>
+                                </section>
+            <template><a href="/dl/gMmEpoZdPM" rel="nofollow" aria-hidden="true" hidden></a></template>            <z-tabs left underlined onchange="onTabChange(event)">
+                <tab to="main" index>About book</tab>
+                                                <tab to="comments">Comments 3</tab>
+            </z-tabs>
+
+            <div z-tab="main" class="active">
+                
+<div class="book-rating-detail">
+    <div class="book-rating ">
+        <span class="icon star-icon zlibicon-star"></span>
+        <span class="icon star-icon zlibicon-star-f"></span>
+        <span class="book-rating-interest-score ">
+            5.0        </span> /
+        <span class="book-rating-quality-score ">
+            5.0        </span>
+    </div>
+    <!-- <div class="book-read-time">
+        <span class="icon zlibicon-clock"></span>
+        <span>Reading time: 23 minutes</span>
+    </div> -->
+        <div class="book-paperback">
+        <span class="icon zlibicon-paperback"></span>
+        <div class="btn-group">
+            <span class="dropdown-toggle button-paperback" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+                Paperback            </span>
+            <ul class="dropdown-menu">
+                <div class="menu-content menu-content_paperback">
+                                            <div class="menu-row">
+                            <a class="menu__link_paperback" href="https://amazon.com/s?k=Android%E7%BC%96%E7%A8%8B%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%EF%BC%88%E4%B8%AD%E6%96%87%E7%89%88%EF%BC%89 Android%E7%BC%96%E7%A8%8B%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%EF%BC%88%E4%B8%AD%E6%96%87%E7%89%88%EF%BC%89.pdf" target="_blank">
+                                <img class="menu__icon" src="/img/book-stores/amazon_grayscale.svg">
+                                Amazon                            </a>
+                        </div>
+                                            <div class="menu-row">
+                            <a class="menu__link_paperback" href="https://www.barnesandnoble.com/s/Android%E7%BC%96%E7%A8%8B%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%EF%BC%88%E4%B8%AD%E6%96%87%E7%89%88%EF%BC%89 Android%E7%BC%96%E7%A8%8B%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%EF%BC%88%E4%B8%AD%E6%96%87%E7%89%88%EF%BC%89.pdf" target="_blank">
+                                <img class="menu__icon" src="/img/book-stores/barnes_noble_grayscale.svg">
+                                Barnes & Noble                            </a>
+                        </div>
+                                            <div class="menu-row">
+                            <a class="menu__link_paperback" href="https://bookshop.org/search?keywords=Android%E7%BC%96%E7%A8%8B%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%EF%BC%88%E4%B8%AD%E6%96%87%E7%89%88%EF%BC%89 Android%E7%BC%96%E7%A8%8B%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%EF%BC%88%E4%B8%AD%E6%96%87%E7%89%88%EF%BC%89.pdf" target="_blank">
+                                <img class="menu__icon" src="/img/book-stores/bookshoporg_grayscale.svg">
+                                Bookshop.org                            </a>
+                        </div>
+                    
+                    <div class="text--hint">
+                        Want to add your book store? Contact us at <a href="/cdn-cgi/l/email-protection#d1a2a4a1a1bea3a591abfcbdb8b3ffb7bc"><span class="__cf_email__" data-cfemail="6d1e181d1d021f192d174001040f430b00">[email&#160;protected]</span></a>                    </div>
+                </div>
+            </ul>
+        </div>
+    </div>
+    <div class="bookmarks" style="" data-book_id="15846767">
+            </div>
+</div>
+
+
+<div class="book-choice-rating" data-visible="0" data-init="0">
+    <div class="overlay-post-score"><div id="bookChoiceRatingtFloatingSpinner"></div></div>
+    <div class="overlay"><div id="bookChoiceRatingSpinner"></div></div>
+    <div class="book-choice-interest-title">How much do you like this book?</div>
+    <div class="book-choice-interest-stars stars-list cursor-pointer" data-disabled="0" data-id="15846767" data-type="interest">
+        <i class="book-rating-star"></i>
+        <i class="book-rating-star"></i>
+        <i class="book-rating-star"></i>
+        <i class="book-rating-star"></i>
+        <i class="book-rating-star"></i>
+    </div>
+
+    <div class="book-choice-quality-stub">
+        <div class="book-choice-quality-title">What’s the quality of the file?</div>
+        <div class="book-choice-quality-dmsg">Download the book for quality assessment</div>
+    </div>
+
+    <div class="book-choice-quality-title">
+        <div>What’s the quality of the downloaded files?</div>
+    </div>
+    <div class="book-quality-rating-template">
+        <div class="book-format-quality-rating">
+            <div class="format-info">
+                <span class="download-date"></span>
+                <span class="extension book-property__extension"></span>
+                <span class="size"></span>
+            </div>
+            <div class="book-choice-quality-stars stars-list cursor-pointer" data-disabled="0" data-id="" data-type="quality">
+                <i class="book-rating-star _tooltip" data-toggle="tooltip" title="Text is unreadable"></i>
+                <i class="book-rating-star _tooltip" data-toggle="tooltip" title="Barely readable"></i>
+                <i class="book-rating-star _tooltip" data-toggle="tooltip" title="Readable"></i>
+                <i class="book-rating-star _tooltip" data-toggle="tooltip" title="Good"></i>
+                <i class="book-rating-star _tooltip" data-toggle="tooltip" title="Perfect"></i>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script data-cfasync="false" src="/cdn-cgi/scripts/5c5dd728/cloudflare-static/email-decode.min.js"></script><script type="text/javascript">
+$(function (){
+    const CurrentBookRating = new BookRating(CurrentUser)
+
+    // book rating
+    CurrentBookRating.initTooltip($('.book-rating-detail .book-rating'))
+    CurrentBookRating.initChoiceContainerEvents();
+    CurrentBookRating.checkExistsScoreForBook(CurrentBook.id, CurrentBook.data.terms_hash, function (hasScore) {
+        if (hasScore) {
+            $('.book-rating-detail .book-rating').addClass('book-appreciated')
+        }
+    })
+
+    $(document).on('click', '.book-rating-detail .book-rating.cursor-pointer', function () {
+        if (CurrentBookRating.tooltipEl) {
+            CurrentBookRating.tooltipEl.tooltip('hide')
+        }
+        CurrentBookRating.loadUserScores(CurrentBook.id, CurrentBook.data.terms_hash)
+    })
+
+    $(document).on('click', '.book-choice-rating .stars-list', function(e) {
+        if (!$(e.target).hasClass('book-rating-star') || $(this).data('disabled')) {
+            return
+        }
+
+        const $that = $(this)
+        const $bookRatingEl = $('.book-rating-detail .book-rating')
+        const $ratingEl = $('.book-choice-rating')
+        const $ratingOverlayEl = $ratingEl.find('.overlay-post-score')
+        const $spinnerEl = $('#bookChoiceRatingtFloatingSpinner')
+
+        const data = {
+            'bookId': $that.data('id'),
+            'type': $that.data('type'),
+            'score': $that.find('.active-choice').length
+        }
+
+        if ($that.data('score') == data.score) {
+            return
+        }
+
+        $spinnerEl.css({'top': '-10px'})
+        $that.after($spinnerEl)
+
+        $ratingOverlayEl.show()
+        $that.data('disabled', 1)
+
+        $that.fadeTo(100, 0, function () {
+            CurrentBookRating.postScore(data, $spinnerEl, (result) => {
+                $ratingOverlayEl.hide()
+                $that.fadeTo(300, 1)
+                $that.data('disabled', 0)
+
+                if (!result.success) {
+                    return
+                }
+
+                $that.data('score', data.score)
+                $that.find('.active, .active-none').removeClass('active active-none')
+                $that.find('.active-choice').addClass('active')
+
+                if ($that.data('id') != CurrentBook.id) {
+                    return
+                }
+
+                if (result.avg.interest > 0) {
+                    $bookRatingEl.addClass('book-appreciated')
+                    $('.book-rating-interest-score')
+                        .removeClass('none')
+                        .text(parseFloat(result.avg.interest).toFixed(1))
+                }
+                if (result.avg.quality > 0) {
+                    $bookRatingEl.addClass('book-appreciated')
+                    $('.book-rating-quality-score')
+                        .removeClass('none')
+                        .text(parseFloat(result.avg.quality).toFixed(1))
+                }
+            })
+        })
+    })
+
+
+    $(window).on('gratitudesFetched', function(){
+        $(".js-gratitude-icon").addClass("_disabled").attr('title', '').attr('data-original-title', 'You already expressed your gratitude for this book. Good job!')
+    })
+    $('.icon-gratitude').tooltip('enable')
+    $(document).on('gratitudesFormClosed', ()=>{
+        $('.icon-gratitude').tooltip('enable')
+    })
+    $(document).on('gratitudesFormOpened', ()=>{
+        $('.icon-gratitude').tooltip('disable')
+        $('.icon-gratitude').tooltip('hide')
+    })
+    $('.js-anchor').on('click', function(e) {
+        e.preventDefault();
+        const anchor = $(this).attr('href');
+        $(anchor)[0].scrollIntoView({
+            behavior: 'smooth',
+            block: 'start'})
+    })
+})
+</script>
+
+                                                <div class="bookDetailsBox-wrap">
+                    
+
+<div class="bookDetailsBox">
+            <div class='bookProperty property_content_type'>
+                <div class='property_label'>Content Type:</div>
+                <div class="property_value">Books</div>
+            </div>
+        
+            <div class='bookProperty property_language'>
+                <div class='property_label'>Language:</div>
+                <span class="property_value text-capitalize">Chinese</span>
+            </div>
+        
+            <div class='bookProperty property_file'>
+                <div class='property_label'>File:</div>
+                <div class="property_value">PDF, 9.96 MB</div>
+            </div>
+        
+            <div class="bookProperty property_ipfs_cid">
+                <div class="property_label">IPFS:</div>
+                <div class="property_value"><span class="z-copy-icon tooltip-init" data-placement="bottom" title="Copy" data-copy="QmaKZTuviPS5cSNYK9KZ41m9bwGb7feRyPnc2WqcHPhaAe" data-notif="CID copied to clipboard">CID</span> , <span class="z-copy-icon tooltip-init" data-placement="bottom" title="Copy" data-copy="bafykbzaceaulussovbapek6ufkovno4kgis6texsjcygl7tdri7gquy522rbe" data-notif="CID copied to clipboard">CID Blake2b</span></div>
+            </div>
+        <div class="bookProperty property_language_year">chinese</div></div>                </div>
+                            </div>
+            <div z-tab="quotes">
+                                    <div class="empty-tab">
+                        Found something worth sharing?                        <a href="https://reader.z-lib.by/read/026fde1c4967f41586cccc86df8e0433806d2dd55ed93fb56a8fd9dca508ab28/book/6y7KYwknyQ/android%E7%BC%96%E7%A8%8B%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%E4%B8%AD%E6%96%87%E7%89%88.html/android%E7%BC%96%E7%A8%8B%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%E4%B8%AD%E6%96%87%E7%89%88.html?client_key=1fFLi67gBrNRP1j1iPy1&extension=pdf&signature=a2f182827f32c659fdc146e54f66af7a3bb9d6cd48fdc65d25096d6599b5cbc9&file_access_token=eyJleHAiOjE3OTQyMzAxNDMsInZlciI6IjEuMCIsInR5cCI6IkpXVCIsImFsZyI6IkhTMjU2In0.eyJzdWIiOiJmaWxlX2FjY2VzcyIsImZpbGVfc2hhMjU2IjoiMDI2ZmRlMWM0OTY3ZjQxNTg2Y2NjYzg2ZGY4ZTA0MzM4MDZkMmRkNTVlZDkzZmI1NmE4ZmQ5ZGNhNTA4YWIyOCIsImFjY2Vzc19sZXZlbCI6ImxpbWl0ZWQiLCJpc19wdWJsaWMiOnRydWV9.wz89usDRKejbS8XHasJb2KbIpKWD-7ToEqghA7KWcac" target="_blank">Create a quote</a> for others to discover                    </div>
+                            </div>
+                        <div z-tab="comments">
+                <z-comments type="book" auto
+        id="15846767"
+    username=""
+    avatar=""
+    total="3"
+        onfocus="document.querySelector('z-tabs').shadowRoot.querySelector('.tab[to=\'comments\']').click()"
+    >
+</z-comments>
+<div id="post"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div id="upgrade-premium__modal" class="upgrade-premium__modal hidden">
+    <div class="title"><b>Premium benefits</b></div>
+    <ul>
+    <li><i class="zlibicon-Amazon"></i>Send to eReaders</li>
+    <li><i class="zlibicon-bookcard-download"></i>Increased download limit</li>
+    <li><img src="/img/upgrade/exchange.png" srcset="/img/upgrade/exchange.png, /img/upgrade/exchange@2x.png 1.2x, /img/upgrade/exchange@2x.png 2x" />File converter</li>
+    <li><i class="zlibicon-google-drive" style="font-size: 18px;"></i>Send To Email & Google Drive</li>
+    <li><a href="/upgrade#more"><img src="/img/upgrade/more-four.png" srcset="/img/upgrade/more-four.png, /img/upgrade/more-four@2x.png 1.2x, /img/upgrade/more-four@2x.png 2x" />More benefits <span class="zlibicon-slider-arr-right"></span></a></li>
+</ul>
+<a href="/how-to-donate" target="_blank" class="button">Make a donation</a>
+    <div class="link"><a target="_blank" href="/upgrade" data-target-desktop="new-tab">Learn more about benefits</a></div>
+</div>
+<script>
+    $(document).on('click', '.premium-modal-trigger', () => {
+        new ZLibraryModal({
+            container: 'zlibrary-modal-styled',
+            element: 'upgrade-premium__modal',
+            modalDialogClass: 'upgrade-premium__modal',
+            width: 350,
+            top: 0,
+        }).show()
+    })
+</script>
+<style>
+    .upgrade-premium__modal {
+        min-height: 530px;
+    }
+
+    .upgrade-premium__modal a.button {
+        width: 100%;
+        background: rgb(247, 124, 116);
+        background: radial-gradient(circle at 50% 0%, rgba(247, 124, 116, 1) 0%, rgba(246, 202, 60, 1) 130%);
+        box-shadow: inset 0 -8px 20px rgba(246, 202, 60, 1);
+        font-size: 16px;
+        font-weight: 500;
+        line-height: 22px;
+        text-align: center;
+        padding: 14px 48px;
+        border-radius: 12px;
+        color: #fff;
+        border: 2px solid #FFCA96;
+        transition: filter var(--transition);
+        display: inline-block !important;
+        text-decoration: none;
+    }
+
+    .upgrade-premium__modal a.button:hover {
+        filter: brightness(1.1);
+        transition: filter var(--transition-hover);
+    }
+
+    .upgrade-premium__modal .link {
+        font-size: 14px;
+        margin-top: 23px;
+        display: block;
+        text-align: center;
+    }
+
+    .upgrade-premium__modal .link a {
+        color: var(--gray-7);
+    }
+
+    .upgrade-premium__modal .link a:hover {
+        color: #4e4e4e;
+    }
+
+    .upgrade-premium__modal .modal-body {
+        background-color: var(--card-bg);
+        border-radius: 24px;
+        box-shadow: 0px 0px 16px 0px #BFBFBF3D;
+        padding: 32px !important;
+    }
+
+    .upgrade-premium__modal {
+        width: 350px;
+        top: 0;
+        bottom: 0;
+        margin: auto;
+        height: 420px;
+        position: absolute;
+        left: 0;
+        right: 0;
+    }
+
+    .upgrade-premium__modal .modal-content {
+        border-radius: 24px !important;
+        font-size: 16px !important;
+    }
+
+    .upgrade-premium__modal .title {
+        align-items: baseline;
+        margin-top: 12px;
+        line-height: 1.3;
+        margin-bottom: 0;
+    }
+
+    .upgrade-premium__modal .title b {
+        font-size: 24px;
+        font-weight: 500;
+        display: inline-block;
+        line-height: 1.5;
+    }
+
+    .upgrade-premium__modal ul {
+        margin: 32px 0px 33px;
+    }
+
+    .upgrade-premium__modal ul li {
+        margin: 23px 0;
+    }
+
+    .upgrade-premium__modal ul li a {
+        color: var(--gray-9);
+        text-decoration: none;
+    }
+
+    .upgrade-premium__modal ul li i {
+        font-size: 21px;
+        vertical-align: -3px;
+        margin-right: 12px;
+        color: var(--gray-9);
+    }
+
+    .upgrade-premium__modal ul li i.zlibicon-Amazon {
+        vertical-align: -4px;
+    }
+
+    .upgrade-premium__modal ul li .zlibicon-slider-arr-right {
+        font-size: 10px;
+        margin-left: 7px;
+    }
+
+    .upgrade-premium__modal ul li img {
+        vertical-align: -4px;
+        margin-right: 12px;
+    }
+
+    html.dark .upgrade-premium__modal ul li img {
+        filter: brightness(4);
+    }
+
+    #zlibrary-modal-styled .modal-dialog.upgrade-premium__modal {
+        margin: auto;
+    }
+</style>
+<div class="books-mosaic">
+    <div class="recommendations">
+        <h2>
+            You may be interested in        </h2>
+    </div>
+    
+    <z-masonry source="recommend" columns="5"  batch="21">
+                    <a href="/book/poMkmQOvyO/jetpack-compose%E4%BB%8E%E5%85%A5%E9%97%A8%E5%88%B0%E5%AE%9E%E6%88%98.html?dsource=recommend" >
+                <z-cover volume id="116074975" isbn="" author="王鹏" title="Jetpack Compose从入门到实战"><img src="https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/f5244ff686f5e8a60546563d44c15a299c500bd803aeff41471cf93d94eb5334.jpg" loading="lazy" alt="王鹏 &mdash; Jetpack Compose从入门到实战" /></z-cover>
+            </a>
+                    <a href="/book/poxem1q05v/kotlin%E4%BB%8E%E5%B0%8F%E7%99%BD%E5%88%B0%E5%A4%A7%E7%89%9B.html?dsource=recommend" >
+                <z-cover volume id="11624324" isbn="" author="关东升 [关东升]" title="Kotlin从小白到大牛"><img src="https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/b75e2a2d89aa0fdfeaf1b589a9b5e852546183a9c9bc1bba7c5610e39da7e3b1.jpg" loading="lazy" alt="关东升 [关东升] &mdash; Kotlin从小白到大牛" /></z-cover>
+            </a>
+                    <a href="/book/qo32nXOq9Z/14%E5%A4%A9%E5%AD%A6%E4%BC%9A%E5%AE%89%E5%8D%93%E5%BC%80%E5%8F%91.html?dsource=recommend" >
+                <z-cover volume id="11917161" isbn="" author="it-ebooks" title="14天学会安卓开发"><img src="https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/genesis/468f9fdd8f8ed167b892766f013fe9c5e8321c4596a42371eddecc8114d894b8.jpg" loading="lazy" alt="it-ebooks &mdash; 14天学会安卓开发" /></z-cover>
+            </a>
+                    <a href="/book/85zeLmMVoD/%E9%98%BF%E9%87%8C%E5%B7%B4%E5%B7%B4-android-%E5%BC%80%E5%8F%91%E6%89%8B%E5%86%8C-10.html?dsource=recommend" >
+                <z-cover volume id="11917779" isbn="" author="it-ebooks" title="阿里巴巴 Android 开发手册 1.0"><img src="https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/genesis/a1fa71ecedea060d40186b2a11624ad37888da4b25f48a636444d400c6639441.jpg" loading="lazy" alt="it-ebooks &mdash; 阿里巴巴 Android 开发手册 1.0" /></z-cover>
+            </a>
+                    <a href="/book/dyPa7nd19Z/gradle-%E5%AE%9E%E6%88%98.html?dsource=recommend" >
+                <z-cover volume id="11918202" isbn="" author="it-ebooks" title="Gradle 实战"><img src="https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/genesis/fae92175ba80b6d191fe3495cb14216f7b0de40125f4c6c8ca394cfcc4e8f0fa.jpg" loading="lazy" alt="it-ebooks &mdash; Gradle 实战" /></z-cover>
+            </a>
+                    <a href="/book/b5XEnzqAyZ/%E6%B7%B1%E5%85%A5%E7%90%86%E8%A7%A3android-%E5%8D%B7iii.html?dsource=recommend" >
+                <z-cover volume id="11919057" isbn="" author="it-ebooks" title="深入理解Android 卷III"><img src="https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/genesis/ed341e6545439679153397af1112f8b85884df3d721849a62f45ac6d424249e1.jpg" loading="lazy" alt="it-ebooks &mdash; 深入理解Android 卷III" /></z-cover>
+            </a>
+                    <a href="/book/qo32n10v9Z/spam-informal-publication-web-compilation.html?dsource=recommend" >
+                <z-cover volume id="11919217" isbn="" author="Author Not Known" title="Spam: Informal publication, Web compilation"><img src="https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/genesis/71786905f038685a719c4891a9cf9269368788a192e7c5053df1dc38fbe38484.jpg" loading="lazy" alt="Author Not Known &mdash; Spam: Informal publication, Web compilation" /></z-cover>
+            </a>
+                    <a href="/book/6yV0plRZoa/android%E9%A1%B9%E7%9B%AE%E5%BC%80%E5%8F%91%E8%AF%A6%E8%A7%A3.html?dsource=recommend" >
+                <z-cover volume id="15478804" isbn="" author="Android项目开发详解.pdf" title="Android项目开发详解"><img src="/img/cover-not-exists.png" loading="lazy" alt="Android项目开发详解.pdf &mdash; Android项目开发详解" /></z-cover>
+            </a>
+                    <a href="/book/V5jM8m03oq/android%E5%BC%80%E5%8F%91%E8%89%BA%E6%9C%AF%E6%8E%A2%E7%B4%A2.html?dsource=recommend" >
+                <z-cover volume id="15846719" isbn="" author="任玉刚著" title="Android开发艺术探索"><img src="https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/fbfa17f5ca2976d5a7c92bce9332245d92a0a2c6c1fa661746a065e5a459cf2e.jpg" loading="lazy" alt="任玉刚著 &mdash; Android开发艺术探索" /></z-cover>
+            </a>
+                    <a href="/book/79gbGX1Byg/css%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%E7%AC%AC3%E7%89%88.html?dsource=recommend" >
+                <z-cover volume id="15874484" isbn="" author="CSS权威指南(第3版).pdf" title="CSS权威指南(第3版)"><img src="/img/cover-not-exists.png" loading="lazy" alt="CSS权威指南(第3版).pdf &mdash; CSS权威指南(第3版)" /></z-cover>
+            </a>
+                    <a href="/book/354mnOQNy6/%E6%88%91%E7%9A%84%E7%AC%AC-%E6%9C%ACc%E8%AF%AD%E8%A8%80%E7%BC%96%E7%A8%8B%E4%B9%A6c%E8%AF%AD%E8%A8%80%E4%BB%8E%E5%85%A5%E9%97%A8%E5%88%B0%E7%B2%BE%E9%80%9A%E5%9B%BD%E5%AE%B6863%E4%B8%AD%E9%83%A8%E8%BD%AF%E4%BB%B6%E5%AD%B5%E5%8C%96%E5%99%A8%E6%89%AB%E6%8F%8F%E7%89%88.html?dsource=recommend" >
+                <z-cover volume id="16036685" isbn="" author="[我的第①本c语言编程书：C语言从入门到精通].国家863中部软件孵化器.扫描版.pdf" title="[我的第①本c语言编程书：C语言从入门到精通].国家863中部软件孵化器.扫描版"><img src="/img/cover-not-exists.png" loading="lazy" alt="[我的第①本c语言编程书：C语言从入门到精通].国家863中部软件孵化器.扫描版.pdf &mdash; [我的第①本c语言编程书：C语言从入门到精通].国家863中部软件孵化器.扫描版" /></z-cover>
+            </a>
+                    <a href="/book/poM2Pver5O/kotlin-%E8%AF%AD%E8%A8%80%E5%AE%98%E6%96%B9%E5%8F%82%E8%80%83%E6%96%87%E6%A1%A3-%E4%B8%AD%E6%96%87%E7%89%88.html?dsource=recommend" >
+                <z-cover volume id="17260275" isbn="" author="hltj" title="Kotlin 语言官方参考文档 中文版"><img src="https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/bc36608381f1b292b002b7a3d9bf25c18c51e3ede3bad56c81ac25ba76a33f64.jpg" loading="lazy" alt="hltj &mdash; Kotlin 语言官方参考文档 中文版" /></z-cover>
+            </a>
+                    <a href="/book/79gb1lBkyg/kotlin%E4%BB%8E%E9%9B%B6%E5%88%B0%E7%B2%BE%E9%80%9Aandroid%E5%BC%80%E5%8F%91.html?dsource=recommend" >
+                <z-cover volume id="17307340" isbn="" author="欧阳燊" title="Kotlin从零到精通Android开发"><img src="https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/7c183420441d7bfadfdbcadc3df06b07fb333cb1a5329046493a9cee693705cb.jpg" loading="lazy" alt="欧阳燊 &mdash; Kotlin从零到精通Android开发" /></z-cover>
+            </a>
+                    <a href="/book/056w3K3Mya/%E6%B1%87%E7%BC%96%E8%AF%AD%E8%A8%80%E5%85%A5%E9%97%A8%E6%95%99%E7%A8%8Bc%E8%AF%AD%E8%A8%80%E7%BC%96%E7%A8%8B%E7%BD%91.html?dsource=recommend" >
+                <z-cover volume id="17355495" isbn="" author="C语言编程网" title="汇编语言入门教程（C语言编程网）"><img src="/img/cover-not-exists.png" loading="lazy" alt="C语言编程网 &mdash; 汇编语言入门教程（C语言编程网）" /></z-cover>
+            </a>
+                    <a href="/book/09vGLnq4od/android%E6%B7%B1%E5%BA%A6%E6%8E%A2%E7%B4%A2%E5%8D%B72%E7%B3%BB%E7%BB%9F%E5%BA%94%E7%94%A8%E6%BA%90%E4%BB%A3%E7%A0%81%E5%88%86%E6%9E%90%E4%B8%8Erom%E5%AE%9A%E5%88%B6.html?dsource=recommend" >
+                <z-cover volume id="17452929" isbn="" author="李宁" title="Android深度探索-卷2——系统应用源代码分析与ROM定制"><img src="https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/a3a34635f2bdeba1eeacdf5647a2a58b9b12eb62e5cfc8034539a584fa7c9b1d.jpg" loading="lazy" alt="李宁 &mdash; Android深度探索-卷2——系统应用源代码分析与ROM定制" /></z-cover>
+            </a>
+                    <a href="/book/r5GwP3Og5X/android%E6%B7%B1%E5%BA%A6%E6%8E%A2%E7%B4%A2%E5%8D%B71hal%E4%B8%8E%E9%A9%B1%E5%8A%A8%E5%BC%80%E5%8F%91%E5%BC%82%E6%AD%A5%E5%9B%BE%E4%B9%A6.html?dsource=recommend" >
+                <z-cover volume id="18123242" isbn="" author="李宁" title="Android深度探索(卷1):HAL与驱动开发(异步图书)"><img src="https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/7cda8396736a7ef41633689c4a5e797f1547bef8fe0c422139fb93ad62272a93.jpg" loading="lazy" alt="李宁 &mdash; Android深度探索(卷1):HAL与驱动开发(异步图书)" /></z-cover>
+            </a>
+                    <a href="/book/g9a2mA8Yo1/android-gradle%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97.html?dsource=recommend" >
+                <z-cover volume id="18262230" isbn="" author="飞雪无情" title="Android Gradle权威指南"><img src="https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/28637486c44f9984d7d3e6800f5ba638b3d1b378192d82929be2ee1642ca8b75.jpg" loading="lazy" alt="飞雪无情 &mdash; Android Gradle权威指南" /></z-cover>
+            </a>
+                    <a href="/book/PoKq0YO6yw/%E7%96%AF%E7%8B%82android%E8%AE%B2%E4%B9%89-%E7%AC%AC%E5%9B%9B%E7%89%88%E5%8E%8B%E7%BC%A9%E7%89%88%E5%8E%9F%E7%89%88538m.html?dsource=recommend" >
+                <z-cover volume id="19154653" isbn="" author="李刚" title="疯狂android讲义 第四版压缩版原版538m"><img src="https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/a7ab017fd76a782f93f0942538102e46164feba8a17ab389f575c3f722e8b101.jpg" loading="lazy" alt="李刚 &mdash; 疯狂android讲义 第四版压缩版原版538m" /></z-cover>
+            </a>
+                    <a href="/book/qoLVPVdMy8/%E5%B5%8C%E5%85%A5%E5%BC%8F-c-%E7%BC%96%E7%A8%8B%E8%AF%AD%E8%A8%80%E5%85%A5%E9%97%A8%E4%B8%8E%E6%B7%B1%E5%85%A5.html?dsource=recommend" >
+                <z-cover volume id="22244496" isbn="" author="嵌入式 C 编程语言入门与深入.pdf" title="嵌入式 C 编程语言入门与深入"><img src="/img/cover-not-exists.png" loading="lazy" alt="嵌入式 C 编程语言入门与深入.pdf &mdash; 嵌入式 C 编程语言入门与深入" /></z-cover>
+            </a>
+                    <a href="/book/6y7rVAmV5Q/kotlin-%E5%AE%98%E6%96%B9%E6%96%87%E6%A1%A3-%E4%B8%AD%E6%96%87%E7%89%88.html?dsource=recommend" >
+                <z-cover volume id="68463923" isbn="" author="Kotlin中文站" title="Kotlin 官方文档 中文版"><img src="https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/736529bd53d3f5feb4d1a4f463f56bb1d12008519203367b023f230c476cd119.jpg" loading="lazy" alt="Kotlin中文站 &mdash; Kotlin 官方文档 中文版" /></z-cover>
+            </a>
+                    <a href="/book/qo33Bp1voZ/android-system-programming-porting-customizing-and-debugging-android-hal.html?dsource=recommend" >
+                <z-cover volume id="5527117" isbn="9781787125360" author="Roger Ye" title="Android System Programming: Porting, customizing, and debugging Android HAL"><img src="https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/genesis/f28190b4282503b29e8aa4feb219c5f60545905cfee104a6eee3747a76a63e3d.jpg" loading="lazy" alt="Roger Ye &mdash; Android System Programming: Porting, customizing, and debugging Android HAL" /></z-cover>
+            </a>
+                    <a href="/book/qoLLZD1Qo8/android-studio-33-development-essentials-android-9-edition-developing-android-9-apps-using-andro.html?dsource=recommend" >
+                <z-cover volume id="5234752" isbn="9781795654760" author="Neil Smyth" title="Android Studio 3.3 Development Essentials - Android 9 Edition: Developing Android 9 Apps Using Android Studio 3.3, Java and Android Jetpack"><img src="https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/genesis/7891596e1d2b1f1345a494c5be26ec5b3e8a23e10d89bb7d8fcfaaf44c749658.jpg" loading="lazy" alt="Neil Smyth &mdash; Android Studio 3.3 Development Essentials - Android 9 Edition: Developing Android 9 Apps Using Android Studio 3.3, Java and Android Jetpack" /></z-cover>
+            </a>
+                    <a href="/book/PoK0qjjq5w/android%E5%BC%80%E5%8F%91%E5%85%A5%E9%97%A8%E4%B8%8E%E5%AE%9E%E6%88%98%E4%BD%93%E9%AA%8C.html?dsource=recommend" >
+                <z-cover volume id="15477709" isbn="9787111349280" author="Android开发入门与实战体验.pdf" title="Android开发入门与实战体验"><img src="https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/2254c27732effe72990f1cdd9bba285b2e710a31fd4e185663d4bd87bb2fca07.jpg" loading="lazy" alt="Android开发入门与实战体验.pdf &mdash; Android开发入门与实战体验" /></z-cover>
+            </a>
+                    <a href="/book/P9m3RwAD5z/%E6%B7%B1%E5%85%A5%E7%90%86%E8%A7%A3android%E5%8D%B7i%E5%8D%B7ii.html?dsource=recommend" >
+                <z-cover volume id="18244106" isbn="9787111357629" author="邓凡平" title="深入理解Android：卷I.卷II"><img src="https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/b6b10298b496cbab2b627dfbf504c26b1b60002972edf399165f9fa36d6afa81.jpg" loading="lazy" alt="邓凡平 &mdash; 深入理解Android：卷I.卷II" /></z-cover>
+            </a>
+                    <a href="/book/4yJmPN1Q5V/android%E5%BC%80%E5%8F%91%E5%AE%8C%E5%85%A8%E5%AE%9E%E6%88%98%E5%AE%9D%E5%85%B8.html?dsource=recommend" >
+                <z-cover volume id="15478832" isbn="9787111396079" author="吴善财" title="Android开发完全实战宝典"><img src="https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/abda996267baf934eddde3b7ae8aa8bfc9ed39bc1084c665c959a39161e645f7.jpg" loading="lazy" alt="吴善财 &mdash; Android开发完全实战宝典" /></z-cover>
+            </a>
+                    <a href="/book/ayQ1xrmxyv/%E6%96%B0%E7%BC%96android%E5%BA%94%E7%94%A8%E5%BC%80%E5%8F%91%E4%BB%8E%E5%85%A5%E9%97%A8%E5%88%B0%E7%B2%BE%E9%80%9A.html?dsource=recommend" >
+                <z-cover volume id="15477533" isbn="9787111588108" author="何福贵" title="新编Android应用开发从入门到精通"><img src="https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/6f992b4c50bfa7e12e5a5ef17c7f2ab5ba667294a9771b96a45e1f36fc2a5faa.jpg" loading="lazy" alt="何福贵 &mdash; 新编Android应用开发从入门到精通" /></z-cover>
+            </a>
+                    <a href="/book/4yJm4MKG5V/android%E6%8F%92%E4%BB%B6%E5%8C%96%E5%BC%80%E5%8F%91%E6%8C%87%E5%8D%97.html?dsource=recommend" >
+                <z-cover volume id="17077032" isbn="9787111603368" author="包建强" title="Android插件化开发指南"><img src="https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/a2d039cb4b61289e5122b73db1ce64b27316dd990f5e482b1da7be27f1af4ca0.jpg" loading="lazy" alt="包建强 &mdash; Android插件化开发指南" /></z-cover>
+            </a>
+                    <a href="/book/NoOxgaVA5p/%E6%B7%B1%E5%85%A5%E7%90%86%E8%A7%A3androidjava%E8%99%9A%E6%8B%9F%E6%9C%BAart.html?dsource=recommend" >
+                <z-cover volume id="18244101" isbn="9787111621225" author="邓凡平" title="深入理解Android：Java虚拟机ART"><img src="https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/c37414119bbcacf80320e5b4ba38f956255350bebed2a3a7f99d1d3a5c7e2e14.jpg" loading="lazy" alt="邓凡平 &mdash; 深入理解Android：Java虚拟机ART" /></z-cover>
+            </a>
+                    <a href="/book/PoK0MV065w/kotlin%E6%A0%B8%E5%BF%83%E7%BC%96%E7%A8%8B.html?dsource=recommend" >
+                <z-cover volume id="16777553" isbn="9787111624318" author="水滴技术团队" title="Kotlin核心编程"><img src="https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/genesis/783f75b8b9909ac50aa27289fd73cbeb25a717007e132c27a1aece3748a14c01.jpg" loading="lazy" alt="水滴技术团队 &mdash; Kotlin核心编程" /></z-cover>
+            </a>
+                    <a href="/book/ZoRDXGwgy2/%E6%B7%B1%E5%85%A5%E7%90%86%E8%A7%A3kotlin%E5%8D%8F%E7%A8%8B.html?dsource=recommend" >
+                <z-cover volume id="18090462" isbn="9787111655916" author="霍丙乾" title="深入理解Kotlin协程"><img src="https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/3b2a418bd30af41a5921845e7ff722e5c00ec571f4251f753b01303e24e95f9b.jpg" loading="lazy" alt="霍丙乾 &mdash; 深入理解Kotlin协程" /></z-cover>
+            </a>
+                    <a href="/book/7oYXlJ1V9k/android%E7%A7%BB%E5%8A%A8%E5%BA%94%E7%94%A8%E5%9F%BA%E7%A1%80%E6%95%99%E7%A8%8Bandroid-studio.html?dsource=recommend" >
+                <z-cover volume id="27712499" isbn="9787113252502" author="黑马程序员" title="Android移动应用基础教程：Android Studio"><img src="https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/afdfb5c3304b7874fd7e76487ee9fcb4dcb82179abbe576ff80852da9d04c977.jpg" loading="lazy" alt="黑马程序员 &mdash; Android移动应用基础教程：Android Studio" /></z-cover>
+            </a>
+                    <a href="/book/NoO6YXO69p/android-%E6%A1%86%E6%9E%B6%E6%8F%AD%E7%A7%98.html?dsource=recommend" >
+                <z-cover volume id="19033701" isbn="9787115274762" author="[韩]金泰延等" title="Android 框架揭秘"><img src="https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/284c48379347aca95f27300c9a940c61e69b921914029516a169eb97cc6250a0.jpg" loading="lazy" alt="[韩]金泰延等 &mdash; Android 框架揭秘" /></z-cover>
+            </a>
+                    <a href="/book/79gbewj4yg/%E6%B7%B1%E5%85%A5%E7%90%86%E8%A7%A3android%E5%86%85%E6%A0%B8%E8%AE%BE%E8%AE%A1%E6%80%9D%E6%83%B3.html?dsource=recommend" >
+                <z-cover volume id="15832840" isbn="9787115348418" author="林学森" title="深入理解Android内核设计思想"><img src="/img/cover-not-exists.png" loading="lazy" alt="林学森 &mdash; 深入理解Android内核设计思想" /></z-cover>
+            </a>
+                    <a href="/book/eyDEWqWB9b/android%E5%9F%BA%E7%A1%80%E6%95%99%E7%A8%8B-hello-android-introducing-googles-mobile-development-platform.html?dsource=recommend" >
+                <z-cover volume id="5007154" isbn="9787115408600" author="Ed Burnette" title="Android基础教程 = Hello, Android: introducing Google’s mobile development platform"><img src="https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/genesis/ba4d2a046a76454b997fd2d2dc90b9d2cbf457614cc918b2b79378c665859f8a.jpg" loading="lazy" alt="Ed Burnette &mdash; Android基础教程 = Hello, Android: introducing Google’s mobile development platform" /></z-cover>
+            </a>
+                    <a href="/book/056wgvYMya/android%E7%A7%BB%E5%8A%A8%E5%BC%80%E5%8F%91%E5%9F%BA%E7%A1%80%E6%A1%88%E4%BE%8B%E6%95%99%E7%A8%8B.html?dsource=recommend" >
+                <z-cover volume id="18245307" isbn="9787115439383" author="黑马程序员" title="Android移动开发基础案例教程"><img src="https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/4cd2afb3ae4fa83dd025c3582e3fa7eddbbc9963a3bcc2d3dfd18d95f0b45683.jpg" loading="lazy" alt="黑马程序员 &mdash; Android移动开发基础案例教程" /></z-cover>
+            </a>
+                    <a href="/book/MopMLQlQ57/%E7%AC%AC%E4%B8%80%E8%A1%8C%E4%BB%A3%E7%A0%81-android.html?dsource=recommend" >
+                <z-cover volume id="5413080" isbn="9787115439789" author="郭霖" title="第一行代码 Android"><img src="https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/genesis/9eb62f7f2479ded6dec0b410dc5e555ea9850a73dea6f188acb77d6df511ae4e.jpg" loading="lazy" alt="郭霖 &mdash; 第一行代码 Android" /></z-cover>
+            </a>
+                    <a href="/book/V5jM2Gkpoq/%E6%B7%B1%E5%85%A5%E7%90%86%E8%A7%A3android%E5%86%85%E6%A0%B8%E8%AE%BE%E8%AE%A1%E6%80%9D%E6%83%B3%E7%AC%AC2%E7%89%88%E4%B8%8A%E4%B8%8B%E5%86%8C-2017.html?dsource=recommend" >
+                <z-cover volume id="18193619" isbn="9787115452634" author="林学森" title="深入理解Android内核设计思想(第2版)(上下册) 2017"><img src="https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/8ca74de8a5f26f822af05a130834566502c5e434e1b82d5aed8cb288acdb2fd8.jpg" loading="lazy" alt="林学森 &mdash; 深入理解Android内核设计思想(第2版)(上下册) 2017" /></z-cover>
+            </a>
+                    <a href="/book/xy0PgNRjyN/android%E7%BC%96%E7%A8%8B%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%E7%AC%AC3%E7%89%88.html?dsource=recommend" >
+                <z-cover volume id="11440614" isbn="9787115457592" author="比尔·菲利普斯; 克里斯·斯图尔特; 克莉丝汀·马西卡诺" title="Android编程权威指南（第3版）"><img src="https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/genesis/33d37ca3e0b9532a507ba1f6e05aa65579446e39c630e632317a3e91bdf0b5f3.jpg" loading="lazy" alt="比尔·菲利普斯; 克里斯·斯图尔特; 克莉丝汀·马西卡诺 &mdash; Android编程权威指南（第3版）" /></z-cover>
+            </a>
+                    <a href="/book/eole1eM25P/android-gradle%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97.html?dsource=recommend" >
+                <z-cover volume id="17301828" isbn="9787115461230" author="飞雪无情" title="Android Gradle权威指南"><img src="https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/64e61c0b4642e8918a2af8719bccd2c8b3ff85ccd06e1309a848fc0a8f2bbfc1.jpg" loading="lazy" alt="飞雪无情 &mdash; Android Gradle权威指南" /></z-cover>
+            </a>
+                    <a href="/book/PoK6XNMO9w/android%E6%B8%B8%E6%88%8F%E6%A1%88%E4%BE%8B%E5%BC%80%E5%8F%91%E5%A4%A7%E5%85%A8.html?dsource=recommend" >
+                <z-cover volume id="5727609" isbn="9787115475558" author="吴亚峰，苏亚光，于复兴" title="Android游戏案例开发大全"><img src="https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/cc365b4a203009a371e1857837f140877f668048b4076896bcff419bdcacb08a.jpg" loading="lazy" alt="吴亚峰，苏亚光，于复兴 &mdash; Android游戏案例开发大全" /></z-cover>
+            </a>
+                    <a href="/book/QoqQ2PMbog/app%E6%9E%B6%E6%9E%84%E5%B8%88%E5%AE%9E%E8%B7%B5%E6%8C%87%E5%8D%97.html?dsource=recommend" >
+                <z-cover volume id="5727603" isbn="9787115477095" author="潘旭玲" title="App架构师实践指南"><img src="https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/ff976de783c24214448e1425a4a6d22429a5d4cef9cb03f8ae9a769098465954.jpg" loading="lazy" alt="潘旭玲 &mdash; App架构师实践指南" /></z-cover>
+            </a>
+                    <a href="/book/qoLnJ2nxy8/kotlin%E7%BC%96%E7%A8%8B%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97.html?dsource=recommend" >
+                <z-cover volume id="16777552" isbn="9787115515636" author="乔希•斯基恩,戴维•格林哈尔希,王明发" title="Kotlin编程权威指南"><img src="https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/genesis/1f7c035d50a8f2fbaac1227dab3a797af8b75ff3074c1779de98ba6559bb27c9.jpg" loading="lazy" alt="乔希•斯基恩,戴维•格林哈尔希,王明发 &mdash; Kotlin编程权威指南" /></z-cover>
+            </a>
+            </z-masonry>
+
+    <script>
+        document.querySelector('z-masonry').parentNode.style.display = 'block'
+    </script>
+</div>
+<div class="related-booklists-lazy">
+    <div class="related-booklists-block">
+        <h2 class="color1" style="margin-top:20px;">Related Booklists</h2>
+        <div style="background: var(--primary-color); height:2px; width: 100%; margin-bottom: 20px;">&nbsp;</div>
+        <div class="z-booklists-carousel" data-book_id="15846767" data-loader="loadBooklists" data-booklists_type="related">
+            <z-carousel wings-color="var(--related-booklist-wings--rgb)">
+                                    <z-booklist tile style="width: 144px;" href="/booklist/1612652/601c08/%E7%BC%96%E7%A8%8B.html" id="1612652" topic="编程" quantity="61"  >
+                        <z-cover id='16777635' author='陳錦輝' title='資料結構初學指引──入門精要版(第三版)'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/genesis/f4f5e4236f08fcf14eb4b84c84a0970843ae3a4d0d4d824f64548ad747d09d89.jpg'></z-cover><z-cover id='21871935' author='北極星' title='計算機組成原理：作業系統概論Ⅱ'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/8f3c0e2621127b9e46399096209649e70b11f59adaad495df2c16aa3c0cff1c1.jpg'></z-cover><z-cover id='22628258' author='胡昭民' title='圖解資料結構 × 演算法：運用C語言'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/ccc44c1cde6cdf0f18d4331c4250d22a4f3d8e071374cbe7bd9b1401709dc995.jpg'></z-cover><z-cover id='24223113' author='Jonathan Bartlett, 郭晴霞' title='深入理解程序设计'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/58926e70438f4d1e1ad27636f1d593604beb950b88a84811dc8912fb6ba73d15.jpg'></z-cover><z-cover id='22627577' author='北極星' title='計算機組成原理：基礎知識揭密(第二版)'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/acc340672802aa5ccdee4c53598e28e3294670114f0b2f3b0abddc2d2009f5a9.jpg'></z-cover><z-cover id='21992667' author='秋聲, summ' title='勒索病毒程式設計 : 揭秘你所不知道的勒索病毒'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/82c242c03e627eb6828f5594bc0e5a0092e7c41c50b1da8ecbe44ceb6192b6c3.jpg'></z-cover><z-cover id='23856066' author='（乌克兰）丹尼斯著' title='逆向工程权威指南 下'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/63df5cbc6a0b82f57208ba3c6d0a1685a7d41f296fed4bd950583c55d2755924.jpg'></z-cover><z-cover id='23856047' author='Dennis' title='逆向工程权威指南上册'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/c5dfdada97e833bb062970d508f8cd4c437fcf94d38c3584d122365b5a569bcd.jpg'></z-cover><z-cover id='18050367' author='[乌克兰] Dennis Yurichev 丹尼斯' title='逆向工程权威指南'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/fc248d76d5ee792e38834d636e2a8e1f84584326eeb6902a1bf14b7d477a355e.jpg'></z-cover><z-cover id='18048435' author='丹尼斯' title='逆向工程权威指南'><img stack-mode data-src='/img/cover-not-exists.png'></z-cover><z-cover id='15846767' author='Android编程权威指南（中文版）.pdf' title='Android编程权威指南（中文版）'><img stack-mode data-src='/img/cover-not-exists.png'></z-cover><z-cover id='11919208' author='it-ebooks' title='逆向工程入门指南'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/genesis/88b3b2170eacb900f26ec8f005349dd3af2bdb638a4137e8662d1e8b6eff59bd.jpg'></z-cover><z-cover id='15409887' author='成思源,杨雪荣' title='逆向工程技术'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/184e756e314d3e33f95672575f3963e8c0e9bcb8311024d77ece6d285d910d44.jpg'></z-cover><z-cover id='18242448' author='牟海军' title='C语言进阶'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/ae9389ce9be39af96fbc8bbfe6822920df50c242bf9cba3d976a5ddb5eb16246.jpg'></z-cover><z-cover id='17509808' author='赵荣彩, 庞建民, 张靖博' title='反编译技术与软件逆向分析'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/59cf809c6742f9c78d081df0df6cc820485fd857d250b9e6c5256ce9de4f3c53.jpg'></z-cover><z-cover id='5602524' author='钱林松' title='C++反汇编与逆向分析技术揭秘'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/e50b96d051f224d7f0dae7db94dd9f4d9900c53e0e53b77163f05148426753ec.jpg'></z-cover>                    </z-booklist>
+                                    <z-booklist tile style="width: 144px;" href="/booklist/2612728/044247/android%E5%BC%80%E5%8F%91.html" id="2612728" topic="Android开发" quantity="53"  >
+                        <z-cover id='17281123' author='郭霖' title='第一行代码 Android 第2版'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/fd53d1fae10bf12138e06a78aea6261b9aacfe73a84f29b35bfac0af5aad495f.jpg'></z-cover><z-cover id='16834425' author='郭霖' title='第一行代码'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/5b42d31e99529e2b0b0b4e6769ccc079bdcce1b10709fb76c7a23522b189682c.jpg'></z-cover><z-cover id='15846767' author='Android编程权威指南（中文版）.pdf' title='Android编程权威指南（中文版）'><img stack-mode data-src='/img/cover-not-exists.png'></z-cover><z-cover id='5727609' author='吴亚峰，苏亚光，于复兴' title='Android游戏案例开发大全'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/cc365b4a203009a371e1857837f140877f668048b4076896bcff419bdcacb08a.jpg'></z-cover><z-cover id='18191829' author='欧阳燊' title='Android Studio开发实战：从零基础到App上线(第2版)'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/e919f510440cc8e9528413aa6585a29b09196cbc0d2123b1ffcdb37143a8586a.jpg'></z-cover><z-cover id='115790390' author='王鹏, 关振智, 曾思淇' title='Jetpack Compose 从入门到实战'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/09ced97a64917e467a56b47f73b1e1dd54c412075bf216e6b0f959a85c551d63.jpg'></z-cover><z-cover id='116074975' author='王鹏' title='Jetpack Compose从入门到实战'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/f5244ff686f5e8a60546563d44c15a299c500bd803aeff41471cf93d94eb5334.jpg'></z-cover><z-cover id='30304668' author='萧文翰' title='深入浅出Android'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/0a219fef96f1bfc470e57f4fe4dc38a636af68a51177628a6f944673415cede4.jpg'></z-cover><z-cover id='16777552' author='乔希•斯基恩,戴维•格林哈尔希,王明发' title='Kotlin编程权威指南'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/genesis/1f7c035d50a8f2fbaac1227dab3a797af8b75ff3074c1779de98ba6559bb27c9.jpg'></z-cover><z-cover id='30089381' author='欧阳燊' title='Android Studio 开发实战：从零基础到App上线（第3版）'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/9cfdf6e76772a5d4d4329f7aca9f9cf784bcecd161e4a4696ed90fae439d8a97.jpg'></z-cover><z-cover id='17307340' author='欧阳燊' title='Kotlin从零到精通Android开发'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/7c183420441d7bfadfdbcadc3df06b07fb333cb1a5329046493a9cee693705cb.jpg'></z-cover><z-cover id='28277952' author='（美）肯·寇森著；乔禹昂译' title='Kotlin编程实践'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/chinese/0ba590ccd10552f88b45f1c920528c5c3d10ff1298fbd6fa4f3e4bb4cf869068.jpg'></z-cover><z-cover id='25897126' author='欧阳燊编著' title='Kotlin从零到精通Android开发'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/1ebe02c8d176f4dcc93cfdb8b940c3f144e274ee56db002b9713816623c2e3cf.jpg'></z-cover><z-cover id='18344093' author='郭霖' title='The first line of code Android 3rd edition (Tu Leifen)(Chinese Edition)第一行代码 Android 第3版去除页脚水印'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/98a0121c3757130e6f725557ca5da1b30bc06191e45dd2ef013c8220305fd88a.jpg'></z-cover><z-cover id='15832840' author='林学森' title='深入理解Android内核设计思想'><img stack-mode data-src='/img/cover-not-exists.png'></z-cover><z-cover id='15477533' author='何福贵' title='新编Android应用开发从入门到精通'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/6f992b4c50bfa7e12e5a5ef17c7f2ab5ba667294a9771b96a45e1f36fc2a5faa.jpg'></z-cover>                    </z-booklist>
+                                    <z-booklist tile style="width: 144px;" href="/booklist/2225352/86152a/software-engineering.html" id="2225352" topic="Software Engineering" quantity="21"  >
+                        <z-cover id='15939153' author='K.R. Rao' title='视频编码全角度详解:AVS China、H.264/MPEG-4 PART10、HEVC、VP6、DIRAC、VC-1'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/0a54e060a2780552fdc85c2cc61fc63a2f52c55b31fef6e66463d6f0267290ee.jpg'></z-cover><z-cover id='23711216' author='万帅,霍俊彦,马彦卓,杨付正unknown' title='新一代通用视频编码H.266/VVC：原理、标准与实现'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/f3cea589ff52b534a3b08e51534d829903ce0e5bff06045a81349a1dbda36214.jpg'></z-cover><z-cover id='18068185' author='Scott Meyers, 侯捷 译' title='Effective C 改善程序与设计的55个具体做法(第3版)'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/32911e6f02a3b6fcaae696e3996c487f467d373f99984bd93d00de8bc428f25a.jpg'></z-cover><z-cover id='18994013' author='（美）本贾尼·斯特劳斯特鲁普著' title='C++程序设计原理与实践（基础篇）（原书第2版）'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/60a7edad0bf6cc61e21191ea6ff3500ab66a790775e6d208a1704812eac07518.jpg'></z-cover><z-cover id='26799921' author='王维波' title='Qt 6 C++开发指南'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/6dd92d0474cf59cc5e78f131cc9cdad77fc18c2ebb2b96faa8531c5a7e4e7dd8.jpg'></z-cover><z-cover id='18266516' author='朱文伟 李建英' title='Linux C与C++一线开发实践'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/c4ae161ff375baca94784e9e79654fbfead7a242e401516a10538d92f226c875.jpg'></z-cover><z-cover id='6013130' author='李伟' title='C++模板元编程实战: 一个深度学习框架的初步实现'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/genesis/c93293927605117498161f6facccaf3737b3c9026b5dad6b92185cd84e147845.jpg'></z-cover><z-cover id='21838709' author='Fletcher Dunn; Ian Parberry   译者: 穆丽君 / 张俊' title='3D数学基础：图形和游戏开发（第2版） 原作名: 3D Math Primer for Graphics and Game Development'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/genesis/22d74a0ee42bf1eaa6a478de8c2b9ea39824bd15751b4efa871b469a11c72a1e.jpg'></z-cover><z-cover id='11440625' author='加藤政树' title='Unity游戏设计与实现: 南梦宫一线程序员的开发实例'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/genesis/17dd92f09e1a15afdd46b875c4cbba8c351a4ed1ede0198fe1450f53dfd86528.jpg'></z-cover><z-cover id='17496496' author='[日]平山尚' title='游戏开发：世嘉新人培训教材'><img stack-mode data-src='/img/cover-not-exists.png'></z-cover><z-cover id='15846767' author='Android编程权威指南（中文版）.pdf' title='Android编程权威指南（中文版）'><img stack-mode data-src='/img/cover-not-exists.png'></z-cover><z-cover id='21051415' author='[美] Robert Nystrom 尼斯卓姆 [[美] Robert Nystrom 尼斯卓姆]' title='游戏编程模式 (游戏设计与开发)'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/c44a0109eef79765fcdd975d145ac7b100639cac3e6ddf3c0b72b4f624367aba.jpg'></z-cover><z-cover id='18521698' author='蔡升达著' title='设计模式与游戏完美开发'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/2aec59dd5695f8085344eb08c53bfdac8af8c9780d1dbb21f13221f130b026af.jpg'></z-cover><z-cover id='72040539' author='（葡萄牙）麦克.达格雷斯（MicaelDaGraca）著；杨奕，马遥译, 达格雷斯 (DaGraca, Micael), (葡) 达格雷斯' title='游戏AI开发实用指南'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/chinese/69e11acded0f8e144256a430900407416e11d837e03e29b27a0f35e5315cb8fb.jpg'></z-cover><z-cover id='17564471' author='迈克·吉格（Mike Geig）' title='Unity游戏开发（原书第3版） (游戏开发与设计技术丛书)'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/ca8cf049ccbc5d5421269790efda09cbe846848e105878c45e46448e11833595.jpg'></z-cover><z-cover id='27440532' author='饶全成、欧长坤、楚秦' title='Go程序员面试笔试宝典'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/1013b5e83b21a7225b683977336ec48754ef46699e5e4671f9b083c632c65511.jpg'></z-cover>                    </z-booklist>
+                                    <z-booklist tile style="width: 144px;" href="/booklist/1249890/fb0d4f/%E4%B8%93%E4%B8%9A%E9%A2%86%E5%9F%9F%E5%90%84%E5%AD%A6%E7%A7%91%E7%B1%BB.html" id="1249890" topic="专业领域各学科类" quantity="950"  >
+                        <z-cover id='17126722' author='R. Shankar' title='耶鲁大学开放课程：基础物理 力学、相对论和热力学'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/d89a455cd9c84157678360854424146d16f768b4d595e28c4e0c596d3ef8e264.jpg'></z-cover><z-cover id='16645327' author='希伯勒' title='工程力学'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/f390d2ec958aa7899191c017a4c62ea2c27ecd0729ed1ec12f2ba12a7073a933.jpg'></z-cover><z-cover id='18247502' author='[美]莫里斯·W.赫希等' title='微分方程、动力系统与混沌引论(第3版)'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/48d8a7de9980f94c6877b10a61b5c6344dc95dbdce1d39a7136a9dfd6a9f0de8.jpg'></z-cover><z-cover id='18432435' author='R.SHANKAR' title='耶鲁大学公开课程：基础物理2 电磁学、光学和量子力学'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/656d2d427c976f93e82bae3438a72ec899f2be101f8d4d9e57c40211715845be.jpg'></z-cover><z-cover id='6161598' author='北京科技大学 东北大学' title='工程力学（静力学）（第4版）'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/fdf56a6ca12542fa47fcbddfd50a66a7904198a8e42bb60d99b9a48ed300e260.jpg'></z-cover><z-cover id='14003244' author='邵水金 [邵水金]' title='正常人体解剖学速记 (应考宝典)'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/ba4e47ee0c67c5c0cf93a4dde299b4f397b38d36c478f80ed81cfa84d99369c0.jpg'></z-cover><z-cover id='18262438' author='王爱敏, 王崇良, 黄秋韵' title='人力资源大数据应用实践：模型、技术、应用场景'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/8b4e8ac3638f2340fce012469c9a38901b5916e6a7c51826e85f5adf13711978.jpg'></z-cover><z-cover id='13898659' author='中科院物理所' title='1分钟物理(“中科院物理所”官方公众号超人气趣味科普专栏首次结集出版,于渌院士作序,曹则贤、张双南、苟利军、王雪纯赞赏推荐) (未读·探索家)'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/b5434c6f15ece9380e9a299edaca8d186d3eb608d102e191048fad4971314f18.jpg'></z-cover><z-cover id='16911373' author='（美）U.哈伯-沙姆等著  《物理》翻译组译' title='PSSC物理 第五册 实验指导'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/944d68538e06ecd55d882853fdaa0730d6d01f1b44ecfa3d88180598a5ac32ef.jpg'></z-cover><z-cover id='15513030' author='惠晶' title='新能源发电与控制技术'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/04a2fc45256a3ca6542ad044de8c1519d9647e06c372f265776432127f998c30.jpg'></z-cover><z-cover id='15505718' author='[ 英] 特雷佛 M. 莱彻 （Trevor M. Letcher）' title='新能源手册（原书第2版）'><img stack-mode data-src='/img/cover-not-exists.png'></z-cover><z-cover id='21508887' author='圣才教育' title='杨可桢《机械设计基础》（第7版）配套题库【考研真题精选＋章节题库】'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/588bf860dc61eeda857499a8e317960a06e68f7734a9fddad34ebcbedcbbba4c.jpg'></z-cover><z-cover id='21508885' author='圣才教育' title='杨可桢《机械设计基础》（第7版）配套题库【考研真题精选＋章节题库】'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/d4a5841cb56fee10a168f7a2502056534b6c224bbee635366a928525b67f9a59.jpg'></z-cover><z-cover id='22474313' author='卢玉明' title='机械设计基础'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/594a25b4f2f39437a95a4af819fe0187cd9d6a3517886d16c6d5dd0b30330196.jpg'></z-cover><z-cover id='23762057' author='杨可桢, 程光蕴, 李仲生, 钱瑞明' title='机械设计基础 第六版'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/3fa616c31f4bef19a9f0fe4f22dc8bfbc0e6a4671edda9eabdf1f7e04aac530e.png'></z-cover><z-cover id='25071392' author='杨可桢, 程光蕴, 李仲生, 钱瑞明' title='机械设计基础第七版'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/d3737f3ca53a120a4e988759c0f7e811c9a2e0c4b628281c312d437fe5cd2828.jpg'></z-cover>                    </z-booklist>
+                                    <z-booklist tile style="width: 144px;" href="/booklist/638569/f90bcd/games-development.html" id="638569" topic="Games Development" quantity="372"  >
+                        <z-cover id='5562125' author='Siddharth Shekar' title='C++ Game Development By Example: Learn to build games and graphics with SFML, OpenGL, and Vulkan using C++ programming'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/genesis/cd5b1b50d3faddbcb92ed0803e1bbdb53d7267989b2619b1141a2845cdfb7c52.jpg'></z-cover><z-cover id='5281659' author='V Scott Gordon; John L Clevenger' title='Computer Graphics Programming in OpenGL Using C++'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/genesis/13c1ee85a2b7b007209ef6b63da756e71ffd697e1153582885337338f33b4692.jpg'></z-cover><z-cover id='463406' author='Tom McReynolds, David Blythe' title='Advanced Graphics Programming Using OpenGL'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/genesis/730c2ac6d441e3e57068a7249da3551c50c2b8dab0edce06ead3f55ab1349125.jpg'></z-cover><z-cover id='5588656' author='Gabor Szauer' title='Hands-On C++ Game Animation Programming: Learn modern animation techniques from theory to implementation with C++ and OpenGL'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/genesis/336b422ec3799a83743ae71adb4fcb8ff3670d80e738acc1e08a0bea8c3e27cb.jpg'></z-cover><z-cover id='11554703' author='Gabriel Gambetta' title='Computer Graphics from Scratch'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/c3a37d96d516262504cbfdfda6348c7edb804f043684075b7fbe5e3ea3b6b074.jpg'></z-cover><z-cover id='3625458' author='David Wolff' title='OpenGL 4 Shading Language Cookbook'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/genesis/09384378379f4ce8f285baefcc08a8a3dd34391de6e4bd8d3d5908c41bda0b3f.jpg'></z-cover><z-cover id='3580456' author='JungHyun Han' title='Introduction to Computer Graphics with OpenGL ES'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/genesis/55c4dedefe49043185472f4fa9631ecea7cd7e56da778e2a6e2f70b8549eed36.jpg'></z-cover><z-cover id='3563192' author='Raimondas Pupius' title='Mastering SFML Game Development'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/genesis/6318af85ecffccb21f14d015f4d69a8f52484933ba2365c310fe19b1c80f1ca2.jpg'></z-cover><z-cover id='5321541' author='John Horton' title='Beginning C++ Game Programming'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/genesis/36d65b89e08f0048cdd0935439e1b21229802d15727a2f2ede68e50ccbdd8017.png'></z-cover><z-cover id='3592699' author='Pawel Lapinski' title='Vulkan Cookbook: Work through recipes to unlock the full potential of the next generation graphics API-Vulkan'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/genesis/57a207a15aef7bb7b37e03a1f52c8a384a27a237ccdf0333750c686891e55438.jpg'></z-cover><z-cover id='2737218' author='Milcho G. Milchev' title='SFML Essentials: A fast-paced, practical guide to building functionally enriched 2D games using the core concepts of SFML'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/genesis/3e377a2acadd36dbe8412525efc6e0ee0bd793c891a5d5138e1e136f51300e4e.jpg'></z-cover><z-cover id='3050722' author='Druhin Mukherjee' title='C++ Game Development Cookbook'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/genesis/cf028e987fa5098121f593597b1235bde24e41f1fd26ef2c07c0031c4e5a5e9b.jpg'></z-cover><z-cover id='3430505' author='Mickey MacDonald' title='Mastering C++ Game Development'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/genesis/0910be0fbc81d9d5e2509d6f1721b6b8b46de04a073f825887b42c979a18f030.jpg'></z-cover><z-cover id='5416650' author='Onorato Vaticone' title='C++ System Programming Cookbook'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/genesis/3b98f7cbccb0a2bed1ed34e9da11f0bc2653e16e27c0b5d9aa22e867d8e3ebca.jpg'></z-cover><z-cover id='2737314' author='Artur Moreira, Jan Haller, Henrik Vogelius Hansson' title='SFML Game Development: Learn how to use SFML 2.0 to develop your own feature-packed game'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/genesis/0102cf4c4ae2b03537f64a5ecfaaeb82b5df26111f462f0b91479a0c701bccb2.jpg'></z-cover><z-cover id='2737228' author='Maxime Barbier' title='SFML Blueprints: Sharpen your game development skills and improve your C++ and SFML knowledge with five exciting projects'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/genesis/70f06d2ad10475ac6a59d3598690f9eec94825ec3e77fb0843347b1536bb4b40.jpg'></z-cover>                    </z-booklist>
+                                    <z-booklist tile style="width: 144px;" href="/booklist/573558/c28705/%E8%AE%A1%E7%AE%97%E6%9C%BA.html" id="573558" topic="计算机" quantity="303"  >
+                        <z-cover id='3635112' author='上野宣' title='图解HTTP'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/genesis/fc009157692cdbcad5981931cd408c2ef3938cf1fd3fc8f858d8fab2222366cf.jpg'></z-cover><z-cover id='17087429' author='Kubernetes 权威指南：企业级容器云实战' title='Kubernetes 权威指南：企业级容器云实战(2018)'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/fab30fbc1af86f3dc0aea025f7b5026a6679825cf853e615b603c2822972a8c4.jpg'></z-cover><z-cover id='16523719' author='[美]David Gourley Brian Totty Marjorie Sayer Sailu Reddy Aushu Aggarwal [Aggarwal, David Gourley Brian Totty Marjorie Sayer Sailu Reddy Aushu]' title='HTTP权威指南 (图灵程序设计丛书)'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/25671a0109af8f8c8becc6f8d655ed89295849cef815adf3ea1ff46eecc9a388.jpg'></z-cover><z-cover id='5502208' author='杰伊•温格罗, 袁志鹏译' title='数据结构与算法图解'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/25f7bc895c6831ebf047222e2fa1883b67acd12c4af58a69a03d4ba50f366baa.jpg'></z-cover><z-cover id='6144738' author='孟宁' title='庖丁解牛Linux内核分析'><img stack-mode data-src='/img/cover-not-exists.png'></z-cover><z-cover id='5458196' author='Alfred V. Aho,Monica S.Lam, Ravi Sethi, Jeffrey D. Ullman' title='编译原理 第二版'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/e002be45b7eebef21548e77054b6c0f97e1d758372a914af2f7b4d1722cfa464.jpg'></z-cover><z-cover id='5680169' author='塞奇威克' title='算法：C语言实现: (第1～4部分)基础知识、数据结构、排序及搜索'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/genesis/a11aa436c9c5016f95fcfae1f77533134cab20157e1b57590fb39d152757669b.jpg'></z-cover><z-cover id='5663453' author='（美）马其尼克/赵克佳/沈志宇' title='高级编译器设计与实现'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/genesis/a6e174b925e226652f45e124ecbc09fe5e5a55a7a3b268d8690e8792cb8a22e4.jpg'></z-cover><z-cover id='5667656' author='Thomas Pittman; James Peters' title='编译程序设计艺术: 理论与实践'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/genesis/dd9ca6aabfce00caf2d3e439c13ffabb8047be80407c3ef87c1ae6fc3ef55c3e.jpg'></z-cover><z-cover id='5663454' author='埃克尔' title='C++编程思想第2卷'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/genesis/65e75e3a71e9bd71f8812b70ad58467cd66696748a14d95d065c690ca3e5ce2b.jpg'></z-cover><z-cover id='5663455' author='[美] Bruce Eckel' title='C++编程思想（第1卷）: 标准C++导引'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/genesis/c9012dff30b48f3778b2f7db97aa188c61855964b2dd630e471815c5c7d315b8.jpg'></z-cover><z-cover id='5663445' author='费希尔' title='编译器构造C语言描述'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/genesis/da4d0c8ae1ba5154866d5baf5f0d8cb88f4715b0af008aeb349c2b39dc66bd07.jpg'></z-cover><z-cover id='16517456' author='川合秀实 [川合秀实]' title='30天自制操作系统 (图灵程序设计丛书)'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/7aecdd82f5696220095bab6beca582d4dc60fc0effda949283a24e537a339a7c.jpg'></z-cover><z-cover id='16525727' author='马修(Neil Matthew) [马修(Neil Matthew)]' title='Linux程序设计(第4版) (图灵程序设计丛书·Linux/UNIX系列)'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/e637fc6764efe9ed6382504d8da2ba35f4a16d181bafcd264f955c383b00aa87.jpg'></z-cover><z-cover id='17300580' author='[英]Benjamin J. Evans [荷兰]Martijn Verburg [Verburg, Benjamin J. Evans Martijn]' title='Java程序员修炼之道 (图灵程序设计丛书 79)'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/5eb419861f9390064add2d4a47a2c24822f4e227f63b18e58b5d1e9f70259edf.jpg'></z-cover><z-cover id='16706244' author='[日]上野 宣' title='图解HTTP (图灵程序设计丛书)'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/bd0d7053ade6d659ba114bfe7384f5d36987499ddc98aaf6cec89eb20e758012.jpg'></z-cover>                    </z-booklist>
+                                    <z-booklist tile style="width: 144px;" href="/booklist/181821/9e8ba5/developer-books.html" id="181821" topic="developer books" quantity="198"  >
+                        <z-cover id='16502259' author='Sourabh Sharma' title='Modern API Development with Spring and Spring Boot: Design highly scalable and maintainable APIs with REST, gRPC, GraphQL, and the reactive paradigm'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/genesis/b492faa12c5e651b68b173e5d1f23b85cb5ddb9dd72f15848b95fd97daa4d870.jpg'></z-cover><z-cover id='462663' author='Colin Yates, Seth Ladd, Steven Devijver, Darren Davison' title='Expert Spring MVC and Web Flow'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/genesis/e8d1c19e9cd78c0b175a58f2f84d8bf3f01d96e4eba54acab0a9d3056374af13.jpg'></z-cover><z-cover id='17825407' author='Joseph B. Ottinger, Jeff Linwood, Dave Minter' title='Beginning Hibernate 6: Java Persistence from Beginner to Pro'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/genesis/d374f7ee67cb051a32ee8cf45e11d25f730105da90403f6050f507e682ad7a9c.jpg'></z-cover><z-cover id='2880158' author='Brenton J.W. Blawat' title='Mastering Windows PowerShell Scripting'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/genesis/fd437d6901c0291c859e505fd41196a4e36e18c45310c72fcdc4ccb4ae50a808.jpg'></z-cover><z-cover id='3628801' author='Chris Dent, Brenton J.W. Blawat' title='Mastering Windows PowerShell Scripting'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/genesis/23b46d37691cf391ca89e6a21b8645c78c371d5b96523227ff1275890c5c7ab5.jpg'></z-cover><z-cover id='3400037' author='Bruce Payette, Richard Siddaway' title='Windows PowerShell in Action'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/genesis/d9aac0a858ee234c1c01aae3a55cb495eca6e2278800d2c1debe4b49981a63e5.jpg'></z-cover><z-cover id='5303174' author='Carlo Scarioni, Massimo Nardone' title='Pro Spring Security: Securing Spring Framework 5 and Boot 2-based Java Applications'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/genesis/08fcac5800206d799fdb3ade331d4327264c26f027b852f32e6651a04e9f7098.jpg'></z-cover><z-cover id='18039580' author='王金柱' title='Netty实战'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/fc1e47d022ed3a2adda5b16ddf538b03953b93685f1e8888dc2af270b4fe6448.jpg'></z-cover><z-cover id='11014373' author='小甲鱼' title='零基础入门学习Python'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/4fed78001416476f00b7bb435b0d646ed3f283b7b2bc53a5fd9abc9d1f51c17f.jpg'></z-cover><z-cover id='18995061' author='Raju Gandhi' title='Head First Git'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/23a9fa1847b1ceb883cd40b7b2b769fcf40d642e79d94ff8af365668ec3692f6.jpg'></z-cover><z-cover id='11634057' author='Eric Freeman, Elisabeth Robson' title='Head First Design Patterns: Building Extensible and Maintainable Object-Oriented Software'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/genesis/f017fc71d101403e6f8d0e30b18945794eae2f2f2caab477d205246aa04bea5a.jpg'></z-cover><z-cover id='17918067' author='龙中华' title='Spring Boot实战派'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/5fbbc6eab8c1cfcbfa14ec4efd802b3d1eecf6aad3d2ddca20beb3ceff1562a1.png'></z-cover><z-cover id='18617408' author='it-ebooks' title='Spring Boot 2.5开发实战'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/genesis/388b4aa5459cedcaa13c5bd70c5a616bf3c700eee5e2ce7138e93359fdeadb6c.jpg'></z-cover><z-cover id='18617407' author='it-ebooks' title='Spring Cloud Alibaba 从入门到精通'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/genesis/e7d0e472dfcb046e13cd61372a1a2a74aa608ef5ee88400c09d63c60021e0e4f.jpg'></z-cover><z-cover id='17316270' author='罗剑锋' title='Boost程序库完全开发指南 深入C 准标准库 第4版'><img stack-mode data-src='/img/cover-not-exists.png'></z-cover><z-cover id='17414276' author='P.J. Plauger' title='C标准库(The Standard C Library)'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/9c506c7b8679452f0a9cc2852ea1805fe3fabee8ab83ba105650a6e7d610aa29.png'></z-cover>                    </z-booklist>
+                                    <z-booklist tile style="width: 144px;" href="/booklist/259260/2b154c/android.html" id="259260" topic="Android" quantity="114"  >
+                        <z-cover id='5602559' author='王振丽^等' title='Android底层开发技术实战详解:内核、移植和驱动(第2版) (Android移动开发技术丛书)'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/d859dbc2b49562a54f8119a75219783a37fb3daf1cf3f139fc13862d50832101.jpg'></z-cover><z-cover id='16998804' author='欧阳燊编著' title='Android Studio开发实战：从零基础到App上线'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/35b34a3200a13138eead4e146caf846d12247c2b660a7e8ea45087a638bed976.jpg'></z-cover><z-cover id='15958985' author='肖琨 等 [肖琨 等]' title='Android Studio移动开发教程'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/84efab1fabb2658f74834b40ddaecac7f9217f972059236cf986e89c0d4dbd68.jpg'></z-cover><z-cover id='5007154' author='Ed Burnette' title='Android基础教程 = Hello, Android: introducing Google’s mobile development platform'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/genesis/ba4d2a046a76454b997fd2d2dc90b9d2cbf457614cc918b2b79378c665859f8a.jpg'></z-cover><z-cover id='5602552' author='丰生强' title='Android软件安全与逆向分析 (图灵原创)'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/156543fd98a9fb9ce437f798a660b6e6b21fbb409f9df9e6e6a8300592a17723.jpg'></z-cover><z-cover id='5727609' author='吴亚峰，苏亚光，于复兴' title='Android游戏案例开发大全'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/cc365b4a203009a371e1857837f140877f668048b4076896bcff419bdcacb08a.jpg'></z-cover><z-cover id='15846767' author='Android编程权威指南（中文版）.pdf' title='Android编程权威指南（中文版）'><img stack-mode data-src='/img/cover-not-exists.png'></z-cover><z-cover id='16686143' author='黄和悦' title='DIY四轴飞行器:基于MSP430F5系列单片机与Android (嵌入式技术与应用丛书)'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/b731cf4585d774a9a25f3d11547cafe831b8064381d5ea5117ce2bcbc2d0fb3a.jpg'></z-cover><z-cover id='3630071' author='安晓辉' title='Qt on Android 核心编程'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/genesis/d9573409d1cf99c08d926110e52c4498520fddced3197079b6efd8fa6f15f0e0.jpg'></z-cover><z-cover id='5751660' author='趙令文(Brad Chao)' title='初學到認證：從Java到Android行動裝置程式設計必修的15堂課'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/02431c4d3aa186499a78168eba79a1021b9ade22881a1ff7657145e10a29cac8.jpg'></z-cover><z-cover id='6134751' author='展晓凯 &amp; 魏晓红 [展晓凯]' title='音视频开发进阶指南：基于Android与iOS平台的实践'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/56da2d3d6af834a3d4753eb7fc88557ba25e9cf3b4ca24d3bbd4fe3da1ccbcf6.jpg'></z-cover><z-cover id='5413080' author='郭霖' title='第一行代码 Android'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/genesis/9eb62f7f2479ded6dec0b410dc5e555ea9850a73dea6f188acb77d6df511ae4e.jpg'></z-cover><z-cover id='16597524' author='克莉丝汀•马西卡诺,布赖恩•加德纳,比尔•菲利普斯,克里斯•斯图尔特' title='Android编程权威指南第4版'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/1651b7763548cd1034e318c71dc53c582a3d2a3c769cde4d5d4cb70c3040af6c.jpg'></z-cover><z-cover id='5007155' author='Bill Phillips; Chris Stewart; Brian Hardy; Kristin Marsicano' title='Android编程权威指南 = Android programming: the big nerd ranch guide'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/genesis/23ec736c4bf46e56232290040fb9224c229f3837b03cfc9be1cd51c7da9df991.jpg'></z-cover><z-cover id='16889774' author='(College teacher) 黃士嘉; 吳建儒' title='Android Kotlin 實作開發'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/genesis/af7da70a7c09da5e44ef8726da80c07fb5cf413aa2f92faddc242dbd1f1af4a7.jpg'></z-cover><z-cover id='5602555' author='李兴华' title='名师讲坛———Android开发实战经典'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/2f3f8af46ccb19db8a993ba96c78d9062cadca7570a25406f42d5db95858f30b.jpg'></z-cover>                    </z-booklist>
+                                    <z-booklist tile style="width: 144px;" href="/booklist/3595561/b0a0bb/%E7%BC%96%E7%A8%8B.html" id="3595561" topic="编程" quantity="1"  >
+                        <z-cover id='15846767' author='Android编程权威指南（中文版）.pdf' title='Android编程权威指南（中文版）'><img stack-mode data-src='/img/cover-not-exists.png'></z-cover>                    </z-booklist>
+                                    <z-booklist tile style="width: 144px;" href="/booklist/2712438/19fd4a/%E6%9C%AA%E6%95%B4%E7%90%86.html" id="2712438" topic="未整理" quantity="135"  >
+                        <z-cover id='11241222' author='山口飛翔' title='藍色時期 — 第０１卷'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/72725bb97d0070dcfee7ec9c9a422ea44698d1cd07ae4bf7e466eaa69bcffdb7.jpg'></z-cover><z-cover id='13860836' author='諫山創' title='進擊的巨人 - 第01卷'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/f2fded32a7ff1a1ba904779b926c737bb5c46bbcf0118543635f0913a03299d3.jpg'></z-cover><z-cover id='13191967' author='荒木飛呂彥' title='JOJO的奇妙冒險-石之海(全彩版) - 第01卷'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/135dd744ff993aa67ff255f86b239308e5e878b5bba014904e23ec5edf8b2848.jpg'></z-cover><z-cover id='29330877' author='富堅義博' title='全職獵人 - 卷30'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/69f468d3e02f8edadbdccf84986f61876362834ad356fc8a9268277f49aca5ab.jpg'></z-cover><z-cover id='21888721' author='CLAMP' title='聖傳 01'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/2d072b6a0982dbc03aa357843c4da17ed4a800669e785ad6fa85d782b9489c9b.jpg'></z-cover><z-cover id='14027163' author='白井カイウ, 出水ぽすか' title='約定的夢幻島 - 第01卷'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/b9c6fd336d80d63e044d473217453f17f63bf236797b9a68587a66873685a846.jpg'></z-cover><z-cover id='21234960' author='大場鶇,小畑健' title='[死亡笔记]第一卷(MOBI格式几乎可以退出历史舞台了)'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/11e07ef3db41c1c012322874d7c8bb371093f7ff0e1d794ba51a4fd3f179152c.jpg'></z-cover><z-cover id='19297160' author='田中靖规' title='夏日重现 第2卷'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/31ddb13c0b862af13ad53047e03eab1192a1236ebdca15cc32287607f8ebc02a.jpg'></z-cover><z-cover id='21647660' author='週刊少年ジャンプ' title='週刊少年ジャンプ ２０２２年２１／２２合併号'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/68e978eb756c269338756396d88471bf54964aafea91dfff0fda83413a91ab74.jpg'></z-cover><z-cover id='29265222' author='博' title='明日ちゃんのセーラー服 4'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/e8c4e12738590fda9f78bd1c910c5fb6e80657db45234cd90b49a0b9ff330135.jpg'></z-cover><z-cover id='21091174' author='スパイク・チュンソフト,笹古みとも' title='ダンガンロンパ害伝　キラーキラー（２） (週刊少年マガジンコミックス)'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/f997fbc5437b7b72f8b2963aa4fbe82307b2be77959eabfca27ed19d38e40954.jpg'></z-cover><z-cover id='31295406' author='龙幸伸' title='[膽大黨]卷01'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/0c4e16956ca07a34c4449c243c4e6410b46f6f89b4ba8cf827fdac26fb576ec3.jpg'></z-cover><z-cover id='21515981' author='カルロ・ゼン' title='幼女戰記 01 Deus lo vult'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/d7956bd03c603db662271bc6367bfff8f63df5a7079ee206a8ddd9ff3bbc4ea1.jpg'></z-cover><z-cover id='17666487' author='赤坂アカ' title='輝夜大小姐想讓我告白~天才們的戀愛頭腦戰~ - 第051-055話'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/a34550614bba7c68c175d73cf89ce8aad5489532db500a0a9eac89bc79832051.jpg'></z-cover><z-cover id='25357476' author='Takaya Kagami, Yamato Yamamoto, Daisuke Furuya' title='Seraph of the End - Vampire Reign Volume 1'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/ae49849ae50b32bbdb3f8e187f5bcdce24622e5f4087d8e2a2577ab272060c56.jpg'></z-cover><z-cover id='23438773' author='Jun Mochizuki' title='The Case Study of Vanitas volume 1'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/3e6c8f8603f4c11ef3a5a4833b8dc7ef6177caebd9922fa1016148970ab3541e.jpg'></z-cover>                    </z-booklist>
+                                    <z-booklist tile style="width: 144px;" href="/booklist/3226463/6e2bd2/android%E5%BC%80%E5%8F%91.html" id="3226463" topic="Android开发" quantity="31"  >
+                        <z-cover id='109550091' author='罗升阳' title='Android系统源代码情景分析（第三版）'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/2d51e8cf56d76c11833635b2bbb7e6e032680a8cc6952745ce3006737a9cd125.jpg'></z-cover><z-cover id='30052610' author='罗升阳著, 罗升阳 (1984-), 罗升阳, 1984-' title='Android系统源代码情景分析 第3版'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/chinese/58b786ac78415def0834972ea620b62c14eaf341bcec88ee08f10ea75113eeb8.jpg'></z-cover><z-cover id='14757028' author='刘望舒' title='Android进阶之光'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/c2c031614f71381a8f1a23a9ff8260b1239f9682f15221ad3e1036a2343c49af.jpg'></z-cover><z-cover id='116684007' author='E2ECloud工作室编著, E2ECloud工作室编著, E2ECloud工作室, E2ecolud Gong Zuo Shi' title='深入浅出Google Android'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/chinese/6a945decc0c1f02ed5ab8bd722bb47640e8af874f49b7a53b590f1d7ca168d0c.jpg'></z-cover><z-cover id='30304668' author='萧文翰' title='深入浅出Android'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/0a219fef96f1bfc470e57f4fe4dc38a636af68a51177628a6f944673415cede4.jpg'></z-cover><z-cover id='44048791' author='（美）BILL, （美）BILL PHILLIPS，CHRIS STEWART，BRIAN HARDY，KRISTIN MARSICANO著；王明发译, (mei)Bill Phillips[Deng]zhu, Wang ming fa yi, (美)Bill Phillips[等]著 , 王明发译, 菲利普斯, 王明发, 菲利普斯 (Phillips, Bill)' title='ANDROID编程权威指南 第2版'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/chinese/b16f2e552ba0dfc793a8ac677c6fd17d40c0c922cb86c16c5e9d3a929bbdb38f.jpg'></z-cover><z-cover id='115779923' author='（美）菲利普斯，（美）哈迪著, Fei li pu si, ha di, wang ming fa, Bill Phillips and Brian Hardy' title='Android编程权威指南'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/chinese/14ecd156497166be8d74c4c8ef4e6f7bb92d6616a654902681d6f37b008434e4.jpg'></z-cover><z-cover id='30057349' author='锛堢編锛塀ILL, （美）BILL PHILLIPS，CHRIS STEWART，BRIAN HARDY，KRISTIN MARSICANO著；王明发译, Pdg2Pic' title='ANDROID编程权威指南 第2版'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/chinese/d8e1274fbcabadf1b17213ae5c3c19d8c6210ef1becb3f7a15389ee18ad1e2af.jpg'></z-cover><z-cover id='38044116' author='（美）比尔·菲利普斯，克里斯·斯图尔特，克莉丝汀·马西卡诺, 比尔·菲利普斯 克里斯·斯图尔特 克莉丝汀·马西卡诺（Bill Phillips Chris Stewart Kristin Marsicano） 王明发, 菲利普斯 (Phillips, Bill), (美) 菲利普斯' title='Android编程权威指南 第3版'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/chinese/eefbc749d6fb111946575cfb491bde1f8d24a538629ae860d96bd547cf28cbf1.jpg'></z-cover><z-cover id='15846767' author='Android编程权威指南（中文版）.pdf' title='Android编程权威指南（中文版）'><img stack-mode data-src='/img/cover-not-exists.png'></z-cover><z-cover id='11450794' author='Bill Phillips; Chris Stewart; Brian Hardy; Kristin Marsicano' title='Android编程权威指南（第2版）'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/genesis/112c2e264fbf2dbfe40b05b0f00923b9135bf287019c34bd382e487c8499b245.jpg'></z-cover><z-cover id='18210612' author='[美] 克莉丝汀•马西卡诺布赖恩•加德纳比尔•菲利普斯克里斯•斯图尔特' title='Android编程权威指南第4版'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/e068c3bd5301d9d5d107fd491cd9a97a60c02659312b155c07bbe168515c551e.jpg'></z-cover><z-cover id='11440614' author='比尔·菲利普斯; 克里斯·斯图尔特; 克莉丝汀·马西卡诺' title='Android编程权威指南（第3版）'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/genesis/33d37ca3e0b9532a507ba1f6e05aa65579446e39c630e632317a3e91bdf0b5f3.jpg'></z-cover><z-cover id='5007154' author='Ed Burnette' title='Android基础教程 = Hello, Android: introducing Google’s mobile development platform'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/genesis/ba4d2a046a76454b997fd2d2dc90b9d2cbf457614cc918b2b79378c665859f8a.jpg'></z-cover><z-cover id='21038877' author='郭霖' title='第一行代码(第3版)'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/genesis/9d98376ea0868f95523fe72d3de2c48e6f586d4d5988d6df3fdad063d01c334c.jpg'></z-cover><z-cover id='18344093' author='郭霖' title='The first line of code Android 3rd edition (Tu Leifen)(Chinese Edition)第一行代码 Android 第3版去除页脚水印'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/98a0121c3757130e6f725557ca5da1b30bc06191e45dd2ef013c8220305fd88a.jpg'></z-cover>                    </z-booklist>
+                                    <z-booklist tile style="width: 144px;" href="/booklist/2370634/f42288/%E5%9B%BE%E7%81%B5%E7%A8%8B%E5%BA%8F%E8%AE%BE%E8%AE%A1%E4%B8%9B%E4%B9%A6.html" id="2370634" topic="图灵程序设计丛书" quantity="355"  >
+                        <z-cover id='3636672' author='Eric Matthes' title='Python编程 : 从入门到实践 = Python Crash Course'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/genesis/9e4d9fdfd48752b32fb4e6e942d127e44e7ba5cfb55f3b6a34b8bb27c76a77f5.jpg'></z-cover><z-cover id='120269089' author='柴田望洋' title='明解Python'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/f84a9c2f0b8844208927532d210c2bb640b2a470f9745a0b70ed7069aa24918b.jpg'></z-cover><z-cover id='28082344' author='宇津木健' title='图解量子计算机'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/e315f57a9a91a99363d93d5647728f8fa1702e0180a21026c0baf88275fbbd20.jpg'></z-cover><z-cover id='27442842' author='斋藤康毅' title='深度学习入门：基于Python的理论与实现'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/9d496460a642f127c7e8ae37063f313f127298dec7b2dd521f681526f23499f3.jpg'></z-cover><z-cover id='21538649' author='Ivan Idris' title='Python数据分析基础教程：NumPy学习指南（第2版）【高清文字版】'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/5bce6a13dff93d04718ac58355b6cdeda74de5861fb15fd07eb95b2fa4ef1d33.jpg'></z-cover><z-cover id='23262773' author='贾森 • 迈尔斯, 里克 • 科普兰' title='SQLAlchemy:Python数据库实战_第2版'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/b63731e797c90e3626de1b499ac8f1792509adb181c0860c67328795dfeca03a.jpg'></z-cover><z-cover id='23940053' author='王树森 黎彧君 张志华' title='深度强化学习 Deep Reinforcement Learning'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/701e808ea4732c4f7950070f0dc5d15d2caadea5d7d9a73ff5e14bcec3bd695c.png'></z-cover><z-cover id='5640387' author='Miguel Grinberg' title='Flask Web开发：基于Python的Web应用开发实战'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/genesis/c8e221a2a219ba66eac19cbf675c1c05606ef013ad2cab1039971a6115cc40da.jpg'></z-cover><z-cover id='22277544' author='Miguel Grinberg' title='Flask Web开发：基于Python的Web应用开发实战.第2版'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/0add8725dd78a94ae8a62ee29d08262958f142371bf8a2df3da2ca45917c0aa5.jpg'></z-cover><z-cover id='18772481' author='基思· J·格兰特' title='深入解析CSS'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/c077893ef8e5ed4c9636057735585f442008efdfe2ea5b9656d9d9aee40261cd.jpg'></z-cover><z-cover id='21586447' author='作者：[英] 安迪•巴德（Andy Budd），[瑞典] 埃米尔•比约克隆德（Emil Björklund） 译者：李松峰' title='精通CSS：高级Web标准解决方案（第3版）'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/genesis/fc1a18066aef56aa8e9bcb456872263ca2d05bdc787fe32fb42309ce0f7b69af.jpg'></z-cover><z-cover id='29543050' author='（英）CHARLESWYKE-SMITH著；李松峰译, 史密斯 (Smith, Charles Wyke), 史密斯, 李松峰' title='CSS设计指南'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/chinese/9e79f9e61f7ac9006e26e41fd6ec712081a1a3e3851501761587c0ca23b4bdd4.jpg'></z-cover><z-cover id='5214115' author='Charles Wyke-Smith,Li Songfeng' title='CSS设计指南'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/genesis/eb1294dc310ba59c6bcd760f83b638b02e7f6fb2d09a2a4a55199b86c2c7fa19.jpg'></z-cover><z-cover id='26832932' author='（美）厄尔曼著' title='PHP基础教程 第4版'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/8db41035aedcf2ee54a494678625794b21fc194aadee9ae2d0dd13083fddf223.jpg'></z-cover><z-cover id='28572178' author='Docker开发实战' title='Docker开发实战'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/4d64f269f96b6fe4d24347763fc06bf91540fa9a24ae3a5193322175d3f8eddd.jpg'></z-cover><z-cover id='15874578' author='（美）帕蒂拉，（美）霍金斯著' title='高性能PHP应用开发'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/7d52436ee272a92a306a0f5c2244ee16831811e941c498c631d92199bb420647.jpg'></z-cover>                    </z-booklist>
+                                    <z-booklist tile style="width: 144px;" href="/booklist/3191529/f82fb9/%E6%93%8D%E4%BD%9C%E7%B3%BB%E7%BB%9F.html" id="3191529" topic="操作系统" quantity="93"  >
+                        <z-cover id='16797514' author='Abraham Silberschatz; Peter B. Galvin; Greg Gagne' title='操作系统概念（原书第9版）'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/genesis/eada83ff46d08a7691270aff8a7c1f7464e47e28766a1da1298425bb8705bf7e.jpg'></z-cover><z-cover id='16346620' author='王海鹏 译' title='操作系统导论-OSTEP'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/584dd2c4f11aae399086239558bb6b4a000e8df6c30b05448cbb35581c25139d.jpg'></z-cover><z-cover id='3620438' author='Andrew S. Tanenbaum, Herbert Bos' title='现代操作系统'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/genesis/a7927a5d0d541b36dc07a3180c0c6956c3d41336bca0f3b13bf4db01e100d59d.jpg'></z-cover><z-cover id='16645184' author='汤小丹' title='计算机操作系统（第四版）'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/b49bdd666687a41b63c8123ea683fada9638db817553cb93556c6a05f86b2339.jpg'></z-cover><z-cover id='11938580' author='Andrew S. Tanenbaum, Herbert Bos' title='现代操作系统(第四版)'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/b294a8da7c451e1cb387dc20f0a8dc7bead72f3b89fe9c8836e65199a0325821.jpg'></z-cover><z-cover id='5693433' author='A MAI KEN SHANG ER LA MU A TA DE...' title='计算机系统：系统架构与操作系统的高度集成'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/genesis/f800b45ec353d64f2b3a9629688d4877d8838c17ec5b68718c96d920a3fcc9b6.jpg'></z-cover><z-cover id='28533847' author='现代操作系统' title='现代操作系统'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/1ec876e6068cecf82c07c6981d889bb77405804f1005e0b85323af29752c6d1a.jpg'></z-cover><z-cover id='17205608' author='张尧学; 宋虹; 张高' title='清华大学计算机系列教材: 计算机操作系统教程'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/genesis/005029d8a48b9b4d937fc1633d1d75b33e1d93cfd1d21db237805aa1dd41e39c.jpg'></z-cover><z-cover id='25139970' author='武内觉' title='Linux是怎样工作的（198张图解+大量实验程序，直击Linux运行原理；“现代计算机操作系统”图解趣味版）（图灵图书）'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/aafa953d49f88baba043d164f011de2146076e33fa5c6e094d1ae830e4157553.jpg'></z-cover><z-cover id='18238904' author='Remzi H. Arpaci-Dusseau, Andrea C. Arpaci-Dusseau' title='操作系统导论'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/315c5202f1cf959ae8016d74b16542a8a99b0ead6b5f581fde4e6d7fa6dfb1e1.jpg'></z-cover><z-cover id='12340498' author='郑纲' title='操作系统真象还原'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/326dbc0939ea7f56154d90c175a10867b5f9fcc01efe28a26d6f33f7c686ce14.jpg'></z-cover><z-cover id='16404075' author='William Stallings, 陈向群, 陈渝 等译' title='操作系统:精髓与设计原理(第8版)Operating Systems: Internals and Design Principles'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/668d4529b9c55c29b688091c5f29e4168fc9587ebe76a7ee788dc5719e9139d8.jpg'></z-cover><z-cover id='5792301' author='斯托林斯' title='操作系统：精髓与设计原理 第8版'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/6489073a1a5cf8eb0b72c80d197a0be858b39c771510fd4bfeb8039531915cea.jpg'></z-cover><z-cover id='5645654' author='Andrew S. Tanenbaum; Albert S. Woodhull' title='操作系统设计与实现 第三版（上册）'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/genesis/e252839ceefdb26bac2fc6625f33095d42a965b5d32471fb8b80a83c8d6bbf4f.jpg'></z-cover><z-cover id='5645655' author='[美] ANDREWS.' title='操作系统设计与实现 第三版（下册）'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/genesis/6e05bbc5ad954196c88fe8676e831614a073fd0c8b7b7aded592db6242e0c843.jpg'></z-cover><z-cover id='25815599' author='罗宇（清华大学出版社 2023年）' title='操作系统'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/6100229139d1c630103ff44512422bae0342b0ee2fd1e4bfd88780fd2f29181a.jpg'></z-cover>                    </z-booklist>
+                                    <z-booklist tile style="width: 144px;" href="/booklist/3128985/d3f94e/%E5%AE%89%E5%8D%93.html" id="3128985" topic="安卓" quantity="1"  >
+                        <z-cover id='15846767' author='Android编程权威指南（中文版）.pdf' title='Android编程权威指南（中文版）'><img stack-mode data-src='/img/cover-not-exists.png'></z-cover>                    </z-booklist>
+                                    <z-booklist tile style="width: 144px;" href="/booklist/2418239/17eeab/%E8%AE%A1%E7%AE%97%E6%9C%BA%E4%B8%9B%E4%B9%A6.html" id="2418239" topic="计算机丛书" quantity="20"  >
+                        <z-cover id='25406159' author='严蔚敏，吴伟民' title='数据结构（C语言版）'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/8cf06cc355d7d6560eb64a113738cfe2389af36219d727e34757fd19977cb5c3.png'></z-cover><z-cover id='5777980' author='谢希仁' title='计算机网络'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/5579a26e4bbe3e6f96adc0b54928a47df73b2c5f02d0e371d21db303b8e8fb44.png'></z-cover><z-cover id='5469110' author='唐朔飞' title='计算机组成原理'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/d253ae6d11cfa731fdeae345d2fec3c40efd9f6d4911fce1fba296ef916ec61e.jpg'></z-cover><z-cover id='11736471' author='唐朔飞编著' title='计算机组成原理 第2版'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/5924a4d28557031d6f9685eeb66f5a0c59d9d81a2bc94b46e6046e37c4b63aac.jpg'></z-cover><z-cover id='16645184' author='汤小丹' title='计算机操作系统（第四版）'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/b49bdd666687a41b63c8123ea683fada9638db817553cb93556c6a05f86b2339.jpg'></z-cover><z-cover id='5646392' author='Frederick P. Brooks' title='人月神话'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/genesis/5f39b4ea76796ec0647e0d131c9cf1b638d0bbc717add4ad3f98c230a6538fff.jpg'></z-cover><z-cover id='3635112' author='上野宣' title='图解HTTP'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/genesis/fc009157692cdbcad5981931cd408c2ef3938cf1fd3fc8f858d8fab2222366cf.jpg'></z-cover><z-cover id='5744760' author='[美]David Gourley Brian Totty Marjorie Sayer Sailu Reddy Aushu Aggarwal' title='HTTP权威指南'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/6a1ed369ea372c06096caac532d2e8e0a9d632546a59369c1141cac62453b5fa.jpg'></z-cover><z-cover id='3636672' author='Eric Matthes' title='Python编程 : 从入门到实践 = Python Crash Course'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/genesis/9e4d9fdfd48752b32fb4e6e942d127e44e7ba5cfb55f3b6a34b8bb27c76a77f5.jpg'></z-cover><z-cover id='3653439' author='OccupyTheWeb' title='Linux Basics for Hackers'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/genesis/35d3105397cb82ad3b048b9b15249df0bdedbf844e2af3a56df7c0447f39c4be.jpg'></z-cover><z-cover id='5483267' author='布鲁姆,布雷斯纳汉' title='Linux命令行与shell脚本编程大全.第3版'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/3305de7abb48fd89c21ae0fb935e5ed65b78c526426d29def652ad13a6bfe6dc.jpg'></z-cover><z-cover id='11030721' author='Anthony Molinaro, Robert de Graaf' title='SQL Cookbook: Query Solutions and Techniques for All SQL Users'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/genesis/84aaba135e346ea3f0e0053eb45904fcf39e0c58cbc47e492203a2d5c29345d8.jpg'></z-cover><z-cover id='16391692' author='福达' title='SQL必知必会（第5版）'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/7b4ee3aed2bf5061fd10219c3ab7280f9159ba7ac3c085602210d3b30665ad46.jpg'></z-cover><z-cover id='6041344' author='[日] MICK' title='SQL基础教程（第2版）'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/genesis/be69da51ab78ba3ab71052c8382ce0988044a5996b41ff15a845da57bf1f1f91.jpg'></z-cover><z-cover id='22009324' author='（美）金博尔，（美）罗斯著' title='数据仓库工具箱(第三版)——维度建模权威指南'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/826b1e25bc99ecb4978193bf4e2a42f6e8ab535010842b3efdee6f52ba4eecc2.jpg'></z-cover><z-cover id='5610458' author='阿里巴巴数据技术及产品部' title='大数据之路: 阿里巴巴大数据实践'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/genesis/9d8e36633f6c9136be2894b013913a3ff6d2ae2b48c957af274baaa6f3d5d691.jpg'></z-cover>                    </z-booklist>
+                                    <z-booklist tile style="width: 144px;" href="/booklist/2981033/6543a6/%E8%AE%A1%E7%AE%97%E6%9C%BA.html" id="2981033" topic="计算机" quantity="18"  >
+                        <z-cover id='5442395' author='Stephen Prata' title='C++ Primer Plus：中文版（第六版）'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/genesis/0ea3ce3ab77731a4860da61d2215dd307ac687cb0eba90b1f456d4f18ddeeb48.jpg'></z-cover><z-cover id='17528738' author='刘河飞 &amp; 闫凯峰' title='趣学Python算法100例（详解100个趣味编程算法实例，为Python初学者打造，培养编程兴趣，拓宽编程思维,提高编程能力和算法设计能力）'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/3f416ddaef2e9425c512ca506e90097a92b9ea4d03bba398de37c09c761d6971.jpg'></z-cover><z-cover id='15846767' author='Android编程权威指南（中文版）.pdf' title='Android编程权威指南（中文版）'><img stack-mode data-src='/img/cover-not-exists.png'></z-cover><z-cover id='23849595' author='Richard Blum、Christine Bresnahan' title='Linux命令行与shell脚本编程大全（第4版）'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/2b0ce3729f409a23d732bb0a96468a07d6d1191b74b7a1ee99b73a30ec49b34d.jpg'></z-cover><z-cover id='16889780' author='(计算机) 程晨' title='我的Python世界 : 玩«Minecraft我的世界»学Python编程'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/genesis/4a001bf41e6b0b26d76b7f9c09b8e1f0a2211b3216fab5251f56696fb70f15f3.jpg'></z-cover><z-cover id='25247386' author='TCPIP协议入门教程（C语言编程网）' title='TCPIP协议入门教程（C语言编程网）'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/20da9e33d5d5afc2d4d75db236b68e8f39f375e7455fcd444c27ca762457b041.jpg'></z-cover><z-cover id='21030059' author='(美)Bjarne Stroustrup 著 吴咏炜、杨文波、张云潮 等 译' title='现代C++白皮书 (中文版) 在拥挤和变化的世界中茁壮成长：C++ 2006–2020'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/e5491a0e5e257f46d2fe34aead0354099acde4ae0ac321f26a9e0a5c2a61f62e.jpg'></z-cover><z-cover id='22217111' author='Bjarne Stroustrup' title='现代C++白皮书（中文版）在拥挤和变化的世界中茁壮成长：C++ 2006–2020'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/a7a9274908a9cafca1c56791725dc4d8423aee14f3e087eccdaa59a6a9b7746c.jpg'></z-cover><z-cover id='16307512' author='(美) 查理斯.佩措尔德 著; 左飞 等 译' title='编码：隐匿在计算机软硬件背后的语言'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/efacb5f19531c4942e9a90f641690063cca140cb97018128d14e36ed68ddf2ba.jpg'></z-cover><z-cover id='5502208' author='杰伊•温格罗, 袁志鹏译' title='数据结构与算法图解'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/25f7bc895c6831ebf047222e2fa1883b67acd12c4af58a69a03d4ba50f366baa.jpg'></z-cover><z-cover id='2855761' author='大塚弘记著,支鹏浩,刘斌译' title='GitHub入门与实践'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/genesis/230d203e8a2ac6be279a7afa4b4edde22a996f83a825da75e5f6db19d5d8d51f.jpg'></z-cover><z-cover id='12031640' author='华为Docker实践小组' title='Docker进阶与实战'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/592654de8dfcd8aaddd8bea7825ee2b1df30c50215bc1b3ea90c04f71d871b3b.jpg'></z-cover><z-cover id='16521792' author='周颖 等 [等, 周颖]' title='程序员的数学思维修炼（趣味解读）'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/8912bcf485aba6849730f16c195b3f01eb7145b6e23fa77a7f19b8aa3cd2916d.jpg'></z-cover><z-cover id='16526090' author='国家863中部软件孵化器 &amp; 龙马高新教育 [国家863中部软件孵化器 &amp; 龙马高新教育]' title='Mysql从入门到精通'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/c11bfc4c5b7b947314a784c9424fe2266c4abb0b6a5cbc23a2d8c14ab14a0eba.jpg'></z-cover><z-cover id='12156772' author='(美)斯蒂芬森,(美)普劳,(美)琼斯著' title='SQL入门经典 第5版'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/7ed627176940284e96e1c2c3031706ae0a5ed3a45004623c21d9d899cc0d01a6.jpg'></z-cover><z-cover id='15316871' author='杨保华,戴王剑,曹亚仑' title='Docker技术入门与实战（第2版） (容器技术系列)'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/4495fa74c59878fe0ac709d558190133e43d20ff86c7c79653d1a6859b0f1621.jpg'></z-cover>                    </z-booklist>
+                                    <z-booklist tile style="width: 144px;" href="/booklist/2271327/56835b/%E7%BC%96%E7%A8%8B.html" id="2271327" topic="编程" quantity="244"  >
+                        <z-cover id='5572729' author='结城浩,杨文轩' title='图解设计模式 /Tu jie she ji mo shi'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/genesis/9770a9a6454724872c165de3a51f05b12b094541f7db2771e7fd267a09436ecf.jpg'></z-cover><z-cover id='11731443' author='(美)Robert Sedgewick，(美)Kevin Wayne著 ; 谢路云译' title='算法 第四版 Algorithms (4th Edition)(Chinese Edition)'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/f328ada6cb39e9987c0bfec2fd09b4abaf69287778eeb9321dd08581769cd760.png'></z-cover><z-cover id='5471430' author='结城浩' title='程序员的数学'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/genesis/7e7580d939acbc1ef544f21a7903dfc055856a019ec3b0a6906b38295ecc9fa1.jpg'></z-cover><z-cover id='11919075' author='it-ebooks' title='知乎周刊·程序人生（总第 31 期）'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/genesis/5cb927525e2990ea49ffa0571404b6b215d07435cbe4199f36417f2a16eee5f4.jpg'></z-cover><z-cover id='11919076' author='it-ebooks' title='知乎周刊·编程小白学 Python（总第 103 期）'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/genesis/9594fbafa070b80bcc2e589ef465494042a8efbcf92ce769b6f696663e9c9f1c.jpg'></z-cover><z-cover id='16574260' author='（美）Dave Hendricksen，亭德里克森著；张菲译' title='软件架构师的12项修炼'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/8a65d2c19e2cf42844323f2deafb2c7a22a453dd2af494d85d287558cdb861ac.jpg'></z-cover><z-cover id='1132503' author='西格兰 (Segaran, Toby), 映莫, 开福王' title='集体智慧编程'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/genesis/e9a20c2f507582ee90c88cae7d88543dbfd8ec10bae9bf913d060b19e3001f12.jpg'></z-cover><z-cover id='5327568' author='Susan Lammers' title='编程大师访谈录'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/genesis/fd3b31cf8a91d63b38428c9ce8cca407306650a99c834fbbbd09eae4bbf6eaac.jpg'></z-cover><z-cover id='15873714' author='华文网收集整理 (www.hackvip.com)' title='Windows 游戏编程大师技巧 (第二版)'><img stack-mode data-src='/img/cover-not-exists.png'></z-cover><z-cover id='18388704' author='Peter Seibel，图灵俱乐部译' title='编程人生：15位软件先驱访谈录'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/34290bd09a988b25b6cbbf71e4959bca45efc67ca9e80efc1276d024f9488232.jpg'></z-cover><z-cover id='5744750' author='亨特, 托马斯, 马维达' title='程序员修炼之道：从小工到专家'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/13e7aa95c7b5acb2df9cd4587896e730093e8363ea5985656f9421f06ae3376e.jpg'></z-cover><z-cover id='13893937' author='Steve McConnell [Steve McConnell]' title='代码大全'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/acaca82f6cf745a684b9d052ba6012cf2761cb605798254cf02fe940d1d29fcc.jpg'></z-cover><z-cover id='37902486' author='（美）克努特著；黄林鹏译, (美)Donald E. Knuth著 , 黄林鹏等译, 黄林鹏, Huang lin peng, 克努特, (美)Donald E. Knuth著 , 黄林鹏等译, 克努特, 黄林鹏, (美) 克努特, (Knuth, Donald E.)' title='计算机程序设计艺术 第4卷 第0册 双语版组合算法与布尔函数概论'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/chinese/3b49bfd66cefdec5791d407cdc2e5fe20e52479d4edf1c0333f1a4999450627f.jpg'></z-cover><z-cover id='5442395' author='Stephen Prata' title='C++ Primer Plus：中文版（第六版）'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/genesis/0ea3ce3ab77731a4860da61d2215dd307ac687cb0eba90b1f456d4f18ddeeb48.jpg'></z-cover><z-cover id='44389380' author='（美）Donald E. Knuth著；苏运霖译, (美)Donald E. Knuth著 , 苏运霖译, 克努特, Uth Kn, 苏运霖, 克努特 Donald E. (Knuth.)' title='计算机程序设计艺术 第四卷 第三册 生成所有组合和分划 （双语版）'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/chinese/821ccb9c12e6a8d36a7270b50c3eff01688617999d03e9e8ed928251d11a3d8b.jpg'></z-cover><z-cover id='15873257' author='Unknown' title='程序员修炼之道：从小工到专家'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/76b4de6aad2e2e573f16ddda34b25c430452510bdff041dbbcf2089f61092e66.jpg'></z-cover>                    </z-booklist>
+                                    <z-booklist tile style="width: 144px;" href="/booklist/2950412/06f90a/it.html" id="2950412" topic="IT" quantity="1"  >
+                        <z-cover id='15846767' author='Android编程权威指南（中文版）.pdf' title='Android编程权威指南（中文版）'><img stack-mode data-src='/img/cover-not-exists.png'></z-cover>                    </z-booklist>
+                                    <z-booklist tile style="width: 144px;" href="/booklist/2370802/7d75f0/%E5%9B%BE%E7%81%B5%E7%A8%8B%E5%BA%8F%E8%AE%BE%E8%AE%A1%E4%B8%9B%E4%B9%A6.html" id="2370802" topic="图灵程序设计丛书" quantity="490"  >
+                        <z-cover id='18266931' author='未知' title='Python数据处理'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/c94295fa9982dcf19429a6c9fd275f7b950d69ba13258bc0fc9adfb682e9b00c.jpg'></z-cover><z-cover id='16871661' author='[印尼] Ivan Idris 著;张崇明 译' title='NumPy攻略:Python科学计算与数据分析'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/4a090ac6d524d64537930f8b2dd3c1960c7e932c98ef6e31446b7098474e3940.jpg'></z-cover><z-cover id='5422098' author='哈德利 • 威克姆;加勒特 • 格罗勒芒德; Hadley Wickham; Garrett Grolemund' title='R数据科学'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/genesis/0a444fda576753e5d9dc1e40f96e5b966dcb65dab1e78ffcc84fdf3c701f3afd.jpg'></z-cover><z-cover id='13195603' author='Jake VanderPlas' title='Python数据科学手册'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/833ca76c23b609d164b2d9d66f31d357c335f6ac5af2ff2ae8f78b8d15996262.jpg'></z-cover><z-cover id='6144737' author='[美国]乔尔·格鲁斯（Joel Grus）' title='数据科学入门'><img stack-mode data-src='/img/cover-not-exists.png'></z-cover><z-cover id='18629381' author='[美] 彼得 • 布鲁斯 [美] 安德鲁 • 布鲁斯 [德] 彼得 • 格德克 译者：陈光欣' title='数据科学中的实用统计学（第2版）'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/4ac6a74279534b60bd76f4ba12aa0eba7ea9d32a17a7be9c4a4856c144d6bc36.jpg'></z-cover><z-cover id='28380647' author='（美）巴尔加瓦（Aditya Bhargava）著' title='算法图解 像小说一样有趣的算法入门书'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/chinese/950bc8d6e465edbbbe5c31934380787d8bf05f073cd6a048794be7b7c6271e41.jpg'></z-cover><z-cover id='5502208' author='杰伊•温格罗, 袁志鹏译' title='数据结构与算法图解'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/25f7bc895c6831ebf047222e2fa1883b67acd12c4af58a69a03d4ba50f366baa.jpg'></z-cover><z-cover id='19229658' author='[日]秋庭伸也, 杉山阿圣, 寺田学 著.郑明智, 图灵 译' title='图解机器学习算法'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/29cb49b0812e8750389981823149781d8af4bf469569d49aaa0d7548b6568ba4.jpg'></z-cover><z-cover id='28585084' author='马场真哉' title='用Python动手学统计学（文科生也能学会的统计学入门书，夯实数据分析基本功！）（图灵图书）'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/e57bad1ee4afb79f3a278af427038f6288fd6044ffd3811b93c607b3709b763a.jpg'></z-cover><z-cover id='23710639' author='保罗·奥兰德' title='程序员数学：用Python学透线性代数和微积分'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/a494a8bcaa360ad61c0d9f3c9e6f67133c9279e4f6c01ed785c997ae4fa0aa80.jpg'></z-cover><z-cover id='21157250' author='涌井良幸, 涌井贞美' title='深度学习的数学'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/d62b5d0bea66172e8a3c1b721b5b42a648eb84d8436923e008c15f7a8b51c243.jpg'></z-cover><z-cover id='6159585' author='涌泉良幸, 涌泉井美' title='深度学习的数学'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/9e9f136295e6f3d2614fbdbb620850cbf8acf46e94af9171a7117510137d5664.jpg'></z-cover><z-cover id='6144736' author='涌泉良幸, 涌泉井美' title='深度学习的数学'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/14e0e3de60bc78c2c5c3655e6c24f5eb014a6825c77718431ddc69e84f2d56f7.jpg'></z-cover><z-cover id='15850427' author='（日）杉山将著' title='图解机器学习'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/473286b425d8384ca044cb2ad4a25f6e44f6f881126b37913d9a9bc8023d177a.jpg'></z-cover><z-cover id='15317512' author='三轮贤一, 盛荣译' title='图解网络硬件'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/fb335bdd4e13ac5988147045ec5759ea47224102e9665ce1986b117a4cd65ac7.jpg'></z-cover>                    </z-booklist>
+                                    <z-booklist tile style="width: 144px;" href="/booklist/2176374/e365e5/%E7%A4%BE%E7%A7%91.html" id="2176374" topic="社科" quantity="299"  >
+                        <z-cover id='13895293' author='Priest' title='晋江大神Priest经典作品合集（套装10册）'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/54c525a39d82fd7fc7615eb84ecde8f54655b817f7cc6bc81b62ad5452cf7996.jpg'></z-cover><z-cover id='17867099' author='漫漫何其多' title='当年万里觅封侯'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/9fa68ca4e3edb578dd2df168ce5f14e43c71ebbdbb2a46b2febc461a6ef316d8.jpg'></z-cover><z-cover id='17141044' author='南派三叔' title='盗墓笔记 1-8 全集 (精美插图 目录)'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/f82b287ebf5e68e215206cee9fa116b3734c6c785a8533b09f2e1d6af70e56bc.jpg'></z-cover><z-cover id='5580286' author='村上春树,林少华' title='村上春树代表长篇作品集'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/genesis/a2469006a52ba3166d0bbc148d0cea6ef34bb365e25680e8eafcee8993a22300.jpg'></z-cover><z-cover id='5287942' author='路遥' title='平凡的世界（第一部）'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/fb715a33602fdad461a69b5676ea7ff2a58d87c7ad7b1497d26807c0d3a9a2e8.jpg'></z-cover><z-cover id='18006172' author='莫言' title='莫言经典作品(套装7册)'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/9e9baa83d9622f17697c3f22a380855d6be90416c8c69c888f1fde084a9c2296.jpg'></z-cover><z-cover id='16600194' author='何频, 黄闻光' title='中国权贵的死亡游戏- 薄熙来事件秘密报告'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/93eb30677d7e5c8776b8c643e9e0ec70811ef35bffbdfe6d68fa15bdc1b78677.png'></z-cover><z-cover id='11646184' author='上海辞书出版社文学鉴赏辞典编纂中心' title='唐诗宋词元曲古文(共6册)'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/c150c33b501a955286f50041bd668778ba96136837927ff035734b7577b4e6a0.jpg'></z-cover><z-cover id='11770979' author='温伯陵' title='一读就上瘾的中国史'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/d1a438a15704bff44ed0e0c321b14005e380075c1eaa093bbc02ffd84db23e9c.jpg'></z-cover><z-cover id='5810760' author='刘慈欣' title='三体'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/4bc85a1428bd70960aec3a263ae7671f21fe06f56d9d169fb7b43cb3a3ef09a7.jpg'></z-cover><z-cover id='5787080' author='华杉' title='华杉讲透《资治通鉴》（共7册）'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/8c91e818006f57e21e838ff05db165fcb9a8a1fb83d543038f5e9d7c2366febd.jpg'></z-cover><z-cover id='5723604' author='王觉仁' title='大唐兴亡三百年（读客熊猫君出品，全7册，一部令人上瘾的300年大唐全史。）'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/b2e0db86bc4e396400b5b3f2ecefc7c4e474f5963345ea067dff88e765c29d18.jpg'></z-cover><z-cover id='5467225' author='肖威' title='毛泽东评点二十四史（领导干部读本）'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/fc0c4d19531f19decf02885772153695898ffb4d650aed783f058b95b33d8fa7.jpg'></z-cover><z-cover id='18211012' author='Pearson Education Group' title='朗文当代高级英语辞典(第6版) 英英·英汉双解 = Longman Dictionary of Contemporary English 6th Edition'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/acd7195030852e47dc0cb5fc9811ba919f691407c10a49cc520b3a50a80b7f8c.jpg'></z-cover><z-cover id='5805503' author='贺华章' title='图解周易大全'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/69c5ef4a07b1fdd9ce0f4a06f220f2138c2dadf157ea73b45bdf135391e81a82.jpg'></z-cover><z-cover id='5571346' author='温铁军' title='八次危机:中国的真实经验'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/genesis/6ae4b2c0c496b476b4f47f0c4846b5c5769ea04c37875bbfcdcfc83a5936807d.jpg'></z-cover>                    </z-booklist>
+                                    <z-booklist tile style="width: 144px;" href="/booklist/1807160/cf4afb/%E7%BC%96%E7%A8%8B.html" id="1807160" topic="编程" quantity="555"  >
+                        <z-cover id='21529225' author='黃士嘉' title='Android專案開發實戰：叫車服務App的設計實務大解密'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/30f2e7afc3f1cabcd6190b543482b01c7f4a807c3fa56a2b7b7da55b43b52b46.jpg'></z-cover><z-cover id='21529219' author='榮欽科技, 李聖黌' title='7天學會Android App程式開發'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/81505de991e69b1737ea739885dda894aaf7b4ac8f4befc961fa1d3beaa7f21c.jpg'></z-cover><z-cover id='21529224' author='吳卓俊, 洪旭嘉' title='輕鬆學Android應用程式設計'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/6bbc289b9361121b0c33c180cf65688148450f390d343af5d4dafe086002651d.jpg'></z-cover><z-cover id='5752805' author='魏巍' title='Swift 3自學力！圖解146個iOS App開發範例，入門必備超直覺設計指南'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/ee19b022a7b568b584775e1ce603e73e39c42358e162335409dcfef4dbd40995.jpg'></z-cover><z-cover id='5616843' author='林俊瑋, 林修博' title='Python網路爬蟲與資料分析入門實戰'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/906158bfd0d4bbe13e38b46b0798b5ea44734843700fa72747909988b88438d9.jpg'></z-cover><z-cover id='26253034' author='陳會安' title='Python 從初學到生活應用超實務：讓 Python 幫你處理日常生活與工作中繁瑣重複的工作'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/5fb28708ec06bfd28e57cd168aec34152309a457bfd90607ceaef09af453386e.jpg'></z-cover><z-cover id='22628258' author='胡昭民' title='圖解資料結構 × 演算法：運用C語言'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/ccc44c1cde6cdf0f18d4331c4250d22a4f3d8e071374cbe7bd9b1401709dc995.jpg'></z-cover><z-cover id='27931641' author='洪錦魁/洪锦魁' title='史上最強Python入門邁向頂尖高手之路王者歸來 第3版(全彩印刷)'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/19208221887e01f3430ccba23058e383421f85a768cb3ce5c2e313f9771edbda.jpg'></z-cover><z-cover id='11141010' author='Kaiching Chang' title='如何自學程式設計'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/95be838ed9a14261c0c468aaf5bbfac4b5cdc1d5fa992fdf3d5736d823291055.jpg'></z-cover><z-cover id='16788009' author='彭建文' title='C# 程式設計入門與實務 : 百分百自學手冊 : (最新 Visual Studio 2019 版)'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/genesis/7308f16b549ac9083cb962096b4a0486bf24490ac5149ab5c531f68974392638.jpg'></z-cover><z-cover id='5341021' author='洪維恩' title='C語言教學手冊（四版）（附1光碟）'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/genesis/34c2980ae03d4e7e90ef74f5e97c83638d9b6bd555fc676afd013b1388d37b6e.jpg'></z-cover><z-cover id='19198369' author='（美）PAUL DEITEL， HARVEY DEITEL著；张引等译' title='C++大学教程 第九版 C++ how to program ninth edition'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/22d0845685d33eb49fb74897d9e43b3490a604ee3fe28d656fab053919c12525.jpg'></z-cover><z-cover id='21510685' author='[美]克里斯琴·内格尔,[美], Christian Nagel' title='C#高级编程（第11版） C# 7 &amp; .NET Core 2.0'><img stack-mode data-src='/img/cover-not-exists.png'></z-cover><z-cover id='21810948' author='鄧文淵 總監製/文淵閣工作室 編著' title='Python初學特訓班(第四版)：從快速入門到主流應用全面實戰(電子書)'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/6916722a6561f6e1adf1085ac91fa13a65aa24527174b85b9e097ec8a1c1c097.jpg'></z-cover><z-cover id='19164291' author='洪锦魁' title='Python 王者归来'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/0476a82ec79804e8451ebc04feea1dd5e1792eac9fd187dc7f70e322b47eed7e.jpg'></z-cover><z-cover id='28564761' author='洪锦魁' title='Python零基础快乐学习之旅（K12实战训练）'><img stack-mode data-src='https://s3proxy-alp2-covers.cdn-zlib.sk/covers200/collections/userbooks/5b194eafcf27789e0f4c9732fd76c37ce3f3485a6c20b59be11dae657194d3e2.jpg'></z-cover>                    </z-booklist>
+                            </z-carousel>
+        </div>
+    </div>
+</div>
+
+<script type="text/javascript">
+    initBookDetails({
+        brand: 'Z-Library',
+        showAddCategoryTooltip: false,
+        showPremiumReadOnlineTooltip: false    })
+</script>
+
+
+<h2 class="color1" style="margin-top:20px;">Most frequently terms</h2>
+<div style="background: var(--primary-color); height:2px; width: 100%; margin-bottom: 20px;">&nbsp;</div>
+
+<div class="termsCloud"><div class="termWrap "><a class="color1" href="/terms/%E7%A0%81" target="_blank">码</a></div><div class="termWrap "><a class="color1" href="/terms/zwjjbb" target="_blank">zwjjbb</a></div><div class="termWrap "><a class="color1" href="/terms/activity" target="_blank">activity</a></div><div class="termWrap "><a class="color1" href="/terms/fragment" target="_blank">fragment</a></div><div class="termWrap "><a class="color1" href="/terms/%E4%BA%AB" target="_blank">享</a></div><div class="termWrap "><a class="color1" href="/terms/qq.com" target="_blank">qq.com</a></div><div class="termWrap "><a class="color1" href="/terms/%E6%B7%BB" target="_blank">添</a></div><div class="termWrap "><a class="color1" href="/terms/%E5%BD%95" target="_blank">录</a></div><div class="termWrap "><a class="color1" href="/terms/%E9%92%AE" target="_blank">钮</a></div><div class="termWrap "><a class="color1" href="/terms/intent" target="_blank">intent</a></div><div class="termWrap "><a class="color1" href="/terms/%E6%93%8D" target="_blank">操</a></div><div class="termWrap "><a class="color1" href="/terms/crime" target="_blank">crime</a></div><div class="termWrap "><a class="color1" href="/terms/%E7%AC%A6" target="_blank">符</a></div><div class="termWrap "><a class="color1" href="/terms/%E5%B1%8F" target="_blank">屏</a></div><div class="termWrap "><a class="color1" href="/terms/%E5%B9%95" target="_blank">幕</a></div><div class="termWrap "><a class="color1" href="/terms/%E8%BD%BD" target="_blank">载</a></div><div class="termWrap "><a class="color1" href="/terms/%E7%B4%A2" target="_blank">索</a></div><div class="termWrap "><a class="color1" href="/terms/criminalintent" target="_blank">criminalintent</a></div><div class="termWrap "><a class="color1" href="/terms/xml" target="_blank">xml</a></div><div class="termWrap "><a class="color1" href="/terms/crimefragment" target="_blank">crimefragment</a></div><div class="termWrap "><a class="color1" href="/terms/%E5%BA%93" target="_blank">库</a></div><div class="termWrap "><a class="color1" href="/terms/%E6%A1%86" target="_blank">框</a></div><div class="termWrap "><a class="color1" href="/terms/%E6%90%9C" target="_blank">搜</a></div><div class="termWrap "><a class="color1" href="/terms/%E4%B8%B2" target="_blank">串</a></div><div class="termWrap "><a class="color1" href="/terms/%E7%BD%91" target="_blank">网</a></div><div class="termWrap "><a class="color1" href="/terms/%E9%94%AE" target="_blank">键</a></div><div class="termWrap "><a class="color1" href="/terms/%E5%90%AB" target="_blank">含</a></div><div class="termWrap "><a class="color1" href="/terms/%E6%97%85" target="_blank">旅</a></div><div class="termWrap "><a class="color1" href="/terms/%E9%BB%98" target="_blank">默</a></div><div class="termWrap "><a class="color1" href="/terms/%E8%A7%88" target="_blank">览</a></div><div class="termWrap "><a class="color1" href="/terms/drawable" target="_blank">drawable</a></div><div class="termWrap "><a class="color1" href="/terms/%E7%9B%91" target="_blank">监</a></div><div class="termWrap "><a class="color1" href="/terms/%E9%9A%90" target="_blank">隐</a></div><div class="termWrap "><a class="color1" href="/terms/%E7%BB%83" target="_blank">练</a></div><div class="termWrap "><a class="color1" href="/terms/geoquiz" target="_blank">geoquiz</a></div><div class="termWrap "><a class="color1" href="/terms/%E9%94%80" target="_blank">销</a></div><div class="termWrap "><a class="color1" href="/terms/%E6%97%8B" target="_blank">旋</a></div><div class="termWrap "><a class="color1" href="/terms/%E9%A1%B5" target="_blank">页</a></div><div class="termWrap "><a class="color1" href="/terms/%E5%82%A8" target="_blank">储</a></div><div class="termWrap "><a class="color1" href="/terms/bundle" target="_blank">bundle</a></div><div class="termWrap "><a class="color1" href="/terms/%E8%A6%86" target="_blank">覆</a></div><div class="termWrap "><a class="color1" href="/terms/eclipse" target="_blank">eclipse</a></div><div class="termWrap "><a class="color1" href="/terms/broadcast" target="_blank">broadcast</a></div><div class="termWrap "><a class="color1" href="/terms/quizactivity" target="_blank">quizactivity</a></div><div class="termWrap "><a class="color1" href="/terms/%E6%8E%A7" target="_blank">控</a></div><div class="termWrap "><a class="color1" href="/terms/%E9%A2%84" target="_blank">预</a></div><div class="termWrap "><a class="color1" href="/terms/%E5%88%A0" target="_blank">删</a></div><div class="termWrap "><a class="color1" href="/terms/%E5%85%BC" target="_blank">兼</a></div><div class="termWrap "><a class="color1" href="/terms/%E5%AF%B8" target="_blank">寸</a></div><div class="termWrap "><a class="color1" href="/terms/values" target="_blank">values</a></div><div class="termWrap "><a class="color1" href="/terms/%E8%B8%AA" target="_blank">踪</a></div><div class="termWrap "><a class="color1" href="/terms/%E9%80%80" target="_blank">退</a></div><div class="termWrap "><a class="color1" href="/terms/handler" target="_blank">handler</a></div><div class="termWrap "><a class="color1" href="/terms/%E5%B0%BA" target="_blank">尺</a></div><div class="termWrap "><a class="color1" href="/terms/%E6%B5%8F" target="_blank">浏</a></div><div class="termWrap "><a class="color1" href="/terms/%E6%B5%8B" target="_blank">测</a></div><div class="termWrap "><a class="color1" href="/terms/receiver" target="_blank">receiver</a></div><div class="termWrap "><a class="color1" href="/terms/%E6%8B%9F" target="_blank">拟</a></div><div class="termWrap "><a class="color1" href="/terms/layout" target="_blank">layout</a></div><div class="termWrap "><a class="color1" href="/terms/%E9%A2%91" target="_blank">频</a></div></div>                    </div>
+    </div>
+</div>
+<div>
+    <div class="hideInDesktopApp20">
+        
+<!-- footer begin -->
+<div id="footer">
+    <div class="footer__links">
+        <div class="za-quote">
+            <figure class="quote">
+                <blockquote class="quote__body">
+                    <p>To build up a library is to create a life. It’s never just a random collection of books.</p>
+                </blockquote>
+                <figcaption class="quote__credits">— <cite>Carlos María Domínguez</cite></figcaption>
+            </figure>
+        </div>
+        <div class="footer__social_links">
+            <ul>
+                <li><a class="round tw" data-toggle="tooltip" title="Z-Library on Twitter" href="https://x.com/Z_Lib_official" target="_blank"><span class="zlibicon-twitter"></span> Official channel</a></li>
+                                                            <li><a href="" class="round tgo" data-toggle="tooltip" title="Z-Library on Telegram (Personal Bot)" data-mode="singlelogin" data-action="login"><span data-mode="singlelogin" data-action="login" class="zlibicon-telegram-fill"></span></a></li>
+                                                    <li><a class="round ms" data-toggle="tooltip" title="Z-Library on Mastodon" href="https://mastodon.social/@Z_Lib_official" target="_blank"><span class="zlibicon-mastodon"></span></a></li>
+                <!-- <li><a class="round dc" data-toggle="tooltip" title="Z-Library on Discord" href="https://discord.com/invite/raWRQCk3n5" target="_blank"><span class="zlibicon-discord"></span></a></li> -->
+                <!-- <li><a class="round tgc" data-toggle="tooltip" title="Chinese channel on Telegram" href="https://telegram.me/true_booklovers" target="_blank"><span class="zlibicon-tgchn"></span></a></li> -->
+            </ul>
+        </div>
+
+                    <div class="footer__apps">
+                <a href="/z-access#desktop_app_tab" target="_blank"><article><img class="app" src="/img/footer/app2.png" srcset="/img/footer/app2.png 1x, /img/footer/app@2x2.png 1.2x, /img/footer/app@2x2.png 2x" alt="Z-Library Desktop Launcher"><span>Z-Library</span></article></a>
+                                    <a href="/z-access#useful_link_tab" target="_blank"><article><img class="app apptor" src="/img/footer/tor2.png" srcset="/img/footer/tor2.png 1x, /img/footer/tor@2x2.png 1.2x, /img/footer/tor@2x2.png 2x" alt="Tor version"><span>Z-Library</span></article></a>
+                            </div>
+            </div>
+    <div class="footer__navigation ">
+        <div class="footer__navigation-col">
+            <div class="footer__navigation-top"><span onclick="toggleSpoiler(event)">Z-Library</span></div>
+            <ul>
+                <li><a href="/blog">Blog</a></li>
+                                    <li><a href="https://library-access.sk" target="_blank">Z-Access</a></li>
+                                <li><a href="/mission" title="Z-Library mission">Our Mission</a></li>
+                                    <li><a href="/testimonials">Share your story</a></li>
+                                                    <li><a href="https://www.change.org/zlibrary2023" target="_blank">Support us</a></li>
+                                <li><a href="/request-help" title="Institutions Support">Institutions Support</a></li>
+                <li><a href="/promotion/books" title="Support for authors">Support for authors</a></li>
+                <li><a href="https://lib-talk.io" target="_blank" title="LibTalks">LibTalks</a></li>
+                                                    <li style="visibility: hidden;"><a href="/publications">Publications</a></li>
+                            </ul>
+        </div>
+                    <div class="footer__navigation-col">
+                <div class="footer__navigation-top"><span onclick="toggleSpoiler(event)">Help</span></div>
+                <ul>
+                    <li><a href="/dmca">DMCA</a></li>
+                    <li><a href="/tos">Terms</a></li>
+                    <li><a href="/faq">FAQ</a></li>
+                </ul>
+            </div>
+            </div>
+    <div class="footer__copyright">
+        <div class="footer__copyright-info">
+            <span class="copyright">
+                <img src="/img/footer/Y.png" srcset="/img/footer/Y.png 1x, /img/footer/Y@2x.png 1.2x, /img/footer/Y@2x.png 2x" alt="Z-Library">
+            </span>
+            <span><a href="https://z-library.sk" title="Z-Library project main page" target="blank" style="text-decoration:none;">Z-Library</a> Since 2009</span>
+            <span><a href="/cdn-cgi/l/email-protection#e7c794929797889593a79dca8b8e85c9818a"><span class="__cf_email__" data-cfemail="ee9d9b9e9e819c9aae94c382878cc08883">[email&#160;protected]</span></a></span>
+        </div>
+        <z-dropdown icon="zlibicon-language" arrow>
+            <a onclick="redirectToLink('en')" href="https://z-lib.by/book/6y7KYwknyQ/android%E7%BC%96%E7%A8%8B%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%E4%B8%AD%E6%96%87%E7%89%88.html" checked>English</a><a onclick="redirectToLink('ru')" href="http://ru.z-lib.by/book/6y7KYwknyQ/android%E7%BC%96%E7%A8%8B%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%E4%B8%AD%E6%96%87%E7%89%88.html">Русский</a><a onclick="redirectToLink('es')" href="http://es.z-lib.by/book/6y7KYwknyQ/android%E7%BC%96%E7%A8%8B%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%E4%B8%AD%E6%96%87%E7%89%88.html">Español</a><a onclick="redirectToLink('it')" href="http://it.z-lib.by/book/6y7KYwknyQ/android%E7%BC%96%E7%A8%8B%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%E4%B8%AD%E6%96%87%E7%89%88.html">Italiano</a><a onclick="redirectToLink('el')" href="http://el.z-lib.by/book/6y7KYwknyQ/android%E7%BC%96%E7%A8%8B%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%E4%B8%AD%E6%96%87%E7%89%88.html">Ελληνικά</a><a onclick="redirectToLink('ar')" href="http://ar.z-lib.by/book/6y7KYwknyQ/android%E7%BC%96%E7%A8%8B%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%E4%B8%AD%E6%96%87%E7%89%88.html">اللغة العربية</a><a onclick="redirectToLink('id')" href="http://id.z-lib.by/book/6y7KYwknyQ/android%E7%BC%96%E7%A8%8B%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%E4%B8%AD%E6%96%87%E7%89%88.html">Bahasa Indonesia</a><a onclick="redirectToLink('ms')" href="http://ms.z-lib.by/book/6y7KYwknyQ/android%E7%BC%96%E7%A8%8B%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%E4%B8%AD%E6%96%87%E7%89%88.html">Bahasa Malaysia</a><a onclick="redirectToLink('hi')" href="http://hi.z-lib.by/book/6y7KYwknyQ/android%E7%BC%96%E7%A8%8B%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%E4%B8%AD%E6%96%87%E7%89%88.html">हिन्दी</a><a onclick="redirectToLink('de')" href="http://de.z-lib.by/book/6y7KYwknyQ/android%E7%BC%96%E7%A8%8B%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%E4%B8%AD%E6%96%87%E7%89%88.html">Deutsch</a><a onclick="redirectToLink('fr')" href="http://fr.z-lib.by/book/6y7KYwknyQ/android%E7%BC%96%E7%A8%8B%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%E4%B8%AD%E6%96%87%E7%89%88.html">Français</a><a onclick="redirectToLink('pt')" href="http://pt.z-lib.by/book/6y7KYwknyQ/android%E7%BC%96%E7%A8%8B%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%E4%B8%AD%E6%96%87%E7%89%88.html">Português</a><a onclick="redirectToLink('uk')" href="http://uk.z-lib.by/book/6y7KYwknyQ/android%E7%BC%96%E7%A8%8B%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%E4%B8%AD%E6%96%87%E7%89%88.html">Українська</a><a onclick="redirectToLink('pl')" href="http://pl.z-lib.by/book/6y7KYwknyQ/android%E7%BC%96%E7%A8%8B%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%E4%B8%AD%E6%96%87%E7%89%88.html">Polski</a><a onclick="redirectToLink('zh')" href="http://zh.z-lib.by/book/6y7KYwknyQ/android%E7%BC%96%E7%A8%8B%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%E4%B8%AD%E6%96%87%E7%89%88.html">中文</a><a onclick="redirectToLink('tw')" href="http://tw.z-lib.by/book/6y7KYwknyQ/android%E7%BC%96%E7%A8%8B%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%E4%B8%AD%E6%96%87%E7%89%88.html">繁體中文</a><a onclick="redirectToLink('ja')" href="http://ja.z-lib.by/book/6y7KYwknyQ/android%E7%BC%96%E7%A8%8B%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%E4%B8%AD%E6%96%87%E7%89%88.html">日本語</a><a onclick="redirectToLink('vi')" href="http://vi.z-lib.by/book/6y7KYwknyQ/android%E7%BC%96%E7%A8%8B%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%E4%B8%AD%E6%96%87%E7%89%88.html">Tiếng Việt</a><a onclick="redirectToLink('az')" href="http://az.z-lib.by/book/6y7KYwknyQ/android%E7%BC%96%E7%A8%8B%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%E4%B8%AD%E6%96%87%E7%89%88.html">Azərbaycan Dili</a><a onclick="redirectToLink('hy')" href="http://hy.z-lib.by/book/6y7KYwknyQ/android%E7%BC%96%E7%A8%8B%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%E4%B8%AD%E6%96%87%E7%89%88.html">Հայոց լեզու</a><a onclick="redirectToLink('th')" href="http://th.z-lib.by/book/6y7KYwknyQ/android%E7%BC%96%E7%A8%8B%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%E4%B8%AD%E6%96%87%E7%89%88.html">ภาษาไทย</a><a onclick="redirectToLink('tr')" href="http://tr.z-lib.by/book/6y7KYwknyQ/android%E7%BC%96%E7%A8%8B%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%E4%B8%AD%E6%96%87%E7%89%88.html">Türk Dili</a><a onclick="redirectToLink('ka')" href="http://ka.z-lib.by/book/6y7KYwknyQ/android%E7%BC%96%E7%A8%8B%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%E4%B8%AD%E6%96%87%E7%89%88.html">ქართველი</a><a onclick="redirectToLink('bn')" href="http://bn.z-lib.by/book/6y7KYwknyQ/android%E7%BC%96%E7%A8%8B%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%E4%B8%AD%E6%96%87%E7%89%88.html">বাংলা</a><a onclick="redirectToLink('ps')" href="http://ps.z-lib.by/book/6y7KYwknyQ/android%E7%BC%96%E7%A8%8B%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%E4%B8%AD%E6%96%87%E7%89%88.html">پښتو</a><a onclick="redirectToLink('te')" href="http://te.z-lib.by/book/6y7KYwknyQ/android%E7%BC%96%E7%A8%8B%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%E4%B8%AD%E6%96%87%E7%89%88.html">తెలుగు</a><a onclick="redirectToLink('ur')" href="http://ur.z-lib.by/book/6y7KYwknyQ/android%E7%BC%96%E7%A8%8B%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%E4%B8%AD%E6%96%87%E7%89%88.html">اردو</a><a onclick="redirectToLink('ko')" href="http://ko.z-lib.by/book/6y7KYwknyQ/android%E7%BC%96%E7%A8%8B%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%E4%B8%AD%E6%96%87%E7%89%88.html">한국어</a><a onclick="redirectToLink('sr')" href="http://sr.z-lib.by/book/6y7KYwknyQ/android%E7%BC%96%E7%A8%8B%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%E4%B8%AD%E6%96%87%E7%89%88.html">Srpski</a><a onclick="redirectToLink('bg')" href="http://bg.z-lib.by/book/6y7KYwknyQ/android%E7%BC%96%E7%A8%8B%E6%9D%83%E5%A8%81%E6%8C%87%E5%8D%97%E4%B8%AD%E6%96%87%E7%89%88.html">Български</a>            <style>
+                .head {
+                    color: var(--gray-7)
+                }
+
+                .arrow {
+                    border-top-color: var(--gray-7)
+                }
+
+                .badge {
+                    display: none;
+                }
+            </style>
+        </z-dropdown>
+    </div>
+</div>
+<script data-cfasync="false" src="/cdn-cgi/scripts/5c5dd728/cloudflare-static/email-decode.min.js"></script><script>
+    function toggleSpoiler(e) {
+        const spoiler = e.target.parentNode.nextElementSibling;
+        if (spoiler) {
+            if (spoiler.style.maxHeight) {
+                spoiler.style.maxHeight = null;
+                e.target.parentNode.classList.remove('up')
+            } else {
+                spoiler.style.maxHeight = spoiler.scrollHeight + "px";
+                e.target.parentNode.classList.add('up')
+            }
+        }
+    }
+
+    function redirectToLink(lang) {
+        setCookie('switchLanguage', lang, 31 * 24 * 60 * 60 * 1000);
+    }
+
+    $(function () {
+        const personalTelegramBot = new PersonalTelegramBot()
+        const tgSpinner = new ZLibrarySpinner($('.footer-tg-loading span')).color('gray')
+        const $tgConnected = $('.footer-tg-connected')
+        const $tgDisconnected =  $('.footer-tg-disconnected')
+        const $tgLoading = $('.footer-tg-loading')
+
+        if (personalTelegramBot.isConnected) {
+            $tgConnected.show()
+        } else {
+            $tgDisconnected.show()
+        }
+        $(document).on('click', '.footer-tg-connected, .footer-tg-disconnected', function () {
+            const $this = $(this)
+            $this.hide()
+            tgSpinner.start()
+            $tgLoading.show()
+            personalTelegramBot.connect(() => {
+                $tgLoading.hide()
+                $tgConnected.show()
+                tgSpinner.stop()
+                window.location.href = personalTelegramBot.getUrl()
+            }, (error) => {
+                error && new ZLibraryNotify().error(error)
+                $tgLoading.hide()
+                $this.show()
+                tgSpinner.stop()
+            })
+        })
+    })
+</script>
+    </div>
+</div>
+
+<!-- icons preload hack -->
+<i class="zlibicon-check" style="font-size: 1px; visibility: hidden; position: absolute; top: 0; left: 0;"></i>
+
+<div class="modal fade" id="zlibrary-modal" role="dialog" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header hidden">
+                <button type="button" class="close" data-dismiss="modal" aria-label="Close"><span aria-hidden="true">&times;</span>
+                </button>
+                <h4 class="modal-title"></h4>
+            </div>
+            <div class="modal-body" style="position: relative; min-height: 80px;"></div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="zlibrary-modal-styled" role="dialog" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header hidden">
+                <h4 class="modal-title"></h4>
+            </div>
+            <div class="modal-body"></div>
+            <button type="button" class="close" data-dismiss="modal" aria-label="Close"><span
+                        aria-hidden="true">&times;</span></button>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="zlibrary-modal-auth" tabindex="-1" role="dialog">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-body"></div>
+        </div>
+    </div>
+</div>
+
+<!-- ggAdditionalHtml -->
+<!--LiveInternet counter--><script type="text/javascript">
+new Image().src = "//counter.yadro.ru/hit;bookzz?r"+
+escape(document.referrer)+((typeof(screen)=="undefined")?"":
+";s"+screen.width+"*"+screen.height+"*"+(screen.colorDepth?
+screen.colorDepth:screen.pixelDepth))+";u"+escape(document.URL)+
+";"+Math.random();</script><!--/LiveInternet-->
+<iframe name="uploader" id="uploader" style="border:0px solid var(--border-color); width:90%; display:none;"></iframe><script></script><!-- /ggAdditionalHtml -->
+
+<script>
+    if (typeof pagerOptions !== "undefined" && pagerOptions) {
+        $('div.paginator').paginator(pagerOptions);
+        let page = parseInt((new URL(document.location)).searchParams.get("page"));
+
+        if (page > pagerOptions.pagesTotal) {
+            document.location.href = document.location.href.replace(/page=\d+/gi, "page=" + pagerOptions.pagesTotal);
+        }
+    }
+</script>
+    </body>
+</html>
+
