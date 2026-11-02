@@ -56,5 +56,8 @@ dependencies {
     implementation("androidx.compose.material:material-icons-extended")
     implementation("androidx.activity:activity-compose:1.9.3")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
+    // JVM 单测：离线环境没有 junit 缓存，复用 Gradle 发行版自带 jar（实测 /g/Android/gradle-8.11.1/lib 下有 junit-4.13.2 / hamcrest-core-1.3）
+    testImplementation(files("${gradle.gradleHomeDir}/lib/junit-4.13.2.jar"))
+    testImplementation(files("${gradle.gradleHomeDir}/lib/hamcrest-core-1.3.jar"))
     debugImplementation("androidx.compose.ui:ui-tooling")
 }
