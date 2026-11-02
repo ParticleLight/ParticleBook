@@ -168,21 +168,26 @@ fun LibraryScreen(
     // 两套布局 item 0 都是段头、书籍顺序同源（visible），索引 1:1 互用。
     val gridState: LazyGridState = rememberLazyGridState()
     val listState: LazyListState = rememberLazyListState()
-    var portraitIndex by rememberSaveable { mutableIntStateOf(0) }
-    var landscapeIndex by rememberSaveable { mutableIntStateOf(0) }
+    // 实测：旋转时若 Activity 被重建，rememberSaveable 里的值在恢复时仍是旧值（0），
+    // 位置记忆会丢。书架滚动位置是纯 UI 记忆，放进程级单例最稳 —— 不管重建与否都能读到。
+    // （读取点直接写 ShelfScrollMemory.xxx，见下方恢复/记录两处）
     // true = 正在恢复位置，此期间 snapshotFlow 不写回（避免首帧 0 覆盖）。
     var restoring by remember { mutableStateOf(false) }
 
     LaunchedEffect(compactLandscape) {
         // 恢复的是「刚离开的那个布局」记下的位置：进横屏用竖屏索引，回竖屏用横屏索引，
         // 这样两种旋转都停在读者刚才看的那本书附近。
-        val target = if (compactLandscape) portraitIndex else landscapeIndex
+        val target = ShelfScrollMemory.index
+        val targetOffset = ShelfScrollMemory.offset
         restoring = true
         try {
+            // 关键：新布局首帧还没测量，suspend 版 scrollToItem 会被钳到 0（上一版实测
+            // 永远回顶部的根因）。requestScrollToItem 是「下次测量时再定位」，不依赖
+            // 当前 item 数，正好用于旋转后恢复。
             if (compactLandscape) {
-                listState.scrollToItem(target)
+                listState.requestScrollToItem(target.coerceAtLeast(0), targetOffset)
             } else {
-                gridState.scrollToItem(target)
+                gridState.requestScrollToItem(target.coerceAtLeast(0), targetOffset)
             }
             // 等新布局至少完成一次测量，再解除冻结。
             withFrameNanos { }
@@ -198,14 +203,17 @@ fun LibraryScreen(
 
     LaunchedEffect(compactLandscape) {
         snapshotFlow {
-            if (compactLandscape) listState.firstVisibleItemIndex else gridState.firstVisibleItemIndex
-        }.collect { index ->
-            if (restoring) return@collect
             if (compactLandscape) {
-                landscapeIndex = index
+                listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset
             } else {
-                portraitIndex = index
+                gridState.firstVisibleItemIndex to gridState.firstVisibleItemScrollOffset
             }
+        }.collect { (index, offset) ->
+            if (restoring) return@collect
+            // 两套布局共用一份「当前阅读位置」：旋转后新布局按它恢复，用户不滚动时
+            // 也不会被覆盖（恢复期间冻结），所以「转出去再转回来」能回到原处。
+            ShelfScrollMemory.index = index
+            ShelfScrollMemory.offset = offset
         }
     }
 
@@ -666,4 +674,18 @@ private fun filterBooks(
         LibrarySort.Author -> filtered.sortedBy { it.authorLabel }
         LibrarySort.Rating -> filtered
     }
+}
+
+/**
+ * 书架滚动位置记忆（进程级）。
+ *
+ * 为什么不用 rememberSaveable：旋转时若 Activity 被系统重建，实测恢复到的仍是旧值（0），
+ * 位置记忆会丢；这里只是 UI 记忆，不需要参与状态恢复语义，放单例最稳。
+ * 记录 index + offset 两段：只有 4 本书时 grid 的 firstVisibleItemIndex 可能一直是 0，
+ * 光存 index 表达不了「滚了 300px」这种位置。
+ */
+private object ShelfScrollMemory {
+    /** 当前阅读位置：两套布局共用（item 0 都是段头、书籍顺序同源，索引 1:1）。 */
+    var index: Int = 0
+    var offset: Int = 0
 }
