@@ -80,12 +80,15 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -116,6 +119,7 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.Closeable
@@ -128,6 +132,9 @@ import kotlin.math.sqrt
 
 /** 日志 tag：安装后由 Lead 抓 logcat 用。 */
 private const val TAG = "PBReader"
+
+/** 性能体检日志 tag（release 也打，格式 `PBPERF|phase=...|ms=...|extra=k:v`）。 */
+private const val PERF_TAG = "PBPERF"
 
 /** chrome 显示后无操作自动隐藏的时间。 */
 private const val CHROME_AUTO_HIDE_MS = 4000L
@@ -192,9 +199,15 @@ private fun PdfReaderScreen(book: Book, onBack: () -> Unit) {
         holder.close()
         state = PdfState.Loading
         val file = File(book.filePath)
+        val openBegin = SystemClock.elapsedRealtime()
         Log.d(TAG, "open start path=" + book.filePath + " exists=" + file.exists() + " size=" + file.length())
         state = try {
             val opened = PdfSource.open(file)
+            Log.i(
+                PERF_TAG,
+                "PBPERF|phase=pdf_open|ms=" + (SystemClock.elapsedRealtime() - openBegin) +
+                    "|extra=pages:" + opened.pageCount,
+            )
             Log.d(TAG, "open ok pages=" + opened.pageCount)
             holder.attach(opened)
             PdfState.Ready(opened)
@@ -309,6 +322,9 @@ private fun PdfReadingPane(book: Book, source: PdfSource, onBack: () -> Unit) {
     }
     val listState = rememberLazyListState(initialFirstVisibleItemIndex = startPage)
     val scope = rememberCoroutineScope()
+    // 性能体检：翻页计时用（纵向连续滚动，没有离散翻页手势）。
+    var scrollStartMs by remember { mutableLongStateOf(0L) }
+    var lastTurnPage by remember(book.id) { mutableIntStateOf(startPage) }
     var chromeVisible by remember { mutableStateOf(true) }
     var chromeTick by remember { mutableIntStateOf(0) }
     var tocOpen by remember { mutableStateOf(false) }
@@ -325,6 +341,27 @@ private fun PdfReadingPane(book: Book, source: PdfSource, onBack: () -> Unit) {
         sliderValue.roundToInt().coerceIn(0, pageCount - 1)
     } else {
         currentPage.coerceIn(0, pageCount - 1)
+    }
+
+    // 翻页：从滚动开始（手势）到新页成为当前页并停顿的首个空闲帧；每翻到一页打一次。
+    LaunchedEffect(listState, pageCount) {
+        snapshotFlow { listState.isScrollInProgress }.collect { scrolling ->
+            if (scrolling) {
+                scrollStartMs = SystemClock.elapsedRealtime()
+            } else if (scrollStartMs > 0L) {
+                val page = computeCurrentPage(listState, pageCount)
+                if (page != lastTurnPage) {
+                    Log.i(
+                        PERF_TAG,
+                        "PBPERF|phase=turn|page:" + page + "|ms=" +
+                            (SystemClock.elapsedRealtime() - scrollStartMs) +
+                            "|extra=from:" + lastTurnPage,
+                    )
+                    lastTurnPage = page
+                }
+                scrollStartMs = 0L
+            }
+        }
     }
 
     val wakeChrome: () -> Unit = {
@@ -718,7 +755,7 @@ private fun PdfBottomBar(
 
 private sealed interface PageRender {
     data object Loading : PageRender
-    class Ready(val bitmap: Bitmap) : PageRender
+    class Ready(val bitmap: Bitmap, val renderBeginMs: Long) : PageRender
     class Failed(val message: String) : PageRender
 }
 
@@ -736,12 +773,18 @@ private fun PdfPageItem(source: PdfSource, pageIndex: Int, widthPx: Int, widthDp
         value = try {
             val began = SystemClock.elapsedRealtime()
             val bitmap = source.renderPage(pageIndex, widthPx)
+            val renderMs = SystemClock.elapsedRealtime() - began
             Log.d(
                 TAG,
                 "render ok page=" + (pageIndex + 1) + " size=" + bitmap.width + "x" + bitmap.height +
-                    " ms=" + (SystemClock.elapsedRealtime() - began),
+                    " ms=" + renderMs,
             )
-            PageRender.Ready(bitmap)
+            Log.i(
+                PERF_TAG,
+                "PBPERF|phase=page_render|page:" + pageIndex + "|ms=" + renderMs +
+                    "|extra=size:" + bitmap.width + "x" + bitmap.height,
+            )
+            PageRender.Ready(bitmap, began)
         } catch (cancellation: CancellationException) {
             throw cancellation
         } catch (throwable: Throwable) {
@@ -753,14 +796,26 @@ private fun PdfPageItem(source: PdfSource, pageIndex: Int, widthPx: Int, widthDp
     Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
         when (val current = render) {
             is PageRender.Loading -> PagePlaceholder(pageIndex = pageIndex, width = widthDp)
-            is PageRender.Ready -> Image(
-                bitmap = current.bitmap.asImageBitmap(),
-                contentDescription = "第 " + (pageIndex + 1) + " 页",
-                contentScale = ContentScale.FillWidth,
-                modifier = Modifier
-                    .width(widthDp)
-                    .clip(RoundedCornerShape(Spacing.xxs)),
-            )
+            is PageRender.Ready -> {
+                // 上屏：该页位图第一次真正被画到屏幕上的那一帧（每页只打一次）。
+                LaunchedEffect(current) {
+                    withFrameNanos { }
+                    Log.i(
+                        PERF_TAG,
+                        "PBPERF|phase=page_present|page:" + pageIndex + "|ms=" +
+                            (SystemClock.elapsedRealtime() - current.renderBeginMs) +
+                            "|extra=size:" + current.bitmap.width + "x" + current.bitmap.height,
+                    )
+                }
+                Image(
+                    bitmap = current.bitmap.asImageBitmap(),
+                    contentDescription = "第 " + (pageIndex + 1) + " 页",
+                    contentScale = ContentScale.FillWidth,
+                    modifier = Modifier
+                        .width(widthDp)
+                        .clip(RoundedCornerShape(Spacing.xxs)),
+                )
+            }
             is PageRender.Failed -> PageRenderError(
                 pageIndex = pageIndex,
                 message = current.message,
