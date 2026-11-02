@@ -1,9 +1,11 @@
 package app.particlebook.android.ui
 
 import android.app.Activity
+import android.content.ComponentCallbacks2
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
+import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.pdf.PdfRenderer
@@ -151,6 +153,12 @@ private const val PageWidthOverHeight = 0.7071f
 /** 单页位图内存上限（ARGB_8888 = 宽×高×4 字节）。横屏撑满宽度时曾到 2400×3398 ≈ 32MB。 */
 private const val MaxPageBitmapBytes = 12 * 1024 * 1024
 
+/** 页位图缓存总字节上限 = min(48MB, 堆上限 / 8)：约 3–6 页 A4 位图，避免整本 PDF 常驻。 */
+private fun pageCacheLimitBytes(): Int {
+    val maxMemory = Runtime.getRuntime().maxMemory()
+    return min(48L * 1024 * 1024, maxMemory / 8).toInt()
+}
+
 /**
  * 阅读器：PDF 走原生纵向连续滚动；EPUB 暂未迁移，给「兼容模式」出口。
  * 进入即切沉浸（隐藏系统栏），退出恢复。
@@ -222,7 +230,10 @@ private fun PdfReaderScreen(book: Book, onBack: () -> Unit) {
     DisposableEffect(book.filePath) {
         onDispose {
             Log.d(TAG, "dispose pdf reader")
+            val pages = holder.source?.pageCount ?: 0
             holder.close()
+            // 性能体检：阅读器关闭（退出/返回书架）时释放 PdfRenderer 与文件描述符。
+            Log.i(PERF_TAG, "PBPERF|phase=reader_close|ms=0|extra=pages:" + pages)
         }
     }
 
@@ -415,6 +426,40 @@ private fun PdfReadingPane(book: Book, source: PdfSource, onBack: () -> Unit) {
         // 渲染宽度三重取小：视口宽 / 按高度整页可见 / 单页 12MB 上限，横屏不会再把整页裁掉。
         val pageWidthPx = computeRenderWidthPx(viewportWidthPx, viewportHeightPx)
         val pageWidthDp = with(density) { pageWidthPx.toDp() }
+        // 页位图 LRU 缓存：显式字节上限 + in-use 保护（正在显示的页不会被回收）。
+        val pageCache = remember(source, pageWidthPx) {
+            PdfPageCache(source, pageWidthPx, pageCacheLimitBytes())
+        }
+        DisposableEffect(pageCache) {
+            onDispose { pageCache.clear() }
+        }
+        // 系统内存吃紧（TRIM_MEMORY_RUNNING_LOW 起）时主动丢掉缓存里非显示页。
+        val appContext = context.applicationContext
+        DisposableEffect(pageCache, appContext) {
+            val callbacks = object : ComponentCallbacks2 {
+                override fun onTrimMemory(level: Int) {
+                    if (level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) {
+                        pageCache.trim(level)
+                    }
+                }
+
+                override fun onLowMemory() {
+                    pageCache.trim(ComponentCallbacks2.TRIM_MEMORY_COMPLETE)
+                }
+
+                override fun onConfigurationChanged(newConfig: Configuration) {
+                    // 配置变化会重建界面，缓存随组合一起重建，这里无需处理。
+                }
+            }
+            appContext.registerComponentCallbacks(callbacks)
+            onDispose { appContext.unregisterComponentCallbacks(callbacks) }
+        }
+        // 空闲时预取相邻 2 页；滚动中不插队，避免和当前页渲染抢同一条 PDF 线程。
+        LaunchedEffect(pageCache, currentPage, pageCount, listState.isScrollInProgress) {
+            if (listState.isScrollInProgress || pageCount <= 1) return@LaunchedEffect
+            pageCache.ensure(currentPage + 1)
+            pageCache.ensure(currentPage - 1)
+        }
         val chromeShiftPx = with(density) { 8.dp.roundToPx() }
         val chromeMotion = Motion.enterSpatial<androidx.compose.ui.unit.IntOffset>()
         val chromeFade = Motion.enterFade<Float>()
@@ -436,9 +481,8 @@ private fun PdfReadingPane(book: Book, source: PdfSource, onBack: () -> Unit) {
         ) {
             items(count = pageCount, key = { index -> index }) { index ->
                 PdfPageItem(
-                    source = source,
+                    cache = pageCache,
                     pageIndex = index,
-                    widthPx = pageWidthPx,
                     widthDp = pageWidthDp,
                 )
             }
@@ -759,36 +803,30 @@ private sealed interface PageRender {
     class Failed(val message: String) : PageRender
 }
 
-/** 单页：渲染成功显示位图，未完成显示占位块（不插 spinner），失败给内联错误 + 重试。 */
+/** 单页：缓存命中直接显示，未命中再渲染；未完成显示占位块（不插 spinner），失败给内联错误 + 重试。 */
 @Composable
-private fun PdfPageItem(source: PdfSource, pageIndex: Int, widthPx: Int, widthDp: Dp) {
+private fun PdfPageItem(cache: PdfPageCache, pageIndex: Int, widthDp: Dp) {
     var retry by remember { mutableIntStateOf(0) }
+    // 组合期间给该页位图记 in-use：缓存淘汰 / trim 都会跳过它，避免把正在显示的位图 recycle 掉。
+    DisposableEffect(cache, pageIndex) {
+        cache.acquire(pageIndex)
+        onDispose { cache.release(pageIndex) }
+    }
     val render by produceState<PageRender>(
         initialValue = PageRender.Loading,
-        source,
+        cache,
         pageIndex,
-        widthPx,
         retry,
     ) {
+        if (retry > 0) cache.forget(pageIndex)
+        val began = SystemClock.elapsedRealtime()
         value = try {
-            val began = SystemClock.elapsedRealtime()
-            val bitmap = source.renderPage(pageIndex, widthPx)
-            val renderMs = SystemClock.elapsedRealtime() - began
-            Log.d(
-                TAG,
-                "render ok page=" + (pageIndex + 1) + " size=" + bitmap.width + "x" + bitmap.height +
-                    " ms=" + renderMs,
-            )
-            Log.i(
-                PERF_TAG,
-                "PBPERF|phase=page_render|page:" + pageIndex + "|ms=" + renderMs +
-                    "|extra=size:" + bitmap.width + "x" + bitmap.height,
-            )
+            val bitmap = cache.render(pageIndex)
             PageRender.Ready(bitmap, began)
         } catch (cancellation: CancellationException) {
             throw cancellation
         } catch (throwable: Throwable) {
-            Log.e(TAG, "render failed page=" + (pageIndex + 1) + " widthPx=" + widthPx, throwable)
+            Log.e(TAG, "render failed page=" + (pageIndex + 1), throwable)
             PageRender.Failed(throwable.describe())
         }
     }
@@ -1057,6 +1095,135 @@ private fun Throwable.describe(): String {
     val text = message
     if (text != null && text.isNotBlank()) return text
     return this::class.java.simpleName
+}
+
+/**
+ * 页位图 LRU 缓存（按字节计上限，见 [pageCacheLimitBytes]）。
+ * - 正在组合中的页（[acquire] 计数 > 0）不会被淘汰 / 回收，避免 Image 画到 recycled bitmap。
+ * - 允许总量暂时超过上限（in-use 页必须保住），页离开组合（[release]）后立刻补做淘汰。
+ * - 淘汰时显式 recycle，并打 PBPERF cache_stat / cache_evict 日志。
+ */
+private class PdfPageCache(
+    private val source: PdfSource,
+    private val widthPx: Int,
+    private val byteLimit: Int,
+) {
+    private val lock = Any()
+
+    /** accessOrder = true：迭代顺序 = 最近使用顺序，淘汰从最久未用开始。 */
+    private val entries = LinkedHashMap<Int, Bitmap>(8, 0.75f, true)
+    private val inUse = HashMap<Int, Int>()
+    private var totalBytes = 0L
+    private var renderCount = 0
+
+    fun peek(pageIndex: Int): Bitmap? = synchronized(lock) { entries[pageIndex] }
+
+    /** 命中直接返回；未命中渲染并放进缓存。 */
+    suspend fun render(pageIndex: Int): Bitmap {
+        peek(pageIndex)?.let { return it }
+        val began = SystemClock.elapsedRealtime()
+        val bitmap = source.renderPage(pageIndex, widthPx)
+        val renderMs = SystemClock.elapsedRealtime() - began
+        Log.d(
+            TAG,
+            "render ok page=" + (pageIndex + 1) + " size=" + bitmap.width + "x" + bitmap.height +
+                " ms=" + renderMs,
+        )
+        Log.i(
+            PERF_TAG,
+            "PBPERF|phase=page_render|page:" + pageIndex + "|ms=" + renderMs +
+                "|extra=size:" + bitmap.width + "x" + bitmap.height,
+        )
+        return synchronized(lock) {
+            // 并发渲染同一页（例如预取与滚动撞车）：后到的不要覆盖，更不能 recycle 已在显示的位图。
+            val existing = entries[pageIndex]
+            if (existing != null) {
+                existing
+            } else {
+                entries[pageIndex] = bitmap
+                totalBytes += sizeOf(bitmap)
+                renderCount++
+                evictLocked()
+                if (renderCount % 10 == 0) logStatLocked()
+                bitmap
+            }
+        }
+    }
+
+    /** 预取：命中则跳过；失败只记日志，不影响阅读。 */
+    suspend fun ensure(pageIndex: Int) {
+        if (pageIndex < 0 || pageIndex >= source.pageCount) return
+        if (peek(pageIndex) != null) return
+        try {
+            render(pageIndex)
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (throwable: Throwable) {
+            Log.w(TAG, "prefetch failed page=" + (pageIndex + 1), throwable)
+        }
+    }
+
+    /** 重试前丢掉这一页的旧位图（不 recycle：上一帧可能还引用它）。 */
+    fun forget(pageIndex: Int) {
+        synchronized(lock) {
+            val removed = entries.remove(pageIndex) ?: return
+            totalBytes -= sizeOf(removed)
+        }
+    }
+
+    fun acquire(pageIndex: Int) {
+        synchronized(lock) { inUse[pageIndex] = (inUse[pageIndex] ?: 0) + 1 }
+    }
+
+    fun release(pageIndex: Int) {
+        synchronized(lock) {
+            val count = (inUse[pageIndex] ?: 1) - 1
+            if (count <= 0) inUse.remove(pageIndex) else inUse[pageIndex] = count
+            evictLocked()
+        }
+    }
+
+    /** 系统内存吃紧：把所有非显示页清掉。 */
+    fun trim(level: Int) {
+        synchronized(lock) {
+            Log.i(PERF_TAG, "PBPERF|phase=cache_trim|ms=0|extra=level:" + level)
+            evictLocked(force = true)
+            logStatLocked()
+        }
+    }
+
+    /** 退出阅读器：清空缓存（显示中的页已随组合销毁，这里全部可回收）。 */
+    fun clear() {
+        synchronized(lock) {
+            evictLocked(force = true)
+            logStatLocked()
+        }
+    }
+
+    private fun evictLocked(force: Boolean = false) {
+        var evicted = false
+        val iterator = entries.entries.iterator()
+        while (iterator.hasNext() && (force || totalBytes > byteLimit)) {
+            val entry = iterator.next()
+            val page = entry.key
+            if (inUse.containsKey(page)) continue
+            iterator.remove()
+            totalBytes -= sizeOf(entry.value)
+            Log.i(PERF_TAG, "PBPERF|phase=cache_evict|ms=0|extra=page:" + page)
+            runCatching { entry.value.recycle() }
+            evicted = true
+        }
+        if (evicted) logStatLocked()
+    }
+
+    private fun logStatLocked() {
+        Log.i(
+            PERF_TAG,
+            "PBPERF|phase=cache_stat|ms=0|extra=count:" + entries.size + ",bytes:" + totalBytes,
+        )
+    }
+
+    private fun sizeOf(bitmap: Bitmap): Long = bitmap.allocationByteCount.toLong()
 }
 
 /**
