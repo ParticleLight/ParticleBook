@@ -24,7 +24,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -322,7 +324,7 @@ fun LibraryError(message: String?, onRetry: () -> Unit, modifier: Modifier = Mod
     }
 }
 
-/** 骨架屏：2×3 占位卡，alpha 1.0 ↔ 0.6 脉冲 1100ms；系统关动画时静态。 */
+/** 骨架屏：按新书架结构（Hero + 最近添加 + 网格）占位，alpha 1.0 ↔ 0.6 脉冲 1100ms；系统关动画时静态。 */
 @Composable
 fun LibrarySkeleton(modifier: Modifier = Modifier) {
     val context = LocalContext.current
@@ -360,8 +362,75 @@ fun LibrarySkeleton(modifier: Modifier = Modifier) {
         userScrollEnabled = false,
         modifier = modifier,
     ) {
+        // Hero 占位（与真实 Hero 同高同圆角）。
+        item(span = { GridItemSpan(maxLineSpan) }) {
+            SkeletonBlock(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(Spacing.heroHeight),
+                shape = RoundedCornerShape(Spacing.heroCorner),
+                alpha = alpha,
+            )
+        }
+        // 大标题占位。
+        item(span = { GridItemSpan(maxLineSpan) }) {
+            SkeletonBlock(
+                modifier = Modifier
+                    .width(132.dp)
+                    .height(30.dp),
+                shape = RoundedCornerShape(Spacing.xs),
+                alpha = alpha,
+            )
+        }
+        // 最近添加横滑占位（3 张，宽度与真实卡一致）。
+        item(span = { GridItemSpan(maxLineSpan) }) {
+            Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+                repeat(3) { index ->
+                    Column(Modifier.width(Spacing.recentCardWidth)) {
+                        SkeletonBlock(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(Spacing.recentCoverHeight),
+                            shape = RoundedCornerShape(Radius.card),
+                            alpha = alpha,
+                        )
+                        Spacer(Modifier.height(Spacing.xs))
+                        SkeletonBlock(
+                            modifier = Modifier
+                                .fillMaxWidth(0.78f)
+                                .height(14.dp),
+                            shape = RoundedCornerShape(Spacing.xxs),
+                            alpha = alpha,
+                        )
+                    }
+                }
+            }
+        }
+        // 「全部书籍」段头占位。
+        item(span = { GridItemSpan(maxLineSpan) }) {
+            SkeletonBlock(
+                modifier = Modifier
+                    .width(112.dp)
+                    .height(28.dp),
+                shape = RoundedCornerShape(Spacing.xs),
+                alpha = alpha,
+            )
+        }
         items(6) { SkeletonCard(alpha = alpha) }
     }
+}
+
+@Composable
+private fun SkeletonBlock(
+    modifier: Modifier,
+    shape: androidx.compose.ui.graphics.Shape,
+    alpha: Float,
+) {
+    Box(
+        modifier = modifier
+            .clip(shape)
+            .background(MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = alpha)),
+    )
 }
 
 @Composable

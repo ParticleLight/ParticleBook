@@ -5,6 +5,12 @@ import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -209,9 +215,27 @@ fun ParticleBookApp() {
     BackHandler(enabled = openBook == null && !selectionMode && tabIndex != 0) { tabIndex = 0 }
 
     ParticleBookTheme(mode = themeMode) {
-        if (openBook != null) {
+        AnimatedContent(
+            targetState = openBook,
+            transitionSpec = {
+                // 书架 ↔ 阅读器：缩放 + 淡入淡出（SharedTransitionLayout 没有稳定 API，spec 允许的降级方案）。
+                if (targetState != null) {
+                    (fadeIn(Motion.enterFade<Float>()) +
+                        scaleIn(initialScale = 0.94f, animationSpec = Motion.enterSpatial<Float>()))
+                        .togetherWith(fadeOut(Motion.exitFade<Float>()))
+                } else {
+                    fadeIn(Motion.enterFade<Float>())
+                        .togetherWith(
+                            fadeOut(Motion.exitFade<Float>()) +
+                                scaleOut(targetScale = 0.96f, animationSpec = Motion.exitSpatial<Float>()),
+                        )
+                }
+            },
+            label = "shelfToReader",
+        ) { readingBook ->
+        if (readingBook != null) {
             ReaderScreen(
-                book = openBook,
+                book = readingBook,
                 onBack = {
                     openBookId = -1L
                     progressEpoch += 1
@@ -300,6 +324,7 @@ fun ParticleBookApp() {
                     )
                 }
             }
+        }
         }
     }
 

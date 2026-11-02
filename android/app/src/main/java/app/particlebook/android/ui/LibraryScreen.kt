@@ -30,11 +30,13 @@ import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items as gridItems
+import androidx.compose.foundation.lazy.grid.itemsIndexed as gridItemsIndexed
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
@@ -106,6 +108,7 @@ import app.particlebook.android.ui.data.BookFormat
 import app.particlebook.android.ui.data.ReadingProgress
 import app.particlebook.android.ui.shelf.ShelfList
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /** 排序方式；评分排序需要书评数据，P0 只占位。 */
@@ -415,19 +418,21 @@ fun LibraryScreen(
                                 )
                             }
                         }
-                        gridItems(visible, key = { book -> book.id }) { book ->
-                            BookGridItem(
-                                book = book,
-                                onClick = {
-                                    if (selectionMode) onToggleSelection(book) else onOpenBook(book)
-                                },
-                                onLongClick = {
-                                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    if (selectionMode) onToggleSelection(book) else onEnterSelection(book)
-                                },
-                                selectionMode = selectionMode,
-                                selected = book.id in selectedIds,
-                            )
+                        gridItemsIndexed(visible, key = { _, book -> book.id }) { index, book ->
+                            StaggeredAppear(index = index) {
+                                BookGridItem(
+                                    book = book,
+                                    onClick = {
+                                        if (selectionMode) onToggleSelection(book) else onOpenBook(book)
+                                    },
+                                    onLongClick = {
+                                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        if (selectionMode) onToggleSelection(book) else onEnterSelection(book)
+                                    },
+                                    selectionMode = selectionMode,
+                                    selected = book.id in selectedIds,
+                                )
+                            }
                         }
                     }
                 }
@@ -542,7 +547,38 @@ fun LibraryScreen(
 
 // ---------------------------------------------------------------- 首页三段
 
-/** 大标题区块：34sp Serif「书架」+ 「N 本书 · M 本在读」。 */
+/** 首屏前 8 项的 stagger 进入（§17.1.5）：延迟 35ms×index，淡入 + 上移 14dp；滚回不重播。 */
+@Composable
+private fun StaggeredAppear(index: Int, content: @Composable () -> Unit) {
+    val animate = index < 8
+    var appeared by remember { mutableStateOf(!animate) }
+    LaunchedEffect(Unit) {
+        if (animate) {
+            delay(Motion.staggerDelay(index))
+            appeared = true
+        }
+    }
+    val alpha by animateFloatAsState(
+        targetValue = if (appeared) 1f else 0f,
+        animationSpec = Motion.enterFade<Float>(),
+        label = "staggerAlpha",
+    )
+    val shift by animateFloatAsState(
+        targetValue = if (appeared) 0f else 14f,
+        animationSpec = Motion.enterSpatial<Float>(),
+        label = "staggerShift",
+    )
+    Box(
+        Modifier.graphicsLayer {
+            this.alpha = alpha
+            translationY = shift * density
+        },
+    ) {
+        content()
+    }
+}
+
+/** 大标题区块：34sp Serif「书架」+「N 本书 · M 本在读」。 */
 @Composable
 private fun ShelfTitleBlock(bookCount: Int, readingCount: Int) {
     Column(
@@ -576,7 +612,8 @@ private fun ShelfHeroCard(
     // V2：默认字号严格 176dp（462px），大字号才允许撑到 240dp，避免文字被裁同时又不能超验收高度。
     val largeFont = LocalDensity.current.fontScale >= 1.3f
     val heroHeight = if (largeFont) {
-        Modifier.heightIn(min = Spacing.heroHeight, max = 240.dp)
+        // 大字号下内容更高：允许撑到 260dp，保证 48dp 按钮 + 单行标题都能放下。
+        Modifier.heightIn(min = Spacing.heroHeight, max = 260.dp)
     } else {
         Modifier.height(Spacing.heroHeight)
     }
@@ -647,7 +684,8 @@ private fun ShelfHeroCard(
                     text = book.title,
                     style = AppType.heroTitle,
                     color = Color.White,
-                    maxLines = 2,
+                    // 固定高度（176dp，大字号最长 240dp）下只放得下一行标题；两行会把「继续阅读」按钮挤出可视区。
+                    maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
                 Spacer(Modifier.height(8.dp))
@@ -672,9 +710,11 @@ private fun ShelfHeroCard(
                 Spacer(Modifier.height(Spacing.xs))
                 FilledTonalButton(
                     onClick = onOpen,
+                    // 触控与可读性下限：大字号下也不允许被挤成细条。
+                    modifier = Modifier.heightIn(min = 48.dp),
                     contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                 ) {
-                    Text("继续阅读 →", maxLines = 1)
+                    Text("继续阅读 →", maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
             Spacer(Modifier.width(Spacing.sm))
