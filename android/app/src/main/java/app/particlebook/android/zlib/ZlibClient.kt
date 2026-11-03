@@ -40,12 +40,42 @@ import java.util.concurrent.atomic.AtomicLong
  * ```
  * 见 docs/android-port/zlibrary-p1a-spec.md §2。
  */
+
+/**
+ * 线路弹层展示项（B6）：在 [ZMirrorInfo] 的纯 URL 列表上补元数据。
+ * 顺序与 [ZlibClient.mirrorInfo] 的 mirrors 完全一致，可直接复用 [ZlibClient.switchMirror] 的下标。
+ */
+data class ZMirrorItem(
+    val url: String,
+    val host: String,
+    /** official / dynamic / fallback。 */
+    val tier: String,
+    /** B1 探测排名：0 正式站、1 未探测、2 推广页、3 其它、4 不通。 */
+    val rank: Int,
+    val latencyMs: Long,
+    val lastOkAt: Long,
+    /** 12h 成功 TTL 内（「上次成功」展示用）。 */
+    val successFresh: Boolean,
+    val current: Boolean,
+    /** 用户手动切换固定的线路（B7 pin）。 */
+    val pinned: Boolean,
+    /** 降权未到期（「暂不可用」）。 */
+    val demoted: Boolean,
+)
+
 class ZlibClient(
     private val appContext: Context? = null,
 ) {
 
     /** 最近一次可用的镜像（如 `https://z-lib.by`）；未探测前为 null。可被外部覆盖用于固定镜像。 */
     var mirror: String? = null
+
+    /**
+     * B7：用户手动切换（[switchMirror]）固定的线路；仅内存态，重启后由 prefs / 注册表 last-working 接管。
+     * 探测第 0 阶段优先探它；该线探测/搜索失败时立即清除（桌面 AdvanceMirrorOnFailure 语义）。
+     */
+    @Volatile
+    private var pinnedMirror: String? = null
 
     /**
      * DEBUG 兜底代理（`host:port` 或 `http://host:port`）；仅在应用 debuggable 时生效，release 忽略。
@@ -67,7 +97,7 @@ class ZlibClient(
     @Volatile
     private var uaLogged: Boolean = false
 
-    /** P1c ③：动态镜像名单后台刷新单飞标记（源站 zz.ggonav.com 已 NXDOMAIN，仅 best-effort，不阻塞探测）。 */
+    /** P1c ③：动态镜像名单后台刷新单飞标记（源站 zlib.wwwnav.com，B2；best-effort，不阻塞探测）。 */
     private val navRefreshRunning = AtomicBoolean(false)
 
     /**
@@ -177,10 +207,29 @@ class ZlibClient(
         val challenged: Boolean = false,
     )
 
+    /** B1：可访问但非正式站的最佳候选（本轮探测的最后兜底）。 */
+    private data class SoftPick(
+        val url: String,
+        val tierLabel: String,
+        val source: String,
+        val rank: ZlibMirrorRegistry.Rank,
+        val latencyMs: Long,
+    )
+
+    /** 单候选探测结果：[picked] 可用线路；[soft] 能访问但非正式站（留给本轮末尾兜底）。 */
+    private data class ProbeOutcome(
+        val picked: String? = null,
+        val soft: SoftPick? = null,
+    )
+
     // ---------------------------------------------------------------- public API
 
     /**
      * 搜索一页。阻塞，调用方放在 IO 线程。
+     *
+     * 首包（page == 1）带自动换线（B3）：当前线路网络/HTTP/挑战失败时，按注册表排序换下一条，
+     * 额度=线路数、全轮 20s 兜底上限、全失败抛 NO_MIRROR。站内翻页（page > 1）不换线：
+     * 换线会丢分页上下文，且空页/404 是正常结果（对齐桌面 ClassifyLoadedDocument 只判进站导航）。
      *
      * @throws ZlibException kind=NO_MIRROR / CHALLENGE_FAILED / HTTP / PARSE / NETWORK
      */
@@ -190,20 +239,136 @@ class ZlibClient(
         require(q.isNotEmpty()) { "query must not be blank" }
         require(page >= 1) { "page must be >= 1" }
         ensureInitialized()
+        val startedAt = System.nanoTime()
         try {
             val base = mirror ?: probeMirrors()
-            val url = searchUrl(base, q, page)
-            val res = getWithChallenge(URI(url))
-            if (res.status != 200) {
-                throw ZlibException("HTTP ${res.status} for $url", ZlibException.Kind.HTTP)
-            }
-            return ZlibSearchParser.parse(res.body, q, page)
+            if (page > 1) return runSearchOnce(base, q, page)
+            return searchWithFailover(base, q, startedAt)
         } catch (e: ZlibException) {
             // 失败后清一次性状态：网络恢复后（进程不重启）下一次 search() 自动重新解析代理并重探镜像。
             debugLog("reset_state reason=search_failure kind=${e.kind}")
             resetStateLocked()
             throw e
         }
+    }
+
+    /** 单次搜索请求（不换线）。HTTP 非 200 抛带 httpCode 的 [ZlibException.Kind.HTTP]。 */
+    private fun runSearchOnce(
+        base: String,
+        query: String,
+        page: Int,
+        deadlineNanos: Long? = null,
+    ): ZSearchPage {
+        val url = searchUrl(base, query, page)
+        val res = getWithChallenge(URI(url), deadlineNanos = deadlineNanos)
+        if (res.status != 200) {
+            throw ZlibException(
+                "HTTP ${res.status} for $url",
+                ZlibException.Kind.HTTP,
+                cause = null,
+                httpCode = res.status,
+            )
+        }
+        return ZlibSearchParser.parse(res.body, query, page)
+    }
+
+    /**
+     * B3 首包换线：当前线路失败后按 [ZlibMirrorRegistry.orderedEntries] 排序取下一条，
+     * 跳过降权未到期项；额度=线路数、[SEARCH_FAILOVER_BUDGET_MS] 兜底。
+     * 只有网络/HTTP/挑战失败换线，PARSE 不换（页面到了但结构不对，换线也救不了）。
+     */
+    private fun searchWithFailover(firstBase: String, query: String, startedAt: Long): ZSearchPage {
+        val now = System.currentTimeMillis()
+        val file = registryFile()
+        ZlibMirrorRegistry.ensureLoaded(file, now)
+        val budget = maxOf(1, ZlibMirrorRegistry.orderedUrls(now).size)
+        val deadlineNanos = startedAt + SEARCH_FAILOVER_BUDGET_MS * 1_000_000L
+        val tried = LinkedHashSet<String>()
+        var base: String? = firstBase
+        var attempts = 0
+        var lastFailure: ZlibException? = null
+        while (base != null && attempts < budget) {
+            val current = normalizeMirror(base)
+            if (current.isEmpty() || !tried.add(current)) break
+            attempts++
+            try {
+                val result = runSearchOnce(base, query, 1, deadlineNanos)
+                markSearchSuccess(base, now)
+                return result
+            } catch (e: ZlibException) {
+                lastFailure = e
+                if (!isFailoverWorthy(e)) {
+                    debugLog("mirror_advance_skip host=${hostOf(base)} kind=${e.kind} reason=not_transient")
+                    throw e
+                }
+                val reason = failoverReasonOf(e)
+                val entry = ZlibMirrorRegistry.recordFailure(base, reason, now)
+                debugLog(
+                    "mirror_advance from=${hostOf(base)} reason=$reason kind=${e.kind}" +
+                        " tried=${tried.size}/$budget demote_until=${entry?.demoteUntil ?: 0L}",
+                )
+                releaseFailedMirror(base)
+                if (remainingMs(deadlineNanos) < MIN_REQUEST_MS) {
+                    debugLog("mirror_advance_abort reason=budget remaining_ms=${remainingMs(deadlineNanos)}")
+                    break
+                }
+                base = nextMirrorCandidate(tried, now)
+            }
+        }
+        ZlibMirrorRegistry.save(file)
+        debugLog("probe_result fail_all tried=${tried.size} stage=search_failover")
+        val detail = lastFailure?.message ?: "budget"
+        throw ZlibException(
+            "no available mirror for search (tried=${tried.size}, last: $detail)",
+            ZlibException.Kind.NO_MIRROR,
+            lastFailure,
+        )
+    }
+
+    /** 搜索成功：记住该线（prefs/内存 + 续 12h 成功 TTL），并触发一次后台名单刷新（单飞）。 */
+    private fun markSearchSuccess(base: String, now: Long) {
+        val chosen = base.trimEnd('/')
+        mirror = chosen
+        prefs?.edit()?.putString(KEY_MIRROR, chosen)?.apply()
+        ZlibMirrorRegistry.recordSuccess(chosen, null, -1L, now)
+        ZlibMirrorRegistry.save(registryFile())
+        debugLog("mirror_working host=${hostOf(chosen)} stage=search")
+        maybeRefreshMirrorListInBackground()
+    }
+
+    /** 失败线退出记忆：清 pin / 内存 mirror / prefs 缓存（只清指向该失败的线路的）。 */
+    private fun releaseFailedMirror(failed: String) {
+        val target = normalizeMirror(failed)
+        if (target.isEmpty()) return
+        if (normalizeMirror(pinnedMirror) == target) {
+            pinnedMirror = null
+            debugLog("mirror_unpin reason=search_fail host=${hostOf(failed)}")
+        }
+        if (normalizeMirror(mirror) == target) mirror = null
+        if (normalizeMirror(prefs?.getString(KEY_MIRROR, null)) == target) {
+            prefs?.edit()?.remove(KEY_MIRROR)?.apply()
+        }
+    }
+
+    /** 下一条候选：按注册表排序，优先未降权项；全降权时退回全量（最后一搏）。 */
+    private fun nextMirrorCandidate(tried: Set<String>, now: Long): String? {
+        val entries = ZlibMirrorRegistry.orderedEntries(now)
+        val usable = entries.filterNot { it.isDemoted(now) }
+        val pool = if (usable.isEmpty()) entries else usable
+        return pool.firstOrNull { !tried.contains(normalizeMirror(it.url)) }?.url
+    }
+
+    private fun isFailoverWorthy(e: ZlibException): Boolean = when (e.kind) {
+        ZlibException.Kind.NETWORK,
+        ZlibException.Kind.HTTP,
+        ZlibException.Kind.CHALLENGE_FAILED -> true
+        else -> false
+    }
+
+    private fun failoverReasonOf(e: ZlibException): String = when (e.kind) {
+        ZlibException.Kind.HTTP -> e.httpCode?.toString() ?: "http"
+        ZlibException.Kind.CHALLENGE_FAILED -> "challenge_fail"
+        else -> "network"
     }
 
     /**
@@ -226,6 +391,8 @@ class ZlibClient(
         ZlibMirrorRegistry.ensureLoaded(file, now)
         val tried = LinkedHashSet<String>()
         var lastError: String? = null
+        // B1：本轮「可访问但非正式站」的最佳候选（rank 优先、同 rank 比延迟），最后兜底采用。
+        var softPick: SoftPick? = null
 
         debugLog(
             "mirror_tier official=" + ZlibMirrorRegistry.orderedOfficial(now).size +
@@ -235,22 +402,32 @@ class ZlibClient(
                 " official_budget_ms=" + OFFICIAL_PHASE_BUDGET_MS,
         )
 
-        // 0) 上次成功/用户指定的线路：最可信，先探（保持 P1a 语义）。
-        val cached = normalizeMirror(mirror ?: prefs?.getString(KEY_MIRROR, null))
-        if (cached.isNotEmpty() && remainingMs(globalDeadline) >= MIN_REQUEST_MS) {
-            tried.add(cached)
-            val hostDeadline = minOf(startedAt + PER_MIRROR_BUDGET_MS * 1_000_000L, globalDeadline)
-            val tierLabel = ZlibMirrorRegistry.tierOf(cached).label
-            probeCandidate(cached, tierLabel, "cached", attemptsFor(cached), hostDeadline, now)?.let { picked ->
+        // 0) B7 记忆上次成功：pin -> 上次选中（prefs/内存）-> 注册表最近成功（12h TTL），优先重探。
+        //    预算 4s，避免「记忆线路全挂」时把整轮 12s 提前耗尽。
+        val preferredDeadline = minOf(startedAt + PREFERRED_PHASE_BUDGET_MS * 1_000_000L, globalDeadline)
+        for ((preferredUrl, preferredSource) in preferredMirrors(now)) {
+            if (remainingMs(preferredDeadline) < MIN_REQUEST_MS) break
+            if (!tried.add(preferredUrl)) continue
+            val tierLabel = ZlibMirrorRegistry.tierOf(preferredUrl).label
+            val hostDeadline = minOf(System.nanoTime() + PER_MIRROR_BUDGET_MS * 1_000_000L, preferredDeadline)
+            val outcome = probeCandidate(
+                preferredUrl, tierLabel, preferredSource, attemptsFor(preferredUrl), hostDeadline, now,
+            )
+            outcome.picked?.let { picked ->
                 adoptMirror(picked)
                 ZlibMirrorRegistry.save(file)
                 return picked
             }
-            lastError = "cached=" + hostOf(cached) + " failed"
+            softPick = betterSoftPick(softPick, outcome.soft)
+            lastError = "preferred=" + hostOf(preferredUrl) + " failed"
+            if (normalizeMirror(pinnedMirror) == normalizeMirror(preferredUrl)) {
+                pinnedMirror = null
+                debugLog("mirror_unpin reason=probe_fail host=" + hostOf(preferredUrl))
+            }
         }
 
-        // 1) T0 官方族：单 host 3s、合计 5s；不可达立即降级（官网优先但不卡住）。
-        val officialDeadline = minOf(startedAt + OFFICIAL_PHASE_BUDGET_MS * 1_000_000L, globalDeadline)
+        // 1) T0 官方族：单 host 3s、本阶段 5s；不可达立即降级（官网优先但不卡住）。
+        val officialDeadline = minOf(System.nanoTime() + OFFICIAL_PHASE_BUDGET_MS * 1_000_000L, globalDeadline)
         for (entry in probeable(ZlibMirrorRegistry.orderedOfficial(now, tried), now)) {
             if (remainingMs(officialDeadline) < MIN_REQUEST_MS) {
                 debugLog("mirror_tier tier=official phase=budget_exhausted tried=" + tried.size)
@@ -258,11 +435,13 @@ class ZlibClient(
             }
             tried.add(entry.url)
             val hostDeadline = minOf(System.nanoTime() + PER_MIRROR_BUDGET_MS * 1_000_000L, officialDeadline)
-            probeCandidate(entry.url, "official", entry.source, attemptsFor(entry.url), hostDeadline, now)?.let { picked ->
+            val outcome = probeCandidate(entry.url, "official", entry.source, attemptsFor(entry.url), hostDeadline, now)
+            outcome.picked?.let { picked ->
                 adoptMirror(picked)
                 ZlibMirrorRegistry.save(file)
                 return picked
             }
+            softPick = betterSoftPick(softPick, outcome.soft)
             lastError = lastProbeError ?: lastError
         }
 
@@ -273,11 +452,13 @@ class ZlibClient(
                 if (remainingMs(globalDeadline) < MIN_REQUEST_MS) break
                 tried.add(entry.url)
                 val hostDeadline = minOf(System.nanoTime() + PER_MIRROR_BUDGET_MS * 1_000_000L, globalDeadline)
-                probeCandidate(entry.url, "dynamic", entry.source, 1, hostDeadline, now)?.let { picked ->
+                val outcome = probeCandidate(entry.url, "dynamic", entry.source, 1, hostDeadline, now)
+                outcome.picked?.let { picked ->
                     adoptMirror(picked)
                     ZlibMirrorRegistry.save(file)
                     return picked
                 }
+                softPick = betterSoftPick(softPick, outcome.soft)
                 lastError = lastProbeError ?: lastError
             }
         }
@@ -287,12 +468,28 @@ class ZlibClient(
             if (remainingMs(globalDeadline) < MIN_REQUEST_MS) break
             tried.add(entry.url)
             val hostDeadline = minOf(System.nanoTime() + PER_MIRROR_BUDGET_MS * 1_000_000L, globalDeadline)
-            probeCandidate(entry.url, "fallback", entry.source, attemptsFor(entry.url), hostDeadline, now)?.let { picked ->
+            val outcome = probeCandidate(entry.url, "fallback", entry.source, attemptsFor(entry.url), hostDeadline, now)
+            outcome.picked?.let { picked ->
                 adoptMirror(picked)
                 ZlibMirrorRegistry.save(file)
                 return picked
             }
+            softPick = betterSoftPick(softPick, outcome.soft)
             lastError = lastProbeError ?: lastError
+        }
+
+        // 4) B1 最后兜底：整轮没有正式站，但存在可访问的推广页/其它页（如回环桩、临时维护页）——
+        //    记 rank 后采用，避免「能连上却报 NO_MIRROR」；UI/弹层会显示其真实 rank。
+        softPick?.let { soft ->
+            ZlibMirrorRegistry.recordSuccess(soft.url, null, soft.latencyMs, now, soft.rank)
+            debugLog(
+                "mirror_pick host=" + hostOf(soft.url) + " tier=" + soft.tierLabel + " source=" + soft.source +
+                    " ms=" + soft.latencyMs + " latency_ms=" + soft.latencyMs +
+                    " rank=" + soft.rank.label + " soft=1",
+            )
+            ZlibMirrorRegistry.save(file)
+            debugLog("probe_result soft=" + hostOf(soft.url) + " rank=" + soft.rank.label + " tried=" + tried.size)
+            return adoptMirror(soft.url)
         }
 
         val totalMs = (System.nanoTime() - startedAt) / 1_000_000L
@@ -307,7 +504,13 @@ class ZlibClient(
         )
     }
 
-    /** 单候选探测：返回可用 URL；成功/失败都写注册表并打 mirror_probe / mirror_pick / mirror_demote。 */
+    /**
+     * 单候选探测：成功/失败都写注册表并打 mirror_probe / mirror_pick / mirror_demote。
+     *
+     * B1：200 响应先分类 rank——挑战已解或正文含正式站标记 = APP，才直接采用并记成功；
+     * 只提到 Z-Library 的推广/导航页 = PAGE、其它 200 页 = OTHER，只记 rank/延迟并继续探，
+     * 作为本轮末尾的最后兜底（避免「能连上却报 NO_MIRROR」）。
+     */
     private fun probeCandidate(
         candidate: String,
         tierLabel: String,
@@ -315,7 +518,7 @@ class ZlibClient(
         maxAttempts: Int,
         deadlineNanos: Long,
         now: Long,
-    ): String? {
+    ): ProbeOutcome {
         val host = hostOf(candidate)
         val started = System.nanoTime()
         var lastThrown: Exception? = null
@@ -327,15 +530,27 @@ class ZlibClient(
                 val elapsed = (System.nanoTime() - started) / 1_000_000L
                 if (res.status == 200 && !looksLikeChallenge(res.body)) {
                     val kind = if (res.challenged) "pow" else "http"
+                    val rank = probeRankOf(res)
                     val finalRoot = mirrorRootOf(res.uri)
                     val redirected = finalRoot != null && finalRoot != candidate.trimEnd('/')
-                    debugLog("mirror_probe host=" + host + " kind=" + kind + " code=200 ms=" + elapsed)
-                    ZlibMirrorRegistry.recordSuccess(candidate, finalRoot, elapsed, now)
+                    debugLog(
+                        "mirror_probe host=" + host + " kind=" + kind + " code=200 rank=" + rank.label +
+                            " ms=" + elapsed,
+                    )
+                    if (rank != ZlibMirrorRegistry.Rank.APP) {
+                        ZlibMirrorRegistry.recordProbeResult(candidate, rank, elapsed, now)
+                        debugLog("mirror_probe_soft host=" + host + " rank=" + rank.label + " ms=" + elapsed)
+                        return ProbeOutcome(
+                            soft = SoftPick(candidate.trimEnd('/'), tierLabel, source, rank, elapsed),
+                        )
+                    }
+                    ZlibMirrorRegistry.recordSuccess(candidate, finalRoot, elapsed, now, rank)
                     debugLog(
                         "mirror_pick host=" + host + " tier=" + tierLabel + " source=" + source +
-                            " ms=" + elapsed + " latency_ms=" + elapsed + " final=" + (if (redirected) 1 else 0),
+                            " ms=" + elapsed + " latency_ms=" + elapsed + " rank=" + rank.label +
+                            " final=" + (if (redirected) 1 else 0),
                     )
-                    return candidate.trimEnd('/')
+                    return ProbeOutcome(picked = candidate.trimEnd('/'))
                 }
                 if (isDiamWallBlock(res)) {
                     lastProbeError = host + " -> diamwall (" + res.status + ")"
@@ -345,7 +560,7 @@ class ZlibClient(
                         "mirror_demote host=" + host + " tier=" + tierLabel + " reason=diamwall until=" + (entry?.demoteUntil ?: 0L) +
                             " fail_count=" + (entry?.failCount ?: 1),
                     )
-                    return null
+                    return ProbeOutcome()
                 }
                 lastProbeError = host + " -> HTTP " + res.status
                 val reason = res.status.toString()
@@ -355,7 +570,7 @@ class ZlibClient(
                     "mirror_demote host=" + host + " tier=" + tierLabel + " reason=" + reason +
                         " until=" + (entry?.demoteUntil ?: 0L) + " fail_count=" + (entry?.failCount ?: 1),
                 )
-                return null
+                return ProbeOutcome()
             } catch (e: Exception) {
                 lastThrown = e
                 val root = rootCauseOf(e)
@@ -381,7 +596,7 @@ class ZlibClient(
                 " until=" + (entry?.demoteUntil ?: 0L) + " fail_count=" + (entry?.failCount ?: 1) +
                 " ms=" + totalMs,
         )
-        return null
+        return ProbeOutcome()
     }
 
     private fun adoptMirror(candidate: String): String {
@@ -418,6 +633,48 @@ class ZlibClient(
             statusOf(e).takeIf { it != "-" } ?: "http"
         e is java.net.SocketTimeoutException -> "timeout"
         else -> "network"
+    }
+
+    /**
+     * B1 探测排名分类（对齐桌面 LooksLikeZlibApp / LooksLikeZlibContent）：
+     * 挑战已解或正文含正式站特征 -> APP；只提到 Z-Library -> PAGE；其余 -> OTHER。
+     */
+    private fun probeRankOf(res: HttpResult): ZlibMirrorRegistry.Rank {
+        if (res.challenged) return ZlibMirrorRegistry.Rank.APP
+        if (APP_MARKERS.any { res.body.contains(it, ignoreCase = true) }) return ZlibMirrorRegistry.Rank.APP
+        if (PAGE_MARKERS.any { res.body.contains(it, ignoreCase = true) }) return ZlibMirrorRegistry.Rank.PAGE
+        return ZlibMirrorRegistry.Rank.OTHER
+    }
+
+    /** 本轮软候选择优：rank 数值小者优先，同 rank 比延迟。 */
+    private fun betterSoftPick(current: SoftPick?, candidate: SoftPick?): SoftPick? {
+        if (candidate == null) return current
+        if (current == null) return candidate
+        return if (candidate.rank.value < current.rank.value ||
+            (candidate.rank.value == current.rank.value && candidate.latencyMs < current.latencyMs)
+        ) {
+            candidate
+        } else {
+            current
+        }
+    }
+
+    /**
+     * B7 第 0 阶段候选（去重、最多 [PREFERRED_MAX_MIRRORS] 条）：
+     * pin（用户手动切换）-> 注册表 12h 内最近成功 -> 上次选中（内存/prefs，可能已过期）。
+     */
+    private fun preferredMirrors(now: Long): List<Pair<String, String>> {
+        val seen = LinkedHashSet<String>()
+        val out = ArrayList<Pair<String, String>>(PREFERRED_MAX_MIRRORS)
+        fun add(raw: String?, source: String) {
+            val url = normalizeMirror(raw)
+            if (url.isEmpty() || !seen.add(url)) return
+            if (out.size < PREFERRED_MAX_MIRRORS) out.add(url to source)
+        }
+        add(pinnedMirror, "pin")
+        add(ZlibMirrorRegistry.lastWorking(now)?.url, "last_working")
+        add(mirror ?: prefs?.getString(KEY_MIRROR, null), "cached")
+        return out
     }
 
     /** 最终响应 host -> `scheme://host[:port]`（成功 finalUrl 记录用，后续直连省跳转）。 */
@@ -606,6 +863,7 @@ class ZlibClient(
         throw ZlibException(
             "detail page unavailable (hash=" + cleanHash + ", status=" + lastStatus + ", tried=" + tried.size + ")",
             if (lastStatus in 400..499) ZlibException.Kind.HTTP else ZlibException.Kind.PARSE,
+            httpCode = lastStatus.takeIf { it > 0 },
         )
     }
 
@@ -630,6 +888,7 @@ class ZlibClient(
             throw ZlibException(
                 "category page unavailable (path=" + sitePath + ", status=" + res.status + ")",
                 if (res.status in 400..499) ZlibException.Kind.HTTP else ZlibException.Kind.PARSE,
+                httpCode = res.status,
             )
         }
         val books = ZlibCategoryParser.parse(res.body, sitePath)
@@ -727,6 +986,7 @@ class ZlibClient(
             throw ZlibException(
                 what + " page unavailable (status=" + res.status + ")",
                 if (res.status in 400..499) ZlibException.Kind.HTTP else ZlibException.Kind.NETWORK,
+                httpCode = res.status,
             )
         }
         debugLog(what + "_ok path=" + sitePathOf(path) + " len=" + res.body.length)
@@ -974,7 +1234,11 @@ class ZlibClient(
                             continue
                         }
                         if (status !in 200..299) {
-                            throw ZlibException("HTTP " + status + " for " + current, ZlibException.Kind.HTTP)
+                            throw ZlibException(
+                                "HTTP " + status + " for " + current,
+                                ZlibException.Kind.HTTP,
+                                httpCode = status,
+                            )
                         }
                         val declared = conn.contentLengthLong
                         if (declared > MAX_IMAGE_BYTES) {
@@ -1011,15 +1275,45 @@ class ZlibClient(
         )
     }
 
-    /** 切换线路（P1b 4.7）：越界 false；写 prefs mirror 并清探测/代理临时态。 */
+    /**
+     * 线路弹层展示项（B6）：与 [mirrorInfo] 的 mirrors 同序，额外带分层/rank/延迟/上次成功/当前/降权。
+     * 只读内存（注册表首次加载可能读一次文件），零网络；UI 线程可安全调用。
+     */
+    fun mirrorItems(): List<ZMirrorItem> {
+        val now = System.currentTimeMillis()
+        ZlibMirrorRegistry.ensureLoaded(registryFile(), now)
+        val current = normalizeMirror(mirror ?: prefs?.getString(KEY_MIRROR, null))
+        val pinned = normalizeMirror(pinnedMirror)
+        return ZlibMirrorRegistry.orderedEntries(now).map { entry ->
+            val url = normalizeMirror(entry.url)
+            ZMirrorItem(
+                url = entry.url,
+                host = hostOf(entry.url),
+                tier = entry.tier.label,
+                rank = entry.rank.value,
+                latencyMs = entry.latencyMs,
+                lastOkAt = entry.lastOkAt,
+                successFresh = entry.isFreshOk(now),
+                current = current.isNotEmpty() && url == current,
+                pinned = pinned.isNotEmpty() && url == pinned,
+                demoted = entry.isDemoted(now),
+            )
+        }
+    }
+
+    /**
+     * 切换线路（P1b 4.7 / B7）：越界 false；写 prefs mirror、记为 pin 并清探测/代理临时态。
+     * pin 让下一次探测优先重探这条线（用户明确选择优先于自动排序）。
+     */
     fun switchMirror(index: Int): Boolean {
         val available = mergedMirrors()
         if (index !in available.indices) return false
         val target = available[index]
         mirror = target
+        pinnedMirror = target
         prefs?.edit()?.putString(KEY_MIRROR, target)?.apply()
         resetStateLocked()
-        debugLog("switch_mirror index=" + (index + 1) + " mirror=" + hostOf(target))
+        debugLog("switch_mirror index=" + (index + 1) + " mirror=" + hostOf(target) + " pinned=1")
         return true
     }
 
@@ -1031,8 +1325,9 @@ class ZlibClient(
      */
     fun clearCachedMirror() {
         mirror = null
+        pinnedMirror = null
         prefs?.edit()?.remove(KEY_MIRROR)?.apply()
-        debugLog("clear_mirror prefs=removed memory=null")
+        debugLog("clear_mirror prefs=removed memory=null pin=null")
     }
 
     // ---------------------------------------------------------------- P1c: 动态镜像名单
@@ -1880,7 +2175,7 @@ class ZlibClient(
                 if (status == 416) {
                     if (retried416) {
                         debugLog("dl_416 host=" + hostOf(current) + " retried=true failed=true")
-                        throw ZlibException("HTTP 416 for " + current, ZlibException.Kind.HTTP)
+                        throw ZlibException("HTTP 416 for " + current, ZlibException.Kind.HTTP, httpCode = 416)
                     }
                     if (resumeFrom > 0L && !ignorePart) {
                         debugLog("dl_416 host=" + hostOf(current) + " part=" + resumeFrom + " retry=fresh")
@@ -1898,7 +2193,11 @@ class ZlibClient(
                     )
                 }
                 if (status !in 200..299) {
-                    throw ZlibException("HTTP " + status + " for " + current, ZlibException.Kind.HTTP)
+                    throw ZlibException(
+                        "HTTP " + status + " for " + current,
+                        ZlibException.Kind.HTTP,
+                        httpCode = status,
+                    )
                 }
                 val decision = ZlibResumePolicy.decide(
                     partLength = resumeFrom,
@@ -2429,7 +2728,7 @@ class ZlibClient(
         private const val MAX_COUNTDOWN_ROUNDS = 8
         private const val MAX_COUNTDOWN_WAIT_S = 20
 
-        /** P1c：导航页（zz.ggonav.com 已 NXDOMAIN，仅 best-effort）后台抓取总预算。 */
+        /** P1c/B2：导航页（zlib.wwwnav.com，失败退避、仅 best-effort）后台抓取总预算。 */
         private const val NAV_FETCH_BUDGET_MS = 8_000L
 
         /** P1.5：/categories 文件缓存（约 343KB HTML，24h 有效）。 */
@@ -2449,6 +2748,32 @@ class ZlibClient(
         private const val OFFICIAL_PHASE_BUDGET_MS = 5_000L
         private const val PROBE_BUDGET_MS = 12_000L
         private const val MIN_REQUEST_MS = 750L
+
+        /** B7：记忆线路优先重探阶段（pin / 上次选中 / 最近成功）的总预算与候选数。 */
+        private const val PREFERRED_PHASE_BUDGET_MS = 4_000L
+        private const val PREFERRED_MAX_MIRRORS = 2
+
+        /** B3：首包换线整轮兜底上限（额度仍是线路数，此值防单轮拖太久）。 */
+        private const val SEARCH_FAILOVER_BUDGET_MS = 20_000L
+
+        /** B1 rank 分类标记（对齐桌面 LooksLikeZlibApp / LooksLikeZlibContent）。 */
+        private val APP_MARKERS = listOf(
+            "<z-bookcard",
+            "z-lib.fm",
+            "z-access",
+            "z-recommend",
+            "singlelogin",
+            "z-lib.io",
+            "z-library since 2009",
+        )
+        private val PAGE_MARKERS = listOf(
+            "z-lib",
+            "zlibrary",
+            "z-library",
+            "1lib",
+            "singlelogin",
+            "bookfi",
+        )
 
         /** 官方站挑战重试：含首次最多 [MAX_MIRROR_ATTEMPTS] 次。 */
         private const val MAX_MIRROR_ATTEMPTS = 3

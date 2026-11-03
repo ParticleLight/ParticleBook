@@ -3,19 +3,17 @@ package app.particlebook.android.zlib
 import java.net.URI
 
 /**
- * 动态镜像名单（P1c ③）：GET https://zz.ggonav.com/ 是第三方导航页，页面里的 `<a href>`
- * 与正文裸地址才是推荐线路。解析规则对齐桌面端
- * `particlebook-cpp/src/services/ZLibraryMirror.cpp`（SEC-01）：
+ * 动态镜像名单（P1c ③ / B2）：源站 https://zlib.wwwnav.com/（旧源 zz.ggonav.com 已 NXDOMAIN）。
  *
- * 1. 只认 `<a href>` 与裸 `http(s)://` 地址（旧写法 `href="..."` 会把 CDN 样式表收进来）；
- * 2. 必须是站点根地址（path 为空或 `/`，无 query/fragment）；
- * 3. host 必须属于 Z-Library 域名族（z-lib / z-library / zlibrary / zlib / 1lib 前缀，
- *    singlelogin / bookfi / fbiwarning / dfj101 / zzz101 包含），且不是 CDN/统计/文档站；
- * 4. 永久黑名单 singlelogin.re（现为成人站）在合并阶段剔除；
- * 5. 导航页域名排在静态名单之后（导航页混有推广页，静态域名更可靠）。
+ * 生产链路：[parseNav] 解析页面 `section#entries` 的三个面板——
+ * 「镜像入口」→ 动态线路（T1）、「官网地址」→ 官方线路（T0 尾部）、
+ * 「客户端与资源下载」整块丢弃；排除 quark / pages.dev / wwwnav 子域与其他第三方站。
+ * 缓存与退避由 [ZlibMirrorRegistry] 负责（6h TTL、失败 30min→2h 指数退避），本对象不联网。
  *
- * 缓存语义：进程内缓存 1h；失败（html 为空）静默回退静态名单，1h 内不再重试。
- * 本对象不联网，网络抓取由 [ZlibClient] 负责（避免 UI 线程做 IO）。
+ * 兼容保留：通用 [parse] / [merge] / [cached] / [markAttempt] / [shouldRefresh] 是旧版
+ * 「抓页面扫所有 <a href> 与裸地址」的实现，只用于旧单测与 A/B 对照；新代码请用 [parseNav]。
+ * 通用解析的 host 白名单：z-lib / z-library / zlibrary / zlib / 1lib 前缀，
+ * singlelogin / bookfi / fbiwarning / dfj101 / zzz101 包含；永久黑名单 singlelogin.re。
  */
 internal object ZlibMirrorList {
 

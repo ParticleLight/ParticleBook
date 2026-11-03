@@ -32,12 +32,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import app.particlebook.android.zlib.ZMirrorItem
 import app.particlebook.android.zlib.ZlibClient
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-/** 线路切换弹层（spec §4.7）：加载 mirrorInfo → 单选列表 → switchMirror。 */
+/**
+ * 线路切换弹层（spec §4.7 / B6）：加载 mirrorInfo + mirrorItems → 单选列表 → switchMirror。
+ * 每行除 host 外展示分层 / 探测 rank / 延迟 / 上次成功 / 降权状态；切换逻辑与顺序不变。
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ZlibMirrorSheet(
@@ -47,12 +51,21 @@ fun ZlibMirrorSheet(
 ) {
     val scope = rememberCoroutineScope()
     var info by remember { mutableStateOf<app.particlebook.android.zlib.ZMirrorInfo?>(null) }
+    var items by remember { mutableStateOf<List<ZMirrorItem>>(emptyList()) }
     var loadError by remember { mutableStateOf<String?>(null) }
     var switchingIndex by remember { mutableIntStateOf(-1) }
 
     LaunchedEffect(Unit) {
-        runCatching { withContext(Dispatchers.IO) { client.mirrorInfo() } }
-            .onSuccess { info = it }
+        runCatching {
+            withContext(Dispatchers.IO) {
+                // 两次读取都只碰内存（注册表首次可能读一次文件），顺序一致可直接按 index 对齐。
+                client.mirrorInfo() to client.mirrorItems()
+            }
+        }
+            .onSuccess { (loadedInfo, loadedItems) ->
+                info = loadedInfo
+                items = loadedItems
+            }
             .onFailure { loadError = ZlibUiError.message(it) }
     }
 
@@ -98,8 +111,11 @@ fun ZlibMirrorSheet(
                     )
                     Spacer(Modifier.height(Spacing.xs))
                     current.mirrors.forEachIndexed { index, mirror ->
-                        // mirrors 下标 0 起，ZMirrorInfo.index 1 起。
-                        val selected = current.index > 0 && index == current.index - 1
+                        // mirrors 下标 0 起，ZMirrorInfo.index 1 起；items 与 mirrors 同序。
+                        val item = items.getOrNull(index)
+                        val selected = item?.current ?: (current.index > 0 && index == current.index - 1)
+                        val host = item?.host?.takeIf { it.isNotEmpty() } ?: zlibMirrorHost(mirror)
+                        val meta = zlibMirrorMeta(item)
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -132,12 +148,23 @@ fun ZlibMirrorSheet(
                         ) {
                             RadioButton(selected = selected, onClick = null, enabled = switchingIndex < 0)
                             Spacer(Modifier.width(Spacing.sm))
-                            Text(
-                                text = zlibMirrorHost(mirror),
-                                style = MaterialTheme.typography.bodyLarge,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    text = host,
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                if (meta.isNotEmpty()) {
+                                    Text(
+                                        text = meta,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -145,4 +172,31 @@ fun ZlibMirrorSheet(
             Spacer(Modifier.height(Spacing.lg))
         }
     }
+}
+
+/** 弹层每行元信息（B6）：分层 · rank · 延迟 · 上次成功 · 暂不可用 / 已固定。 */
+private fun zlibMirrorMeta(item: ZMirrorItem?): String {
+    item ?: return ""
+    val parts = ArrayList<String>(5)
+    parts.add(
+        when (item.tier) {
+            "official" -> "官方"
+            "dynamic" -> "动态"
+            else -> "兜底"
+        },
+    )
+    parts.add(
+        when (item.rank) {
+            0 -> "正式站"
+            1 -> "未探测"
+            2 -> "推广页"
+            3 -> "其它"
+            else -> "不通"
+        },
+    )
+    if (item.latencyMs >= 0L) parts.add(item.latencyMs.toString() + " ms")
+    if (item.successFresh) parts.add("上次成功")
+    if (item.demoted) parts.add("暂不可用")
+    if (item.pinned) parts.add("已固定")
+    return parts.joinToString(" · ")
 }

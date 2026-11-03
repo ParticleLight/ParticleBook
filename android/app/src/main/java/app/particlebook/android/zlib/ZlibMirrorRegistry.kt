@@ -12,7 +12,8 @@ import java.util.Locale
  * - T1 动态导航源：zlib.wwwnav.com 解析出的镜像入口/官网地址（[recordNavSuccess]）；
  * - T2 内置兜底：旧静态名单去掉 DiamWall 项（[FALLBACK_SEEDS]），前两层都不可用时继续探。
  *
- * 排序（对齐 spec §2）：未降权在前 -> 12h 内成功过的在前 -> priority -> latency -> fail_count；
+ * 排序（对齐 spec §2 / 桌面 SortMirrorsLocked）：未降权在前 -> 12h 内成功过的在前 ->
+ * rank（正式站 < 未探测 < 推广页 < 其它 < 不通）-> latency -> priority -> fail_count；
  * 降权条目按 demote_until 升序排在同层末尾。DiamWall 站（需执行 JS，原生不可用）不进候选，
  * 只有探测命中时才 demote（[recordFailure]）。
  *
@@ -53,6 +54,20 @@ internal object ZlibMirrorRegistry {
         FALLBACK("fallback"),
     }
 
+    /**
+     * 探测排名（对齐桌面 `MirrorRank`，B1）：
+     * 正式站/挑战页 = 0 < 未探测 = 1 < 推广页(提到 Z-Library) = 2 < 其它 = 3 < 不通 = 4。
+     * 排序在同层内先比 rank 再比 latency；[UNKNOWN] 排 [PAGE]/[OTHER] 之前是刻意的：
+     * 没探过的线路仍可能可用，先探它比先探已经证明只是导航/推广页的线路更有价值。
+     */
+    enum class Rank(val value: Int, val label: String) {
+        APP(0, "app"),
+        UNKNOWN(1, "unknown"),
+        PAGE(2, "page"),
+        OTHER(3, "other"),
+        FAIL(4, "fail"),
+    }
+
     data class Entry(
         val url: String,
         val tier: Tier,
@@ -67,12 +82,21 @@ internal object ZlibMirrorRegistry {
         val demoteUntil: Long = 0L,
         val demoteReason: String? = null,
         val seenAt: Long = 0L,
+        /** 最近一次探测排名（B1）；旧缓存文件没有该字段时按 [Rank.UNKNOWN] 处理。 */
+        val rank: Rank = Rank.UNKNOWN,
     ) {
         val host: String get() = hostOf(url)
 
         fun isDemoted(now: Long): Boolean = demoteUntil > now
 
         fun isFreshOk(now: Long): Boolean = lastOkAt > 0L && now - lastOkAt < SUCCESS_TTL_MS
+
+        /**
+         * 排序用 rank：已到期解除降权的 FAIL 视作 UNKNOWN（重新给机会），
+         * 而 UI/日志仍展示真实 rank，便于解释「上次不通但已解禁」。
+         */
+        fun sortRank(now: Long): Int =
+            if (rank == Rank.FAIL && !isDemoted(now)) Rank.UNKNOWN.value else rank.value
     }
 
     data class NavState(
@@ -199,15 +223,32 @@ internal object ZlibMirrorRegistry {
         return order(list, now, exclude)
     }
 
-    /** 线路弹层/设置页用：T0 -> T1 -> T2 去重后的完整列表（只读内存，零网络零文件 IO）。 */
+    /**
+     * 线路弹层/设置页用：T0 -> T1 -> T2 去重后的完整列表（只读内存，零网络零文件 IO）。
+     * 顺序与 [orderedUrls] 完全一致，调用方可用同一下标做展示/切换（B6）。
+     */
     @Synchronized
-    fun orderedUrls(now: Long): List<String> {
+    fun orderedEntries(now: Long): List<Entry> {
         val merged = LinkedHashMap<String, Entry>()
         orderedOfficial(now).forEach { merged[it.url] = it }
         dynamicCandidates(now).forEach { merged.putIfAbsent(it.url, it) }
         fallbackCandidates(now).forEach { merged.putIfAbsent(it.url, it) }
-        return merged.keys.toList()
+        return merged.values.toList()
     }
+
+    /** 见 [orderedEntries]。 */
+    @Synchronized
+    fun orderedUrls(now: Long): List<String> = orderedEntries(now).map { it.url }
+
+    /**
+     * 最近成功线路（B7）：12h 成功 TTL 内、当前未被降权，取 lastOkAt 最大的一条。
+     * 探测第 0 阶段优先重探它，避免冷启动总从种子表第一条开始「碰运气」。
+     */
+    @Synchronized
+    fun lastWorking(now: Long): Entry? =
+        entries()
+            .filter { it.isFreshOk(now) && !it.isDemoted(now) }
+            .maxByOrNull { it.lastOkAt }
 
     private fun order(entries: List<Entry>, now: Long, exclude: Set<String>): List<Entry> =
         entries
@@ -217,17 +258,28 @@ internal object ZlibMirrorRegistry {
                 compareBy<Entry> { if (it.isDemoted(now)) 1 else 0 }
                     .thenBy { if (it.isDemoted(now)) it.demoteUntil else 0L }
                     .thenBy { if (it.isFreshOk(now)) 0 else 1 }
-                    .thenBy { it.priority }
+                    .thenBy { it.sortRank(now) }
                     .thenBy { if (it.latencyMs >= 0L) it.latencyMs else Long.MAX_VALUE }
+                    .thenBy { it.priority }
                     .thenBy { it.failCount }
                     .thenBy { it.url },
             )
 
     // ------------------------------------------------------------ probe results
 
-    /** 探测成功：清零失败/降权，记录 finalUrl 与延迟。 */
+    /**
+     * 探测/搜索成功：清零失败与降权，记录 finalUrl 与延迟。
+     * [rank] 为 null 时保留旧 rank（搜索成功只续 12h 成功 TTL，不改探测结论）；
+     * [latencyMs] < 0 时保留旧延迟，避免搜索成功把探测测得的延迟抹掉。
+     */
     @Synchronized
-    fun recordSuccess(url: String, finalUrl: String?, latencyMs: Long, now: Long): Entry? {
+    fun recordSuccess(
+        url: String,
+        finalUrl: String?,
+        latencyMs: Long,
+        now: Long,
+        rank: Rank? = null,
+    ): Entry? {
         val target = normalizeUrl(url)
         if (target.isEmpty()) return null
         val base = entries()
@@ -236,7 +288,8 @@ internal object ZlibMirrorRegistry {
         val updated = (old ?: newEntry(target)).copy(
             lastOkAt = now,
             lastProbeAt = now,
-            latencyMs = if (latencyMs >= 0L) latencyMs else -1L,
+            latencyMs = if (latencyMs >= 0L) latencyMs else (old?.latencyMs ?: -1L),
+            rank = rank ?: old?.rank ?: Rank.APP,
             finalUrl = finalRoot,
             failCount = 0,
             demoteUntil = 0L,
@@ -261,6 +314,28 @@ internal object ZlibMirrorRegistry {
             failCount = failCount,
             demoteUntil = now + demoteBackoffMs(failCount),
             demoteReason = reason,
+            seenAt = now,
+            rank = Rank.FAIL,
+        )
+        state = state.copy(entries = replace(base, updated), updatedAt = now)
+        return updated
+    }
+
+    /**
+     * 探测到「能访问但不是正式站」的结果（推广页/导航页/其它 200 页，B1）：
+     * 只记录 rank 与延迟，不算成功也不算失败——不写 lastOkAt、不动 demote，
+     * 避免把推广页当成可用线路，同时让排序把它排到未探测线路之后。
+     */
+    @Synchronized
+    fun recordProbeResult(url: String, rank: Rank, latencyMs: Long, now: Long): Entry? {
+        val target = normalizeUrl(url)
+        if (target.isEmpty()) return null
+        val base = entries()
+        val old = base.firstOrNull { it.url == target }
+        val updated = (old ?: newEntry(target)).copy(
+            lastProbeAt = now,
+            latencyMs = if (latencyMs >= 0L) latencyMs else (old?.latencyMs ?: -1L),
+            rank = rank,
             seenAt = now,
         )
         state = state.copy(entries = replace(base, updated), updatedAt = now)
@@ -495,6 +570,7 @@ internal object ZlibMirrorRegistry {
         sb.append(",\"demote_until\":").append(e.demoteUntil)
         sb.append(",\"demote_reason\":").append(if (e.demoteReason == null) "null" else quote(e.demoteReason))
         sb.append(",\"seen_at\":").append(e.seenAt)
+        sb.append(",\"rank\":").append(quote(e.rank.label))
         sb.append('}')
     }
 
@@ -540,6 +616,7 @@ internal object ZlibMirrorRegistry {
                 demoteUntil = asLong(map["demote_until"]),
                 demoteReason = asString(map["demote_reason"]).takeIf { it.isNotEmpty() },
                 seenAt = asLong(map["seen_at"]),
+                rank = rankFromLabel(asString(map["rank"], Rank.UNKNOWN.label)),
             )
         }
         val navMap = root["nav"] as? Map<*, *> ?: emptyMap<Any?, Any?>()
@@ -557,6 +634,9 @@ internal object ZlibMirrorRegistry {
 
     private fun tierFromLabel(label: String): Tier =
         Tier.values().firstOrNull { it.label == label } ?: Tier.FALLBACK
+
+    private fun rankFromLabel(label: String): Rank =
+        Rank.values().firstOrNull { it.label == label } ?: Rank.UNKNOWN
 
     private fun asString(value: Any?, def: String = ""): String = when (value) {
         is String -> value
