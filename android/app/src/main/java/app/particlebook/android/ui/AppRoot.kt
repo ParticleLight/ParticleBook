@@ -203,6 +203,12 @@ fun ParticleBookApp() {
     var categorySlug by rememberSaveable { mutableStateOf("") }
     var categoryName by rememberSaveable { mutableStateOf("") }
 
+    // U5：登录返程。登录页压栈时记录「来源栈顶」（空串 = 主 tab）并递增会话号；
+    // 异步登录成功回调只在「会话未换代 + login 仍是栈顶」时弹栈，用户已手动返回或
+    // 重新进入登录页时只更新账号状态、绝不覆盖当前导航。
+    var loginSession by rememberSaveable { mutableLongStateOf(0L) }
+    var loginReturnTo by rememberSaveable { mutableStateOf("") }
+
     fun pushRoute(next: String) {
         navStack = ArrayList(navStack).apply { add(next) }
     }
@@ -217,12 +223,18 @@ fun ParticleBookApp() {
     fun popRoute(expected: String? = null) {
         if (navStack.isEmpty()) return
         if (expected != null && navStack.lastOrNull() != expected) return
+        val removed = navStack.last()
         navStack = ArrayList(navStack).apply { removeAt(lastIndex) }
+        // U5：登录页真正出栈（返回键/系统返回/成功回调）即作废返程快照。
+        if (removed == "login") loginReturnTo = ""
     }
 
     /** 登录是模态任务页：压栈，成功后 pop 回来源页（详情/发现页/主 tab 都能原样恢复）。 */
-    val openLogin: () -> Unit = { pushRoute("login") }
-    val downloadTasks by ZlibDownloadManager.tasks.collectAsState()
+    val openLogin: () -> Unit = {
+        loginSession += 1L
+        loginReturnTo = navStack.lastOrNull().orEmpty()
+        pushRoute("login")
+    }
     val books: List<Book> = store.books
     val openBook = remember(books, openBookId) { books.firstOrNull { it.id == openBookId } }
 
@@ -388,10 +400,15 @@ fun ParticleBookApp() {
         // 返回 = popRoute()，父页的 ViewModel / LazyListState / 展开态自然原样保留。
         for (index in navStack.indices) {
             val stackRoute = navStack[index]
+            // P2（p15-code-audit §1）：只有栈顶是活跃层。非栈顶层仍然保持组合
+            // （ViewModel / LazyListState / 已加载页原样保留），但被压成 0 约束：
+            // 隐藏期间不做常规布局、不组合列表可见项，因此不会触发列表自动翻页、
+            // 懒加载封面等由布局驱动的副作用。回到栈顶时恢复全屏约束。
+            val isActiveLayer = index == navStack.lastIndex
             key(index, stackRoute) {
                 Box(
                     modifier = Modifier
-                        .fillMaxSize()
+                        .then(if (isActiveLayer) Modifier.fillMaxSize() else Modifier.size(0.dp))
                         .background(MaterialTheme.colorScheme.surface)
                         .pointerInput(stackRoute) {
                             awaitPointerEventScope {
@@ -402,12 +419,23 @@ fun ParticleBookApp() {
                         },
                 ) {
                     when (stackRoute) {
-                        "login" -> ZlibLoginScreen(
-                            viewModel = accountViewModel,
-                            onBack = { popRoute() },
-                            // 异步回调：仅当 login 仍是栈顶才出栈，避免迟到回调弹掉下层页面。
-                            onLoginSuccess = { popRoute(expected = "login") },
-                        )
+                        "login" -> {
+                            // U5：记下这一层登录页所属会话与来源快照，迟到成功回调不跨会话/跨导航。
+                            val openSession = remember { loginSession }
+                            val returnTo = remember { loginReturnTo }
+                            ZlibLoginScreen(
+                                viewModel = accountViewModel,
+                                onBack = { popRoute() },
+                                onLoginSuccess = {
+                                    if (canCompleteLoginReturn(openSession, loginSession, navStack, returnTo)) {
+                                        popRoute(expected = "login")
+                                    } else {
+                                        // 用户已返回/已重新登录：只保留账号状态更新，不动导航。
+                                        loginReturnTo = ""
+                                    }
+                                },
+                            )
+                        }
 
                         "detail" -> ZlibDetailScreen(
                             viewModel = detailViewModel,
@@ -540,28 +568,14 @@ fun ParticleBookApp() {
         // §11.6 + U6 冻结：全局下载卡片只在主 tab（书架/发现/设置，navStack 为空）渲染。
         // 二级页（登录/详情/发现面/下载记录等）各自有内联状态；阅读器是全屏沉浸页也不渲染。
         // 主 tab 上最多显示 2 张卡片，其余收进「还有 N 个 · 查看全部」进下载记录页（U6）。
-        val onMainTabs = navStack.isEmpty()
-        if (onMainTabs && openBook == null && downloadTasks.isNotEmpty()) {
-            ZlibDownloadCardsOverlay(
-                tasks = downloadTasks,
-                onCancel = { id -> ZlibDownloadManager.cancel(id) },
-                onRetry = { id -> ZlibDownloadManager.retry(id, store) },
-                onDismiss = { id -> ZlibDownloadManager.dismiss(id) },
-                onDiscard = { id -> ZlibDownloadManager.discard(id) },
-                onReimport = { id -> ZlibDownloadManager.reimport(id, store) },
+        if (navStack.isEmpty() && openBook == null) {
+            // U7：下载任务订阅下移到卡片子树，根节点不再 collect tasks（150ms 进度更新
+            // 只重组这里，不重建整个 AppShell / navStack / 阅读器树）。
+            ZlibDownloadCardsHost(
+                store = store,
                 onLogin = openLogin,
                 onViewAll = { pushRoute("downloads") },
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    // P1c P2-5：token 是「距屏底总量」，与胶囊上沿（124/132dp）留 16/12dp；
-                    // 不再叠 navigationBarsPadding()（旧实现实际 176dp，与胶囊间距 52dp）。
-                    .padding(
-                        bottom = if (LocalDensity.current.fontScale >= 1.3f) {
-                            Spacing.listBottomInsetLarge + Spacing.sm
-                        } else {
-                            Spacing.listBottomInset + Spacing.sm
-                        },
-                    ),
+                modifier = Modifier.align(Alignment.BottomCenter),
             )
         }
 
@@ -585,6 +599,39 @@ fun ParticleBookApp() {
             )
         }
     }
+}
+
+/**
+ * U7：下载卡片宿主。任务流只在这个子树里 collect —— 进度刷新只重组本 composable，
+ * 不再把下载列表作为 AppRoot 的参数，根节点的重组范围收敛到「卡片出现/消失」。
+ */
+@Composable
+private fun ZlibDownloadCardsHost(
+    store: LibraryStore,
+    onLogin: () -> Unit,
+    onViewAll: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val tasks by ZlibDownloadManager.tasks.collectAsState()
+    if (tasks.isEmpty()) return
+    // P1c P2-5：token 是「距屏底总量」，与胶囊上沿（124/132dp）留 16/12dp；
+    // 不再叠 navigationBarsPadding()（旧实现实际 176dp，与胶囊间距 52dp）。
+    val bottomPadding = if (LocalDensity.current.fontScale >= 1.3f) {
+        Spacing.listBottomInsetLarge + Spacing.sm
+    } else {
+        Spacing.listBottomInset + Spacing.sm
+    }
+    ZlibDownloadCardsOverlay(
+        tasks = tasks,
+        onCancel = { id -> ZlibDownloadManager.cancel(id) },
+        onRetry = { id -> ZlibDownloadManager.retry(id, store) },
+        onDismiss = { id -> ZlibDownloadManager.dismiss(id) },
+        onDiscard = { id -> ZlibDownloadManager.discard(id) },
+        onReimport = { id -> ZlibDownloadManager.reimport(id, store) },
+        onLogin = onLogin,
+        onViewAll = onViewAll,
+        modifier = modifier.padding(bottom = bottomPadding),
+    )
 }
 
 /**

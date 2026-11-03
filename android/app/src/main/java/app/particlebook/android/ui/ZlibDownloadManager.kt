@@ -373,6 +373,11 @@ object ZlibDownloadManager {
     private const val HISTORY_VERSION = 1
     private const val COMPLETED_VISIBLE_MS = 2500L
     private const val DEFAULT_DIR_NAME = "Z-Library"
+    private const val SAF_TEMP_DIR = "zlib-downloads"
+
+    /** U10：进程被杀/崩溃后，未完成下载恢复出来的错误类型（可重试，不算登录失败）。 */
+    const val ZLIB_INTERRUPTED_KIND = "INTERRUPTED"
+    const val ZLIB_INTERRUPTED_MESSAGE = "上次下载被中断，可重试"
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val _tasks = MutableStateFlow<List<ZlibDownloadTask>>(emptyList())
@@ -380,6 +385,13 @@ object ZlibDownloadManager {
     private val runs = ZlibDownloadRunRegistry()
     private var appContext: Context? = null
     private var historyStore: ZlibDownloadHistoryStore? = null
+
+    /**
+     * U10：非终态快照（进行中的下载）。只用于写盘恢复，**不发布**到 [history]，
+     * 所以下载记录页不会提前出现一条「下载中」记录；进程被杀后下次启动把它恢复成
+     * FAILED(INTERRUPTED) 记录（可重试/可删除），SAF 半截文档的 uri 也在记录里（不产生孤儿）。
+     */
+    private val pendingRecords = LinkedHashMap<String, ZlibDownloadTask>()
 
     /** 当前 + 最近完成的任务（卡片展示用）。 */
     val tasks: StateFlow<List<ZlibDownloadTask>> = _tasks.asStateFlow()
@@ -399,13 +411,21 @@ object ZlibDownloadManager {
         historyStore = store
         scope.launch {
             val loaded = withContext(Dispatchers.IO) { store.read() }
+            // U10：上次进程被杀时留在磁盘上的非终态记录 → 恢复成可重试的中断失败态。
+            val recovered = zlibRecoverInterrupted(loaded, System.currentTimeMillis())
             // 加载期间若已有新终态写入（极端冷启并发），保留内存里的新记录。
             _history.update { current ->
                 if (current.isEmpty()) {
-                    loaded
+                    recovered
                 } else {
-                    loaded.filterNot { old -> current.any { it.bookId == old.bookId } } + current
+                    recovered.filterNot { old -> current.any { it.bookId == old.bookId } } + current
                 }
+            }
+            // 规范化结果写回磁盘，避免每次启动重复恢复同一条记录。
+            if (recovered != loaded) scheduleHistoryWrite()
+            // U10：清掉上次进程被杀留下的 cacheDir 半成品（本地临时文件无法跨进程续传）。
+            withContext(Dispatchers.IO) {
+                zlibCleanTempDownloads(File(app.cacheDir, SAF_TEMP_DIR))
             }
         }
     }
@@ -450,12 +470,20 @@ object ZlibDownloadManager {
         }
         // P1c：自定义 SAF 目录 → 下载完成后 createDocument；默认仍是 File 路径（行为不变）。
         val saf = DownloadLocation.isCustom(context)
+        // U10：上次进程被杀前已经创建好的 SAF 文档 → 复用（下载时截断重写），不在用户目录留孤儿文件。
+        val reusedSafDoc = done?.takeIf {
+            saf &&
+                it.status == ZlibDownloadStatus.FAILED &&
+                it.errorKind == ZLIB_INTERRUPTED_KIND &&
+                it.destPath.startsWith("content://") &&
+                DownloadLocation.exists(context, it.destPath)
+        }
         val fileName: String
         val destPath: String
         if (saf) {
-            fileName = suggestedFileName(detail)
-            // SAF 目标 uri 在真正下载时创建（主线程不做 IO），完成后再回填。
-            destPath = ""
+            fileName = reusedSafDoc?.fileName?.takeIf { it.isNotBlank() } ?: suggestedFileName(detail)
+            // 目标 uri 在真正下载时创建（主线程不做 IO），完成后再回填；可复用时直接用旧 uri。
+            destPath = reusedSafDoc?.destPath.orEmpty()
         } else {
             val dir = downloadDir(context)
             fileName = uniqueFileName(dir, detail)
@@ -474,6 +502,7 @@ object ZlibDownloadManager {
             status = ZlibDownloadStatus.PREPARING,
         )
         _tasks.update { list -> list.filterNot { it.id == task.id } + task }
+        persistActive(task)
         launchDownload(task, store)
     }
 
@@ -512,6 +541,7 @@ object ZlibDownloadManager {
             finishedAt = 0L,
         )
         _tasks.update { list -> list.map { if (it.id == id) task else it } }
+        persistActive(task)
         launchDownload(task, store)
     }
 
@@ -532,6 +562,7 @@ object ZlibDownloadManager {
         val task = _tasks.value.firstOrNull { it.id == id } ?: return
         if (task.isActive) return
         _tasks.update { list -> list.filterNot { it.id == id } }
+        clearActive(task.bookId)
     }
 
     /**
@@ -542,6 +573,7 @@ object ZlibDownloadManager {
         val task = _tasks.value.firstOrNull { it.id == id } ?: return
         if (task.isActive) return
         _tasks.update { list -> list.filterNot { it.id == id } }
+        clearActive(task.bookId)
         val context = appContext ?: return
         scope.launch(Dispatchers.IO) {
             if (task.saf || task.destPath.startsWith("content://")) {
@@ -572,6 +604,7 @@ object ZlibDownloadManager {
     fun removeHistory(bookId: String, deleteFile: Boolean): Boolean {
         val removed = _history.value.firstOrNull { it.bookId == bookId } ?: return false
         _history.update { list -> list.filterNot { it.bookId == bookId } }
+        clearActive(bookId)
         scheduleHistoryWrite()
         // 同一本书的终态卡片一并移除，避免记录页删了而书架还挂着卡片。
         _tasks.update { list -> list.filterNot { it.bookId == bookId && !it.isActive } }
@@ -722,8 +755,9 @@ object ZlibDownloadManager {
                 mimeType = DownloadLocation.mimeFor(task.format),
             ) ?: error("无法在所选文件夹中创建文件")
             // 先把目标 uri 记进任务：复制失败后重试会复用同一文档（截断重写），不会在用户目录留下孤儿文件。
+            // U10：同时落盘非终态快照 —— 进程此时被杀，下次启动能凭这条记录找到并复用/删除半截文档。
             if (task.destPath != target.toString()) {
-                updateTask(task.id) { it.copy(destPath = target.toString()) }
+                updateTask(task.id) { it.copy(destPath = target.toString()) }?.let { persistActive(it) }
             }
             withContext(Dispatchers.IO) {
                 val output = DownloadLocation.openOutput(context, target)
@@ -805,6 +839,8 @@ object ZlibDownloadManager {
                             finishedAt = System.currentTimeMillis(),
                         )
                     }
+                    // U10：用户取消是终态，删掉非终态快照（半成品文件按 U3 保留，卡片上可续传/删除）。
+                    clearActive(task.bookId)
                     Log.i(
                         PERF_TAG,
                         "zlib_download|ms=" + (SystemClock.elapsedRealtime() - began) +
@@ -874,6 +910,7 @@ object ZlibDownloadManager {
                 errorMessage = null,
             )
         }
+        persistActive(_tasks.value.firstOrNull { it.id == task.id } ?: task)
         scope.launch {
             try {
                 val importing = updateTask(task.id) {
@@ -918,7 +955,7 @@ object ZlibDownloadManager {
     }
 
     private fun safTempFile(context: Context, id: String): File {
-        val dir = File(context.cacheDir, "zlib-downloads").apply { mkdirs() }
+        val dir = File(context.cacheDir, SAF_TEMP_DIR).apply { mkdirs() }
         return File(dir, id.replace(':', '_') + ".part")
     }
 
@@ -945,6 +982,8 @@ object ZlibDownloadManager {
     }
 
     private fun addHistory(task: ZlibDownloadTask, actualSize: Long) {
+        // U10：进入终态 → 非终态快照退场（随后统一写一次盘）。
+        pendingRecords.remove(task.bookId)
         val record = task.copy(
             received = actualSize.coerceAtLeast(task.received),
             total = actualSize.takeIf { it > 0L } ?: task.total,
@@ -958,9 +997,30 @@ object ZlibDownloadManager {
     /** 单写者队列：只有 submit 返回 true 的调用者启动排空循环（写盘前重取最新快照）。 */
     private fun scheduleHistoryWrite() {
         val store = historyStore ?: return
-        if (store.submit(_history.value)) {
+        if (store.submit(snapshotForDisk())) {
             scope.launch(Dispatchers.IO) { store.drain() }
         }
+    }
+
+    /**
+     * U10：磁盘快照 = 非终态快照 + 终态历史（同书以非终态为准，避免旧终态覆盖进行中）。
+     * 进行中记录只写盘、不进入 [_history]，所以记录页/详情页看不到它。
+     */
+    private fun snapshotForDisk(): List<ZlibDownloadTask> {
+        if (pendingRecords.isEmpty()) return _history.value
+        val pendingIds = pendingRecords.keys
+        return pendingRecords.values.toList() + _history.value.filterNot { it.bookId in pendingIds }
+    }
+
+    /** U10：记录一条进行中的下载快照并落盘（失败/取消/完成时由 [clearActive] 移除）。 */
+    private fun persistActive(task: ZlibDownloadTask) {
+        pendingRecords[task.bookId] = task.copy(importing = false, cancelling = false)
+        scheduleHistoryWrite()
+    }
+
+    /** U10：进行中快照退场（终态写入走 [addHistory] 里同一次 scheduleHistoryWrite）。 */
+    private fun clearActive(bookId: String) {
+        if (pendingRecords.remove(bookId) != null) scheduleHistoryWrite()
     }
 
     /** T4（D8）：删除下载文件（普通路径/SAF）。失败只记日志——记录删除不依赖文件删除结果。 */
@@ -1014,7 +1074,13 @@ object ZlibDownloadManager {
             val item = array.optJSONObject(index) ?: continue
             val bookId = item.optString("bookId")
             val destPath = item.optString("filePath")
-            if (bookId.isBlank() || destPath.isBlank()) continue
+            // U10：非终态快照可能还没有目标（SAF 目录里文档尚未创建），也要恢复成中断记录；
+            // 终态记录没有文件路径则视为脏数据丢弃。
+            val rawStatus = item.optString("status")
+            val pending = rawStatus == ZlibDownloadStatus.PREPARING.name ||
+                rawStatus == ZlibDownloadStatus.DOWNLOADING.name
+            if (bookId.isBlank()) continue
+            if (destPath.isBlank() && !pending) continue
             out += ZlibDownloadTask(
                 id = taskId(bookId),
                 bookId = bookId,
@@ -1029,10 +1095,13 @@ object ZlibDownloadManager {
                 saf = item.optString("storage") == "saf" || destPath.startsWith("content://"),
                 received = item.optLong("size", 0L),
                 total = item.optLong("size", 0L),
-                status = if (item.optString("status") == "FAILED") {
-                    ZlibDownloadStatus.FAILED
-                } else {
-                    ZlibDownloadStatus.COMPLETED
+                // U10：保留非终态（进程被杀前写下的快照），启动时由 zlibRecoverInterrupted 改写。
+                status = when (rawStatus) {
+                    ZlibDownloadStatus.PREPARING.name -> ZlibDownloadStatus.PREPARING
+                    ZlibDownloadStatus.DOWNLOADING.name -> ZlibDownloadStatus.DOWNLOADING
+                    ZlibDownloadStatus.CANCELLED.name -> ZlibDownloadStatus.CANCELLED
+                    ZlibDownloadStatus.FAILED.name -> ZlibDownloadStatus.FAILED
+                    else -> ZlibDownloadStatus.COMPLETED
                 },
                 errorKind = item.optString("errorKind").takeUnless { it.isBlank() },
                 errorMessage = item.optString("errorMessage").takeUnless { it.isBlank() },
@@ -1070,4 +1139,46 @@ object ZlibDownloadManager {
             .put("downloads", array)
             .toString()
     }
+}
+
+/**
+ * U10：启动时把磁盘上读回的非终态记录（PREPARING/DOWNLOADING）改写成可重试的失败态。
+ *
+ * 进程被杀/崩溃时不会有人写终态，这些记录是唯一线索：改写成 FAILED(INTERRUPTED) 后
+ * 详情页/记录页可以正常「重试」，SAF 的半截文档 uri 也留在 destPath 里供重试复用或删除，
+ * 不会出现「文件在用户目录里但应用完全不知道」的孤儿。终态记录原样返回（幂等）。
+ */
+internal fun zlibRecoverInterrupted(
+    loaded: List<ZlibDownloadTask>,
+    now: Long,
+): List<ZlibDownloadTask> = loaded.map { record ->
+    if (record.status == ZlibDownloadStatus.PREPARING ||
+        record.status == ZlibDownloadStatus.DOWNLOADING
+    ) {
+        record.copy(
+            status = ZlibDownloadStatus.FAILED,
+            errorKind = ZlibDownloadManager.ZLIB_INTERRUPTED_KIND,
+            errorMessage = ZlibDownloadManager.ZLIB_INTERRUPTED_MESSAGE,
+            importing = false,
+            cancelling = false,
+            finishedAt = now,
+        )
+    } else {
+        record
+    }
+}
+
+/**
+ * U10：清 cacheDir/zlib-downloads 下进程被杀留下的半成品（.part / .part.meta）。
+ * 这些临时文件跨进程无法可靠续传，留着只会占空间；返回删除的文件数。
+ */
+internal fun zlibCleanTempDownloads(dir: File): Int {
+    if (!dir.isDirectory) return 0
+    var removed = 0
+    dir.walkBottomUp().forEach { file ->
+        if (file == dir) return@forEach
+        if (file.isFile && file.delete()) removed++
+    }
+    dir.delete()
+    return removed
 }
