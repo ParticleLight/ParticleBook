@@ -196,7 +196,6 @@ fun ParticleBookApp() {
     // P1.5 §11.7：二级页返回栈。空 = 主 tab 外壳；push/pop 只增删栈顶，
     // 栈内页面全部保持组合（见下方渲染），因此返回不重建父页、滚动位置/已加载页/展开态都不丢。
     var navStack by rememberSaveable { mutableStateOf(ArrayList<String>()) }
-    val currentRoute = navStack.lastOrNull().orEmpty()
     var detailHash by rememberSaveable { mutableStateOf("") }
     var detailSlug by rememberSaveable { mutableStateOf("") }
     var booklistHref by rememberSaveable { mutableStateOf("") }
@@ -537,28 +536,21 @@ fun ParticleBookApp() {
             }
         }
 
-        // R5-d / P1c：同一次下载失败只在一个位置表达，避免「页内错误 + 全局卡片」同屏。
-        // §11.6 冻结：登录 / 详情 / 发现面 5 页都不渲染全局下载卡片（各自有内联状态）；
-        // 下载记录页只保留进行中的任务，失败/完成在行内表达；阅读器是全屏沉浸页也不渲染。
-        val stackOverlayHidden = currentRoute in setOf(
-            "login",
-            "detail",
-            "booklists",
-            "booklist",
-            "popular",
-            "categories",
-            "categoryList",
-        )
-        val overlayTasks = if (currentRoute == "downloads") {
-            downloadTasks.filter { it.isActive }
-        } else {
-            downloadTasks
-        }
-        if (!stackOverlayHidden && openBook == null) {
+        // R5-d / P1c / U6：同一次下载失败只在一个位置表达，避免「页内错误 + 全局卡片」同屏。
+        // §11.6 + U6 冻结：全局下载卡片只在主 tab（书架/发现/设置，navStack 为空）渲染。
+        // 二级页（登录/详情/发现面/下载记录等）各自有内联状态；阅读器是全屏沉浸页也不渲染。
+        // 主 tab 上最多显示 2 张卡片，其余收进「还有 N 个 · 查看全部」进下载记录页（U6）。
+        val onMainTabs = navStack.isEmpty()
+        if (onMainTabs && openBook == null && downloadTasks.isNotEmpty()) {
             ZlibDownloadCardsOverlay(
-                tasks = overlayTasks,
+                tasks = downloadTasks,
+                onCancel = { id -> ZlibDownloadManager.cancel(id) },
                 onRetry = { id -> ZlibDownloadManager.retry(id, store) },
                 onDismiss = { id -> ZlibDownloadManager.dismiss(id) },
+                onDiscard = { id -> ZlibDownloadManager.discard(id) },
+                onReimport = { id -> ZlibDownloadManager.reimport(id, store) },
+                onLogin = openLogin,
+                onViewAll = { pushRoute("downloads") },
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     // P1c P2-5：token 是「距屏底总量」，与胶囊上沿（124/132dp）留 16/12dp；
