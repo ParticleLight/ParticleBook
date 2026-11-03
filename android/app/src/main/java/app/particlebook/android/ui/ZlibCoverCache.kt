@@ -30,6 +30,13 @@ object ZlibCoverCache {
         override fun sizeOf(key: String, value: Bitmap): Int = value.byteCount
     }
 
+    /**
+     * 内存缓存同步命中（只读，UI 主线程可安全调用）。
+     * 列表滚动复用时用它做 produceState 的初值：命中就直接出图，避免先闪一帧首字占位。
+     */
+    fun peek(bookId: String): Bitmap? =
+        if (bookId.isBlank()) null else memory.get(bookId)
+
     private fun coverDir(context: Context): File =
         File(context.filesDir, "zlib_covers").apply { mkdirs() }
 

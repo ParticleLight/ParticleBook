@@ -9,20 +9,33 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 
-/** 图片封面（详情页）：bitmap 就绪前只显示 primaryContainer 占位，不闪烁。 */
+/**
+ * 图片封面：bitmap 就绪前只显示单色占位 + 书名首字，不闪 spinner、不闪空白。
+ *
+ * 详情页用默认样式（primaryContainer / titleLarge）；搜索结果行通过可选参数换成
+ * primary 12% 底 + titleMedium，保持列表行更小号的占位字。加载失败（bitmap=null）
+ * 同样回退首字块，不需要额外错误态。
+ */
 @Composable
 fun ZlibCoverImage(
     bitmap: Bitmap?,
     title: String,
     modifier: Modifier = Modifier,
+    shape: Shape = RoundedCornerShape(Radius.chip),
+    placeholderColor: Color = MaterialTheme.colorScheme.primaryContainer,
+    placeholderContentColor: Color = MaterialTheme.colorScheme.onPrimaryContainer,
+    placeholderTextStyle: TextStyle = MaterialTheme.typography.titleLarge,
 ) {
     Surface(
         modifier = modifier,
-        shape = RoundedCornerShape(Radius.chip),
-        color = MaterialTheme.colorScheme.primaryContainer,
+        shape = shape,
+        color = placeholderColor,
     ) {
         if (bitmap != null) {
             androidx.compose.foundation.Image(
@@ -38,8 +51,8 @@ fun ZlibCoverImage(
             ) {
                 Text(
                     text = title.firstOrNull()?.toString() ?: "?",
-                    style = MaterialTheme.typography.titleLarge,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                    style = placeholderTextStyle,
+                    color = placeholderContentColor,
                 )
             }
         }

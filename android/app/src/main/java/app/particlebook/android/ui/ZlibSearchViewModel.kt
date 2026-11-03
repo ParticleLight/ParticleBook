@@ -40,9 +40,30 @@ sealed interface ZlibSearchState {
         val totalPages: Int,
         val loadingMore: Boolean = false,
         val loadMoreError: String? = null,
-        /** 非空表示分类榜单（/s/&lt;中文&gt;）而不是关键词搜索。 */
+        /** 非空表示分类榜单（/s/中文）而不是关键词搜索。 */
         val category: String? = null,
+        /** 翻页失败的原始错误 kind（B5：NO_MIRROR 时也要触发全失败 banner）；空/成功时为 null。 */
+        val loadMoreKindLabel: String? = null,
     ) : ZlibSearchState
+}
+
+/** 搜索 ViewModel 依赖的最小数据源（唯一实现是 ZlibClient 适配器；单测可注入假实现）。 */
+internal interface ZlibSearchSource {
+    fun search(query: String, page: Int): ZSearchPage
+    fun fetchCategory(path: String): List<ZBook>
+    fun resetConnectionState()
+    fun mirrorUrl(): String?
+}
+
+/** ZlibClient -> 数据源适配器（保持 ViewModel 不直接依赖具体客户端，便于 JVM 单测）。 */
+internal class ZlibClientSearchSource(private val client: ZlibClient) : ZlibSearchSource {
+    override fun search(query: String, page: Int): ZSearchPage = client.search(query, page)
+    override fun fetchCategory(path: String): List<ZBook> = client.fetchCategory(path)
+    override fun resetConnectionState() {
+        client.resetConnectionState()
+    }
+
+    override fun mirrorUrl(): String? = client.mirror
 }
 
 /**
@@ -50,32 +71,50 @@ sealed interface ZlibSearchState {
  * 项目没有 androidx.lifecycle:viewmodel 依赖（离线环境不能加），所以这里是一个普通类：
  * 由 Composable 用 remember 持有，协程跑在传入的 composition scope 上，离开页面自动取消。
  * 网络 + HTML 解析一律 withContext(Dispatchers.IO)，主线程只读状态和打日志。
+ *
+ * 并发语义（T6）：每次 search/searchCategory/resetToIdle 都自增 [requestId]，网络返回后
+ * 先校验令牌再写 state；配合 Job.cancel 保证「快速改词/重试」时旧请求（包括其失败分支
+ * 与翻页结果）不会覆盖新请求的界面状态。
  */
-class ZlibSearchViewModel(
+class ZlibSearchViewModel internal constructor(
     private val scope: CoroutineScope,
-    private val client: ZlibClient,
+    private val source: ZlibSearchSource,
+    private val now: () -> Long = { SystemClock.elapsedRealtime() },
+    private val logInfo: (tag: String, message: String) -> Unit = { tag, message -> Log.i(tag, message) },
+    private val logWarn: (tag: String, message: String, error: Throwable?) -> Unit = { tag, message, error ->
+        Log.w(tag, message, error)
+    },
 ) {
+    /** 生产构造：FindScreen 调用点保持不变。 */
+    constructor(scope: CoroutineScope, client: ZlibClient) : this(scope, ZlibClientSearchSource(client))
+
     var state by mutableStateOf<ZlibSearchState>(ZlibSearchState.Idle)
         private set
+
+    /** 当前线路（封面相对路径解析用）；未探测到线路时为 null。 */
+    val mirrorBase: String?
+        get() = runCatching { source.mirrorUrl() }.getOrNull()
 
     private var currentQuery: String = ""
     private var currentCategory: String? = null
     private var firstPageJob: Job? = null
     private var nextPageJob: Job? = null
 
+    /** 请求令牌：只在主线程自增；写状态前比对，旧请求的迟到结果直接丢弃。 */
+    @Volatile
+    private var requestId: Int = 0
+
     /** 回车 / 点搜索：从第 1 页重新搜。 */
     fun search(query: String) {
         val trimmed = query.trim()
         if (trimmed.isEmpty()) return
-        currentQuery = trimmed
-        currentCategory = null
-        firstPageJob?.cancel()
-        nextPageJob?.cancel()
+        val request = beginRequest(trimmed, null)
         state = ZlibSearchState.Loading
         firstPageJob = scope.launch {
-            val began = SystemClock.elapsedRealtime()
+            val began = now()
             try {
-                val result = withContext(Dispatchers.IO) { client.search(trimmed, 1) }
+                val result = withContext(Dispatchers.IO) { source.search(trimmed, 1) }
+                if (!isCurrent(request)) return@launch
                 logSearch(began, result)
                 // LazyColumn 的 key = book.id：单页内若站方返回重复 id 会直接崩，这里先去重。
                 val books = result.books.distinctBy { it.id }
@@ -92,6 +131,8 @@ class ZlibSearchViewModel(
             } catch (cancellation: CancellationException) {
                 throw cancellation
             } catch (throwable: Throwable) {
+                // 旧请求失败（超时/连接断开）不能把新请求的 Loading/Success 覆盖成错误态。
+                if (!isCurrent(request)) return@launch
                 state = toErrorState(throwable)
             }
         }
@@ -104,20 +145,18 @@ class ZlibSearchViewModel(
     fun searchCategory(category: String) {
         val trimmed = category.trim()
         if (trimmed.isEmpty()) return
-        currentQuery = ""
-        currentCategory = trimmed
-        firstPageJob?.cancel()
-        nextPageJob?.cancel()
+        val request = beginRequest("", trimmed)
         state = ZlibSearchState.Loading
         firstPageJob = scope.launch {
-            val began = SystemClock.elapsedRealtime()
+            val began = now()
             try {
                 val books = withContext(Dispatchers.IO) {
-                    client.fetchCategory(categoryPath(trimmed, 1))
+                    source.fetchCategory(categoryPath(trimmed, 1))
                 }.distinctBy { it.id }
-                Log.i(
+                if (!isCurrent(request)) return@launch
+                logInfo(
                     PERF_TAG,
-                    "zlib_category|ms=" + (SystemClock.elapsedRealtime() - began) +
+                    "zlib_category|ms=" + (now() - began) +
                         "|extra=mirror:" + mirrorHost() + ",results:" + books.size +
                         ",category:" + trimmed,
                 )
@@ -135,6 +174,7 @@ class ZlibSearchViewModel(
             } catch (cancellation: CancellationException) {
                 throw cancellation
             } catch (throwable: Throwable) {
+                if (!isCurrent(request)) return@launch
                 state = toErrorState(throwable)
             }
         }
@@ -145,15 +185,18 @@ class ZlibSearchViewModel(
         val current = state as? ZlibSearchState.Success ?: return
         if (current.loadingMore || current.loadMoreError != null) return
         if (current.page >= current.totalPages) return
-        state = current.copy(loadingMore = true, loadMoreError = null)
+        val request = requestId
+        state = current.copy(loadingMore = true, loadMoreError = null, loadMoreKindLabel = null)
+        nextPageJob?.cancel()
         nextPageJob = scope.launch {
-            val began = SystemClock.elapsedRealtime()
+            val began = now()
             try {
                 if (current.category != null) {
                     val nextPage = current.page + 1
                     val more = withContext(Dispatchers.IO) {
-                        client.fetchCategory(categoryPath(current.category, nextPage))
+                        source.fetchCategory(categoryPath(current.category, nextPage))
                     }
+                    if (!isCurrent(request)) return@launch
                     val latest = state as? ZlibSearchState.Success ?: return@launch
                     if (latest.category != current.category) return@launch
                     if (more.isEmpty()) {
@@ -172,11 +215,13 @@ class ZlibSearchViewModel(
                         },
                         loadingMore = false,
                         loadMoreError = null,
+                        loadMoreKindLabel = null,
                     )
                 } else {
                     val next = withContext(Dispatchers.IO) {
-                        client.search(current.query, current.page + 1)
+                        source.search(current.query, current.page + 1)
                     }
+                    if (!isCurrent(request)) return@launch
                     logSearch(began, next)
                     val latest = state as? ZlibSearchState.Success ?: return@launch
                     if (latest.query != current.query || latest.category != null) return@launch
@@ -187,15 +232,21 @@ class ZlibSearchViewModel(
                         totalPages = next.totalPages,
                         loadingMore = false,
                         loadMoreError = null,
+                        loadMoreKindLabel = null,
                     )
                 }
             } catch (cancellation: CancellationException) {
                 throw cancellation
             } catch (throwable: Throwable) {
+                if (!isCurrent(request)) return@launch
                 val latest = state as? ZlibSearchState.Success ?: return@launch
                 if (latest.query != current.query || latest.category != current.category) return@launch
                 recordError(throwable)
-                state = latest.copy(loadingMore = false, loadMoreError = errorMessage(throwable))
+                state = latest.copy(
+                    loadingMore = false,
+                    loadMoreError = errorMessage(throwable),
+                    loadMoreKindLabel = kindLabel(throwable),
+                )
             }
         }
     }
@@ -204,7 +255,7 @@ class ZlibSearchViewModel(
     fun retryLoadNextPage() {
         val current = state as? ZlibSearchState.Success ?: return
         if (current.loadMoreError == null) return
-        state = current.copy(loadMoreError = null)
+        state = current.copy(loadMoreError = null, loadMoreKindLabel = null)
         loadNextPage()
     }
 
@@ -212,42 +263,58 @@ class ZlibSearchViewModel(
     fun retry() {
         val category = currentCategory
         if (category != null) {
-            client.resetConnectionState()
+            source.resetConnectionState()
             searchCategory(category)
             return
         }
         if (currentQuery.isEmpty()) return
-        client.resetConnectionState()
+        source.resetConnectionState()
         search(currentQuery)
     }
 
-    /** 空结果页「看看热门分类」：回到初始态。 */
+    /** 空结果页「看看热门分类」：回到初始态，并作废所有在途请求。 */
     fun resetToIdle() {
         firstPageJob?.cancel()
         nextPageJob?.cancel()
+        firstPageJob = null
+        nextPageJob = null
+        requestId += 1
         currentQuery = ""
         currentCategory = null
         state = ZlibSearchState.Idle
     }
 
+    /** 开始新请求：作废旧令牌 + 取消旧 Job；返回本次令牌。 */
+    private fun beginRequest(query: String, category: String?): Int {
+        currentQuery = query
+        currentCategory = category
+        firstPageJob?.cancel()
+        nextPageJob?.cancel()
+        firstPageJob = null
+        nextPageJob = null
+        requestId += 1
+        return requestId
+    }
+
+    private fun isCurrent(request: Int): Boolean = request == requestId
+
     private fun toErrorState(throwable: Throwable): ZlibSearchState.Error {
         recordError(throwable)
         return ZlibSearchState.Error(
             message = errorMessage(throwable),
-            kindLabel = (throwable as? ZlibException)?.kind?.name ?: "UNKNOWN",
+            kindLabel = kindLabel(throwable),
         )
     }
 
     private fun recordError(throwable: Throwable) {
-        val kind = (throwable as? ZlibException)?.kind?.name ?: "UNKNOWN"
-        Log.i(PERF_TAG, "zlib_error|extra=kind:" + kind)
-        Log.w(TAG, "zlib search failed kind=" + kind, throwable)
+        logInfo(PERF_TAG, "zlib_error|extra=kind:" + kindLabel(throwable))
+        logWarn(TAG, "zlib search failed kind=" + kindLabel(throwable), throwable)
     }
 
     private fun logSearch(began: Long, result: ZSearchPage) {
-        Log.i(
+        logInfo(
             PERF_TAG,
-            "zlib_search|ms=" + (SystemClock.elapsedRealtime() - began) +
+            "zlib_search|ms=" + (now() - began) +
                 "|extra=mirror:" + mirrorHost() +
                 ",results:" + result.books.size +
                 ",page:" + result.page +
@@ -262,7 +329,7 @@ class ZlibSearchViewModel(
     }
 
     private fun mirrorHost(): String {
-        val raw = runCatching { client.mirror }.getOrNull() ?: return "unknown"
+        val raw = runCatching { source.mirrorUrl() }.getOrNull() ?: return "unknown"
         return runCatching { URI(raw).host }.getOrNull() ?: raw
     }
 
@@ -272,6 +339,9 @@ class ZlibSearchViewModel(
 
         /** research §8 实测：分类页每页 51 条。 */
         const val CATEGORY_PAGE_SIZE = 51
+
+        fun kindLabel(throwable: Throwable): String =
+            (throwable as? ZlibException)?.kind?.name ?: "UNKNOWN"
 
         fun errorMessage(throwable: Throwable): String {
             val kind = (throwable as? ZlibException)?.kind

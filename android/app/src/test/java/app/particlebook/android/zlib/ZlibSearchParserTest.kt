@@ -31,6 +31,47 @@ class ZlibSearchParserTest {
         assertEquals("9.96 MB", first.fileSize)
         assertTrue(first.href.startsWith("/book/"))
         assertTrue(first.downloadPath.startsWith("/dl/"))
+
+        // A2：封面原始地址。首卡是 cover-not-exists 占位图，因此为空串；第二卡是绝对 CDN。
+        assertEquals("", first.coverUrl)
+        val withCover = page.books[1]
+        assertEquals("5234752", withCover.id)
+        assertTrue(
+            "real cover should be absolute CDN, was=" + withCover.coverUrl,
+            withCover.coverUrl.startsWith("https://") && withCover.coverUrl.contains("/covers100/"),
+        )
+    }
+
+    /** A2：封面地址提取规则（data-src 优先 / src 回退 / 占位与脏值置空）。 */
+    @Test
+    fun parsesCoverUrlFromCardImage() {
+        val html = """
+            <div id="searchResultBox">
+              <z-bookcard id="1" href="/book/a.html" download="/dl/a">
+                <img data-src="/img/covers100/internal.jpg" />
+                <div slot="title">internal</div>
+              </z-bookcard>
+              <z-bookcard id="2" href="/book/b.html" download="/dl/b">
+                <img src="/img/cover-not-exists.png" />
+                <div slot="title">no cover</div>
+              </z-bookcard>
+              <z-bookcard id="3" href="/book/c.html" download="/dl/c">
+                <img data-src="javascript:alert(1)" />
+                <div slot="title">dirty</div>
+              </z-bookcard>
+              <z-bookcard id="4" href="/book/d.html" download="/dl/d">
+                <img data-src="//cdn.example.com/covers100/proto.jpg" />
+                <div slot="title">protocol relative</div>
+              </z-bookcard>
+            </div>
+        """.trimIndent()
+
+        val books = ZlibSearchParser.parseCards(html)
+
+        assertEquals("/img/covers100/internal.jpg", books[0].coverUrl)
+        assertEquals("", books[1].coverUrl)
+        assertEquals("", books[2].coverUrl)
+        assertEquals("//cdn.example.com/covers100/proto.jpg", books[3].coverUrl)
     }
 
     /**

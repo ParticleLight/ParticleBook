@@ -184,10 +184,22 @@ fun DiscoverScreen(
                     onDownloadsClick = onDownloadsClick,
                 )
             }
+            // B5：首屏 NO_MIRROR 与「翻页时全线路失败」都算整体不可达，共用同一 banner。
             val errorState = state as? ZlibSearchState.Error
+            val loadMoreNoMirror = (state as? ZlibSearchState.Success)
+                ?.takeIf { it.loadMoreError != null && it.loadMoreKindLabel == "NO_MIRROR" }
             if (errorState != null && errorState.kindLabel == "NO_MIRROR") {
                 Spacer(Modifier.height(Spacing.sm))
-                NoMirrorBanner(onSwitchLines = { mirrorSheetOpen = true })
+                NoMirrorBanner(
+                    onRetry = { viewModel.retry() },
+                    onSwitchLines = { mirrorSheetOpen = true },
+                )
+            } else if (loadMoreNoMirror != null) {
+                Spacer(Modifier.height(Spacing.sm))
+                NoMirrorBanner(
+                    onRetry = { viewModel.retryLoadNextPage() },
+                    onSwitchLines = { mirrorSheetOpen = true },
+                )
             }
             Spacer(Modifier.height(Spacing.lg))
 
@@ -351,6 +363,10 @@ fun DiscoverScreen(
                                 language = book.language,
                                 extension = book.extension,
                                 fileSize = book.fileSize,
+                                coverUrl = resolveZlibCoverUrl(book.coverUrl, viewModel.mirrorBase),
+                                coverKey = book.id,
+                                rating = book.rating,
+                                publisher = book.publisher,
                                 onClick = {
                                     val ref = parseBookRef(book.href)
                                     if (ref != null) {
@@ -561,33 +577,50 @@ private fun TopOverflowMenu(
     }
 }
 
-/** 全线路失败 banner（§4.8）：只在 NO_MIRROR 错误态出现，成功搜索后自然消失。 */
+/**
+ * 全线路失败 banner（§4.8）：首屏 NO_MIRROR 或翻页 NO_MIRROR 时出现，成功搜索后自然消失。
+ * 两个动作竖排一行（重试 / 切换线路），避免 200% 字号时文案与按钮互相挤压。
+ */
 @Composable
-private fun NoMirrorBanner(onSwitchLines: () -> Unit) {
+private fun NoMirrorBanner(onRetry: () -> Unit, onSwitchLines: () -> Unit) {
     Surface(
         shape = RoundedCornerShape(Radius.card),
         color = MaterialTheme.colorScheme.errorContainer,
         modifier = Modifier.fillMaxWidth(),
     ) {
-        Row(
-            modifier = Modifier.padding(start = Spacing.md, end = Spacing.xs, top = Spacing.xs, bottom = Spacing.xs),
-            verticalAlignment = Alignment.CenterVertically,
+        Column(
+            modifier = Modifier.padding(
+                start = Spacing.md,
+                end = Spacing.xs,
+                top = Spacing.xs,
+                bottom = Spacing.xs,
+            ),
         ) {
-            Icon(
-                imageVector = Icons.Outlined.ErrorOutline,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onErrorContainer,
-                modifier = Modifier.size(20.dp),
-            )
-            Spacer(Modifier.size(Spacing.xs))
-            Text(
-                text = "所有 Z-Library 镜像暂时不可达，请稍后重试或手动切换线路",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onErrorContainer,
-                modifier = Modifier.weight(1f),
-            )
-            TextButton(onClick = onSwitchLines) {
-                Text("切换线路")
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Outlined.ErrorOutline,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onErrorContainer,
+                    modifier = Modifier.size(20.dp),
+                )
+                Spacer(Modifier.size(Spacing.xs))
+                Text(
+                    text = "所有 Z-Library 镜像暂时不可达，请稍后重试或手动切换线路",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onErrorContainer,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+            ) {
+                TextButton(onClick = onRetry) {
+                    Text("重试")
+                }
+                TextButton(onClick = onSwitchLines) {
+                    Text("切换线路")
+                }
             }
         }
     }

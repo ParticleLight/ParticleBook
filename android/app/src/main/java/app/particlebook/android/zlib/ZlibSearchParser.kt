@@ -15,6 +15,8 @@ object ZlibSearchParser {
     private val ATTR = Regex("([A-Za-z_][-A-Za-z0-9_:.]*)\\s*=\\s*(?:\"([^\"]*)\"|'([^']*)')")
     private val PAGES_TOTAL = Regex("pagesTotal\\s*:\\s*(\\d+)")
     private val ENTITY = Regex("&(#x[0-9A-Fa-f]+|#[0-9]+|[A-Za-z]{2,10});")
+    private val IMG_TAG = Regex("<img\\b[^>]*>", RegexOption.IGNORE_CASE)
+    private val IMG_SRC = Regex("(data-src|src)\\s*=\\s*(?:\"([^\"]*)\"|'([^']*)')", RegexOption.IGNORE_CASE)
     private val DOTALL = setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE)
 
     private val EMPTY_MARKERS = listOf(
@@ -108,7 +110,32 @@ object ZlibSearchParser {
             publisher = attrs["publisher"].orEmpty(),
             rating = attrs["rating"].orEmpty(),
             isbn = attrs["isbn"].orEmpty(),
+            coverUrl = parseCoverUrl(content),
         )
+    }
+
+    /**
+     * 卡片内首个 img 的原始封面地址：优先 data-src，回退 src。
+     * 空值、占位图 cover-not-exists、以及既非绝对 http(s) 也非站内相对路径的脏值一律返回空串。
+     */
+    private fun parseCoverUrl(content: String): String {
+        val img = IMG_TAG.find(content) ?: return ""
+        val attrs = HashMap<String, String>()
+        for (match in IMG_SRC.findAll(img.value)) {
+            val name = match.groupValues[1].lowercase()
+            val raw = if (match.groupValues[2].isNotEmpty()) match.groupValues[2] else match.groupValues[3]
+            attrs.putIfAbsent(name, decodeEntities(raw).trim())
+        }
+        val raw = attrs["data-src"]?.takeIf { it.isNotEmpty() } ?: attrs["src"].orEmpty()
+        val value = raw.trim()
+        if (value.isEmpty()) return ""
+        val lower = value.lowercase()
+        if (lower.contains("cover-not-exists")) return ""
+        val looksLikeUrl = lower.startsWith("http://") ||
+            lower.startsWith("https://") ||
+            value.startsWith("//") ||
+            value.startsWith("/")
+        return if (looksLikeUrl) value else ""
     }
 
     private fun parseAttributes(tagHead: String): Map<String, String> {
