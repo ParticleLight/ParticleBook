@@ -702,8 +702,9 @@ def run_smoke(ctx: Ctx):
 
 
 def smoke_asserts(data):
+    """smoke JSON 新版把断言写在 assertions（旧版本是 asserts），两个都兼容。"""
     out = {}
-    for a in (data.get("asserts") or []):
+    for a in (data.get("assertions") or data.get("asserts") or []):
         aid = a.get("id") or a.get("name") or ""
         out[aid] = a
     return out
@@ -712,12 +713,32 @@ def smoke_asserts(data):
 def analyze_and_assert(ctx: Ctx):
     data = ctx.smoke or {}
     sa = smoke_asserts(data)
+    steps = {}
+    for s in (data.get("steps") or []):
+        steps[s.get("name") or ""] = s
     dl = data.get("download") or {}
     top_state = (data.get("state") or "").upper()
 
     def st(cid):
         a = sa.get(cid) or {}
         return (a.get("state") or ("PASS" if a.get("ok") else "FAIL")) if a else "MISSING"
+
+    def sv(name):
+        """smoke 的步骤记录（steps，不是 assertions）。"""
+        s = steps.get(name) or {}
+        return ("PASS" if s.get("ok") else "FAIL") if s else "MISSING"
+
+    def dl_outcome():
+        return (dl.get("state") or dl.get("outcome") or "").upper()
+
+    def dl_ok():
+        # smoke 下载终态：新版 dl["outcome"]="ok"，旧版 dl["state"]="PASS"；
+        # download.state 是 steps 记录（不是 assertions），三种都要认。
+        return dl_outcome() in ("PASS", "OK") or sv("download.state") == "PASS"
+
+    def dl_skip():
+        return dl_outcome() in ("SKIP", "ALREADY_DOWNLOADED", "LIMIT", "LOGIN", "LOGIN_REQUIRED") \
+            or sv("download.state") == "SKIP" or top_state == "SKIP"
 
     # logcat：smoke 保存的路径优于自己再抓
     logcat_path = ""
@@ -755,9 +776,11 @@ def analyze_and_assert(ctx: Ctx):
         ctx.a("V-Z19", "SKIP", "未触发限额（下载成功或未到限额）")
 
     # V-Z14 进度
+    dl_bytes = dl.get("bytes") or "?"
+    dl_ms = dl.get("perf_ms") or dl.get("terminal_elapsed_ms") or "?"
     if ctx.args.no_download:
         ctx.skip("V-Z14", "--no-download")
-    elif dl.get("state") == "PASS" or st("download.state") == "PASS":
+    elif dl_ok():
         pcts = []
         for r in prog:
             e = kv_extra(r["extra"])
@@ -765,29 +788,43 @@ def analyze_and_assert(ctx: Ctx):
                 pcts.append(int(e["pct"]))
         increasing = len(pcts) >= 2 and max(pcts) > min(pcts)
         if increasing or len(prog) >= 1:
-            ctx.a("V-Z14", "PASS", "进度样本=%d pct=%r（心跳递增）" % (len(prog), pcts[:8]))
+            ctx.a("V-Z14", "PASS",
+                  "进度样本=%d pct=%r→%r（递增=%s）bytes=%s ms=%s" % (len(prog), pcts[:8], pcts[-1] if pcts else pcts, increasing, dl_bytes, dl_ms))
         else:
-            ctx.a("V-Z14", "PASS", "download.state PASS（无 zlib_dl_progress 样本，按 smoke 终态）")
-    elif limit or login_req or dl.get("state") == "SKIP" or st("download.state") == "SKIP" or top_state == "SKIP":
+            ctx.a("V-Z14", "PASS",
+                  "download 终态 ok（无 zlib_dl_progress 样本，按 smoke 终态）bytes=%s ms=%s" % (dl_bytes, dl_ms))
+    elif dl_skip() or limit or login_req:
         ctx.skip("V-Z14", "账号/额度前置不满足（DAILY_LIMIT/LOGIN_REQUIRED/SKIP）: "
                  + (data.get("skip_reason") or "")[:120])
     else:
-        ctx.a("V-Z14", "FAIL", "download 未通过：state=%r smoke_rc=%r" % (dl.get("state"), getattr(ctx, "smoke_rc", None)))
+        ctx.a("V-Z14", "FAIL", "download 未通过：state=%r outcome=%r download.state=%r smoke_rc=%r"
+              % (dl.get("state"), dl.get("outcome"), sv("download.state"), getattr(ctx, "smoke_rc", None)))
 
     # V-Z15 文件入书架 + 可读
     if ctx.args.no_download:
         ctx.skip("V-Z15", "--no-download")
-    elif dl.get("state") == "PASS" or st("download.state") == "PASS":
+    elif dl_ok():
         delta = dl.get("books_delta")
-        file_ok = bool(dl.get("file_exists")) or bool(dl.get("file_detail"))
+        if delta is None:
+            bb, ba = dl.get("books_before"), dl.get("books_after")
+            if isinstance(bb, int) and isinstance(ba, int):
+                delta = ba - bb
+        files_after = dl.get("files_after") or []
+        file_ok = (bool(dl.get("file_exists")) or bool(dl.get("file_detail")) or bool(files_after)
+                   or sv("download.file_exists") == "PASS")
+        delta_ok = (isinstance(delta, int) and delta >= 1) or sv("download.books_delta") == "PASS"
         pages = kv_extra(pdfopen[-1]["extra"]).get("pages", "") if pdfopen else ""
-        if pages and int(pages) > 0:
-            ctx.a("V-Z15", "PASS", "入书架 delta=%r 文件=%s pdf_open pages=%s" % (delta, file_ok, pages))
-        elif file_ok:
-            ctx.a("V-Z15", "PASS", "入书架 delta=%r 文件存在；未打开阅读器（pages 缺失）" % (delta,))
+        files_txt = ",".join(str(x) for x in files_after[:2]) if files_after else "-"
+        if delta_ok and file_ok and pages.isdigit() and int(pages) > 0:
+            ctx.a("V-Z15", "PASS", "入书架 delta=%r 文件=%s pdf_open pages=%s" % (delta, files_txt, pages))
+        elif delta_ok and file_ok:
+            ctx.a("V-Z15", "PASS",
+                  "入书架 delta=%r 文件=%s（%s bytes）；本次未打开阅读器，pages 缺失（runbook 允许文件证据）"
+                  % (delta, files_txt, dl_bytes))
         else:
-            ctx.a("V-Z15", "FAIL", "download PASS 但无文件证据：%r" % (dl,))
-    elif limit or login_req or st("download.state") == "SKIP" or top_state == "SKIP":
+            ctx.a("V-Z15", "FAIL", "download ok 但证据不足：delta=%r file_ok=%s files=%r"
+                  % (delta, file_ok, files_after))
+    elif dl_skip() or limit or login_req:
         ctx.skip("V-Z15", "账号/额度前置不满足: " + (data.get("skip_reason") or "")[:120])
     else:
         ctx.a("V-Z15", "FAIL", "download FAIL，无法验证入书架")
@@ -908,6 +945,8 @@ def main(argv=None):
     ap.add_argument("--json", default="", help="汇总 JSON 输出路径")
     ap.add_argument("--creds-file", default="",
                     help="从文件读 ZLIB_EMAIL/ZLIB_PW（支持 ZLIB_EMAIL=... / email / Buffer.from(base64) 形式，不回显密码）")
+    ap.add_argument("--analyze-smoke", default="",
+                    help="离线复算：读已有 smoke JSON（并用其 logcat），不碰设备、不再下载；只覆盖 smoke 证据能支撑的断言")
     ap.add_argument("--verbose", action="store_true")
     args = ap.parse_args(argv)
     load_creds(args.creds_file)
@@ -917,6 +956,29 @@ def main(argv=None):
         ok = plan_dry_run(ctx)
         summary(ctx)
         return 0 if ok else 1
+
+    if args.analyze_smoke:
+        # 离线复算：用已有的 smoke JSON + logcat 重跑断言聚合，不碰设备、不消耗下载额度
+        ctx = Ctx(args)
+        path = winpath(args.analyze_smoke)
+        if not os.path.exists(path):
+            print("smoke json not found:", args.analyze_smoke)
+            return 2
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+        ctx.smoke = data
+        ctx.smoke_rc = data.get("exit_code") if isinstance(data.get("exit_code"), int) else 0
+        ctx.smoke_json = path
+        if args.outdir == "spikes/zz-probe/realnet":
+            d = os.path.dirname(path)
+            if d:
+                ctx.outdir = d
+        os.makedirs(ctx.outdir, exist_ok=True)
+        ctx.p("reanalyze smoke=%s top_state=%r smoke_rc=%r assertions=%d"
+              % (args.analyze_smoke, data.get("state"), ctx.smoke_rc, len(data.get("assertions") or data.get("asserts") or [])))
+        analyze_and_assert(ctx)
+        summary(ctx)
+        return 0 if all(x["status"] != "FAIL" for x in ctx.asserts) else 1
 
     ctx = Ctx(args)
     os.makedirs(ctx.outdir, exist_ok=True)

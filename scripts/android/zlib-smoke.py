@@ -43,6 +43,15 @@ COORD_SEARCH = (720, 851)
 COORD_FIRST = (540, 1100)
 COORD_DOWNLOAD = (720, 1320)
 
+# IME：真机 Gboard 切到中文拼音后，adb input text 会把字符停在 composing（候选栏），
+# 输入框仍为空 —— 2026-11-03 22:41 首跑 ui.search_input 失败即此因（截图里输入框仍显示
+# 占位符、键盘候选栏显示 android）。输入前切纯英文 FUTO，搜索触发后恢复 Gboard；
+# 与 scripts/android/zlib-login.py:214-215 同一手法。
+FUTO_IME = "org.futo.inputmethod.latin.playstore/org.futo.inputmethod.latin.LatinIME"
+GAPPS_IME = "com.google.android.inputmethod.latin/com.android.inputmethod.latin.LatinIME"
+SEARCH_HINT = "书名 / 作者 / ISBN"
+SEARCH_QUERY = "android"
+
 LOG_RE = re.compile(
     r"^(\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\.\d+)\s+(\d+)\s+(\d+)\s+([VDIWEF])\s+(\S+)\s*:\s?(.*)$"
 )
@@ -282,6 +291,8 @@ def parse_xml_nodes(xml):
             "cls": n.get("class", "") or "",
             "pkg": n.get("package", "") or "",
             "clickable": n.get("clickable") == "true",
+            "focused": n.get("focused") == "true",
+            "enabled": n.get("enabled") == "true",
             "bounds": (x1, y1, x2, y2),
         })
     return nodes
@@ -740,6 +751,120 @@ class Smoke:
             if cls in n["cls"]:
                 return n
         return None
+
+    # ------------------------------------------------------------ IME / 搜索框定位
+    def current_ime(self):
+        try:
+            return self.shell(["settings", "get", "secure", "default_input_method"], timeout=20).strip()
+        except SmokeError:
+            return ""
+
+    def set_ime(self, ime_id):
+        """切换输入法；返回 True=命令成功。失败只 warn，不中断（输入断言仍会兜底）。"""
+        if not ime_id:
+            return False
+        try:
+            out = self.shell(["ime", "set", ime_id], timeout=30)
+        except SmokeError as e:
+            self.warn("ime set failed: " + str(e.reason)[:160])
+            return False
+        ok = ("selected" in out) or ("already" in out) or ("Error" not in out and "error" not in out)
+        self.log("ime set " + ime_id.split("/")[-1] + " -> " + ("ok" if ok else out.strip()[:120]))
+        return ok
+
+    def ime_shown(self):
+        """软键盘是否弹出（Compose 某些版本不把 focused=true 暴露到 dump，用 IME 状态兜底）。"""
+        try:
+            out = self.shell(["dumpsys", "input_method"], timeout=30)
+        except SmokeError:
+            return False
+        return "mInputShown=true" in out
+
+    def find_search_field(self, nodes):
+        """定位搜索输入框：EditText 整条框 > 占位符 hint > None（调用方再用坐标兜底）。
+
+        2026-11-03 实测新包结构（1440x2960）：EditText [56,543][1384,739]（clickable），
+        空态占位符是独立 TextView「书名 / 作者 / ISBN」[112,606][504,677]；
+        两者点中心都落在整条框内，但 EditText 的 bounds 更稳（hint 文案可能改）。
+        """
+        best, best_area = None, -1
+        for n in nodes:
+            if "EditText" not in n["cls"]:
+                continue
+            x1, y1, x2, y2 = n["bounds"]
+            area = (x2 - x1) * (y2 - y1)
+            if x2 - x1 >= 200 and y2 - y1 >= 40 and area > best_area:
+                best, best_area = n, area
+        if best is not None:
+            return best, "EditText"
+        for n in nodes:
+            if SEARCH_HINT in n["text"] or SEARCH_HINT in n["desc"]:
+                return n, "hint"
+        for n in nodes:
+            t = n["text"] + n["desc"]
+            if "书名" in t and "作者" in t:
+                return n, "hint-loose"
+        return None, ""
+
+    def find_search_button(self, nodes):
+        """搜索触发按钮：新包里是输入框右侧放大镜 View（content-desc=搜索），旧包是文字按钮「搜索」。"""
+        cands = []
+        for n in nodes:
+            t = n["text"].strip()
+            d = n["desc"].strip()
+            if t == "搜索" or d == "搜索":
+                cands.append(n)
+        if not cands:
+            return None
+        cands.sort(key=lambda n: n["bounds"][1])
+        return cands[0]
+
+    def wait_field_text(self, want, timeout=6.0):
+        """轮询 dump 直到任意节点文本/描述包含 want（大小写不敏感）；返回 (命中文本, xml)。"""
+        end = min(time.time() + float(timeout), self.deadline)
+        want_low = want.lower()
+        nodes, xml = [], ""
+        while True:
+            try:
+                nodes, xml = self.dump_ui()
+            except SmokeError:
+                nodes = []
+            for n in nodes:
+                hay = (n.get("text", "") + "\n" + n.get("desc", "")).strip()
+                if want_low in hay.lower():
+                    return hay, xml
+            if time.time() >= end or self.rem() <= 0:
+                return None, xml
+            time.sleep(0.6)
+
+    def wait_field_focus(self, first_nodes=None, timeout=6.0):
+        """tap 之后轮询「输入框已聚焦」：优先 dump focused=true，其次软键盘弹出。"""
+        end = min(time.time() + float(timeout), self.deadline)
+        nodes = first_nodes or []
+        attempt = 0
+        while time.time() < end and self.rem() > 0:
+            if attempt:
+                try:
+                    nodes, _ = self.dump_ui()
+                except SmokeError:
+                    nodes = []
+            attempt += 1
+            for n in nodes:
+                if n.get("focused") and "EditText" in n["cls"]:
+                    return True, "dump-focused", nodes
+            if attempt == 2:
+                # 第一次没聚焦：按整条 EditText 再点一次，仍找不到就坐标兜底
+                again, how = self.find_search_field(nodes)
+                if again is not None:
+                    self.tap_node(again, "search_field_retry")
+                else:
+                    x, y = self.scaled(COORD_FIELD)
+                    self.tap_xy(x, y, "search_field_retry")
+                nodes = []
+            time.sleep(0.7)
+        if self.ime_shown():
+            return True, "ime-shown", nodes
+        return False, "no-focus-evidence", nodes
 
     def find_download_button(self, nodes):
         for n in nodes:
@@ -2074,30 +2199,65 @@ class Smoke:
         return False
 
     def do_search(self):
+        # 1) 定位输入框：EditText 整条框优先，占位符 hint 次之，最后坐标兜底。
+        #    等待页面渲染出输入框（open_zlib_tab 已等页面，这里再给 6s 兜抖动）。
+        self.wait(lambda ns: self.find_search_field(ns)[0] is not None, 6, "search field")
         nodes, _ = self.dump_ui()
-        field = self.find_contains(nodes, "书名 / 作者 / ISBN")
-        if field is None:
-            field = self.find_class(nodes, "EditText")
+        field, how = self.find_search_field(nodes)
         if field is not None:
             self.tap_node(field, "search_field")
             self.ui["search_field_bounds"] = list(field["bounds"])
+            self.ui["search_field_via"] = how
         else:
             x, y = self.scaled(COORD_FIELD)
             self.tap_xy(x, y, "search_field")
             self.ui["search_field_tap_fallback"] = [x, y]
-        time.sleep(0.6)
-        self.shell(["input", "text", "android"], timeout=20)
-        time.sleep(0.5)
-        nodes, _ = self.dump_ui()
-        typed = self.find_exact(nodes, "android")
-        if typed is None:
-            # 兼容输入法把内容拆到子节点的情况
-            typed = self.find_contains(nodes, "android")
-        self.check("ui.search_input", typed is not None, "field content 'android' visible")
+            self.ui["search_field_via"] = "coord"
+
+        # 2) tap 后必须看到聚焦证据：dump focused=true，或软键盘已弹出（Compose 兜底）。
+        t_focus = time.time()
+        focused, focus_how, _nodes = self.wait_field_focus(None, timeout=6)
+        self.ui["search_focus_how"] = focus_how
+        self.ui["search_focus_ms"] = int((time.time() - t_focus) * 1000)
+        self.check("ui.search_focus", focused,
+                   "field focused=" + str(bool(focused)).lower() + " via=" + str(focus_how)
+                   + " field_via=" + str(self.ui.get("search_field_via"))
+                   + " ms=" + str(self.ui["search_focus_ms"]))
+
+        # 3) 中文 IME 会把 input text 停在 composing（22:41 实锤）：先切纯英文 FUTO 再输入。
+        ime_before = self.current_ime()
+        self.ui["ime_before"] = ime_before
+        switched = self.set_ime(FUTO_IME)
+        self.ui["ime_switched_futo"] = bool(switched)
+        if switched:
+            time.sleep(0.8)
+        else:
+            self.warn("FUTO IME 切换失败，若当前为中文 IME 输入可能被吞（current=" + (ime_before or "?") + "）")
+
+        typed_text = None
+        typed_xml = ""
+        try:
+            self.shell(["input", "text", SEARCH_QUERY], timeout=25)
+            typed_text, typed_xml = self.wait_field_text(SEARCH_QUERY, timeout=6)
+            if typed_text is None:
+                # 兜底：中文拼音态下字符停在候选栏，空格提交首个候选（"android"→"Android"，大小写不敏感）
+                self.warn("field content not visible after input; retry with SPACE commit")
+                self.shell(["input", "keyevent", "62"], timeout=15)
+                typed_text, typed_xml = self.wait_field_text(SEARCH_QUERY, timeout=4)
+        finally:
+            if typed_xml:
+                self.save_dump("search-input", typed_xml)
+        self.ui["search_input_text"] = typed_text
+        self.check("ui.search_input", typed_text is not None,
+                   "field content '" + SEARCH_QUERY + "' visible=" + str(typed_text is not None)
+                   + " ime_before=" + (ime_before.split("/")[-1] if ime_before else "?")
+                   + " futo=" + str(bool(switched)).lower())
+
+        # 4) 点搜索（新包是放大镜图标 content-desc=搜索）。点完立刻恢复 Gboard，
+        #    避免把中文输入法状态留给后面的步骤/其他队员。
         t = time.time()
-        btn = self.find_exact(nodes, "搜索")
-        if btn is None:
-            btn = self.find_startswith(nodes, "搜索")
+        nodes, _ = self.dump_ui()
+        btn = self.find_search_button(nodes)
         if btn is not None:
             self.tap_node(btn, "search_button")
             self.ui["search_button_bounds"] = list(btn["bounds"])
@@ -2106,6 +2266,8 @@ class Smoke:
             self.tap_xy(x, y, "search_button")
             self.ui["search_button_tap_fallback"] = [x, y]
         self.step("search_tap", "button tapped", t)
+        self.set_ime(GAPPS_IME)
+        self.ui["ime_after"] = self.current_ime()
 
         def pred(ns):
             s = self.find_regex(ns, r"(?:已加载|找到)\s*(\d+)\s*本")
