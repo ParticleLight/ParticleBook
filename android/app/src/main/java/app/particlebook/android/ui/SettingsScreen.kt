@@ -34,7 +34,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
@@ -156,7 +155,8 @@ fun SettingsScreen(
         modifier = modifier.fillMaxSize(),
         containerColor = MaterialTheme.colorScheme.surface,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
-        snackbarHost = { SnackbarHost(snackbarHostState) },
+        // P1c：设置页有悬浮胶囊，Snackbar 底边落在胶囊上沿 + 8dp（已含导航条）。
+        snackbarHost = { AppSnackbarHost(snackbarHostState, aboveCapsule = true) },
     ) { innerPadding ->
         LazyColumn(
             modifier = Modifier

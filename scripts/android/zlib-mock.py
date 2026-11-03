@@ -12,7 +12,12 @@
 
 端点（app 真实契约）：
     GET  /s/<q>?page=N          搜索结果 HTML（夹具 search-android.html）
-    GET  /book/<hash>[/<slug>]  详情 HTML（夹具 book-detail.html 的 N 个变体）
+    GET  /booklists[?page=N]    书单列表（--discover 回放夹具：14 + 11 条）
+    GET  /booklist/<id>/…       书单详情（夹具 booklist-detail.html，21 本）
+    GET  /popular[?page=N]      榜单（夹具 popular.html，100 条/页）
+    GET  /categories            分类总览（夹具 categories.html，39 组/802 子类）
+    GET  /category/<id>/<slug>?page=N  分类书籍（夹具 category-10.html，50 条/页 ×3 页）
+    GET  /book/<hash>[/<slug>]  详情 HTML（夹具 book-detail.html 的 N 个变体；--detail-desc 可注入简介块，P1C-12 正例）
     GET  /dl/<hash>             下载页 HTML（含绝对 http://.../cdn/... 锚），可配倒计时/登录墙
     GET  /go/<hash>             302 到 /cdn 直链（可选用 --dl-link go 让下载页指向这里）
     GET  /cdn/<file>            文件本体：200 + Content-Length + Accept-Ranges，支持 Range -> 206/416
@@ -38,6 +43,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import html
 import http.client
 import json
 import re
@@ -52,7 +58,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
-VERSION = "1.0.1"
+VERSION = "1.0.3"
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_FIXTURES = REPO_ROOT / "android" / "app" / "src" / "test" / "resources" / "zlib"
 FAULT_MODES = ("none", "first_packet_lost", "range_416", "fresh_416", "slow")
@@ -139,8 +145,12 @@ def build_pdf(total_bytes: int) -> bytes:
     return assemble(pad)
 
 
-def build_variants(fixtures: Path, count: int) -> list[bytes]:
-    """把详情页夹具复制成 N 个变体：不同 data-book_id / 标题 / 下载 hash，后处理不变。"""
+def build_variants(fixtures: Path, count: int, description: str | None = None) -> list[bytes]:
+    """把详情页夹具复制成 N 个变体：不同 data-book_id / 标题 / 下载 hash，后处理不变。
+
+    description 非空时在标题后注入 <div id="bookDescriptionBox">（P1C-12 正例）；
+    内容只放纯文本 + <br>，因为 app 的解析正则到第一个 </div> 就结束，不能有嵌套 div。
+    """
     raw = (fixtures / "book-detail.html").read_bytes()
     text = raw.decode("utf-8", "replace")
     title_re = re.compile(r"(<h1[^>]*book-title[^>]*>)([\s\S]*?)(</h1>)", re.IGNORECASE)
@@ -154,12 +164,126 @@ def build_variants(fixtures: Path, count: int) -> list[bytes]:
             body,
             count=1,
         )
+        if description:
+            desc_html = html.escape(description).replace("\n", "<br>")
+            block = '<div id="bookDescriptionBox">%s</div>' % desc_html
+            body = body.replace("</h1>", "</h1>\n" + block, 1)
         variants.append(body.encode("utf-8"))
     return variants
 
 
 def _tail_json(value: object) -> str:
     return json.dumps(value, ensure_ascii=False)
+
+
+DISCOVER_BOOKLIST_ROWS = (14, 11)
+
+
+def _reveal_load_more(raw: bytes) -> bytes:
+    """去掉首个 page-load-more 上的 display:none，模拟「还有下一页」的站点状态。
+
+    真实站点由 JS 决定 load-more 是否显示；抓下来的两页夹具都带 display:none（spec §2.1
+    只记了 page2 隐藏）。回放时只让 page1 显示，分页链路才可测。
+    """
+    text = raw.decode("utf-8", "replace")
+
+    def repl(match: re.Match) -> str:
+        tag = match.group(0)
+        return re.sub(
+            r'\s*style\s*=\s*"[^"]*display\s*:\s*none[^"]*"',
+            "",
+            tag,
+            count=1,
+            flags=re.IGNORECASE,
+        )
+
+    return re.sub(r"<div[^>]*page-load-more[^>]*>", repl, text, count=1, flags=re.IGNORECASE).encode("utf-8")
+
+
+def _rewrite_category_page(raw: bytes, page_no: int) -> bytes:
+    """把分类夹具复制成第 N 页：id / hash 加页码后缀，避免 app 端 distinctBy(id) 把三页合并。"""
+    text = raw.decode("utf-8", "replace")
+
+    def fix(match: re.Match) -> str:
+        block = match.group(0)
+        block = re.sub(
+            r'(<z-bookcard\b[^>]*?\bid=")(\d+)(")',
+            lambda m: m.group(1) + m.group(2) + str(page_no) + m.group(3),
+            block,
+            count=1,
+            flags=re.IGNORECASE,
+        )
+        block = re.sub(
+            r'(href="/book/)([^/"]+)',
+            lambda m: m.group(1) + m.group(2) + "-p" + str(page_no),
+            block,
+            count=1,
+            flags=re.IGNORECASE,
+        )
+        return block
+
+    return re.sub(r"<z-bookcard\b[\s\S]*?</z-bookcard>", fix, text, flags=re.IGNORECASE).encode("utf-8")
+
+
+def build_discover(fixtures: Path) -> tuple[dict, dict]:
+    """P1.5 发现页夹具回放（--discover）：数量与站点实测一致。
+
+    书单 14+11 条、书单详情 21 本、榜单 100 条/页、分类 39 组/802 子类、分类列表 50 条/页共 3 页
+    （夹具只抓了第 1 页，第 2/3 页由第 1 页改写 id 生成）。
+    """
+
+    def read(name: str) -> bytes:
+        return (fixtures / name).read_bytes()
+
+    booklists_p1 = _reveal_load_more(read("booklists.html"))
+    booklists_p2 = read("booklists-page2.html")
+    booklist_detail = read("booklist-detail.html")
+    popular = read("popular.html")
+    categories = read("categories.html")
+    category_p1 = read("category-10.html")
+    category_pages = {
+        1: category_p1,
+        2: _rewrite_category_page(category_p1, 2),
+        3: _rewrite_category_page(category_p1, 3),
+    }
+    pages = {
+        "booklists": {
+            1: booklists_p1,
+            2: booklists_p2,
+            0: b"<html><body><h2>Public booklists</h2></body></html>",
+        },
+        "booklist_detail": booklist_detail,
+        "popular": {
+            1: popular,
+            0: b'<html><body><z-masonry source="mostpopular" columns="5" batch="20"></z-masonry></body></html>',
+        },
+        "categories": categories,
+        "category": category_pages,
+        "category_empty": b'<html><body><script>var pagerOptions = { pagesTotal: 3 }; </script></body></html>',
+    }
+    counts = {
+        "booklists_rows": [
+            len(re.findall(br"<z-booklist\b", booklists_p1, re.IGNORECASE)),
+            len(re.findall(br"<z-booklist\b", booklists_p2, re.IGNORECASE)),
+        ],
+        "booklist_detail_books": len(re.findall(br"<z-bookcard\b", booklist_detail, re.IGNORECASE)),
+        "popular_items": len(re.findall(br'href="/book/', popular, re.IGNORECASE)),
+        "category_groups": len(re.findall(br'<h3[^>]*class="[^"]*category-name', categories, re.IGNORECASE)),
+        "category_pages": sorted(category_pages),
+        "category_books_per_page": [
+            len(re.findall(br"<z-bookcard\b", body, re.IGNORECASE))
+            for _, body in sorted(category_pages.items())
+        ],
+    }
+    return pages, counts
+
+
+def _query_page(query: str) -> int:
+    values = parse_qs(query or "")
+    try:
+        return max(1, int(values.get("page", ["1"])[0]))
+    except (TypeError, ValueError):
+        return 1
 
 
 class MockState:
@@ -175,7 +299,12 @@ class MockState:
         self.book = build_pdf(args.book_size)
         self.book_sha256 = hashlib.sha256(self.book).hexdigest()
         self.book_ctype = "application/pdf"
-        self.variants = build_variants(self.fixtures, args.book_count)
+        self.detail_desc = getattr(args, "detail_desc", None)
+        self.variants = build_variants(self.fixtures, args.book_count, self.detail_desc)
+        self.discover: dict = {}
+        self.discover_counts: dict = {}
+        if getattr(args, "discover", False):
+            self.discover, self.discover_counts = build_discover(self.fixtures)
         self.req_seq = 0
         self.attempts: dict[str, int] = {}
         self.log_buffer: deque[dict] = deque(maxlen=5000)
@@ -450,6 +579,8 @@ class MockHandler(BaseHTTPRequestHandler):
             return self._reset()
         if path == "/__log":
             return self._log_endpoint(query)
+        if self._discover(path, query):
+            return
         if path.startswith("/s/"):
             return self._search(path)
         if path.startswith("/book/"):
@@ -538,6 +669,8 @@ class MockHandler(BaseHTTPRequestHandler):
                 "public_base": st.public_base,
                 "started_at": datetime.fromtimestamp(st.started_at).astimezone().isoformat(timespec="seconds"),
                 "book": {"format": st.book_format, "bytes": len(st.book), "sha256": st.book_sha256},
+                "detail_desc": bool(st.detail_desc),
+                "discover": {"enabled": bool(st.discover), "counts": st.discover_counts},
                 "fixtures": {"dir": str(st.fixtures), "ok": (st.fixtures / "book-detail.html").is_file()},
                 "fault": st.fault_snapshot(),
                 "dl": {
@@ -579,6 +712,32 @@ class MockHandler(BaseHTTPRequestHandler):
         self._send_json(200, {"ok": True, "count": len(lines), "lines": lines})
 
     # ---------------------------------------------------------- 数据端点
+
+    def _discover(self, path: str, query: str) -> bool:
+        """P1.5 发现页回放（仅在 --discover 时启用）。返回 True 表示已响应。"""
+        pages = self.st.discover
+        if not pages:
+            return False
+        page = _query_page(query)
+        if path == "/booklists":
+            if page <= 1:
+                body = pages["booklists"][1]
+            elif page == 2:
+                body = pages["booklists"][2]
+            else:
+                body = pages["booklists"][0]
+        elif path.startswith("/booklist/"):
+            body = pages["booklist_detail"]
+        elif path == "/popular":
+            body = pages["popular"][1] if page <= 1 else pages["popular"][0]
+        elif path == "/categories":
+            body = pages["categories"]
+        elif path.startswith("/category/"):
+            body = pages["category"].get(page) or pages["category_empty"]
+        else:
+            return False
+        self._send_bytes(200, body, "text/html; charset=utf-8")
+        return True
 
     def _search(self, path: str) -> None:
         query = unquote(path[len("/s/"):]).strip()
@@ -877,6 +1036,18 @@ def run_self_test(args: argparse.Namespace) -> int:
         check("health ok+ready", health.get("ok") is True and health.get("ready") is True)
         check("health dl mode", health.get("dl", {}).get("mode") == "page")
         check("health book bytes", health.get("book", {}).get("bytes") == len(state.book))
+        check("health detail_desc off", health.get("detail_desc") is False)
+
+        _pages, discover_counts = build_discover(Path(args.fixtures))
+        check("discover booklists rows 14+11", discover_counts["booklists_rows"] == [14, 11], str(discover_counts["booklists_rows"]))
+        check("discover booklist detail 21 books", discover_counts["booklist_detail_books"] == 21, str(discover_counts["booklist_detail_books"]))
+        check("discover popular 100 items", discover_counts["popular_items"] == 100, str(discover_counts["popular_items"]))
+        check("discover categories 39 groups", discover_counts["category_groups"] == 39, str(discover_counts["category_groups"]))
+        check("discover category 50 books x3", discover_counts["category_books_per_page"] == [50, 50, 50], str(discover_counts["category_books_per_page"]))
+
+        desc_variant = build_variants(Path(args.fixtures), 1, "第一行\n第二行")[0].decode("utf-8")
+        check("detail-desc injects bookDescriptionBox", 'id="bookDescriptionBox"' in desc_variant)
+        check("detail-desc keeps line breaks", "第一行<br>第二行" in desc_variant)
 
         status, headers, data = _http_request(host, port, "GET", "/s/android?page=1")
         check("search 200", status == 200, "status=%s" % status)
@@ -1120,6 +1291,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--public-base", default=None, help="写进下载页/直链的基址（默认按监听地址生成）")
     parser.add_argument("--book-size", type=int, default=2_000_000, help="mock 文件字节数（默认 2,000,000）")
     parser.add_argument("--book-count", type=int, default=3, help="详情页变体数量（默认 3）")
+    parser.add_argument("--detail-desc", default=None, help="给详情页注入简介（#bookDescriptionBox，纯文本+\\n 转 <br>），用于 P1C-12 正例")
+    parser.add_argument(
+        "--discover",
+        action="store_true",
+        help="P1.5 发现页回放（/booklists /booklist /popular /categories /category），数据来自 --fixtures",
+    )
     parser.add_argument("--book-seed", type=int, default=20261103, help="保留参数（当前 PDF 内容确定）")
     parser.add_argument("--logged-in", action="store_true", help="启动即为已登录态")
     parser.add_argument("--require-login", action="store_true", help="/dl 未登录时返回登录墙")

@@ -48,7 +48,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationRail
 import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -57,6 +56,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
@@ -80,6 +80,12 @@ import androidx.compose.ui.unit.dp
 import app.particlebook.android.ui.data.Book
 import app.particlebook.android.ui.data.BookFormat
 import app.particlebook.android.ui.data.LibraryStore
+import app.particlebook.android.ui.discover.BooklistDetailScreen
+import app.particlebook.android.ui.discover.BooklistsScreen
+import app.particlebook.android.ui.discover.CategoriesScreen
+import app.particlebook.android.ui.discover.CategoryListScreen
+import app.particlebook.android.ui.discover.DiscoverRepositoryProvider
+import app.particlebook.android.ui.discover.PopularScreen
 import app.particlebook.android.zlib.ZAccount
 import app.particlebook.android.zlib.ZlibClient
 import kotlinx.coroutines.launch
@@ -184,15 +190,39 @@ fun ParticleBookApp() {
     val detailViewModel = remember(scope, appContext) {
         ZlibDetailViewModel(scope, appContext)
     }
+    // P1.5 发现面：数据源由 discover 包提供（zlib 落地前是“接入中”占位，不造假数据）。
+    val discoverRepository = remember(appContext) { DiscoverRepositoryProvider.create(appContext) }
     LaunchedEffect(appContext) { ZlibDownloadManager.init(appContext) }
-    var route by rememberSaveable { mutableStateOf("") }
-    var loginReturnRoute by rememberSaveable { mutableStateOf("") }
+    // P1.5 §11.7：二级页返回栈。空 = 主 tab 外壳；push/pop 只增删栈顶，
+    // 栈内页面全部保持组合（见下方渲染），因此返回不重建父页、滚动位置/已加载页/展开态都不丢。
+    var navStack by rememberSaveable { mutableStateOf(ArrayList<String>()) }
+    val currentRoute = navStack.lastOrNull().orEmpty()
     var detailHash by rememberSaveable { mutableStateOf("") }
     var detailSlug by rememberSaveable { mutableStateOf("") }
-    val openLogin: (String) -> Unit = { returnTo ->
-        loginReturnRoute = returnTo
-        route = "login"
+    var booklistHref by rememberSaveable { mutableStateOf("") }
+    var categoryId by rememberSaveable { mutableStateOf("") }
+    var categorySlug by rememberSaveable { mutableStateOf("") }
+    var categoryName by rememberSaveable { mutableStateOf("") }
+
+    fun pushRoute(next: String) {
+        navStack = ArrayList(navStack).apply { add(next) }
     }
+
+    /**
+     * 出栈。
+     *
+     * [expected] 非空时只在栈顶等于该路由时才弹栈，防止“迟到”的异步回调误伤下层页面：
+     * 例如登录请求未完成时用户先返回（login 已出栈、detail 变成栈顶），随后登录成功
+     * 回调再 pop，就会把 detail 也弹掉。异步回调一律传 expected = "login"。
+     */
+    fun popRoute(expected: String? = null) {
+        if (navStack.isEmpty()) return
+        if (expected != null && navStack.lastOrNull() != expected) return
+        navStack = ArrayList(navStack).apply { removeAt(lastIndex) }
+    }
+
+    /** 登录是模态任务页：压栈，成功后 pop 回来源页（详情/发现页/主 tab 都能原样恢复）。 */
+    val openLogin: () -> Unit = { pushRoute("login") }
     val downloadTasks by ZlibDownloadManager.tasks.collectAsState()
     val books: List<Book> = store.books
     val openBook = remember(books, openBookId) { books.firstOrNull { it.id == openBookId } }
@@ -241,16 +271,9 @@ fun ParticleBookApp() {
     }
 
     BackHandler(enabled = openBook == null && selectionMode) { exitSelection() }
-    BackHandler(enabled = openBook == null && route.isNotEmpty()) {
-        route = if (route == "login") {
-            val target = loginReturnRoute
-            loginReturnRoute = ""
-            target
-        } else {
-            ""
-        }
-    }
-    BackHandler(enabled = openBook == null && route.isEmpty() && !selectionMode && tabIndex != 0) {
+    // 返回 = 弹栈：书单详情 → 书单列表 → 发现页 / 书架，父页状态原样保留。
+    BackHandler(enabled = openBook == null && navStack.isNotEmpty()) { popRoute() }
+    BackHandler(enabled = openBook == null && navStack.isEmpty() && !selectionMode && tabIndex != 0) {
         tabIndex = 0
     }
 
@@ -258,8 +281,217 @@ fun ParticleBookApp() {
 
     ParticleBookTheme(mode = themeMode) {
         Box(modifier = Modifier.fillMaxSize()) {
+        val configuration = LocalConfiguration.current
+        // 914×411dp 的手机横屏命中；竖屏、以及高度 ≥480dp 的平板横屏都不命中。
+        val compactLandscape =
+            configuration.screenWidthDp >= 600 && configuration.screenHeightDp < 480
+
+        // 主 tab 外壳永远保持组合：二级页与阅读器都是叠层，返回时书架/发现页/设置页的
+        // 滚动位置、搜索词、选中态原样保留（§11.7 页面状态保持）。
+        AppShell(
+            compactLandscape = compactLandscape,
+            tabIndex = tabIndex,
+            onTabSelected = { tabIndex = it },
+            snackbarHostState = snackbarHostState,
+            selectionMode = selectionMode,
+            onDelete = { deleteDialogOpen = true },
+        ) {
+            when (tabIndex) {
+                0 -> LibraryScreen(
+                    books = books,
+                    loading = store.loading,
+                    error = store.error,
+                    selectionMode = selectionMode,
+                    selectedIds = selectedIds,
+                    onOpenBook = { book ->
+                        exitSelection()
+                        openBookId = book.id
+                    },
+                    onEnterSelection = { book ->
+                        selectionMode = true
+                        selectedIds = setOf(book.id)
+                    },
+                    onToggleSelection = { book ->
+                        val next = if (book.id in selectedIds) {
+                            selectedIds - book.id
+                        } else {
+                            selectedIds + book.id
+                        }
+                        if (next.isEmpty()) {
+                            exitSelection()
+                        } else {
+                            selectedIds = next
+                        }
+                    },
+                    onSelectAll = { selectedIds = books.map { it.id }.toSet() },
+                    onExitSelection = { exitSelection() },
+                    onStartSelectionMode = {
+                        selectionMode = true
+                        selectedIds = emptySet()
+                    },
+                    onImportClick = launchImport,
+                    onRetry = { scope.launch { store.reload() } },
+                    defaultSort = defaultSort,
+                    progressEpoch = progressEpoch,
+                )
+
+                1 -> DiscoverScreen(
+                    account = accountViewModel.account,
+                    onLoginClick = { openLogin() },
+                    onLogout = { accountViewModel.logout() },
+                    onDownloadsClick = { pushRoute("downloads") },
+                    onOpenDetail = { hash, slug ->
+                        detailHash = hash
+                        detailSlug = slug ?: ""
+                        pushRoute("detail")
+                    },
+                    onBooklistsClick = { pushRoute("booklists") },
+                    onPopularClick = { pushRoute("popular") },
+                    onCategoriesClick = { pushRoute("categories") },
+                )
+
+                else -> SettingsScreen(
+                    themeMode = themeMode,
+                    onThemeModeChange = { mode ->
+                        themeModeName = mode.name
+                        preferences.themeMode = mode
+                    },
+                    fontSize = fontSize,
+                    onFontSizeChange = { size ->
+                        fontSize = size
+                        preferences.fontSize = size
+                    },
+                    lineHeight = lineHeight,
+                    onLineHeightChange = { value ->
+                        lineHeight = value
+                        preferences.lineHeight = value
+                    },
+                    defaultSort = defaultSort,
+                    onDefaultSortChange = { option ->
+                        defaultSortName = option.name
+                        preferences.defaultSort = option.name
+                    },
+                    onImportClick = launchImport,
+                    onClearReadingRecords = {
+                        scope.launch {
+                            snackbarHostState.showSnackbar("已清除本会话的阅读记录")
+                        }
+                    },
+                    account = accountViewModel.account,
+                    onLoginClick = { openLogin() },
+                    onLogout = { accountViewModel.logout() },
+                    onDownloadsClick = { pushRoute("downloads") },
+                )
+            }
+        }
+
+        // P1.5 二级页：整条返回栈都保持组合（父页在栈里不会离开组合），最上层不透明背景截住输入。
+        // 返回 = popRoute()，父页的 ViewModel / LazyListState / 展开态自然原样保留。
+        for (index in navStack.indices) {
+            val stackRoute = navStack[index]
+            key(index, stackRoute) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(MaterialTheme.colorScheme.surface)
+                        .pointerInput(stackRoute) {
+                            awaitPointerEventScope {
+                                while (true) {
+                                    awaitPointerEvent()
+                                }
+                            }
+                        },
+                ) {
+                    when (stackRoute) {
+                        "login" -> ZlibLoginScreen(
+                            viewModel = accountViewModel,
+                            onBack = { popRoute() },
+                            // 异步回调：仅当 login 仍是栈顶才出栈，避免迟到回调弹掉下层页面。
+                            onLoginSuccess = { popRoute(expected = "login") },
+                        )
+
+                        "detail" -> ZlibDetailScreen(
+                            viewModel = detailViewModel,
+                            store = store,
+                            hash = detailHash,
+                            slug = detailSlug.ifBlank { null },
+                            onBack = { popRoute() },
+                            onOpenBook = { book -> openBookId = book.id },
+                            onRequireLogin = { openLogin() },
+                        )
+
+                        "downloads" -> ZlibDownloadsScreen(
+                            store = store,
+                            onBack = { popRoute() },
+                            onOpenBook = { book -> openBookId = book.id },
+                        )
+
+                        // P1.5 发现面（书单 / 榜单 / 分类）：返回回父页，不跳级、不重建。
+                        "booklists" -> BooklistsScreen(
+                            repository = discoverRepository,
+                            onBack = { popRoute() },
+                            onOpenBooklist = { href ->
+                                booklistHref = href
+                                pushRoute("booklist")
+                            },
+                        )
+
+                        "booklist" -> BooklistDetailScreen(
+                            repository = discoverRepository,
+                            href = booklistHref,
+                            onBack = { popRoute() },
+                            onOpenBook = { hash, slug ->
+                                detailHash = hash
+                                detailSlug = slug.orEmpty()
+                                pushRoute("detail")
+                            },
+                        )
+
+                        "popular" -> PopularScreen(
+                            repository = discoverRepository,
+                            onBack = { popRoute() },
+                            onOpenBook = { hash, slug ->
+                                detailHash = hash
+                                detailSlug = slug.orEmpty()
+                                pushRoute("detail")
+                            },
+                        )
+
+                        "categories" -> CategoriesScreen(
+                            repository = discoverRepository,
+                            onBack = { popRoute() },
+                            onOpenCategory = { id, slug, name ->
+                                categoryId = id
+                                categorySlug = slug
+                                categoryName = name
+                                pushRoute("categoryList")
+                            },
+                        )
+
+                        "categoryList" -> CategoryListScreen(
+                            repository = discoverRepository,
+                            categoryId = categoryId,
+                            slug = categorySlug,
+                            name = categoryName,
+                            onBack = { popRoute() },
+                            onOpenBook = { hash, slug ->
+                                detailHash = hash
+                                detailSlug = slug.orEmpty()
+                                pushRoute("detail")
+                            },
+                        )
+
+                        else -> Unit
+                    }
+                }
+            }
+        }
+
+        // 阅读器：全屏覆盖层（主外壳 + 返回栈保持组合）。用 AnimatedContent 的 target 值兜住
+        // 退出动画期间的最后一本书，避免退回书架时内容闪空。
         AnimatedContent(
             targetState = openBook,
+            modifier = Modifier.fillMaxSize(),
             transitionSpec = {
                 // 无障碍：系统移除动画时只做瞬时切换，不做缩放/位移。
                 if (reduceMotion) {
@@ -279,188 +511,68 @@ fun ParticleBookApp() {
             },
             label = "shelfToReader",
         ) { readingBook ->
-        if (readingBook != null) {
-            ReaderScreen(
-                book = readingBook,
-                onBack = {
-                    openBookId = -1L
-                    progressEpoch += 1
-                },
-            )
-        } else {
-            val configuration = LocalConfiguration.current
-            // 914×411dp 的手机横屏命中；竖屏、以及高度 ≥480dp 的平板横屏都不命中。
-            val compactLandscape =
-                configuration.screenWidthDp >= 600 && configuration.screenHeightDp < 480
-            AppShell(
-                compactLandscape = compactLandscape,
-                tabIndex = tabIndex,
-                onTabSelected = { tabIndex = it },
-                snackbarHostState = snackbarHostState,
-                selectionMode = selectionMode,
-                onDelete = { deleteDialogOpen = true },
-            ) {
-                when (tabIndex) {
-                    0 -> LibraryScreen(
-                        books = books,
-                        loading = store.loading,
-                        error = store.error,
-                        selectionMode = selectionMode,
-                        selectedIds = selectedIds,
-                        onOpenBook = { book ->
-                            exitSelection()
-                            openBookId = book.id
-                        },
-                        onEnterSelection = { book ->
-                            selectionMode = true
-                            selectedIds = setOf(book.id)
-                        },
-                        onToggleSelection = { book ->
-                            val next = if (book.id in selectedIds) {
-                                selectedIds - book.id
-                            } else {
-                                selectedIds + book.id
-                            }
-                            if (next.isEmpty()) {
-                                exitSelection()
-                            } else {
-                                selectedIds = next
+            if (readingBook != null) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(MaterialTheme.colorScheme.surface)
+                        .pointerInput(Unit) {
+                            awaitPointerEventScope {
+                                while (true) {
+                                    awaitPointerEvent()
+                                }
                             }
                         },
-                        onSelectAll = { selectedIds = books.map { it.id }.toSet() },
-                        onExitSelection = { exitSelection() },
-                        onStartSelectionMode = {
-                            selectionMode = true
-                            selectedIds = emptySet()
+                ) {
+                    ReaderScreen(
+                        book = readingBook,
+                        onBack = {
+                            openBookId = -1L
+                            progressEpoch += 1
                         },
-                        onImportClick = launchImport,
-                        onRetry = { scope.launch { store.reload() } },
-                        defaultSort = defaultSort,
-                        progressEpoch = progressEpoch,
-                    )
-
-                    1 -> DiscoverScreen(
-                        account = accountViewModel.account,
-                        onLoginClick = { openLogin("") },
-                        onLogout = { accountViewModel.logout() },
-                        onDownloadsClick = { route = "downloads" },
-                        onOpenDetail = { hash, slug ->
-                            detailHash = hash
-                            detailSlug = slug ?: ""
-                            route = "detail"
-                        },
-                    )
-
-                    else -> SettingsScreen(
-                        themeMode = themeMode,
-                        onThemeModeChange = { mode ->
-                            themeModeName = mode.name
-                            preferences.themeMode = mode
-                        },
-                        fontSize = fontSize,
-                        onFontSizeChange = { size ->
-                            fontSize = size
-                            preferences.fontSize = size
-                        },
-                        lineHeight = lineHeight,
-                        onLineHeightChange = { value ->
-                            lineHeight = value
-                            preferences.lineHeight = value
-                        },
-                        defaultSort = defaultSort,
-                        onDefaultSortChange = { option ->
-                            defaultSortName = option.name
-                            preferences.defaultSort = option.name
-                        },
-                        onImportClick = launchImport,
-                        onClearReadingRecords = {
-                            scope.launch {
-                                snackbarHostState.showSnackbar("已清除本会话的阅读记录")
-                            }
-                        },
-                        account = accountViewModel.account,
-                        onLoginClick = { openLogin("") },
-                        onLogout = { accountViewModel.logout() },
-                        onDownloadsClick = { route = "downloads" },
                     )
                 }
-            }
-        }
-        }
-
-        // 全屏二级页叠在书架/设置之上：书架留组合状态，返回后搜索词与结果不丢。
-        // 外层 Box 自带 pointerInput：空白处的点按不会穿透到下层导航胶囊/列表。
-        if (route.isNotEmpty()) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .pointerInput(Unit) {
-                        awaitPointerEventScope {
-                            while (true) {
-                                awaitPointerEvent()
-                            }
-                        }
-                    },
-            ) {
-            when (route) {
-                "login" -> ZlibLoginScreen(
-                    viewModel = accountViewModel,
-                    onBack = {
-                        val target = loginReturnRoute
-                        loginReturnRoute = ""
-                        route = target
-                    },
-                    onLoginSuccess = {
-                        val target = loginReturnRoute
-                        loginReturnRoute = ""
-                        route = target
-                    },
-                )
-
-                "detail" -> ZlibDetailScreen(
-                    viewModel = detailViewModel,
-                    store = store,
-                    hash = detailHash,
-                    slug = detailSlug.ifBlank { null },
-                    onBack = { route = "" },
-                    onOpenBook = { book ->
-                        route = ""
-                        openBookId = book.id
-                    },
-                    onRequireLogin = { openLogin("detail") },
-                )
-
-                "downloads" -> ZlibDownloadsScreen(
-                    store = store,
-                    onBack = { route = "" },
-                    onOpenBook = { book ->
-                        route = ""
-                        openBookId = book.id
-                    },
-                )
-            }
+            } else {
+                Box(Modifier.fillMaxSize())
             }
         }
 
-        // 登录页是模态任务页：下载卡片会压住表单/错误行，按 Lead 口径此页不渲染 overlay。
-        if (route != "login") {
+        // R5-d / P1c：同一次下载失败只在一个位置表达，避免「页内错误 + 全局卡片」同屏。
+        // §11.6 冻结：登录 / 详情 / 发现面 5 页都不渲染全局下载卡片（各自有内联状态）；
+        // 下载记录页只保留进行中的任务，失败/完成在行内表达；阅读器是全屏沉浸页也不渲染。
+        val stackOverlayHidden = currentRoute in setOf(
+            "login",
+            "detail",
+            "booklists",
+            "booklist",
+            "popular",
+            "categories",
+            "categoryList",
+        )
+        val overlayTasks = if (currentRoute == "downloads") {
+            downloadTasks.filter { it.isActive }
+        } else {
+            downloadTasks
+        }
+        if (!stackOverlayHidden && openBook == null) {
             ZlibDownloadCardsOverlay(
-                tasks = downloadTasks,
+                tasks = overlayTasks,
                 onRetry = { id -> ZlibDownloadManager.retry(id, store) },
                 onDismiss = { id -> ZlibDownloadManager.dismiss(id) },
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
-                    .navigationBarsPadding()
-                    // P0-1：下载卡排在胶囊上方（128dp；200% 字号胶囊升到 72dp → 136dp）。
+                    // P1c P2-5：token 是「距屏底总量」，与胶囊上沿（124/132dp）留 16/12dp；
+                    // 不再叠 navigationBarsPadding()（旧实现实际 176dp，与胶囊间距 52dp）。
                     .padding(
                         bottom = if (LocalDensity.current.fontScale >= 1.3f) {
-                            Spacing.listBottomInsetLarge
+                            Spacing.listBottomInsetLarge + Spacing.sm
                         } else {
-                            Spacing.listBottomInset
+                            Spacing.listBottomInset + Spacing.sm
                         },
                     ),
             )
         }
+
         }
     }
 
@@ -537,7 +649,8 @@ private fun AppShell(
                     .weight(1f)
                     .fillMaxHeight(),
                 contentWindowInsets = WindowInsets(0, 0, 0, 0),
-                snackbarHost = { SnackbarHost(snackbarHostState) },
+                // 横屏 rail 布局没有悬浮胶囊：Snackbar 只避让系统导航条 + 16dp。
+                snackbarHost = { AppSnackbarHost(snackbarHostState, aboveCapsule = false) },
                 bottomBar = {
                     if (selectionMode) SelectionBar(onDelete = onDelete)
                 },
@@ -556,7 +669,8 @@ private fun AppShell(
             modifier = Modifier.fillMaxSize(),
             containerColor = MaterialTheme.colorScheme.surface,
             contentWindowInsets = WindowInsets(0, 0, 0, 0),
-            snackbarHost = { SnackbarHost(snackbarHostState) },
+            // 竖屏主 tab 有悬浮胶囊：Snackbar 底边落在胶囊上沿 + 8dp（132/140dp，已含导航条）。
+            snackbarHost = { AppSnackbarHost(snackbarHostState, aboveCapsule = true) },
             bottomBar = {
                 if (selectionMode) SelectionBar(onDelete = onDelete)
             },

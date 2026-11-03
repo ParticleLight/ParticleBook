@@ -30,7 +30,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -80,7 +79,8 @@ fun ZlibDownloadsScreen(
         modifier = modifier.fillMaxSize(),
         containerColor = MaterialTheme.colorScheme.surface,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
-        snackbarHost = { SnackbarHost(snackbarHostState) },
+        // P1c：下载记录页无悬浮胶囊，Snackbar 只避让系统导航条 + 16dp。
+        snackbarHost = { AppSnackbarHost(snackbarHostState, aboveCapsule = false) },
         topBar = {
             TopAppBar(
                 title = {
@@ -138,7 +138,8 @@ fun ZlibDownloadsScreen(
                     start = Spacing.screen,
                     end = Spacing.screen,
                     top = Spacing.xs,
-                    bottom = Spacing.listBottomInset,
+                    // P1c P2-1b：无胶囊页 → 导航条（bottomBarPadding）+ 16dp，不再留 128dp 死白。
+                    bottom = Spacing.md,
                 ),
             ) {
                 items(records, key = { it.bookId }) { record ->

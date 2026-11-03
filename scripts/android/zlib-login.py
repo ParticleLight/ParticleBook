@@ -32,7 +32,8 @@ def find_adb() -> str:
         if not cand:
             continue
         try:
-            out = subprocess.run([cand, "version"], capture_output=True, text=True, timeout=20)
+            out = subprocess.run([cand, "version"], capture_output=True, text=True,
+                                 encoding="utf-8", errors="replace", timeout=20)
             if out.returncode == 0:
                 return cand
         except Exception:
@@ -50,7 +51,8 @@ class Dev:
         cmd = [self.adb] + (["-s", self.serial] if self.serial else []) + list(args)
         if self.verbose:
             print("+", " ".join(cmd), file=sys.stderr)
-        p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        p = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8",
+                           errors="replace", timeout=timeout)
         if p.returncode != 0 and self.verbose:
             print("  ! rc=%d %s" % (p.returncode, (p.stderr or "").strip()[:200]), file=sys.stderr)
         return p.stdout
@@ -76,7 +78,7 @@ class Dev:
     def dump(self) -> ET.Element:
         for _ in range(6):
             self.shell("uiautomator dump /sdcard/zlg.xml >/dev/null 2>&1")
-            raw = self.shell("cat /sdcard/zlg.xml")
+            raw = self.shell("cat /sdcard/zlg.xml") or ""
             if raw.strip().startswith("<?xml"):
                 try:
                     return ET.fromstring(raw)
@@ -124,10 +126,77 @@ def click_first(d: Dev, root: ET.Element, **kw) -> bool:
     return True
 
 
+ERR_MARKS = ("邮箱或密码不正确", "密码不正确", "Incorrect email or password", "验证码", "captcha",
+             "too many", "过多", "稍后再试", "错误", "无效", "blocked", "denied")
+
+
+def click_login_button(d: Dev, root: ET.Element) -> bool:
+    """点「登录」提交按钮：text 精确 + clickable 优先 + 取页面最底部节点（避开标题「登录 Z-Library」）。"""
+    cands = [n for n in find_nodes(root, text="登录") if center(n)]
+    clickable = [n for n in cands if n.get("clickable") == "true"]
+    if clickable:
+        cands = clickable
+    if not cands:
+        cands = [n for n in find_nodes(root, contains="登录")
+                 if center(n) and n.get("clickable") == "true"]
+    if not cands:
+        return False
+    cands.sort(key=lambda n: center(n)[1])
+    x, y = center(cands[-1])
+    d.tap(x, y)
+    return True
+
+
+def scan_error(root: ET.Element) -> str:
+    for n in root.iter("node"):
+        t = (n.get("text") or "").strip()
+        if not t:
+            continue
+        low = t.lower()
+        for m in ERR_MARKS:
+            if m.lower() in low:
+                return t[:160]
+    return ""
+
+
+def save_evidence(d: Dev, outdir: str, tag: str) -> str:
+    os.makedirs(outdir, exist_ok=True)
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    base = os.path.join(outdir, "%s-%s" % (tag, stamp))
+    saved = []
+    try:
+        p = subprocess.run([d.adb] + (["-s", d.serial] if d.serial else []) + ["exec-out", "screencap", "-p"],
+                           capture_output=True, timeout=25)
+        if p.returncode == 0 and p.stdout:
+            fn = base + ".png"
+            open(fn, "wb").write(p.stdout)
+            saved.append(fn)
+    except Exception:
+        pass
+    try:
+        root = d.dump()
+        fn = base + ".xml"
+        open(fn, "w", encoding="utf-8", newline="\n").write(ET.tostring(root, encoding="unicode"))
+        saved.append(fn)
+    except Exception:
+        pass
+    try:
+        log = d.sh("logcat", "-d", "-s", "PBPERF:V", "PBZlib:V", timeout=30)
+        fn = base + ".logcat.log"
+        open(fn, "w", encoding="utf-8", newline="\n").write(log)
+        saved.append(fn)
+    except Exception:
+        pass
+    print("evidence:", " ".join(saved) if saved else "none")
+    return " ".join(saved)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--serial", default=os.environ.get("SERIAL") or None)
     ap.add_argument("--verbose", action="store_true")
+    ap.add_argument("--outdir", default="spikes/zz-probe", help="失败证据输出目录（截图/XML/logcat）")
+    ap.add_argument("--tag", default="zlib-login", help="证据文件名前缀")
     args = ap.parse_args()
 
     email = os.environ.get("ZLIB_EMAIL", "").strip()
@@ -166,8 +235,9 @@ def main() -> int:
         return 0
 
     # 4) 点「登录」（Z-Library 页右上）
-    if not (click_first(d, root, text="登录") or click_first(d, root, contains="登录")):
+    if not click_login_button(d, root):
         print("cannot find login entry; dump text nodes:", file=sys.stderr)
+        save_evidence(d, args.outdir, args.tag)
         for n in find_nodes(root):
             t = (n.get("text") or "").strip()
             if t:
@@ -180,6 +250,7 @@ def main() -> int:
     edits = [n for n in find_nodes(root, cls="android.widget.EditText") if center(n)]
     if len(edits) < 2:
         print("expect >=2 EditText, got %d" % len(edits), file=sys.stderr)
+        save_evidence(d, args.outdir, args.tag)
         return 1
     edits.sort(key=lambda n: center(n)[1])
     for node, value in ((edits[0], email), (edits[1], pw)):
@@ -194,17 +265,35 @@ def main() -> int:
 
     # 6) 提交
     root = d.dump()
-    if not (click_first(d, root, text="登录") or click_first(d, root, contains="登录")):
+    if not click_login_button(d, root):
         print("cannot find submit button", file=sys.stderr)
+        save_evidence(d, args.outdir, args.tag)
         return 1
-    time.sleep(6)
 
-    # 7) 校验：回到 Z-Library 页应显示邮箱
-    root = d.dump()
-    ok = bool(find_nodes(root, contains=email))
+    # 7) 轮询最多 20s：邮箱出现=成功；错误文案=失败（不固定 sleep 6s）
+    ok, err, root = False, "", None
+    end = time.time() + 20
+    while time.time() < end:
+        time.sleep(0.8)
+        root = d.dump()
+        if find_nodes(root, contains=email):
+            ok = True
+            break
+        err = scan_error(root) or err
+        if err:
+            break
+    if root is None:
+        root = d.dump()
+    if not ok and not err:
+        for n in root.iter("node"):
+            t = (n.get("text") or "").strip()
+            if t and ("登录" in t or "login" in t.lower()):
+                err = t[:160]
     # 恢复 Gboard
     d.shell("ime set com.google.android.inputmethod.latin/com.android.inputmethod.latin.LatinIME >/dev/null 2>&1")
-    print("login:", "OK" if ok else "FAILED")
+    print("login:", "OK" if ok else "FAILED", ("err=" + repr(err)) if err else "")
+    if not ok:
+        save_evidence(d, args.outdir, args.tag)
     return 0 if ok else 1
 
 

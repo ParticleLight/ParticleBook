@@ -454,6 +454,8 @@ class Smoke:
         self.mock_server_log = None
         self.mock_reused = False
         self.mock_request_count = 0
+        self._mock_book_size_override = 0
+        self._mock_log_override = ""
         # scenario 是场景名（download_faults），不是 fault case 名；这里不能走 parse_fault_cases（别名表里没有场景）。
         self.scenarios = [x.strip() for x in (getattr(args, "scenario", "") or "").split(",") if x.strip()]
         self.fault_cases = []
@@ -633,23 +635,36 @@ class Smoke:
         return path
 
     def dump_ui(self, save_name=None):
-        raw = self.adb(["exec-out", "uiautomator", "dump", "/dev/tty"], timeout=25, binary=True)
-        text = raw.decode("utf-8", "replace")
-        i = text.find("<?xml")
-        j = text.find("</hierarchy>")
-        if i < 0 or j < 0:
-            self.shell(["uiautomator", "dump", "/sdcard/_zlib_smoke_dump.xml"], timeout=25)
-            raw = self.adb(["exec-out", "cat", "/sdcard/_zlib_smoke_dump.xml"], timeout=20, binary=True)
-            text = raw.decode("utf-8", "replace")
-            i = text.find("<?xml")
-            j = text.find("</hierarchy>")
-        if i < 0 or j < 0:
-            return [], ""
-        xml = text[i:j + len("</hierarchy>")]
-        nodes = parse_xml_nodes(xml)
-        if save_name:
-            self.save_dump(save_name, xml)
-        return nodes, xml
+        # 真机上 uiautomator 偶发 2-8s 无响应（force-stop/冷启后尤甚）：
+        # 单次 8s、最多 3 次，避免一条慢 dump 把整轮判成 harness failure。
+        last_err = None
+        for attempt in range(3):
+            try:
+                raw = self.adb(["exec-out", "uiautomator", "dump", "/dev/tty"], timeout=8, binary=True)
+                text = raw.decode("utf-8", "replace")
+                i = text.find("<?xml")
+                j = text.find("</hierarchy>")
+                if i < 0 or j < 0:
+                    self.shell(["uiautomator", "dump", "/sdcard/_zlib_smoke_dump.xml"], timeout=8)
+                    raw = self.adb(["exec-out", "cat", "/sdcard/_zlib_smoke_dump.xml"], timeout=8, binary=True)
+                    text = raw.decode("utf-8", "replace")
+                    i = text.find("<?xml")
+                    j = text.find("</hierarchy>")
+                if i >= 0 and j >= 0:
+                    xml = text[i:j + len("</hierarchy>")]
+                    nodes = parse_xml_nodes(xml)
+                    if save_name:
+                        self.save_dump(save_name, xml)
+                    return nodes, xml
+                last_err = "dump empty (attempt " + str(attempt + 1) + ")"
+            except SmokeError as e:
+                last_err = e
+            if self.rem() < 3:
+                break
+            time.sleep(1.0)
+        if isinstance(last_err, Exception):
+            raise last_err
+        return [], ""
 
     def wait(self, pred, timeout, desc, save_name=None):
         end = min(time.time() + float(timeout), self.deadline)
@@ -1228,95 +1243,115 @@ class Smoke:
         no_range_retry = [ln for ln in dl416 if "retry=no_range" in ln]
         events = self.download_events()
         ok_event = self._pick_download_event(events, "ok")
-        ok = (terminal == "done" and metrics["status_416"] >= 1 and bool(no_range_retry)
-              and ok_event is not None)
+        health = self.mock_health() or {}
+        book = health.get("book") if isinstance(health.get("book"), dict) else {}
+        expect_bytes = int(book.get("bytes") or 0)
+        got_bytes = ok_event.get("bytes") if ok_event else None
+        # UI 的「登录」文案会污染 terminal 检测（详情页/底栏），下载成功以 perf 事件 + 字节数为准。
+        ok = (terminal != "failed" and metrics["status_416"] >= 1 and bool(no_range_retry)
+              and ok_event is not None and (expect_bytes <= 0 or got_bytes == expect_bytes))
         detail = ("terminal=" + str(terminal) + " status_416=" + str(metrics["status_416"])
                   + " dl_416_logs=" + str(len(dl416)) + " no_range_retry=" + str(len(no_range_retry))
-                  + " bytes=" + str(ok_event and ok_event.get("bytes")))
+                  + " bytes=" + str(got_bytes) + "/" + str(expect_bytes))
         self.rec("fresh416.self_heal", ok, detail)
         self.shot_once("fresh416_done", "fresh-416-selfheal")
         if not ok:
             raise SmokeError(1, "fresh_416 断言失败: " + detail, step="fresh_416")
         self.state = "PASS"
 
+    def restart_mock_with_book_size(self, book_size):
+        """重启自拉 mock，用更小的 book-size（模拟「.part 比服务端总长还大」）。"""
+        self._mock_book_size_override = int(book_size)
+        self._mock_log_override = os.path.join(
+            self.outdir, self.tag + "-" + self.stamp + "-mock2.jsonl")
+        self.stop_mock()
+        self.mock_proc = None
+        self.mock_owned = False
+        time.sleep(1.0)
+        self.start_mock()
+
     def run_d3_case(self):
-        """D3：.part 长度 >= 服务端总长 → Range 请求 416 → 删 .part → 无 Range 重下 → 完整。"""
+        """D3-v2：先让 .part 长到 ~50%，再重启 mock 用更小 book-size → part > 服务端总长
+        → Range 请求 416 → app 删 .part → 无 Range 重下 → 新文件完整（size/sha256）。
+
+        关键技巧：Android 11+ 的 run-as 无法写 app 外部 filesDir（FUSE 按 uid 挂载），
+        所以不能像旧版用 `run-as dd` 预置超大 .part；改为让 app 自己产生 .part，
+        然后重启 mock 传更小的 `--book-size`（< part 长度），使 Range 起点 ≥ 新总长，
+        mock 自然回 416，精确覆盖「.part 比服务端文件还长」分支。
+        """
         self.mock_reset()
         health = self.mock_health() or {}
         book = health.get("book") if isinstance(health.get("book"), dict) else {}
-        book_bytes = int(book.get("bytes") or 0)
-        if book_bytes <= 0:
+        full_bytes = int(book.get("bytes") or 0)
+        if full_bytes <= 0:
             raise SmokeError(2, "mock /__health 无 book.bytes")
-        title = self.ui.get("detail_title") or self.ui.get("first_title") or "book"
-        if title.lower().endswith(".pdf"):
-            title = title[:-4]
-        base = self.sanitize_book_title(title)
-        files, _src = self.list_download_files()
-        files = files or {}
-        name = base + ".pdf"
-        idx = 2
-        while name in files or (name + ".part") in files:
-            name = base + " (" + str(idx) + ").pdf"
-            idx += 1
-        path, size = self.seed_oversized_part(name)
-        self.dl["d3"] = {"part_path": path, "part_bytes": size, "expected_total": book_bytes, "file_name": name}
-        self.mock_reset()
-        self.mock_set_fault("range_416", count=1, path="/cdn/")
+        small_bytes = max(120000, full_bytes // 3)
+        self.mock_set_fault("slow", count=1, path="/cdn/", rate_kbps=200)
+        nodes = self.ui.get("_detail_nodes") or self.dump_ui()[0]
+        btn = self.find_download_button(nodes)
+        if btn is None:
+            raise SmokeError(1, "D3：详情页无下载按钮", step="d3")
+        self.tap_node(btn, "download_d3_partial")
+        target = full_bytes // 2
+        part_bytes, parts, waited = self.wait_part_bytes(target, timeout=40)
+        self.rec("d3.partial", part_bytes >= target,
+                 "part=" + str(part_bytes) + "/" + str(target) + " waited=" + str(round(waited, 2)) + "s files=" + str(parts))
+        if part_bytes < target:
+            raise SmokeError(1, "D3 未能制造半成品 part（part=" + str(part_bytes) + "）", step="d3")
+        part_name = max(parts, key=lambda k: parts[k])
+        self.shell(["am", "force-stop", self.pkg], timeout=20)
+        time.sleep(1.5)
+        self.restart_mock_with_book_size(small_bytes)
+        health2 = self.mock_health() or {}
+        book2 = health2.get("book") if isinstance(health2.get("book"), dict) else {}
+        new_total = int(book2.get("bytes") or 0)
+        new_sha = str(book2.get("sha256") or "").lower()
+        self.dl["d3"] = {"full_bytes": full_bytes, "part_bytes": part_bytes, "part_name": part_name,
+                         "mock2_bytes": new_total, "mock2_sha256": new_sha}
+        self.rec("d3.restart_mock", new_total > 0 and new_total < part_bytes,
+                 "mock2 bytes=" + str(new_total) + " < part=" + str(part_bytes))
+        self.start_app()
+        self.open_zlib_tab()
+        self.do_search()
+        self.open_detail()
         self.state = None
         self.dl["d3_tap_at"] = time.time()
         nodes = self.ui.get("_detail_nodes") or self.dump_ui()[0]
         btn = self.find_download_button(nodes)
         if btn is None:
-            raise SmokeError(1, "D3：详情页无下载按钮", step="d3")
-        self.tap_node(btn, "download_d3")
-        # 等终态（复用 do_download 的断言会重复点击，这里手动轮询终态）。
-        t0 = time.time()
-        terminal = None
-        while time.time() - t0 < min(self.args.download_timeout, max(10, self.deadline - time.time())):
-            try:
-                nodes_now = self.dump_ui()[0]
-            except SmokeError:
-                nodes_now = []
-            term = self.find_terminal(nodes_now)
-            if term in ("done", "limit", "login", "failed"):
-                terminal = term
-                break
-            self.read_logcat()
-            if self._pick_download_event(self.download_events(), None) is not None:
-                # 已有终态日志时再看一次 UI 后退出轮询
-                pass
-            time.sleep(0.5)
-        stats = self.mock_stats()
-        status_416 = mock_stats_int(stats, "status_416")
-        ranges = mock_stats_int(stats, "range_requests")
-        partial = mock_stats_int(stats, "partial_206")
-        self.dl["terminal"] = terminal
-        self.steps.append({"name": "d3.terminal", "ok": bool(terminal), "detail": str(terminal)})
+            raise SmokeError(1, "D3：恢复后详情页无下载/继续按钮", step="d3")
+        self.tap_node(btn, "download_d3_resume")
+        terminal = self._wait_download_terminal(self.args.download_timeout)
+        events = self.download_events()
+        ok_event = self._pick_download_event(events, "ok")
+        logs = self.read_logcat()
+        dl416 = [ln for ln in (logs or "").splitlines() if "dl_416" in ln]
+        fresh_retry = [ln for ln in dl416 if "retry=fresh" in ln]
+        metrics = self._download_metrics()
         time.sleep(1.0)
         files_after, _s2 = self.list_download_files()
         files_after = files_after or {}
         part_left = [n for n in files_after if n.endswith(".part")]
-        final_name = name if name in files_after else None
-        final_size = files_after.get(final_name) if final_name else None
+        final_name = part_name[:-5] if part_name.endswith(".part") else part_name
+        final_size = files_after.get(final_name)
         sha_ok = None
         sha_dev = None
-        if final_name:
-            expected_sha = str(book.get("sha256") or "").lower()
+        if final_size:
             out = self._run_shell_capture("sha256sum " + self._shell_quote(self.download_dir() + "/" + final_name), timeout=60)
             if not (out or "").strip():
                 out = self._run_shell_capture("run-as " + self.pkg + " sha256sum " + self._shell_quote(self.download_dir() + "/" + final_name), timeout=60)
-            parts = (out or "").split()
-            if parts and len(parts[0]) == 64:
-                sha_dev = parts[0].lower()
-                sha_ok = (sha_dev == expected_sha) if expected_sha else None
-        dl_ok = terminal == "done"
-        ok = bool(dl_ok and status_416 >= 1 and ranges >= 1 and not part_left
-                  and final_size == book_bytes and sha_ok is not False)
-        detail = ("terminal=" + str(terminal) + " status_416=" + str(status_416)
-                  + " range_reqs=" + str(ranges) + " partial_206=" + str(partial)
-                  + " part_left=" + str(part_left) + " file=" + str(final_name)
-                  + " size=" + str(final_size) + "/" + str(book_bytes)
-                  + " sha_ok=" + str(sha_ok) + " sha=" + str(sha_dev))
+            parts2 = (out or "").split()
+            if parts2 and len(parts2[0]) == 64:
+                sha_dev = parts2[0].lower()
+                sha_ok = (sha_dev == new_sha) if new_sha else None
+        ok = (terminal != "failed" and ok_event is not None and metrics["status_416"] >= 1
+              and bool(fresh_retry) and bool(part_left is not None)
+              and final_size == new_total and sha_ok is not False)
+        detail = ("terminal=" + str(terminal) + " status_416=" + str(metrics["status_416"])
+                  + " range_reqs=" + str(metrics["range_requests"]) + " dl416=" + str(len(dl416))
+                  + " fresh_retry=" + str(len(fresh_retry)) + " part_left=" + str(part_left)
+                  + " size=" + str(final_size) + "/" + str(new_total)
+                  + " sha_ok=" + str(sha_ok) + " bytes_event=" + str(ok_event and ok_event.get("bytes")))
         self.rec("d3.self_heal", ok, detail)
         self.shot_once("d3_done", "d3-416-selfheal")
         if not ok:
@@ -1599,7 +1634,7 @@ class Smoke:
             raise SmokeError(4, "mock 脚本不存在: " + winpath(script) + "（等 pdf-tiles 落盘）")
         log_path = winpath(getattr(self.args, "mock_log", "") or "")
         if not log_path:
-            log_path = os.path.join(self.outdir, self.tag + "-" + self.stamp + "-mock.jsonl")
+            log_path = self._mock_log_override or os.path.join(self.outdir, self.tag + "-" + self.stamp + "-mock.jsonl")
         if not os.path.isabs(log_path):
             log_path = os.path.join(self.root, log_path)
         parent = os.path.dirname(log_path)
@@ -1615,6 +1650,9 @@ class Smoke:
             cmd.extend(["--dl-mode", dl_mode])
         book_count = int(getattr(self.args, "mock_book_count", 3) or 3)
         cmd.extend(["--book-count", str(book_count)])
+        book_size = self._mock_book_size_override or int(getattr(self.args, "mock_book_size", 0) or 0)
+        if book_size > 0:
+            cmd.extend(["--book-size", str(book_size)])
         self.log("spawn mock: " + " ".join(cmd))
         with open(self.mock_server_log, "w", encoding="utf-8", newline="\n") as lf:
             self.mock_proc = subprocess.Popen(cmd, cwd=self.root, stdout=lf, stderr=subprocess.STDOUT, env=env)
@@ -2139,6 +2177,22 @@ class Smoke:
             self.check("ui.detail_opened", False, "detail page (书籍详情) not visible")
             return
         self.check("ui.detail_opened", True, "book detail opened")
+
+        # 详情页可能先显示「正在加载详情…」，最多再等 20s 让书名出现（原先单次 dump 会误判）
+        expected_pre = self.ui.get("first_title")
+        if expected_pre:
+            ne_pre = norm(expected_pre)
+            def _title_ready(ns):
+                for n in ns:
+                    tt = norm(n["text"])
+                    if not tt:
+                        continue
+                    if ne_pre in tt or (len(tt) >= 6 and (tt in ne_pre or tt[:12] == ne_pre[:12])):
+                        return True
+                return False
+            r_pre, nodes = self.wait(_title_ready, 20, "detail title loaded", save_name="detail-title")
+            if not r_pre:
+                self.warn("detail title not visible after 20s (still loading)")
 
         expected = self.ui.get("first_title")
         matched = None

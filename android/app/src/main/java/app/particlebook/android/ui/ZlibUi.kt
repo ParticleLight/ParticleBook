@@ -16,12 +16,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -161,11 +157,8 @@ private fun ZlibDownloadCard(
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
-                if (!active) {
-                    IconButton(onClick = onDismiss) {
-                        Icon(Icons.Filled.Close, contentDescription = "关闭下载卡片")
-                    }
-                }
+                // P1c P2-4：失败/完成卡的动作收敛为「重试 / 关闭」两个 TextButton（见下方），
+                // 去掉右上角 X，避免同一「关闭」操作出现两个入口。
             }
             if (active) {
                 Spacer(Modifier.height(Spacing.xs))

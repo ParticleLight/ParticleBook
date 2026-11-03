@@ -694,6 +694,8 @@ def run_device(args: argparse.Namespace, outdir: Path, mock: MockServer) -> dict
     device_sha256 = sha256_bytes(device_bytes)
     # 读一次 books.json 的最终版本，确保 fileSize 与文件字节数一致。
     final_books = adb.read_books()
+    (outdir / "books-after.json").write_text(
+        json.dumps(final_books, ensure_ascii=False, indent=2), encoding="utf-8")
     final_item = next(
         (item for item in final_books.get("books", []) if str(item.get("filePath", "")) == file_path),
         None,

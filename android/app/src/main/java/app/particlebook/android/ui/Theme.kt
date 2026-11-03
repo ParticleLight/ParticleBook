@@ -4,9 +4,12 @@ import android.app.Activity
 import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Shapes
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.dynamicDarkColorScheme
@@ -20,6 +23,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
@@ -68,10 +72,12 @@ object Spacing {
     /** 书架卡片封面 → 书名。 */
     val cardTitleGap = 10.dp
 
-    /** 网格底部为悬浮胶囊预留的空间。 */
     /**
-     * 列表/网格底部留白（P0-1）：悬浮胶囊上沿距屏底 124dp（导航区 48 + 间距 12 + 胶囊 64），
-     * 取 128dp = 124 + 4dp 呼吸；[listBottomInsetLarge] 供 200% 字号（胶囊 72dp → 上沿 132dp）使用。
+     * 带悬浮胶囊页面的列表底部留白（P1c 语义统一）：数值即「距屏幕底边的总距离」，**已包含系统导航条**。
+     * 胶囊上沿距屏底 124dp（导航区 48 + 间距 12 + 胶囊 64），取 128dp = 124 + 4dp 呼吸；
+     * [listBottomInsetLarge] 供 200% 字号（胶囊 72dp → 上沿 132dp）使用。
+     * 调用方不要再叠加 navigationBarsPadding()（会变 176dp）；无胶囊的全屏二级页用
+     * [bottomBarPadding] + 16dp，不要复用本 token。
      */
     val listBottomInset = 128.dp
     val listBottomInsetLarge = 136.dp
@@ -298,12 +304,38 @@ fun Modifier.adaptiveBlur(radius: Dp): Modifier =
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) blur(radius) else this
 
 /**
- * P1b/P1c 页面底部统一留白（R7-D-UI-FIX P0）：
- * 先吃掉系统导航栏 inset，再由页面自己用 [Spacing.listBottomInset] 给悬浮胶囊（64dp + 12dp）留位，
- * 两段互不重复，避免「内容 padding 看起来够、实际被 inset 吃掉」导致最后一行被胶囊压住。
+ * 无悬浮胶囊的全屏二级页（详情 / 下载记录 / 登录）底部 inset：
+ * 只吃掉系统导航栏，内容再自行留 16dp；这些页面没有胶囊，不适用 [Spacing.listBottomInset]
+ * （128dp 会留下 112dp 死白）。带胶囊的主 tab 页面直接用 [Spacing.listBottomInset]（距屏底总量）。
  */
 @Composable
 fun Modifier.bottomBarPadding(): Modifier = this.navigationBarsPadding()
+
+/**
+ * 全局 SnackbarHost 的统一底距（P1c）：
+ * - [aboveCapsule] = true（书架 / 找书 / 设置等带悬浮胶囊的页面）：底边距屏底 = 胶囊上沿 + 8dp，
+ *   即 [Spacing.listBottomInset] + 4dp（200% 用 large 值）；token 已是「距屏底」，这里不再叠 nav inset。
+ * - false（登录 / 详情 / 下载记录 / 横屏 rail 等无胶囊页面）：系统导航条之上 16dp。
+ */
+@Composable
+fun AppSnackbarHost(
+    hostState: SnackbarHostState,
+    aboveCapsule: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    val largeFont = LocalDensity.current.fontScale >= 1.3f
+    val bottom = if (aboveCapsule) {
+        (if (largeFont) Spacing.listBottomInsetLarge else Spacing.listBottomInset) + 4.dp
+    } else {
+        16.dp
+    }
+    SnackbarHost(
+        hostState = hostState,
+        modifier = modifier
+            .then(if (aboveCapsule) Modifier else Modifier.navigationBarsPadding())
+            .padding(bottom = bottom),
+    )
+}
 
 /**
  * 应用主题。

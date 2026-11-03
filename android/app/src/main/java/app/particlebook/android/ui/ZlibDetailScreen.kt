@@ -227,13 +227,14 @@ private fun DetailContent(
     }
 
     LazyColumn(
-        // P0：底部先吃导航栏 inset，再由 contentPadding 给悬浮胶囊留位。
+        // P1c P2-1b：详情页是无胶囊的覆盖层 → 底部只避让系统导航条（bottomBarPadding）+ 16dp，
+        // 不再叠加 listBottomInset（旧实现 176dp，多 112dp 死白）。
         modifier = modifier.bottomBarPadding(),
         contentPadding = androidx.compose.foundation.layout.PaddingValues(
             start = Spacing.screen,
             end = Spacing.screen,
             top = Spacing.sm,
-            bottom = Spacing.listBottomInset,
+            bottom = Spacing.md,
         ),
     ) {
         item {

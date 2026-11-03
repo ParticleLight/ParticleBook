@@ -19,14 +19,18 @@ import java.net.URI
  */
 internal object ZlibMirrorList {
 
-    /** 导航页地址（桌面端 ZLibraryMirror.cpp:498 同款）。 */
-    const val NAV_URL: String = "https://zz.ggonav.com/"
+    /**
+     * 导航页地址：`zlib.wwwnav.com`（2026-11-03 实测 200/32,003B/直连 0.44s，无 CF/无 JS 挑战）。
+     * 旧源 `zz.ggonav.com` 已 NXDOMAIN，勿改回。
+     */
+    const val NAV_URL: String = "https://zlib.wwwnav.com/"
 
     /** 内存缓存时长：1h。 */
     const val CACHE_TTL_MS: Long = 3_600_000L
 
     private val ANCHOR = Regex("""<a\s[^>]*href\s*=\s*["']([^"']+)["']""", RegexOption.IGNORE_CASE)
     private val BARE_URL = Regex("""https?://[A-Za-z0-9.-]+\.[a-z]{2,}/?""", RegexOption.IGNORE_CASE)
+    private val TAG_RE = Regex("<[^>]+>")
 
     /** 镜像真实用法：zh.z-lib.gd / zh.z-library.sk / zlib.re / zh.zlib0.ru / zh.1lib.sk。 */
     private val PREFIX_TOKENS = listOf("z-lib", "z-library", "zlibrary", "zlib", "1lib")
@@ -63,6 +67,117 @@ internal object ZlibMirrorList {
         BARE_URL.findAll(html).forEach { match -> addCandidate(found, match.value) }
         return found.toList()
     }
+
+    /** 导航页解析结果：官网面板 official / 镜像面板 dynamic / 被排除的行数。 */
+    data class NavResult(
+        val official: List<String>,
+        val dynamic: List<String>,
+        val skipped: Int,
+    )
+
+    /**
+     * 解析 wwwnav 导航页（2026-11-03 版式）：section#entries > div.panels > div.panel，
+     * 每面板 <h3>标题</h3> + 若干 .erow > a.btn[href]。
+     *
+     * 面板规则：h3 含「镜像入口」-> dynamic；含「官网地址」-> official；其他面板（客户端/资源下载）
+     * 的链接不收，但行仍参与 skipped 计数（research 断言 wwwnav：official=3 / dynamic=3 / skipped=4）。
+     * 地址仍走 [normalize]：只认站点根地址 + 信任域，pages.dev / quark / wwwnav 等自然被剔除；
+     * 永久黑名单 singlelogin.re 继续排除。
+     */
+    fun parseNav(html: String): NavResult {
+        val sectionStart = html.indexOf("id=\"entries\"")
+        val body = if (sectionStart >= 0) html.substring(sectionStart) else html
+        val panels = splitPanels(body)
+        if (panels.isEmpty()) {
+            // 非 wwwnav 版式：退回旧解析器，避免整页结构变化时动态源直接失效。
+            return NavResult(official = emptyList(), dynamic = parse(body), skipped = 0)
+        }
+        val official = LinkedHashSet<String>()
+        val dynamic = LinkedHashSet<String>()
+        var skipped = 0
+        for (panel in panels) {
+            val title = panelTitle(panel)
+            val isOfficial = title.contains("官网")
+            val isMirror = title.contains("镜像")
+            for (tag in anchorTags(panel)) {
+                if (!hasBtnClass(tag)) continue
+                val href = attrOf(tag, "href") ?: continue
+                val normalized = normalize(href)?.takeIf { !isBlocked(it) }
+                if (normalized == null) {
+                    skipped++
+                    continue
+                }
+                if (isOfficial) official.add(normalized)
+                else if (isMirror) dynamic.add(normalized)
+            }
+        }
+        return NavResult(official.toList(), dynamic.toList(), skipped)
+    }
+
+    private fun splitPanels(html: String): List<String> {
+        val out = ArrayList<String>()
+        var index = html.indexOf("<div class=\"panel\"")
+        while (index >= 0) {
+            val next = html.indexOf("<div class=\"panel\"", index + 1)
+            out.add(if (next >= 0) html.substring(index, next) else html.substring(index))
+            index = next
+        }
+        return out
+    }
+
+    private fun panelTitle(panel: String): String {
+        val start = panel.indexOf("<h3")
+        if (start < 0) return ""
+        val end = panel.indexOf("</h3>", start)
+        if (end < 0) return ""
+        val open = panel.indexOf('>', start)
+        if (open < 0 || open >= end) return ""
+        return unescapeHtml(panel.substring(open + 1, end).replace(TAG_RE, "")).trim()
+    }
+
+    private fun anchorTags(html: String): List<String> {
+        val out = ArrayList<String>()
+        var index = html.indexOf("<a ", ignoreCase = true)
+        while (index >= 0) {
+            val end = html.indexOf('>', index)
+            if (end < 0) break
+            out.add(html.substring(index, end + 1))
+            index = html.indexOf("<a ", end + 1, ignoreCase = true)
+        }
+        return out
+    }
+
+    private fun hasBtnClass(tag: String): Boolean {
+        val value = attrOf(tag, "class") ?: return false
+        return value.split(' ').any { it.equals("btn", ignoreCase = true) }
+    }
+
+    private fun attrOf(tag: String, name: String): String? =
+        attrOf(tag, name, '"') ?: attrOf(tag, name, '\'')
+
+    private fun attrOf(tag: String, name: String, quote: Char): String? {
+        val marker = name + "=" + quote
+        val lower = tag.lowercase()
+        var index = lower.indexOf(marker)
+        if (index >= 0) {
+            val valueStart = index + marker.length
+            val end = tag.indexOf(quote, valueStart)
+            return if (end > valueStart) tag.substring(valueStart, end) else null
+        }
+        val spaced = name + " = " + quote
+        index = lower.indexOf(spaced)
+        if (index < 0) return null
+        val valueStart = index + spaced.length
+        val end = tag.indexOf(quote, valueStart)
+        return if (end > valueStart) tag.substring(valueStart, end) else null
+    }
+
+    private fun unescapeHtml(value: String): String = value
+        .replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
 
     /** 候选过滤 + 规范化：合法则返回 `https://host/`（scheme/host 小写），否则 null。 */
     fun normalize(raw: String): String? {

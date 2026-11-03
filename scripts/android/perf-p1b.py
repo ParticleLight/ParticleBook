@@ -2,16 +2,17 @@
 # -*- coding: utf-8 -*-
 """P1b 新页面性能与内存回归采集（R7-D-PERF）。口径与 R6 完全一致。
 
-覆盖页面：书架（基线）/ Z-Library 搜索页 / 书籍详情页 / 下载记录页 / 设置页。
+覆盖页面：书架（基线）/ Z-Library 搜索页 / 搜索结果页 / 书籍详情页（含下载卡区域）/ 下载记录页 /
+          设置页 / 返回书架；--reader 追加阅读器 PSS；--font-scale F 在指定系统字号下重跑（如 2.0 = 200%）。
 测量项：冷启动 TotalTime x5、PSS（TOTAL + Java/Native/Graphics 分开 + 相对书架增量）、
-        滚动 jank（结果页 300 帧、详情页 200 帧）。
+        滚动 jank（结果页 300 帧、详情页 200 帧）、可选阅读器 PSS；一条命令同时出 Markdown 报告 + JSON + 自动截图。
 
 用法：
   python scripts/android/perf-p1b.py state
   python scripts/android/perf-p1b.py --serial 8A9Y0G2XJ coldstart --n 5
   python scripts/android/perf-p1b.py pss
   python scripts/android/perf-p1b.py jank
-  python scripts/android/perf-p1b.py all --out docs/android-port/p1b-perf.md [--ensure-proxy]
+  python scripts/android/perf-p1b.py all --out docs/android-port/p1b-perf.md [--json ...] [--shots DIR] [--reader] [--font-scale 2.0] [--ensure-proxy]
   python scripts/android/perf-p1b.py nav detail     # 调试：只导航到某页
   python scripts/android/perf-p1b.py ui             # 调试：打印可点节点
   python scripts/android/perf-p1b.py tap TEXT / tapxy X Y / key 66 / shot NAME
@@ -51,6 +52,9 @@ if hasattr(sys.stdout, "reconfigure"):
 PKG = "app.particlebook"
 ACT = "app.particlebook/.android.MobileActivity"
 
+# 自动截图目录（cmd_all 里按 --shots 或默认时间戳目录赋值）
+SHOT_DIR = ""
+
 # R6-B 基线（Pixel 3 XL，release 2.2.1-p0，md5 bdf76d8e...）见 android-ui-verify-v4.md 第 21 节
 R6 = {
     "device": "Pixel 3 XL (SDXL 845 / Android 12 / 1440x2960 @560dpi / 3.5GB)",
@@ -70,6 +74,7 @@ L3 = {
     "interactive_ms": 600,      # L1 书架可交互（含数据）<= 600ms
     "resident_pss_mb": 90,      # L1/L3 常驻 PSS（无阅读器）<= 90MB
     "jank_pct_ref": 2.0,        # R6 既有参考口径（L1 书架口径是 0 帧 >16ms）
+    "reader_delta_mb": 80,      # L3 阅读时稳定内存增量（Java+Native）<= 80MB
     "frame_budget_ms": 16.7,
 }
 
@@ -85,6 +90,7 @@ PAGE_ORDER = ["shelf", "zlib", "results", "detail", "downloads", "settings", "sh
 NET_PAGES = ("results", "detail")
 PAGE_TITLE = {
     "shelf": "书架（基线）",
+    "reader": "阅读器（打开书）",
     "zlib": "Z-Library 搜索页",
     "results": "搜索结果页（补充）",
     "detail": "书籍详情页",
@@ -621,7 +627,7 @@ def measure_pss_sequence(settle=4.0, size=None, skip_net=False):
     start_app()
     time.sleep(settle + 1.0)
     rows = []
-    for page in PAGE_ORDER:
+    for idx, page in enumerate(PAGE_ORDER):
         print("[pss] %s" % PAGE_TITLE.get(page, page))
         if (skip_net or net_dead()) and page in NET_PAGES:
             why = "--skip-net" if skip_net else "网络已判定不可用"
@@ -643,24 +649,98 @@ def measure_pss_sequence(settle=4.0, size=None, skip_net=False):
         print("  TOTAL=%.1f MB java=%.1f native=%.1f graphics=%.1f" % (
             mb(m.get("total")) or -1, mb(m.get("java")) or -1,
             mb(m.get("native")) or -1, mb(m.get("graphics")) or -1))
+        if SHOT_DIR:
+            shot(os.path.join(SHOT_DIR, "%02d-%s.png" % (idx, page)))
     return rows
+
+
+def measure_reader(settle=4.0, size=None):
+    """--reader：从书架打开第一本书，量阅读器 PSS（会话内追加，不打断 canonical 序列的结论）。"""
+    print("[pss] 阅读器（打开书架第一本书）")
+    if not nav("shelf", size):
+        reason = nav_reason()
+        print("  [skip] 无法回到书架（%s）" % reason)
+        return {"page": "reader", "nav_ok": False, "skip": reason}
+    time.sleep(1.2)
+    nodes = [n for n in parse_nodes(dump_xml()) if visible(n)]
+    w, h = size or screen_size()
+    cands = []
+    for n in nodes:
+        if not n["clickable"]:
+            continue
+        x1, y1, x2, y2 = n["bounds"]
+        if (x2 - x1) * (y2 - y1) < 120000:
+            continue
+        if y1 < h * 0.08 or y2 > h * 0.88:
+            continue
+        cands.append(n)
+    if not cands:
+        print("  [skip] 书架上找不到可点的书卡")
+        return {"page": "reader", "nav_ok": False, "skip": "no-shelf-item"}
+    cands.sort(key=lambda n: (n["bounds"][1], n["bounds"][0]))
+    tap_node(cands[0], "open book")
+    time.sleep(settle)
+    opened = any(n["desc"] == "更多" for n in parse_nodes(dump_xml()))
+    m = meminfo()
+    m["page"] = "reader"
+    m["nav_ok"] = True
+    m["reader_opened"] = opened
+    print("  TOTAL=%.1f MB java=%.1f native=%.1f graphics=%.1f opened=%s" % (
+        mb(m.get("total")) or -1, mb(m.get("java")) or -1,
+        mb(m.get("native")) or -1, mb(m.get("graphics")) or -1, opened))
+    if SHOT_DIR:
+        shot(os.path.join(SHOT_DIR, "90-reader.png"))
+    keyevent(4)
+    time.sleep(1.0)
+    return m
+
+
+def _displayed_ms():
+    """logcat 里最近一条 ActivityTaskManager Displayed 的 +Nms（系统侧首帧）。"""
+    out = adb("logcat", "-d", "-s", "ActivityTaskManager:I", "ActivityManager:I", timeout=60)
+    hits = []
+    for m in re.finditer(r"Displayed\s+%s/[^\n]*?\+(?:(\d+)s)?(\d+)ms" % re.escape(PKG), out):
+        hits.append(int(m.group(1) or 0) * 1000 + int(m.group(2)))
+    return hits[-1] if hits else None
+
+
+def _app_cold_ms():
+    """app 自己用 PBPERF/PBTIME 报的冷启动耗时（onCreate -> 首帧）。"""
+    out = adb("logcat", "-d", "-s", "PBPERF:V", "PBTIME:V", timeout=60)
+    hits = re.findall(r"cold_start[^\n]*?ms=([\d.]+)", out)
+    return float(hits[-1]) if hits else None
 
 
 def measure_coldstart(n=5):
     print("[coldstart] %d 次 force-stop + am start -W" % n)
+    shell("logcat", "-c")
     vals = []
+    details = []
     for i in range(n):
         shell("am", "force-stop", PKG)
         time.sleep(0.8)
         out = start_app()
         m = re.search(r"TotalTime:\s*(\d+)", out)
+        d = {
+            "run": i + 1,
+            "total_ms": int(m.group(1)) if m else None,
+            "wait_ms": int(re.search(r"WaitTime:\s*(\d+)", out).group(1))
+            if re.search(r"WaitTime:\s*(\d+)", out) else None,
+            "launch_state": (re.search(r"LaunchState:\s*(\w+)", out).group(1)
+                             if re.search(r"LaunchState:\s*(\w+)", out) else "?"),
+        }
         if m:
             vals.append(int(m.group(1)))
             print("  run %d: TotalTime=%s ms" % (i + 1, m.group(1)))
         else:
             print("  run %d: 没有 TotalTime（%r）" % (i + 1, out.strip()[:120]))
         time.sleep(1.2)
-    return vals
+        d["displayed_ms"] = _displayed_ms()
+        d["app_cold_ms"] = _app_cold_ms()
+        details.append(d)
+        print("    breakdown: WaitTime=%s Displayed=+%sms app_cold=%sms LaunchState=%s" % (
+            d["wait_ms"], d["displayed_ms"], d["app_cold_ms"], d["launch_state"]))
+    return vals, details
 
 
 def device_meta():
@@ -753,7 +833,7 @@ def skip_label(r):
     return str(s)
 
 
-def build_report(meta, cold, pss_rows, jank_rows, tag=""):
+def build_report(meta, cold, pss_rows, jank_rows, tag="", cold_details=None):
     L = []
     A = L.append
     shelf = next((r for r in pss_rows if r.get("page") == "shelf" and r.get("nav_ok")), None)
@@ -820,6 +900,7 @@ def build_report(meta, cold, pss_rows, jank_rows, tag=""):
         ["包", "%s（versionName %s）" % (PKG, meta.get("versionName"))],
         ["APK md5", "%s（%s）" % (meta.get("apk_md5"), meta.get("md5_via", "-"))],
         ["lastUpdateTime / debuggable", "%s / %s" % (meta.get("lastUpdateTime"), meta.get("debuggable"))],
+        ["系统字号（font_scale）", meta.get("font_scale") or "?"],
         ["http_proxy / adb reverse", "%s / %s" % (
             meta.get("proxy") or "(空)", (meta.get("reverse") or "(空)").replace("\n", "; "))],
     ]))
@@ -838,9 +919,37 @@ def build_report(meta, cold, pss_rows, jank_rows, tag=""):
         delta = cold_med - R6["coldstart_median"]
         A("R6 基线（同机型）：%s ms，中位 **%d ms** -> 本次 **%s %d ms**。" % (
             " / ".join(str(v) for v in R6["coldstart_ms"]), R6["coldstart_median"],
-            "回落" if delta > 0 else "快了", abs(delta)))
+            "慢了" if delta > 0 else "快了", abs(delta)))
     else:
         A("_未采集（没有 TotalTime 输出）_")
+    if cold_details:
+        A("")
+        A("**冷启动分解**（系统侧 vs app 侧；debug 包 + 模拟器，与 R6 release 真机不可直接比）：")
+        A("")
+        drows = []
+        for d in cold_details:
+            drows.append([
+                d.get("run"),
+                d.get("total_ms") if d.get("total_ms") is not None else "-",
+                d.get("wait_ms") if d.get("wait_ms") is not None else "-",
+                ("+%d ms" % d["displayed_ms"]) if d.get("displayed_ms") is not None else "-",
+                ("%.1f ms" % d["app_cold_ms"]) if d.get("app_cold_ms") is not None else "-",
+                d.get("launch_state") or "-",
+            ])
+        A(md_table(["运行", "TotalTime (ms)", "WaitTime (ms)", "Displayed", "app cold_start", "LaunchState"], drows))
+        disp = [d["displayed_ms"] for d in cold_details if d.get("displayed_ms") is not None]
+        appc = [d["app_cold_ms"] for d in cold_details if d.get("app_cold_ms") is not None]
+        if disp or appc:
+            A("")
+            bits = []
+            if disp:
+                bits.append("System Displayed 中位 **+%d ms**" % sorted(disp)[len(disp) // 2])
+            if appc:
+                bits.append("app cold_start 中位 **%.1f ms**" % sorted(appc)[len(appc) // 2])
+            A("；".join(bits) + "。")
+        A("")
+        A("> TotalTime 含进程冷启动、Application/Activity 初始化与系统调度；debug 包在模拟器上通常 4–7 s，")
+        A("> 与 release 真机 R6 的 237 ms 不具可比性，照实记录，不作为 release 结论。")
     A("")
     A("## 3. PSS（同一进程 canonical 序列，单位 MB）")
     A("")
@@ -921,6 +1030,8 @@ def build_report(meta, cold, pss_rows, jank_rows, tag=""):
     A("> R6 的 PSS 场景是「书架 / 打开阅读器 / 滚 10 页 / 滚 30 页 / 返回书架」；本次是 P1b 新页面，")
     A("> 直接可比项只有书架基线与冷启动，阅读器指标仍以 R6 第 21 节为准。")
     A("")
+    reader_row = next((r for r in pss_rows if r.get("page") == "reader" and r.get("nav_ok")), None)
+    reader_delta = (stable(reader_row) - stable(shelf)) if reader_row and shelf else None
     A("## 6. 是否满足 architecture-v2 L3")
     A("")
     A(md_table(["指标", "L3 目标", "本次", "判定"], [
@@ -935,10 +1046,14 @@ def build_report(meta, cold, pss_rows, jank_rows, tag=""):
         ["滚动掉帧（P1b 列表页，参考 L1 书架口径）", "<= %.1f%% jank" % L3["jank_pct_ref"],
          ("%.2f%%" % max((j.get("jank_pct") or 0) for j in valid_jank)) if valid_jank else "-",
          verdict3(bool(valid_jank), jank_ok)],
+        ["阅读器稳定内存增量（Java+Native，--reader）", "<= %d MB" % L3["reader_delta_mb"],
+         ("%+.1f MB" % reader_delta) if reader_delta is not None else "未采（加 --reader）",
+         verdict3(reader_delta is not None,
+                  (reader_delta is not None and reader_delta <= L3["reader_delta_mb"]))],
     ]))
     A("")
-    A("> L3 里「阅读时稳定内存增量 <= 80 MB」「首屏 <= 300 ms P95」等指标针对 PDF 阅读器，P1b 页面")
-    A("> 不适用，由 R6 第 21 节与 spike2 报告覆盖；本表只判 P1b 可达项。")
+    A("> 阅读器增量行只有加 `--reader` 才采集；不加时记 SKIP，不参与 PASS/FAIL。")
+    A("> L3 里「首屏 <= 300 ms P95」等指标针对 PDF 阅读器，P1b 页面不适用，由 R6 第 21 节与 spike2 报告覆盖。")
     A("")
     A("## 7. 复现命令")
     A("")
@@ -953,6 +1068,9 @@ def build_report(meta, cold, pss_rows, jank_rows, tag=""):
           "--out docs/android-port/p1b-perf.md" % tag)
     else:
         A("python scripts/android/perf-p1b.py --serial $S all --out docs/android-port/p1b-perf.md")
+    A("# 可选：200% 字号重跑 + 阅读器 PSS")
+    A("python scripts/android/perf-p1b.py --serial $S all --font-scale 2.0 --reader --tag-label font200 "
+      "--out docs/android-port/p1b-perf-font200.md")
     A("# 单项")
     A("python scripts/android/perf-p1b.py --serial $S coldstart --n 5")
     A("python scripts/android/perf-p1b.py --serial $S pss")
@@ -966,7 +1084,8 @@ def build_report(meta, cold, pss_rows, jank_rows, tag=""):
     A("- **搜索结果依赖网络**：代理不通/镜像不可达时结果页与详情页无法到达，相关行标 SKIP。")
     A("- **Graphics 不可回收部分**：TOTAL PSS 含 GPU 缓存，回落幅度受 GPU 高水位影响；按 R6 第 21.6 节")
     A("  单列观测，不作硬门。")
-    A("- **未测 200% 字号、横屏、深色**：属视觉/可用性，归 ui-verify，不在性能口径内。")
+    A("- **字号与阅读器**：`--font-scale F` 可在指定系统字号（如 2.0 = 200%）下重跑全部页面；`--reader`")
+    A("  追加阅读器 PSS。横屏、深色等视觉项仍归 ui-verify，不在本性能口径内。")
     A("")
     return "\n".join(L)
 
@@ -984,10 +1103,11 @@ def cmd_state(a):
 def cmd_coldstart(a):
     if not require_device():
         return 1
-    vals = measure_coldstart(a.n)
+    vals, details = measure_coldstart(a.n)
     if vals:
         s = sorted(vals)
         print("cold start: %s ms | min %d med %d max %d" % (vals, s[0], s[len(s) // 2], s[-1]))
+    print(json.dumps(details, ensure_ascii=False, indent=1))
     return 0
 
 
@@ -1015,37 +1135,84 @@ def cmd_jank(a):
 
 
 def cmd_all(a):
+    global SHOT_DIR
     if not require_device():
         return 1
-    if a.ensure_proxy:
-        print("[net] 配置 reverse + http_proxy（p1a-devnet.sh on）")
-        env = dict(os.environ, SERIAL_OVERRIDE=SERIAL or "")
-        r = subprocess.run(["bash", "scripts/android/p1a-devnet.sh", "on"],
-                           capture_output=True, text=True, env=env)
-        print("  " + (r.stdout or r.stderr or "").strip().replace("\n", "\n  "))
-        shell("am", "force-stop", PKG)
-        time.sleep(1.0)
-    if a.tag_label:
-        print("[tag] 轮次标记：%s" % a.tag_label)
-    meta = device_meta()
-    print("[meta] %s / %s / md5 %s" % (meta.get("model"), meta.get("versionName"), meta.get("apk_md5")))
-    cold = measure_coldstart(a.n)
-    pss_rows = measure_pss_sequence(a.settle, skip_net=a.skip_net)
-    jank_rows = [measure_jank("results", a.results_frames, skip_net=a.skip_net),
-                 measure_jank("detail", a.detail_frames, skip_net=a.skip_net)]
-    md = build_report(meta, cold, pss_rows, jank_rows, tag=a.tag_label)
-    if a.out:
-        d = os.path.dirname(a.out)
-        if d:
-            os.makedirs(d, exist_ok=True)
-        with open(a.out, "w", encoding="utf-8") as f:
-            f.write(md + "\n")
-        print("\n[report] -> %s" % a.out)
-    else:
-        print(md)
-    if a.shots:
-        shot(os.path.join(a.shots, "p1b-final.png"))
-    return 0
+    SHOT_DIR = a.shots or os.path.join("spikes", "p1b-perf-shots", time.strftime("%Y%m%d-%H%M%S"))
+    os.makedirs(SHOT_DIR, exist_ok=True)
+    old_font = (shell("settings", "get", "system", "font_scale").strip() or "1.0")
+    font_changed = False
+    try:
+        if a.font_scale:
+            shell("settings", "put", "system", "font_scale", str(a.font_scale))
+            font_changed = True
+            print("[font] 系统字号 -> %s（原 %s）" % (a.font_scale, old_font))
+            shell("am", "force-stop", PKG)
+            time.sleep(1.0)
+        if a.ensure_proxy:
+            print("[net] 配置 reverse + http_proxy（p1a-devnet.sh on）")
+            env = dict(os.environ, SERIAL_OVERRIDE=SERIAL or "")
+            r = subprocess.run(["bash", "scripts/android/p1a-devnet.sh", "on"],
+                               capture_output=True, text=True, env=env)
+            print("  " + (r.stdout or r.stderr or "").strip().replace("\n", "\n  "))
+            shell("am", "force-stop", PKG)
+            time.sleep(1.0)
+        if a.tag_label:
+            print("[tag] 轮次标记：%s" % a.tag_label)
+        meta = device_meta()
+        meta["font_scale"] = shell("settings", "get", "system", "font_scale").strip()
+        meta["shots_dir"] = SHOT_DIR
+        print("[meta] %s / %s / md5 %s / font_scale %s" % (
+            meta.get("model"), meta.get("versionName"), meta.get("apk_md5"), meta.get("font_scale")))
+        cold, cold_details = measure_coldstart(a.n)
+        pss_rows = measure_pss_sequence(a.settle, skip_net=a.skip_net)
+        if a.reader:
+            pss_rows.append(measure_reader(a.settle))
+        jank_rows = [measure_jank("results", a.results_frames, skip_net=a.skip_net),
+                     measure_jank("detail", a.detail_frames, skip_net=a.skip_net)]
+        md = build_report(meta, cold, pss_rows, jank_rows, tag=a.tag_label, cold_details=cold_details)
+        if a.out:
+            d = os.path.dirname(a.out)
+            if d:
+                os.makedirs(d, exist_ok=True)
+            with open(a.out, "w", encoding="utf-8") as f:
+                f.write(md + "\n")
+            print("\n[report] -> %s" % a.out)
+        else:
+            print(md)
+        cold_med = sorted(cold)[len(cold) // 2] if cold else None
+        payload = {
+            "schema": "p1b-perf/1",
+            "generated_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+            "tag": a.tag_label or "",
+            "l3": dict(L3),
+            "meta": meta,
+            "cold": cold,
+            "cold_details": cold_details,
+            "cold_median_ms": cold_med,
+            "pss": pss_rows,
+            "jank": jank_rows,
+            "shots_dir": SHOT_DIR,
+            "skips": [r.get("page") for r in pss_rows + jank_rows if not r.get("nav_ok", True)],
+        }
+        json_path = a.json
+        if not json_path:
+            json_path = (os.path.splitext(a.out)[0] + ".json") if a.out else os.path.join(
+                "spikes", "p1b-perf-%s.json" % time.strftime("%Y%m%d-%H%M%S"))
+        jd = os.path.dirname(json_path)
+        if jd:
+            os.makedirs(jd, exist_ok=True)
+        with open(json_path, "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False, indent=1)
+        print("[json] -> %s" % json_path)
+        shot(os.path.join(SHOT_DIR, "99-final.png"))
+        return 0
+    finally:
+        if font_changed:
+            shell("settings", "put", "system", "font_scale", old_font)
+            print("[font] 恢复系统字号 -> %s" % old_font)
+            shell("am", "force-stop", PKG)
+            time.sleep(0.5)
 
 
 def cmd_nav(a):
@@ -1129,7 +1296,11 @@ def main():
     p.add_argument("--tag-label", default="", help="轮次标记（写进报告标题，如 pre-cookie-fix / post-cookie-fix）")
     p.add_argument("--out", default="docs/android-port/p1b-perf.md")
     p.add_argument("--ensure-proxy", action="store_true", help="先跑 p1a-devnet.sh on")
-    p.add_argument("--shots", default="", help="截图输出目录（可选）")
+    p.add_argument("--shots", default="", help="截图输出目录（默认 spikes/p1b-perf-shots/<时间戳>/）")
+    p.add_argument("--json", default="", help="JSON 结果输出路径（默认与 --out 同名 .json）")
+    p.add_argument("--font-scale", type=float, default=None,
+                   help="把系统字号设为该值后测量（如 2.0=200%%），跑完自动恢复")
+    p.add_argument("--reader", action="store_true", help="追加阅读器 PSS（打开书架第一本书）")
     p = sub.add_parser("nav", parents=[common])
     p.add_argument("page", choices=["shelf", "zlib", "results", "detail", "downloads", "settings"])
     p = sub.add_parser("ui", parents=[common])

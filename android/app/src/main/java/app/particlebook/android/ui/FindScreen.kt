@@ -1,5 +1,6 @@
 package app.particlebook.android.ui
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -7,15 +8,16 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
@@ -31,7 +33,10 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.MenuBook
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.outlined.Category
+import androidx.compose.material.icons.outlined.Leaderboard
 import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.MoreVert
@@ -48,7 +53,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -65,12 +69,14 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import app.particlebook.android.zlib.ZAccount
 import app.particlebook.android.zlib.ZBook
@@ -92,6 +98,9 @@ fun DiscoverScreen(
     onLogout: () -> Unit,
     onDownloadsClick: () -> Unit,
     onOpenDetail: (hash: String, slug: String?) -> Unit,
+    onBooklistsClick: () -> Unit,
+    onPopularClick: () -> Unit,
+    onCategoriesClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var query by rememberSaveable { mutableStateOf("") }
@@ -141,23 +150,16 @@ fun DiscoverScreen(
         modifier = modifier.fillMaxSize(),
         containerColor = MaterialTheme.colorScheme.background,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
-        snackbarHost = {
-            SnackbarHost(
-                hostState = snackbarHostState,
-                modifier = Modifier
-                    .navigationBarsPadding()
-                    // P0-1：Snackbar 底边要落在胶囊上方（132dp = 胶囊上沿 124 + 8）。
-                    .padding(bottom = 132.dp),
-            )
-        },
+        // P1c：统一 Snackbar 底距（胶囊上沿 + 8dp = 132/140dp，已含系统导航条）。
+        snackbarHost = { AppSnackbarHost(snackbarHostState, aboveCapsule = true) },
     ) { innerPadding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
                 .windowInsetsPadding(WindowInsets.statusBars)
-                // 底部预留系统导航条：悬浮导航胶囊叠在内容之上，列表/空态不能钻到它下面。
-                .navigationBarsPadding()
+                // P1c：底部不再叠加 navigationBarsPadding()——各状态用自己的 bottomInset
+                // （128/136dp，语义是距屏底总量）或 Snackbar 统一 helper 避让胶囊。
                 .padding(horizontal = Spacing.screen),
         ) {
             Spacer(Modifier.height(Spacing.lg))
@@ -257,6 +259,10 @@ fun DiscoverScreen(
             when (val current = state) {
                 is ZlibSearchState.Idle -> IdleContent(
                     category = category,
+                    bottomInset = bottomInset,
+                    onBooklistsClick = onBooklistsClick,
+                    onPopularClick = onPopularClick,
+                    onCategoriesClick = onCategoriesClick,
                     onCategoryClick = { term ->
                         // task-38：热门分类直接走 /s/<中文> 真实分类页，不再塞进关键词搜索。
                         category = term
@@ -294,6 +300,7 @@ fun DiscoverScreen(
 
                 is ZlibSearchState.Empty -> EmptyResult(
                     categoryHint = current.category,
+                    bottomInset = bottomInset,
                     onSearchCategory = { term ->
                         category = term
                         query = ""
@@ -305,6 +312,7 @@ fun DiscoverScreen(
 
                 is ZlibSearchState.Error -> SearchError(
                     message = current.message,
+                    bottomInset = bottomInset,
                     kindLabel = current.kindLabel,
                     onRetry = { viewModel.retry() },
                     modifier = Modifier.weight(1f),
@@ -338,7 +346,11 @@ fun DiscoverScreen(
                         }
                         items(items = current.books, key = { book -> book.id }) { book ->
                             ZlibResultRow(
-                                book = book,
+                                title = book.title,
+                                author = book.author,
+                                language = book.language,
+                                extension = book.extension,
+                                fileSize = book.fileSize,
                                 onClick = {
                                     val ref = parseBookRef(book.href)
                                     if (ref != null) {
@@ -581,29 +593,109 @@ private fun NoMirrorBanner(onSwitchLines: () -> Unit) {
     }
 }
 
-/** 从结果 href（/book/<hash>/<slug>.html）解析详情页参数。 */
-private fun parseBookRef(href: String): Pair<String, String?>? {
-    val segments = runCatching {
-        android.net.Uri.parse(href.trim()).pathSegments
-    }.getOrNull() ?: return null
-    val bookIndex = segments.indexOf("book")
-    if (bookIndex < 0 || bookIndex + 1 >= segments.size) return null
-    val hash = segments[bookIndex + 1].takeIf { it.isNotBlank() } ?: return null
-    val slug = segments.getOrNull(bookIndex + 2)
-        ?.removeSuffix(".html")
-        ?.takeIf { it.isNotBlank() }
-    return hash to slug
+/**
+ * 发现入口（P1.5 §7.1）：三张等宽卡，图标 + 标题 + 一行说明。
+ * 用 IntrinsicSize.Min 让三张卡在 200% 字号下等高撑开，不写死高度。
+ */
+@Composable
+private fun DiscoverEntryRow(
+    onBooklistsClick: () -> Unit,
+    onPopularClick: () -> Unit,
+    onCategoriesClick: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(IntrinsicSize.Min),
+        horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
+    ) {
+        DiscoverEntryCard(
+            title = "书单",
+            subtitle = "编辑精选 / 用户书单",
+            icon = Icons.AutoMirrored.Outlined.MenuBook,
+            onClick = onBooklistsClick,
+            modifier = Modifier.weight(1f).fillMaxHeight(),
+        )
+        DiscoverEntryCard(
+            title = "榜单",
+            subtitle = "Most Popular 100",
+            icon = Icons.Outlined.Leaderboard,
+            onClick = onPopularClick,
+            modifier = Modifier.weight(1f).fillMaxHeight(),
+        )
+        DiscoverEntryCard(
+            title = "分类",
+            subtitle = "39 大类 / 802 子类",
+            icon = Icons.Outlined.Category,
+            onClick = onCategoriesClick,
+            modifier = Modifier.weight(1f).fillMaxHeight(),
+        )
+    }
 }
 
-/** 初始态：热门分类 + 最近搜索 + P1a 说明卡（不请求网络）。 */
+@Composable
+private fun DiscoverEntryCard(
+    title: String,
+    subtitle: String,
+    icon: ImageVector,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        onClick = onClick,
+        modifier = modifier,
+        shape = RoundedCornerShape(Radius.card),
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+    ) {
+        Column(Modifier.padding(Spacing.sm)) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(22.dp),
+            )
+            Spacer(Modifier.height(Spacing.xs))
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleSmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Spacer(Modifier.height(2.dp))
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+/** 初始态：发现入口 + 热门分类 + 最近搜索 + P1a 说明卡（不请求网络）。 */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun IdleContent(
     category: String?,
     onCategoryClick: (String) -> Unit,
+    onBooklistsClick: () -> Unit,
+    onPopularClick: () -> Unit,
+    onCategoriesClick: () -> Unit,
+    bottomInset: Dp,
     modifier: Modifier = Modifier,
 ) {
     Column(modifier = modifier.fillMaxWidth().verticalScroll(rememberScrollState())) {
+        // P1.5 §7.1：搜索框下方「发现」入口（书单 / 榜单 / 分类），在热门分类 chips 之上。
+        Spacer(Modifier.height(Spacing.md))
+        Text("发现", style = AppType.sectionTitle)
+        Spacer(Modifier.height(Spacing.xs))
+        DiscoverEntryRow(
+            onBooklistsClick = onBooklistsClick,
+            onPopularClick = onPopularClick,
+            onCategoriesClick = onCategoriesClick,
+        )
         Spacer(Modifier.height(Spacing.xl))
         Text("热门分类", style = AppType.sectionTitle)
         Spacer(Modifier.height(Spacing.xs))
@@ -664,68 +756,16 @@ private fun IdleContent(
                 }
             }
         }
-        Spacer(Modifier.height(Spacing.listBottomInset))
+        // P1c：底边留白覆盖胶囊上沿（128/136dp，距屏底总量）。
+        Spacer(Modifier.height(bottomInset))
     }
-}
-
-/** 结果行：44×60dp 主色占位块（书名首字）+ 标题 2 行 + 元信息 1 行，整行 ≥72dp。 */
-@Composable
-private fun ZlibResultRow(book: ZBook, onClick: () -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .heightIn(min = 72.dp)
-            .clickable(onClick = onClick)
-            .padding(vertical = Spacing.xs),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Box(
-            modifier = Modifier
-                .size(width = 44.dp, height = 60.dp)
-                .clip(RoundedCornerShape(Spacing.xs))
-                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                text = book.title.firstOrNull()?.toString() ?: "?",
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.primary,
-            )
-        }
-        Spacer(Modifier.size(Spacing.sm))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = book.title,
-                style = MaterialTheme.typography.titleMedium,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Spacer(Modifier.height(2.dp))
-            Text(
-                text = zlibMetaLine(book),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-    }
-}
-
-/** 作者 · 语言 · 格式 · 大小（缺省字段跳过；作者为空显示「未知作者」）。 */
-private fun zlibMetaLine(book: ZBook): String {
-    val parts = ArrayList<String>(4)
-    parts += book.author.takeIf { it.isNotBlank() } ?: "未知作者"
-    if (book.language.isNotBlank()) parts += book.language
-    if (book.extension.isNotBlank()) parts += book.extension.uppercase()
-    if (book.fileSize.isNotBlank()) parts += book.fileSize
-    return parts.joinToString(" · ")
 }
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun EmptyResult(
     onSearchCategory: (String) -> Unit,
+    bottomInset: Dp,
     modifier: Modifier = Modifier,
     categoryHint: String? = null,
 ) {
@@ -781,6 +821,8 @@ private fun EmptyResult(
                     )
                 }
             }
+            // P1c：空结果页可滚动，底部留白保证 chips 不被胶囊遮挡。
+            Spacer(Modifier.height(bottomInset))
         }
     }
 }
@@ -789,13 +831,15 @@ private fun EmptyResult(
 private fun SearchError(
     message: String,
     kindLabel: String,
+    bottomInset: Dp,
     onRetry: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(
+        // P1c：底部留白覆盖胶囊上沿（错误态无 bottomBar，视图延伸到屏底）。
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = Spacing.md),
+            .padding(start = Spacing.md, end = Spacing.md, bottom = bottomInset),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {

@@ -25,7 +25,9 @@ CLAUDE.md
 /spikes/**/.gradle/
 /spikes/**/.cxx/
 /spikes/**/*.apk
+/spikes/zz-probe/
 /spikes/spike2-results/raw/
+/android/.kotlin/
 /spikes/spike2-results/audit/*.pyc
 
 __pycache__/

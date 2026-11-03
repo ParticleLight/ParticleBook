@@ -11,17 +11,22 @@ import kotlinx.coroutines.withContext
 import java.io.File
 
 /**
- * Z-Library 封面缓存（P1b §4.3）：
- * 内存 LruCache(8) → filesDir/zlib_covers/<bookId>.jpg → 网络 fetchBytes。
+ * Z-Library 封面缓存（P1b §4.3 / P1.5 §8.1）：
+ * 内存 LruCache（16MB，按 Bitmap 字节数）→ filesDir/zlib_covers/<bookId>.jpg → 网络 fetchBytes。
+ * 150×200 缩略图约 120KB/张，16MB 约容 130 张；若站点改大图需同步调 MEMORY_MAX_BYTES 或降 targetWidth。
  * 失败静默返回 null（详情页显示 primaryContainer 占位，不弹错、不崩溃）。
  */
 object ZlibCoverCache {
 
     private const val TAG = "PBZlib"
-    private const val MEMORY_ENTRIES = 8
+
+    /** 单张封面文件上限（超限不落盘，防止下载到异常大图）。 */
     private const val MAX_BYTES = 8 * 1024 * 1024
 
-    private val memory = object : LruCache<String, Bitmap>(MEMORY_ENTRIES) {
+    /** 内存缓存上限 16MB，按 Bitmap 字节数计数（不是条目数）。 */
+    private const val MEMORY_MAX_BYTES = 16 * 1024 * 1024
+
+    private val memory = object : LruCache<String, Bitmap>(MEMORY_MAX_BYTES) {
         override fun sizeOf(key: String, value: Bitmap): Int = value.byteCount
     }
 

@@ -1,0 +1,602 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>ZLibrary入口 - 官方Z-Library镜像网址（2026更新）</title>
+  <meta name="keywords" content="zlibrary，zlibrary镜像，zlibrary入口，zlibrary镜像网址，zlibrary客户端下载，电子书下载" />
+  <meta name="description" content="zlibrary 是一个全球最大的免费电子书和学术期刊资源平台，被誉为“世界上最大的免费图书馆”，超过23,000,000书籍和84,837,000学术文章，涵盖知名文学著作，小说，理工学科，人文艺术，以及学术论文等应有尽有">
+  <link rel="shortcut icon" href="./files/zlibrary.png">
+
+  <!-- Google tag (gtag.js) -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-D6MMDYG5ZT"></script>
+  <script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+
+  gtag('config', 'G-D6MMDYG5ZT');
+  </script>
+
+  <!-- 广告代码（AdSense；加载脚本只引入一次） -->
+  <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-6962852649727169" crossorigin="anonymous"></script>
+
+  <!-- 全部样式内联，不引用任何外部CSS、字体或CSS框架 -->
+  <style>
+    :root{
+      --red:#d9363e;
+      --red-d:#b92a31;
+      --orange:#ff7a45;
+      --tint:#fff1f0;
+      --dark:#1e1e2e;
+      --gray:#4e4e5e;
+      --muted:#7a7a8a;
+      --line:#ececf1;
+      --bg:#f7f7fa;
+      --sans:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei","Helvetica Neue",Arial,sans-serif;
+    }
+    *{box-sizing:border-box;margin:0;padding:0}
+    html{scroll-behavior:smooth;scroll-padding-top:64px}
+    body{font-family:var(--sans);background:var(--bg);color:var(--gray);line-height:1.7;font-size:15px;-webkit-text-size-adjust:100%}
+    a{color:inherit;text-decoration:none}
+    ul,ol{list-style:none}
+    img{max-width:100%;height:auto}
+    a:focus-visible,button:focus-visible,summary:focus-visible{outline:3px solid var(--orange);outline-offset:2px}
+    .wrap{width:100%;max-width:1120px;margin:0 auto;padding:0 20px}
+
+    /* 顶部导航 */
+    .nav{position:fixed;top:0;left:0;right:0;z-index:50;background:rgba(255,255,255,.94);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);border-bottom:1px solid var(--line);transition:box-shadow .25s}
+    .nav.sc{box-shadow:0 4px 18px rgba(30,30,46,.08)}
+    .nav-in{display:flex;align-items:center;justify-content:space-between;height:54px}
+    .brand{display:flex;align-items:center;gap:9px;font-size:19px;font-weight:800;color:var(--red)}
+    .brand img{width:28px;height:28px;border-radius:6px}
+    .menu{display:flex;gap:24px}
+    .menu a{position:relative;font-size:14.5px;color:var(--gray);padding:3px 0;transition:color .2s}
+    .menu a::after{content:"";position:absolute;left:0;bottom:-2px;width:0;height:2px;background:var(--red);transition:width .25s}
+    .menu a:hover,.menu a.on{color:var(--red)}
+    .menu a:hover::after,.menu a.on::after{width:100%}
+    .burger{display:none;width:40px;height:40px;border:0;background:none;cursor:pointer;border-radius:8px}
+    .burger span{display:block;width:22px;height:2px;background:var(--dark);margin:5px auto;border-radius:2px;transition:transform .25s,opacity .25s}
+    .burger[aria-expanded="true"] span:nth-child(1){transform:translateY(7px) rotate(45deg)}
+    .burger[aria-expanded="true"] span:nth-child(2){opacity:0}
+    .burger[aria-expanded="true"] span:nth-child(3){transform:translateY(-7px) rotate(-45deg)}
+    .mmenu{display:none;background:#fff;border-top:1px solid var(--line);box-shadow:0 10px 20px rgba(30,30,46,.08)}
+    .mmenu.open{display:block}
+    .mmenu a{display:block;padding:11px 20px;border-bottom:1px solid var(--line);font-size:15px}
+    .mmenu a:last-child{border-bottom:0}
+    .mmenu a.on{color:var(--red);font-weight:700}
+
+    /* 首屏 */
+    .hero{padding:80px 0 26px;background:radial-gradient(800px 360px at 88% 0,#ffe3d6 0,rgba(255,227,214,0) 70%),linear-gradient(180deg,#fff7f4 0,var(--bg) 100%)}
+    .hero-grid{display:grid;grid-template-columns:1.25fr .75fr;gap:36px;align-items:center}
+    .hero h1{font-size:clamp(30px,4.4vw,42px);line-height:1.2;color:var(--dark);font-weight:800;letter-spacing:.5px}
+    .hero .sub{margin-top:8px;font-size:20px;font-weight:700;color:var(--red)}
+    .hero .desc{margin-top:10px;font-size:15.5px;color:var(--gray);line-height:1.85}
+    .hero .tip{margin-top:8px;font-size:15.5px;color:var(--dark);font-weight:700}
+    .hero-pic img{display:block;width:100%;border-radius:14px;background:#fff;padding:4px;border:1px solid #eee;box-shadow:0 12px 28px rgba(30,30,46,.13)}
+
+    /* 通用板块 */
+    section{padding:38px 0 0}
+    .sec-h{text-align:center;margin-bottom:20px}
+    .sec-h h2{font-size:clamp(22px,2.8vw,27px);color:var(--dark);font-weight:800;line-height:1.35}
+    .sec-h h2::after{content:"";display:block;width:40px;height:3px;border-radius:2px;background:linear-gradient(90deg,var(--red),var(--orange));margin:8px auto 0}
+    .sec-h p{margin:8px auto 0;color:var(--muted);font-size:13.5px}
+    .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+    .grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
+    .gap-top{margin-top:14px}
+    .card{background:#fff;border-radius:12px;padding:16px 18px;border:1px solid var(--line);box-shadow:0 3px 10px rgba(30,30,46,.05);transition:transform .25s,box-shadow .25s}
+    .card:hover{transform:translateY(-3px);box-shadow:0 10px 22px rgba(30,30,46,.10)}
+    .card h3{font-size:16.5px;color:var(--dark);margin-bottom:4px;line-height:1.45}
+    .card p{font-size:14.5px;line-height:1.7}
+
+    /* 广告位 */
+    .ad{position:relative;min-height:90px;border:1px dashed #d6d6e0;border-radius:10px;background:#fbfbfd;overflow:hidden;text-align:center}
+    .ad ins{position:relative;z-index:1}
+    .ad.rect{min-height:250px}
+    .ad-row{padding-top:16px}
+
+    /* 平台介绍 */
+    .intro{display:grid;grid-template-columns:1.6fr 1fr;gap:20px;align-items:stretch}
+    .intro-text{background:#fff;border:1px solid var(--line);border-radius:12px;padding:20px 22px;box-shadow:0 3px 10px rgba(30,30,46,.05)}
+    .intro-text p{font-size:14.8px;line-height:1.8}
+    .intro-text p+p{margin-top:8px}
+    .stats{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+    .stat{background:#fff;border:1px solid var(--line);border-radius:12px;padding:12px 8px;text-align:center;display:flex;flex-direction:column;justify-content:center}
+    .stat b{display:block;font-size:24px;line-height:1.2;color:var(--red)}
+    .stat span{font-size:13px;color:var(--muted)}
+
+    /* 发展历程 + 右侧矩形广告 */
+    .hist{display:grid;grid-template-columns:1fr 336px;gap:22px;align-items:start}
+    .tl{position:relative;padding-left:30px}
+    .tl::before{content:"";position:absolute;left:8px;top:8px;bottom:8px;width:3px;border-radius:2px;background:linear-gradient(var(--orange),var(--red))}
+    .tl li{position:relative;background:#fff;border:1px solid var(--line);border-radius:12px;padding:10px 16px;margin-bottom:10px;box-shadow:0 3px 10px rgba(30,30,46,.05)}
+    .tl li:last-child{margin-bottom:0}
+    .tl li::before{content:"";position:absolute;left:-28px;top:15px;width:16px;height:16px;border-radius:50%;background:#fff;border:4px solid var(--orange)}
+    .tl li.now::before{border-color:var(--red);background:var(--red)}
+    .tl-top{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+    .tl time{font-size:12.5px;font-weight:800;color:var(--red);background:var(--tint);padding:0 10px;border-radius:99px;white-space:nowrap}
+    .tl h3{font-size:15.5px;color:var(--dark)}
+    .tl p{font-size:14px;line-height:1.65;margin-top:2px}
+
+    /* 适用人群 */
+    .who-top{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:2px}
+    .who-top h3{margin:0;font-size:15.5px}
+    .who-top em{font-style:normal;font-size:12px;font-weight:700;background:var(--tint);color:var(--red);padding:0 10px;border-radius:99px;white-space:nowrap}
+    .who p{font-size:14px}
+
+    /* 使用步骤 */
+    .step-top{display:flex;align-items:center;gap:10px;margin-bottom:4px}
+    .step-top h3{margin:0}
+    .num{flex:none;display:flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:50%;background:linear-gradient(135deg,var(--red),var(--orange));color:#fff;font-weight:800;font-size:14px}
+
+    /* FAQ */
+    .faq{display:grid;grid-template-columns:1fr 1fr;gap:10px 14px;align-items:start}
+    details{background:#fff;border:1px solid var(--line);border-radius:10px;padding:11px 16px}
+    summary{cursor:pointer;list-style:none;display:flex;justify-content:space-between;gap:12px;font-weight:700;color:var(--dark);font-size:14.5px}
+    summary::-webkit-details-marker{display:none}
+    summary::after{content:"+";color:var(--red);font-size:20px;line-height:1.2;flex:none}
+    details[open] summary::after{content:"−"}
+    details p{margin-top:6px;font-size:14px;line-height:1.7}
+
+    /* 入口导航（页面底部，紧凑） */
+    .panels{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;align-items:start}
+    .panel{background:#fff;border:1px solid var(--line);border-radius:12px;overflow:hidden;box-shadow:0 3px 10px rgba(30,30,46,.05)}
+    .panel h3{font-size:14.5px;color:var(--red);background:var(--tint);padding:7px 14px}
+    .erow{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 14px;border-top:1px solid var(--line)}
+    .erow b{display:block;font-size:14.5px;color:var(--dark);line-height:1.4}
+    .erow span{display:block;font-size:12.5px;color:var(--muted);line-height:1.5}
+    .btn{flex:none;display:inline-block;background:var(--red);color:#fff;font-weight:700;font-size:13px;padding:4px 14px;border-radius:7px;white-space:nowrap;transition:background .2s}
+    .btn:hover{background:var(--red-d)}
+    .alert{margin-top:14px;padding:10px 16px;border-radius:10px;background:#fff1f0;border:1px solid #ffccc7;border-left:5px solid var(--red);color:#7a2b2b;font-size:13.5px;line-height:1.7}
+    .alert s{color:var(--red)}
+
+    /* 页脚 */
+    footer{margin-top:34px;background:var(--dark);color:#b9b9c9;text-align:center;padding:20px 20px;font-size:13.5px}
+    footer strong{color:#fff}
+    footer p+p{margin-top:2px}
+
+    @media(max-width:1000px){
+      .menu{display:none}
+      .burger{display:block}
+    }
+    @media(max-width:900px){
+      .hist{grid-template-columns:1fr}
+      .intro{grid-template-columns:1fr}
+      .stats{grid-template-columns:repeat(4,1fr)}
+      .grid4{grid-template-columns:1fr 1fr}
+      .panels{grid-template-columns:1fr}
+    }
+    @media(max-width:760px){
+      .hero{padding:72px 0 22px}
+      .hero-grid{grid-template-columns:1fr;gap:20px}
+      .grid3{grid-template-columns:1fr 1fr}
+      .faq{grid-template-columns:1fr}
+    }
+    @media(max-width:560px){
+      .grid3,.grid4{grid-template-columns:1fr}
+      .stats{grid-template-columns:1fr 1fr}
+      section{padding-top:30px}
+    }
+    @media(prefers-reduced-motion:reduce){
+      html{scroll-behavior:auto}
+      *{transition:none!important}
+    }
+  </style>
+</head>
+
+<body>
+
+<!-- 顶部导航 -->
+<header class="nav" id="nav">
+  <div class="wrap nav-in">
+    <a class="brand" href="#home"><img src="./files/zlibrary.png" alt="">Z-Library图书馆</a>
+    <nav class="menu" aria-label="主导航">
+      <a href="#home">首页</a>
+      <a href="#about">平台介绍</a>
+      <a href="#features">功能介绍</a>
+      <a href="#steps">使用步骤</a>
+      <a href="#history">发展历程</a>
+      <a href="#scenes">应用场景</a>
+      <a href="#faq">常见问题</a>
+    </nav>
+    <button class="burger" id="burger" type="button" aria-label="打开菜单" aria-expanded="false" aria-controls="mmenu"><span></span><span></span><span></span></button>
+  </div>
+  <nav class="mmenu" id="mmenu" aria-label="移动端导航">
+    <a href="#home">首页</a>
+    <a href="#about">平台介绍</a>
+    <a href="#features">功能介绍</a>
+    <a href="#steps">使用步骤</a>
+    <a href="#history">发展历程</a>
+    <a href="#scenes">应用场景</a>
+    <a href="#faq">常见问题</a>
+  </nav>
+</header>
+
+<main>
+
+  <!-- 首屏 -->
+  <div class="hero" id="home">
+    <div class="wrap hero-grid">
+      <div>
+        <h1>Z-Library图书馆</h1>
+        <p class="sub">世界上最大的电子图书馆</p>
+        <p class="desc">超过23,000,000书籍和84,837,000学术文章<br>涵盖文学著作，小说，理工学科，人文艺术，以及学术论文等</p>
+        <p class="tip">【推荐！！OLib客户端无需魔法，比镜像站稳定】</p>
+      </div>
+      <div class="hero-pic"><img src="./files/zlibrary.jpg" alt="Z-Library图书馆"></div>
+    </div>
+  </div>
+
+  <!-- 横向广告位 1：首屏下方 -->
+  <div class="wrap ad-row">
+    <div class="ad">
+      <ins class="adsbygoogle"
+           style="display:block"
+           data-ad-client="ca-pub-6962852649727169"
+           data-ad-slot="2494439074"
+           data-ad-format="auto"
+           data-full-width-responsive="true"></ins>
+      <script>
+           (adsbygoogle = window.adsbygoogle || []).push({});
+      </script>
+    </div>
+  </div>
+
+  <!-- Z-Library图书馆介绍 -->
+  <section id="about">
+    <div class="wrap">
+      <div class="sec-h"><h2>Z-Library图书馆介绍</h2></div>
+      <div class="intro">
+        <div class="intro-text">
+          <p>Z-Library是世界上最大的电子图书馆，拥有超过23,000,000的书籍和84,837,000的学术文章，涵盖知名文学著作、小说、理工学科、人文艺术，以及学术论文等应有尽有！支持PDF、EPUB、MOBI、TXT等多种格式资源下载。自2009年以来，平台提供不同语言的自由阅读，包括独特的书籍和科学文章，目标是让每个人都能获得文学作品。</p>
+          <p>Z-Library原是创世纪图书馆（Library Genesis）的镜像网站，并从该图书馆获得大部分馆藏，但它的一些馆藏由用户自行上传，并且不为创世纪图书馆所收藏。该平台公开网域曾于2022年11月3日遭到美国政府屏蔽，2023年2月11日，用户可以再次访问Z-Library。</p>
+          <p>用户可以通过书名、作者、ISBN、DOI、出版社等信息检索，也可以用全文检索按内容查找；登录之后还能使用个人书架、阅读记录和推荐功能，把零散的阅读需求整理成自己的知识库。</p>
+        </div>
+        <div class="stats">
+          <div class="stat"><b>2300万+</b><span>电子书</span></div>
+          <div class="stat"><b>8400万+</b><span>学术文章</span></div>
+          <div class="stat"><b>近30种</b><span>语言资源</span></div>
+          <div class="stat"><b>2009</b><span>创立年份</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Z-library功能介绍 -->
+  <section id="features">
+    <div class="wrap">
+      <div class="sec-h"><h2>Z-Library功能介绍</h2></div>
+      <div class="grid3">
+        <article class="card">
+          <h3>强大的搜索功能</h3>
+          <p>支持按标题、作者、ISBN、主题等多种方式搜索，还能通过高级筛选器按年份、语言、文件格式等条件精准查找。全文搜索可直接定位到书籍或文章中的具体段落，大幅提高找资料的效率。</p>
+        </article>
+        <article class="card">
+          <h3>丰富的资源库</h3>
+          <p>拥有超过2300万本电子书和8400万篇学术文章，涵盖几乎所有学科领域。从经典文学到前沿论文，从儿童绘本到专业学术著作都能找到，平台还支持用户上传资源。</p>
+        </article>
+        <article class="card">
+          <h3>多语言与多格式支持</h3>
+          <p>支持近30种语言的资源，满足全球不同地区用户的需求。提供PDF、EPUB、MOBI、TXT等多种格式，可根据自己的阅读设备选择合适的格式。</p>
+        </article>
+        <article class="card">
+          <h3>个人书架与书单</h3>
+          <p>登录后可把喜欢的书加入书架、建立书单；下载与浏览记录会被保留，更换设备或入口后，用同一账号登录即可找回。</p>
+        </article>
+        <article class="card">
+          <h3>多端访问</h3>
+          <p>除网页版外，还有Windows、Mac、Linux客户端和安卓App。客户端内置多条线路，能自动寻找可用域名，减少域名失效带来的麻烦。</p>
+        </article>
+        <article class="card">
+          <h3>每日更新与推荐</h3>
+          <p>每天都有新书上架，“最受欢迎”榜单实时变化，Z-Recommend会根据兴趣推荐书籍，帮你发现原本没想到要找的好书。</p>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- Z-library使用步骤 -->
+  <section id="steps">
+    <div class="wrap">
+      <div class="sec-h"><h2>Z-Library使用步骤</h2></div>
+      <div class="grid3">
+        <article class="card">
+          <div class="step-top"><span class="num">1</span><h3>访问与注册</h3></div>
+          <p>通过官方推荐的镜像站点或Telegram频道获取最新访问链接，点击首页右上角“登录”，使用邮箱注册。注册后可同步阅读进度、创建个人书单。</p>
+        </article>
+        <article class="card">
+          <div class="step-top"><span class="num">2</span><h3>搜索与筛选</h3></div>
+          <p>在搜索栏输入书名、作者或主题，点击搜索；再通过筛选器按语言、格式、年份等条件缩小范围，快速找到符合需求的资源。</p>
+        </article>
+        <article class="card">
+          <div class="step-top"><span class="num">3</span><h3>查看详情</h3></div>
+          <p>点击资源标题进入详情页，核对封面、出版社、版本、页数与文件大小，确认无误后再下载，避免浪费每日额度。</p>
+        </article>
+        <article class="card">
+          <div class="step-top"><span class="num">4</span><h3>下载资源</h3></div>
+          <p>在详情页选择PDF、EPUB、MOBI、TXT等格式下载，资源会自动保存到设备。注册用户还可将资源加入个人书单，方便管理。</p>
+        </article>
+        <article class="card">
+          <div class="step-top"><span class="num">5</span><h3>导入设备阅读</h3></div>
+          <p>PDF适合电脑与手机直接阅读；Kindle选择MOBI或AZW3；其他阅读器和手机App优先EPUB，可通过数据线、邮件或App导入。</p>
+        </article>
+        <article class="card">
+          <div class="step-top"><span class="num">6</span><h3>入口失效时找回</h3></div>
+          <p>入口打不开时，依次尝试页面底部的镜像入口、官网地址与客户端，也可以使用OLib等工具，同一账号在不同入口一般都能登录。</p>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- 发展历程（左）+ 矩形广告位 3（右） -->
+  <section id="history">
+    <div class="wrap">
+      <div class="sec-h"><h2>Z-Library发展历程</h2></div>
+      <div class="hist">
+        <ul class="tl">
+          <li>
+            <div class="tl-top"><time>2009年</time><h3>平台创立</h3></div>
+            <p>最初是创世纪图书馆（Library Genesis）的镜像网站，大部分馆藏来自该图书馆，目标是让更多人免费获得书籍和知识。</p>
+          </li>
+          <li>
+            <div class="tl-top"><time>早期扩张</time><h3>用户上传丰富馆藏</h3></div>
+            <p>除镜像内容外，平台也接受用户上传，部分馆藏并不为创世纪图书馆所收藏，资源从电子书逐步扩展到学术文章。</p>
+          </li>
+          <li>
+            <div class="tl-top"><time>2022年11月3日</time><h3>公开域名被屏蔽</h3></div>
+            <p>平台的公开网域遭到美国政府屏蔽，原有主域名随之无法访问，这也是此后“入口频繁变化”的起点。</p>
+          </li>
+          <li>
+            <div class="tl-top"><time>2023年2月11日</time><h3>重新开放访问</h3></div>
+            <p>用户可以再次访问Z-Library，平台以多个域名、镜像与客户端并行的方式继续提供服务。</p>
+          </li>
+          <li class="now">
+            <div class="tl-top"><time>至今</time><h3>多入口并行</h3></div>
+            <p>官网、镜像、客户端与第三方下载工具同时存在，域名会因各种原因调整，需要借助入口汇总页获取最新地址。</p>
+          </li>
+        </ul>
+
+        <!-- 矩形广告位 3：纵向广告300尺寸 -->
+        <div class="ad rect">
+          <!-- 纵向广告300尺寸 -->
+          <ins class="adsbygoogle"
+               style="display:block"
+               data-ad-client="ca-pub-6962852649727169"
+               data-ad-slot="3002541548"
+               data-ad-format="auto"
+               data-full-width-responsive="true"></ins>
+          <script>
+               (adsbygoogle = window.adsbygoogle || []).push({});
+          </script>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 应用场景与适用人群 -->
+  <section id="scenes">
+    <div class="wrap">
+      <div class="sec-h"><h2>Z-Library应用场景与适用人群</h2></div>
+      <div class="grid4">
+        <article class="card">
+          <h3>学习与考试</h3>
+          <p>用ISBN或原版书名检索教材、参考书与外语资料，先核对版本与目录，再决定是否购买纸质书。</p>
+        </article>
+        <article class="card">
+          <h3>学术研究</h3>
+          <p>输入DOI或论文题目查找学术文章，配合所在机构的正规数据库使用，查阅专著与综述了解领域脉络。</p>
+        </article>
+        <article class="card">
+          <h3>职场与自学</h3>
+          <p>编程、设计、管理、金融等书籍更新快、价格高，可先检索对比多本，再选定主力教材系统学习。</p>
+        </article>
+        <article class="card">
+          <h3>休闲阅读</h3>
+          <p>小说、传记、历史、科普题材丰富，EPUB可导入手机App通勤阅读，Kindle选MOBI或AZW3。</p>
+        </article>
+      </div>
+
+      <div class="grid3 gap-top">
+        <article class="card who">
+          <div class="who-top"><h3>在校学生</h3><em>学习 · 备考</em></div>
+          <p>需要教材、参考书与外语资料，预算有限，希望先看再买。</p>
+        </article>
+        <article class="card who">
+          <div class="who-top"><h3>科研与教学人员</h3><em>检索 · 引用</em></div>
+          <p>经常查阅专著、综述与期刊论文，需要多渠道补充文献。</p>
+        </article>
+        <article class="card who">
+          <div class="who-top"><h3>技术与职场人士</h3><em>自学 · 提升</em></div>
+          <p>需要持续跟进技术、管理、金融等领域的新知识。</p>
+        </article>
+        <article class="card who">
+          <div class="who-top"><h3>外语学习者</h3><em>原版 · 多语种</em></div>
+          <p>想找原版书、双语读物和外语教材做沉浸式练习。</p>
+        </article>
+        <article class="card who">
+          <div class="who-top"><h3>资料整理者</h3><em>收藏 · 书单</em></div>
+          <p>习惯建立书单与书架，系统化管理自己的阅读资料。</p>
+        </article>
+        <article class="card who">
+          <div class="who-top"><h3>阅读爱好者</h3><em>休闲 · 发现</em></div>
+          <p>喜欢小说、历史、科普，乐于探索不同类型的新书。</p>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- 常见问题 -->
+  <section id="faq">
+    <div class="wrap">
+      <div class="sec-h"><h2>Z-Library常见问题</h2></div>
+      <div class="faq">
+        <details open>
+          <summary>1. 访问不了主域名，应该怎么办？</summary>
+          <p>主域名在部分地区会被限制，可改用镜像入口、官网地址或客户端，也可以使用OLib这类下载工具。把DNS设置为 1.1.1.1 和 1.0.0.1，有时也能改善连接。</p>
+        </details>
+        <details>
+          <summary>2. 提示下载次数已用完怎么办？</summary>
+          <p>每个账号每天的下载额度有限，登录账号或使用客户端通常能获得更高额度。也可先切换网络环境再试，例如关闭移动数据几秒后重新开启。</p>
+        </details>
+        <details>
+          <summary>3. 注册时收不到验证邮件？</summary>
+          <p>请先检查垃圾邮件文件夹。部分国内邮箱会延迟或拦截，建议改用Gmail、Outlook等邮箱；等待几分钟仍未收到，可重新发送或换个入口注册。</p>
+        </details>
+        <details>
+          <summary>4. 下载的文件打不开或显示乱码？</summary>
+          <p>先确认格式与阅读器匹配：EPUB需支持该格式的阅读软件，Kindle更适合MOBI或AZW3。文件不完整请重新下载，也可换其他格式，或用Calibre转换。</p>
+        </details>
+        <details>
+          <summary>5. 搜不到想要的书怎么办？</summary>
+          <p>换成ISBN、原版书名或作者英文名再搜，或切换到“全文检索”。中文书名可简体、繁体各试一次；资源库每天都在更新，暂时没有的书可以过段时间再看。</p>
+        </details>
+        <details>
+          <summary>6. 如何辨别钓鱼网站？</summary>
+          <p>从本页或官方渠道获取地址，进站前核对域名拼写，不点击来路不明的广告。官方不会在下载前收费，要求充值或开会员才能下载的页面都不要相信。</p>
+        </details>
+        <details>
+          <summary>7. 客户端和App从哪里下载比较安全？</summary>
+          <p>建议只使用本页底部“官网&amp;镜像入口”里列出的渠道，不要安装来路不明的修改版，也不要把重要账号的密码用在这里，以免账号信息泄露。</p>
+        </details>
+        <details>
+          <summary>8. 使用这个平台合法吗？</summary>
+          <p>平台长期存在版权争议，各国法律规定不同。请先了解所在地区的法规，仅将资源用于个人学习与研究，不要传播或商用，喜欢的书籍也建议购买正版。</p>
+        </details>
+      </div>
+    </div>
+  </section>
+
+  <!-- 横向广告位 2：入口导航上方 -->
+  <div class="wrap ad-row">
+    <div class="ad">
+      <ins class="adsbygoogle"
+           style="display:block"
+           data-ad-client="ca-pub-6962852649727169"
+           data-ad-slot="2494439074"
+           data-ad-format="auto"
+           data-full-width-responsive="true"></ins>
+      <script>
+           (adsbygoogle = window.adsbygoogle || []).push({});
+      </script>
+    </div>
+  </div>
+
+  <!-- 入口导航（页面底部） -->
+  <section id="entries">
+    <div class="wrap">
+      <div class="sec-h"><h2>Z-Library官网&amp;镜像入口</h2></div>
+      <div class="panels">
+
+        <div class="panel">
+          <h3>客户端与资源下载</h3>
+          <div class="erow">
+            <div><b>Z-library客户端|资源库下载</b><span>支持windows/mac/linux/安卓app，1800万册种子资源库含目录索引</span></div>
+            <a class="btn" href="https://pan.quark.cn/s/e9fae4259281" target="_blank" rel="nofollow noopener">访问网盘</a>
+          </div>
+          <div class="erow">
+            <div><b>🔥Olib开源图书馆</b><span>Z-library电子书无限下载器，支持Windows/Mac/安卓app</span></div>
+            <a class="btn" href="https://pan.quark.cn/s/23da72b910d3" target="_blank" rel="nofollow noopener">立即下载</a>
+          </div>
+          <div class="erow">
+            <div><b>电子书/电影/动漫/游戏资源</b><span>100W+电子书，2000+电影500+动漫，植物大战僵尸红警魔兽等游戏</span></div>
+            <a class="btn" href="https://wpddh.pages.dev/" target="_blank" rel="nofollow noopener">访问网盘</a>
+          </div>
+        </div>
+
+        <div class="panel">
+          <h3>镜像入口</h3>
+          <div class="erow">
+            <div><b>镜像入口1</b><span>目前正常，会重定向💻🚫</span></div>
+            <a class="btn" href="https://z-lib.by/" target="_blank" rel="nofollow noopener">访问镜像</a>
+          </div>
+          <div class="erow">
+            <div><b>镜像入口2</b><span>目前正常，会重定向💻🚫</span></div>
+            <a class="btn" href="https://zlib.ch/" target="_blank" rel="nofollow noopener">访问镜像</a>
+          </div>
+          <div class="erow">
+            <div><b>镜像入口3</b><span>目前正常，会重定向💻🚫</span></div>
+            <a class="btn" href="https://zlib.re/" target="_blank" rel="nofollow noopener">立即访问</a>
+          </div>
+          <div class="erow">
+            <div><b>打不开国内入口</b><span>实时同步，长期稳定更新</span></div>
+            <a class="btn" href="https://znew.pages.dev/" target="_blank" rel="nofollow noopener">立即访问</a>
+          </div>
+        </div>
+
+        <div class="panel">
+          <h3>官网地址</h3>
+          <div class="erow">
+            <div><b>官网地址1</b><span>✅目前正常，需梯</span></div>
+            <a class="btn" href="https://zh.z-library.sk/" target="_blank" rel="nofollow noopener">访问官网</a>
+          </div>
+          <div class="erow">
+            <div><b>官网地址2</b><span>✅目前正常，需梯</span></div>
+            <a class="btn" href="https://zh.z-lib.gd/" target="_blank" rel="nofollow noopener">访问官网</a>
+          </div>
+          <div class="erow">
+            <div><b>官网地址3</b><span>✅目前正常，需梯</span></div>
+            <a class="btn" href="https://z-lib.fm/" target="_blank" rel="nofollow noopener">访问官网</a>
+          </div>
+        </div>
+
+      </div>
+
+      <div class="alert">
+        <strong>⚠️ 防骗提示：</strong>网上存在大量仿冒站点，如 <s>z-library.is</s>、<s>z-library.to</s>、<s>z-library.li</s>、<s>z-lib.is</s>、<s>z-lib.io</s>、<s>z-lib.id</s> 等，请勿登录或付款。官方<b>不会</b>在下载前收费，要求先充值、开会员才能下载的页面一律不要相信。
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<footer>
+  <p><strong>觉得很不错？那就按住Ctrl+D键组合，把本网站加入你的浏览器收藏夹吧！</strong></p>
+  <p>Copyright ©2026 Z-Library图书馆</p>
+</footer>
+
+<script>
+(function(){
+  var nav=document.getElementById('nav');
+  var burger=document.getElementById('burger');
+  var mmenu=document.getElementById('mmenu');
+
+  /* 导航滚动阴影 */
+  function onScroll(){ nav.classList.toggle('sc',window.scrollY>20); }
+  window.addEventListener('scroll',onScroll,{passive:true});
+  onScroll();
+
+  /* 移动端菜单 */
+  burger.addEventListener('click',function(){
+    var open=mmenu.classList.toggle('open');
+    burger.setAttribute('aria-expanded',open?'true':'false');
+  });
+  mmenu.addEventListener('click',function(e){
+    if(e.target.tagName==='A'){
+      mmenu.classList.remove('open');
+      burger.setAttribute('aria-expanded','false');
+    }
+  });
+
+  /* 当前板块高亮 */
+  var links=document.querySelectorAll('.menu a,.mmenu a');
+  var ids=['home','about','features','steps','history','scenes','faq'];
+  if('IntersectionObserver' in window){
+    var io=new IntersectionObserver(function(entries){
+      entries.forEach(function(en){
+        if(en.isIntersecting){
+          links.forEach(function(a){
+            a.classList.toggle('on',a.getAttribute('href')==='#'+en.target.id);
+          });
+        }
+      });
+    },{rootMargin:'-30% 0px -60% 0px'});
+    ids.forEach(function(id){
+      var el=document.getElementById(id);
+      if(el){io.observe(el);}
+    });
+  }
+})();
+</script>
+
+</body>
+</html>

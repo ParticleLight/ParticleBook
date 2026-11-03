@@ -173,6 +173,8 @@ class ZlibClient(
         val contentType: String? = null,
         /** 3xx 的 Location（/dl 探测拿 CDN 直链用）。 */
         val location: String? = null,
+        /** 本次响应过程中解过一次挑战（R7-H：mirror_probe kind=pow 判定用）。 */
+        val challenged: Boolean = false,
     )
 
     // ---------------------------------------------------------------- public API
@@ -205,115 +207,275 @@ class ZlibClient(
     }
 
     /**
-     * 探测可用镜像。
+     * 探测可用镜像（R7-H 分层）：上次成功线路 -> T0 官方族（3s/host、合计 5s）->
+     * T1 动态导航源（zlib.wwwnav.com，缓存过期才同步抓）-> T2 内置兜底（旧静态表去掉 DiamWall）。
      *
-     * 顺序：缓存（上次成功）→ 静态 [MIRRORS] + 已缓存的动态名单（zz.ggonav.com 源站已 NXDOMAIN，
-     * 仅 best-effort：命中镜像后再后台刷新，1h 缓存，失败静默回退静态，绝不拖慢首次搜索）；
-     * 已知 DiamWall 站点（307 + __diamwall → 513 空 body，需要执行 JS）排到候选末尾，只在候选不足时才占名额。最多 [MAX_PROBE_MIRRORS] 个、
-     * 整轮 <= [PROBE_BUDGET_MS]、单镜像 <= [PER_MIRROR_BUDGET_MS]；只对 SHA1 挑战站点
-     * （[SHA1_CHALLENGE_HOSTS]，即 z-lib.by 类）重试，最多 [MAX_MIRROR_ATTEMPTS] 次（含首次）。
+     * 官方不可达时立即降级，用户要求「网络允许时官网优先，但不能卡住」；整轮硬上限 [PROBE_BUDGET_MS]。
+     * 每轮结果写 [ZlibMirrorRegistry]（filesDir/zlib_mirrors.json）：成功记 finalUrl/延迟，失败按
+     * 10min x 2^n（上限 2h）降权；DiamWall 站（需 JS）探测命中即跳过并 demote。
      *
      * @throws ZlibException kind=NO_MIRROR
      */
     @Throws(ZlibException::class)
     fun probeMirrors(): String {
         ensureInitialized()
-        val candidates = ArrayList<String>()
-        val cached = mirror ?: prefs?.getString(KEY_MIRROR, null)
-        cached?.trim()?.takeIf { it.isNotEmpty() }?.let { candidates.add(it.trimEnd('/')) }
-        mergedMirrors().forEach { candidate ->
-            val normalized = candidate.trimEnd('/')
-            if (normalized !in candidates) candidates.add(normalized)
-        }
-
-        // z-lib.by 优先；已知 DiamWall 站点排后面，避免占掉仅有的 3 个探测名额。
-        val preferred = candidates.filterNot { hostOf(it) in KNOWN_UNSUPPORTED_HOSTS }
-        val deferred = candidates.filter { hostOf(it) in KNOWN_UNSUPPORTED_HOSTS }
-        val plan = (preferred + deferred).take(MAX_PROBE_MIRRORS)
-
         val startedAt = System.nanoTime()
-        val deadline = startedAt + PROBE_BUDGET_MS * 1_000_000L
+        val globalDeadline = startedAt + PROBE_BUDGET_MS * 1_000_000L
+        val now = System.currentTimeMillis()
+        val file = registryFile()
+        ZlibMirrorRegistry.ensureLoaded(file, now)
+        val tried = LinkedHashSet<String>()
+        var lastError: String? = null
+
         debugLog(
-            "probe_start mirrors=${plan.size} budget_ms=$PROBE_BUDGET_MS " +
-                "mirror_budget_ms=$PER_MIRROR_BUDGET_MS " +
-                "plan=${plan.joinToString(",") { hostOf(it) }}",
+            "mirror_tier official=" + ZlibMirrorRegistry.orderedOfficial(now).size +
+                " dynamic=" + ZlibMirrorRegistry.dynamicCandidates(now).size +
+                " fallback=" + ZlibMirrorRegistry.fallbackCandidates(now).size +
+                " budget_ms=" + PROBE_BUDGET_MS +
+                " official_budget_ms=" + OFFICIAL_PHASE_BUDGET_MS,
         )
 
-        var lastError: String? = null
-        var tried = 0
-        for (candidate in plan) {
-            if (remainingMs(deadline) <= 0L) {
-                debugLog("probe_budget_exhausted tried=$tried")
+        // 0) 上次成功/用户指定的线路：最可信，先探（保持 P1a 语义）。
+        val cached = normalizeMirror(mirror ?: prefs?.getString(KEY_MIRROR, null))
+        if (cached.isNotEmpty() && remainingMs(globalDeadline) >= MIN_REQUEST_MS) {
+            tried.add(cached)
+            val hostDeadline = minOf(startedAt + PER_MIRROR_BUDGET_MS * 1_000_000L, globalDeadline)
+            val tierLabel = ZlibMirrorRegistry.tierOf(cached).label
+            probeCandidate(cached, tierLabel, "cached", attemptsFor(cached), hostDeadline, now)?.let { picked ->
+                adoptMirror(picked)
+                ZlibMirrorRegistry.save(file)
+                return picked
+            }
+            lastError = "cached=" + hostOf(cached) + " failed"
+        }
+
+        // 1) T0 官方族：单 host 3s、合计 5s；不可达立即降级（官网优先但不卡住）。
+        val officialDeadline = minOf(startedAt + OFFICIAL_PHASE_BUDGET_MS * 1_000_000L, globalDeadline)
+        for (entry in probeable(ZlibMirrorRegistry.orderedOfficial(now, tried), now)) {
+            if (remainingMs(officialDeadline) < MIN_REQUEST_MS) {
+                debugLog("mirror_tier tier=official phase=budget_exhausted tried=" + tried.size)
                 break
             }
-            tried++
-            val host = hostOf(candidate)
-            val maxAttempts = if (host in SHA1_CHALLENGE_HOSTS) MAX_MIRROR_ATTEMPTS else 1
-            val mirrorStart = System.nanoTime()
-            // 单镜像预算（重试共享）<= PER_MIRROR_BUDGET_MS，且不越过整轮 deadline。
-            val mirrorDeadline = mirrorStart + minOf(PER_MIRROR_BUDGET_MS, remainingMs(deadline)) * 1_000_000L
+            tried.add(entry.url)
+            val hostDeadline = minOf(System.nanoTime() + PER_MIRROR_BUDGET_MS * 1_000_000L, officialDeadline)
+            probeCandidate(entry.url, "official", entry.source, attemptsFor(entry.url), hostDeadline, now)?.let { picked ->
+                adoptMirror(picked)
+                ZlibMirrorRegistry.save(file)
+                return picked
+            }
+            lastError = lastProbeError ?: lastError
+        }
 
-            for (attempt in 1..maxAttempts) {
-                if (remainingMs(mirrorDeadline) < MIN_REQUEST_MS) {
-                    debugLog("mirror=$host stage=budget_exhausted attempt=$attempt/$maxAttempts")
-                    break
+        // 2) T1 动态导航源：缓存过期/失败退避到期才抓；抓取失败仍复用旧动态名单。
+        if (remainingMs(globalDeadline) >= MIN_REQUEST_MS) {
+            prepareDynamicPhase(globalDeadline, now, lastError)
+            for (entry in probeable(ZlibMirrorRegistry.dynamicCandidates(now, tried), now)) {
+                if (remainingMs(globalDeadline) < MIN_REQUEST_MS) break
+                tried.add(entry.url)
+                val hostDeadline = minOf(System.nanoTime() + PER_MIRROR_BUDGET_MS * 1_000_000L, globalDeadline)
+                probeCandidate(entry.url, "dynamic", entry.source, 1, hostDeadline, now)?.let { picked ->
+                    adoptMirror(picked)
+                    ZlibMirrorRegistry.save(file)
+                    return picked
                 }
-                val attemptStarted = System.nanoTime()
-                val attemptDeadline = minOf(mirrorDeadline, deadline)
-                try {
-                    val res = getWithChallenge(URI("$candidate/s/test"), deadlineNanos = attemptDeadline)
-                    val elapsed = (System.nanoTime() - attemptStarted) / 1_000_000L
-                    if (res.status == 200 && !looksLikeChallenge(res.body)) {
-                        mirror = candidate
-                        prefs?.edit()?.putString(KEY_MIRROR, candidate)?.apply()
-                        debugLog("mirror=$host stage=ok status=${res.status} attempt=$attempt/$maxAttempts ms=$elapsed")
-                        debugLog("probe_result ok=$host")
-                        // P1c ③：命中镜像后再后台刷新名单（不占用户等待时间；源站已 NXDOMAIN 时静默失败）。
-                        maybeRefreshMirrorListInBackground()
-                        return candidate
-                    }
-                    // DiamWall：307 后 513 空 body + Server: DiamWall，需执行 JS，原生客户端不可用。
-                    if (isDiamWallBlock(res)) {
-                        lastError = "$host -> unsupported (HTTP ${res.status}, server=${res.server ?: "-"})"
-                        debugLog(
-                            "mirror=$host stage=unsupported reason=diamwall status=${res.status} " +
-                                "server=${res.server ?: "-"} body_len=${res.body.length} " +
-                                "attempt=$attempt/$maxAttempts ms=$elapsed",
-                        )
-                        break
-                    }
-                    lastError = "$host -> HTTP ${res.status}"
-                    debugLog(
-                        "mirror=$host stage=status status=${res.status} err=none " +
-                            "server=${res.server ?: "-"} body_len=${res.body.length} " +
-                            "attempt=$attempt/$maxAttempts ms=$elapsed",
-                    )
-                    break
-                } catch (e: Exception) {
-                    val elapsed = (System.nanoTime() - attemptStarted) / 1_000_000L
-                    val root = rootCauseOf(e)
-                    lastError = "$host -> ${root.javaClass.simpleName}: ${root.message}"
-                    debugLog(
-                        "mirror=$host err=${errText(root)} chain=${chainOf(e)} " +
-                            "phase=${phaseOf(root)} status=${statusOf(e)} " +
-                            "attempt=$attempt/$maxAttempts ms=$elapsed",
-                    )
-                    if (attempt < maxAttempts) {
-                        debugLog("mirror=$host stage=retry attempt=$attempt/$maxAttempts remaining_ms=${remainingMs(mirrorDeadline)}")
-                    }
-                }
+                lastError = lastProbeError ?: lastError
             }
         }
+
+        // 3) T2 内置兜底：继续把 T0 没探完的官方站探完（同一批 URL，靠 tried 去重）。
+        for (entry in probeable(ZlibMirrorRegistry.fallbackCandidates(now, tried), now)) {
+            if (remainingMs(globalDeadline) < MIN_REQUEST_MS) break
+            tried.add(entry.url)
+            val hostDeadline = minOf(System.nanoTime() + PER_MIRROR_BUDGET_MS * 1_000_000L, globalDeadline)
+            probeCandidate(entry.url, "fallback", entry.source, attemptsFor(entry.url), hostDeadline, now)?.let { picked ->
+                adoptMirror(picked)
+                ZlibMirrorRegistry.save(file)
+                return picked
+            }
+            lastError = lastProbeError ?: lastError
+        }
+
         val totalMs = (System.nanoTime() - startedAt) / 1_000_000L
-        debugLog("probe_result fail_all tried=$tried elapsed_ms=$totalMs last=${lastError ?: "none"}")
-        // 探测失败同样清一次性状态：下次调用重新解析代理（断网恢复后不杀进程也能恢复）。
+        debugLog("mirror_probe_abort budget_ms=" + PROBE_BUDGET_MS + " picked=none tried=" + tried.size)
+        debugLog("probe_result fail_all tried=" + tried.size + " elapsed_ms=" + totalMs + " last=" + (lastError ?: "none"))
+        ZlibMirrorRegistry.save(file)
         debugLog("reset_state reason=probe_failure")
         resetStateLocked()
         throw ZlibException(
-            "no available mirror (tried=$tried, ${totalMs}ms, last: $lastError)",
+            "no available mirror (tried=" + tried.size + ", " + totalMs + "ms, last: " + (lastError ?: "none") + ")",
             ZlibException.Kind.NO_MIRROR,
         )
     }
+
+    /** 单候选探测：返回可用 URL；成功/失败都写注册表并打 mirror_probe / mirror_pick / mirror_demote。 */
+    private fun probeCandidate(
+        candidate: String,
+        tierLabel: String,
+        source: String,
+        maxAttempts: Int,
+        deadlineNanos: Long,
+        now: Long,
+    ): String? {
+        val host = hostOf(candidate)
+        val started = System.nanoTime()
+        var lastThrown: Exception? = null
+        for (attempt in 1..maxAttempts) {
+            if (remainingMs(deadlineNanos) < MIN_REQUEST_MS) break
+            val attemptStarted = System.nanoTime()
+            try {
+                val res = getWithChallenge(URI(candidate + "/s/test"), deadlineNanos = deadlineNanos)
+                val elapsed = (System.nanoTime() - started) / 1_000_000L
+                if (res.status == 200 && !looksLikeChallenge(res.body)) {
+                    val kind = if (res.challenged) "pow" else "http"
+                    val finalRoot = mirrorRootOf(res.uri)
+                    val redirected = finalRoot != null && finalRoot != candidate.trimEnd('/')
+                    debugLog("mirror_probe host=" + host + " kind=" + kind + " code=200 ms=" + elapsed)
+                    ZlibMirrorRegistry.recordSuccess(candidate, finalRoot, elapsed, now)
+                    debugLog(
+                        "mirror_pick host=" + host + " tier=" + tierLabel + " source=" + source +
+                            " ms=" + elapsed + " latency_ms=" + elapsed + " final=" + (if (redirected) 1 else 0),
+                    )
+                    return candidate.trimEnd('/')
+                }
+                if (isDiamWallBlock(res)) {
+                    lastProbeError = host + " -> diamwall (" + res.status + ")"
+                    val entry = ZlibMirrorRegistry.recordFailure(candidate, "diamwall", now)
+                    debugLog("mirror_probe host=" + host + " kind=diamwall code=" + res.status + " ms=" + elapsed)
+                    debugLog(
+                        "mirror_demote host=" + host + " tier=" + tierLabel + " reason=diamwall until=" + (entry?.demoteUntil ?: 0L) +
+                            " fail_count=" + (entry?.failCount ?: 1),
+                    )
+                    return null
+                }
+                lastProbeError = host + " -> HTTP " + res.status
+                val reason = res.status.toString()
+                val entry = ZlibMirrorRegistry.recordFailure(candidate, reason, now)
+                debugLog("mirror_probe host=" + host + " kind=http code=" + res.status + " ms=" + elapsed)
+                debugLog(
+                    "mirror_demote host=" + host + " tier=" + tierLabel + " reason=" + reason +
+                        " until=" + (entry?.demoteUntil ?: 0L) + " fail_count=" + (entry?.failCount ?: 1),
+                )
+                return null
+            } catch (e: Exception) {
+                lastThrown = e
+                val root = rootCauseOf(e)
+                val elapsed = (System.nanoTime() - attemptStarted) / 1_000_000L
+                debugLog(
+                    "mirror_probe host=" + host + " kind=" + probeKindOf(e) + " code=" + statusOf(e) +
+                        " ms=" + elapsed + " err=" + errText(root) + " phase=" + phaseOf(root),
+                )
+                if (attempt < maxAttempts) {
+                    debugLog(
+                        "mirror=" + host + " stage=retry attempt=" + attempt + "/" + maxAttempts +
+                            " remaining_ms=" + remainingMs(deadlineNanos),
+                    )
+                }
+            }
+        }
+        val totalMs = (System.nanoTime() - started) / 1_000_000L
+        val reason = probeReasonOf(lastThrown)
+        val entry = ZlibMirrorRegistry.recordFailure(candidate, reason, now)
+        lastProbeError = host + " -> " + (lastThrown?.let { errText(rootCauseOf(it)) } ?: "budget_exhausted")
+        debugLog(
+            "mirror_demote host=" + host + " tier=" + tierLabel + " reason=" + reason +
+                " until=" + (entry?.demoteUntil ?: 0L) + " fail_count=" + (entry?.failCount ?: 1) +
+                " ms=" + totalMs,
+        )
+        return null
+    }
+
+    private fun adoptMirror(candidate: String): String {
+        val chosen = candidate.trimEnd('/')
+        mirror = chosen
+        prefs?.edit()?.putString(KEY_MIRROR, chosen)?.apply()
+        debugLog("probe_result ok=" + hostOf(chosen))
+        maybeRefreshMirrorListInBackground()
+        return chosen
+    }
+
+    private fun attemptsFor(candidate: String): Int =
+        if (ZlibMirrorRegistry.isOfficial(candidate)) MAX_MIRROR_ATTEMPTS else 1
+
+    /**
+     * 降权未到期的线路不再探测（规格 §7.5）；若整档都在降权期则退回全量，
+     * 避免「全被降权 = 永远 NO_MIRROR」的死锁（最后一搏仍按原顺序）。
+     */
+    private fun probeable(entries: List<ZlibMirrorRegistry.Entry>, now: Long): List<ZlibMirrorRegistry.Entry> {
+        val usable = entries.filterNot { it.isDemoted(now) }
+        return if (usable.isEmpty()) entries else usable
+    }
+
+    private fun probeKindOf(e: Exception): String = when {
+        e is ZlibException && e.kind == ZlibException.Kind.CHALLENGE_FAILED -> "challenge"
+        e is ZlibException && e.kind == ZlibException.Kind.HTTP -> "http"
+        else -> "network"
+    }
+
+    private fun probeReasonOf(e: Exception?): String = when {
+        e == null -> "budget"
+        e is ZlibException && e.kind == ZlibException.Kind.CHALLENGE_FAILED -> "challenge_fail"
+        e is ZlibException && e.kind == ZlibException.Kind.HTTP ->
+            statusOf(e).takeIf { it != "-" } ?: "http"
+        e is java.net.SocketTimeoutException -> "timeout"
+        else -> "network"
+    }
+
+    /** 最终响应 host -> `scheme://host[:port]`（成功 finalUrl 记录用，后续直连省跳转）。 */
+    private fun mirrorRootOf(uri: URI): String? {
+        val host = uri.host?.lowercase(Locale.US) ?: return null
+        val scheme = uri.scheme ?: "https"
+        val port = if (uri.port > 0) ":" + uri.port else ""
+        return scheme + "://" + host + port
+    }
+
+    /** T1：按注册表的导航缓存/退避决定是否同步抓 wwwnav，并解析并入状态。 */
+    private fun prepareDynamicPhase(globalDeadlineNanos: Long, now: Long, lastError: String?) {
+        val hasDynamic = ZlibMirrorRegistry.dynamicCandidates(now).isNotEmpty()
+        val shouldRefresh = ZlibMirrorRegistry.shouldRefreshNav(now)
+        if (!hasDynamic && !shouldRefresh) return
+        if (!shouldRefresh) {
+            debugLog("mirror_nav reuse count=" + ZlibMirrorRegistry.dynamicCandidates(now).size)
+            return
+        }
+        val budget = minOf(NAV_FETCH_BUDGET_MS, remainingMs(globalDeadlineNanos) - MIN_REQUEST_MS)
+        if (budget < MIN_REQUEST_MS) {
+            debugLog("mirror_nav skip reason=budget remaining_ms=" + remainingMs(globalDeadlineNanos))
+            return
+        }
+        val navStarted = System.nanoTime()
+        val html = try {
+            fetchNavHtml(budget)
+        } catch (e: Exception) {
+            null
+        }
+        val elapsed = (System.nanoTime() - navStarted) / 1_000_000L
+        if (html.isNullOrBlank()) {
+            ZlibMirrorRegistry.recordNavFailure(now, ZlibMirrorList.NAV_URL, lastError ?: "empty")
+            debugLog(
+                "mirror_nav_fail url=" + ZlibMirrorList.NAV_URL + " reason=fetch ms=" + elapsed +
+                    " reused=" + ZlibMirrorRegistry.dynamicCandidates(now).size,
+            )
+            return
+        }
+        val parsed = ZlibMirrorList.parseNav(html)
+        if (parsed.official.isEmpty() && parsed.dynamic.isEmpty()) {
+            ZlibMirrorRegistry.recordNavFailure(now, ZlibMirrorList.NAV_URL, "empty")
+            debugLog("mirror_nav_empty url=" + ZlibMirrorList.NAV_URL + " reason=parse ms=" + elapsed)
+            return
+        }
+        ZlibMirrorRegistry.recordNavSuccess(now, ZlibMirrorList.NAV_URL, parsed.official, parsed.dynamic)
+        debugLog(
+            "mirror_nav_parse url=" + ZlibMirrorList.NAV_URL + " ok=1 official=" + parsed.official.size +
+                " dynamic=" + parsed.dynamic.size +
+                " skipped=" + parsed.skipped +
+                " ms=" + elapsed +
+                " hosts=" + parsed.dynamic.joinToString(",") { ZlibMirrorList.hostOf(it) },
+        )
+    }
+
+    private fun registryFile(): File? =
+        appContext?.filesDir?.let { File(it, ZlibMirrorRegistry.FILE_NAME) }
+
 
     // ---------------------------------------------------------------- P1b: 登录 / 详情 / 下载 / 线路
 
@@ -477,6 +639,114 @@ class ZlibClient(
 
     /** 绝对 URL / 协议相对 URL 只保留 path+query，避免 [fetchCategory] 被传入外部主机（D10）。 */
     private fun sitePathOf(raw: String): String = ZlibUrlPolicy.sitePathOf(raw)
+    // ------------------------------------------------------------ P1.5 发现面
+
+    /** P1.5：书单列表 /booklists?page=N（第 1 页省略 page 参数）。 */
+    @Throws(ZlibException::class)
+    fun fetchBooklists(page: Int = 1): ZBooklistPage {
+        val path = if (page <= 1) "/booklists" else "/booklists?page=" + page
+        return ZlibBooklistParser.parsePage(fetchDiscoverPage(path, "booklists"))
+    }
+
+    /** P1.5：书单详情；href 必须是站内 /booklist/ 路径（绝对 URL 只取 path，防 SSRF）。 */
+    @Throws(ZlibException::class)
+    fun fetchBooklist(href: String): ZBooklistDetail {
+        val clean = href.trim()
+        val path = sitePathOf(clean)
+        if (!path.startsWith("/booklist/")) {
+            throw ZlibException("not a booklist href: " + clean, ZlibException.Kind.PARSE)
+        }
+        return ZlibBooklistDetailParser.parse(fetchDiscoverPage(path, "booklist"))
+    }
+
+    /** [fetchBooklist] 的别名（规格里的 fetchBooklistDetail）。 */
+    @Throws(ZlibException::class)
+    fun fetchBooklistDetail(path: String): ZBooklistDetail = fetchBooklist(path)
+
+    /** P1.5：榜单 /popular?page=N；空页返回空列表（调用方据此停止翻页）。 */
+    @Throws(ZlibException::class)
+    fun fetchPopular(page: Int = 1): List<ZPopularItem> {
+        val path = if (page <= 1) "/popular" else "/popular?page=" + page
+        return ZlibPopularParser.parsePage(fetchDiscoverPage(path, "popular"))
+    }
+
+    /**
+     * P1.5：分类总览 /categories（39 组 / 802 子类，约 343KB）。
+     * 文件缓存 24h；刷新失败时回退旧缓存（UI 仍可浏览），没有缓存才抛错。
+     */
+    @Throws(ZlibException::class)
+    fun fetchCategories(forceRefresh: Boolean = false): List<ZCategoryGroup> {
+        val cache = categoriesCacheFile()
+        if (!forceRefresh && cache != null) {
+            val cached = readCategoriesCache(cache, CATEGORIES_CACHE_TTL_MS, strictAge = true)
+            if (cached != null) {
+                debugLog("categories_cache hit age_ms=" + (System.currentTimeMillis() - cache.lastModified()))
+                return cached
+            }
+        }
+        return try {
+            val html = fetchDiscoverPage("/categories", "categories")
+            val groups = ZlibCategoriesParser.parse(html)
+            cache?.let { file -> runCatching { file.writeText(html) } }
+            groups
+        } catch (e: ZlibException) {
+            val stale = cache?.let { readCategoriesCache(it, 0L, strictAge = false) }
+            if (stale != null) {
+                debugLog("categories_cache stale_fallback")
+                stale
+            } else {
+                throw e
+            }
+        }
+    }
+
+    /** P1.5：分类书籍列表 /category/<id>/<Slug>?page=N（50 本/页，pagesTotal 来自 pagerOptions）。 */
+    @Throws(ZlibException::class)
+    fun fetchCategoryPage(id: String, slug: String, page: Int = 1): ZCategoryPage {
+        val cleanId = id.trim()
+        if (cleanId.isEmpty() || !cleanId.all { it.isDigit() }) {
+            throw ZlibException("bad category id: " + cleanId, ZlibException.Kind.PARSE)
+        }
+        val cleanSlug = slug.trim().trim('/')
+        if (cleanSlug.contains('/') || cleanSlug.contains('?') || cleanSlug.contains('#')) {
+            throw ZlibException("bad category slug: " + cleanSlug, ZlibException.Kind.PARSE)
+        }
+        val base = "/category/" + cleanId + (if (cleanSlug.isEmpty()) "" else "/" + cleanSlug)
+        val path = if (page <= 1) base else base + "?page=" + page
+        return ZlibCategoryPageParser.parse(fetchDiscoverPage(path, "category"), page)
+    }
+
+    /** 发现面统一 GET：站内 path → 绝对 URL → 现有挑战/镜像/代理/cookie 链路。 */
+    private fun fetchDiscoverPage(path: String, what: String): String {
+        ensureInitialized()
+        val base = mirror ?: probeMirrors()
+        val target = absoluteSiteUrl(base, sitePathOf(path))
+        val res = getWithChallenge(URI(target))
+        if (res.status !in 200..299) {
+            debugLog(what + "_fail path=" + sitePathOf(path) + " status=" + res.status + " body_len=" + res.body.length)
+            throw ZlibException(
+                what + " page unavailable (status=" + res.status + ")",
+                if (res.status in 400..499) ZlibException.Kind.HTTP else ZlibException.Kind.NETWORK,
+            )
+        }
+        debugLog(what + "_ok path=" + sitePathOf(path) + " len=" + res.body.length)
+        return res.body
+    }
+
+    private fun categoriesCacheFile(): File? =
+        appContext?.filesDir?.let { File(it, CATEGORIES_CACHE_FILE) }
+
+    private fun readCategoriesCache(
+        file: File,
+        maxAgeMs: Long,
+        strictAge: Boolean,
+    ): List<ZCategoryGroup>? {
+        if (!file.isFile) return null
+        val age = System.currentTimeMillis() - file.lastModified()
+        if (strictAge && (age < 0 || age > maxAgeMs)) return null
+        return runCatching { ZlibCategoriesParser.parse(file.readText()) }.getOrNull()
+            ?.takeIf { it.isNotEmpty() }
+    }
 
     /**
      * 解析 /dl 页面为直链（P1b 3.3 状态机）：
@@ -767,17 +1037,20 @@ class ZlibClient(
 
     // ---------------------------------------------------------------- P1c: 动态镜像名单
 
-    /** 静态名单 + 动态发现合并（只读内存缓存，零网络）。 */
-    private fun mergedMirrors(): List<String> =
-        ZlibMirrorList.merge(MIRRORS, ZlibMirrorList.cached()).map { it.trimEnd('/') }
+    /** 静态名单 + 动态发现 + 已探测成功的动态主机（首次调用加载注册表文件，之后纯内存）。 */
+    private fun mergedMirrors(): List<String> {
+        val now = System.currentTimeMillis()
+        ZlibMirrorRegistry.ensureLoaded(registryFile(), now)
+        return ZlibMirrorRegistry.orderedUrls(now)
+    }
 
     /**
-     * 名单缓存过期时在后台线程抓一次导航页（源站 zz.ggonav.com 已 NXDOMAIN，仅 best-effort）：
-     * 不阻塞镜像探测/首次搜索；失败静默回退静态名单并记录本次尝试（1h 内不重试）。
+     * 导航缓存过期/失败退避到期时在后台线程抓一次 wwwnav（单飞，不阻塞镜像探测）。
+     * 成功时「官网地址」补 T0 尾部、「镜像入口」进 T1；解析为空视为失败，失败记退避（30min 起、上限 2h）。
      */
     private fun maybeRefreshMirrorListInBackground() {
         val now = System.currentTimeMillis()
-        if (!ZlibMirrorList.shouldRefresh(now)) return
+        if (!ZlibMirrorRegistry.shouldRefreshNav(now)) return
         if (!navRefreshRunning.compareAndSet(false, true)) return
         Thread {
             try {
@@ -786,12 +1059,25 @@ class ZlibClient(
                 } catch (e: Exception) {
                     null
                 }
-                val parsed = if (html.isNullOrBlank()) emptyList() else ZlibMirrorList.parse(html)
-                ZlibMirrorList.markAttempt(parsed, System.currentTimeMillis())
-                debugLog(
-                    "mirror_list nav_len=" + (html?.length ?: 0) + " discovered=" + parsed.size +
-                        " hosts=" + parsed.joinToString(",") { ZlibMirrorList.hostOf(it) },
-                )
+                val nowMs = System.currentTimeMillis()
+                if (html.isNullOrBlank()) {
+                    ZlibMirrorRegistry.recordNavFailure(nowMs, ZlibMirrorList.NAV_URL, "empty")
+                    debugLog("mirror_list nav_len=0 discovered=0 refresh=nok")
+                } else {
+                    val parsed = ZlibMirrorList.parseNav(html)
+                    if (parsed.official.isEmpty() && parsed.dynamic.isEmpty()) {
+                        ZlibMirrorRegistry.recordNavFailure(nowMs, ZlibMirrorList.NAV_URL, "empty")
+                        debugLog("mirror_nav_empty url=" + ZlibMirrorList.NAV_URL + " reason=parse nav_len=" + html.length)
+                    } else {
+                        ZlibMirrorRegistry.recordNavSuccess(nowMs, ZlibMirrorList.NAV_URL, parsed.official, parsed.dynamic)
+                        debugLog(
+                            "mirror_list nav_len=" + html.length + " official=" + parsed.official.size +
+                                " dynamic=" + parsed.dynamic.size + " skipped=" + parsed.skipped +
+                                " hosts=" + parsed.dynamic.joinToString(",") { ZlibMirrorList.hostOf(it) },
+                        )
+                    }
+                }
+                ZlibMirrorRegistry.save(registryFile())
             } catch (t: Throwable) {
                 debugLog("mirror_list refresh_err=" + t.javaClass.simpleName + ":" + (t.message ?: "").take(80))
             } finally {
@@ -803,9 +1089,10 @@ class ZlibClient(
         }.start()
     }
 
-    /** GET 导航页（绝对 URL，非镜像相对路径）；整轮 <= [NAV_FETCH_BUDGET_MS]，失败返回 null。 */
-    private fun fetchNavHtml(): String? {
-        val deadline = System.nanoTime() + NAV_FETCH_BUDGET_MS * 1_000_000L
+    /** GET 导航页（绝对 URL，非镜像相对路径）；整轮 <= [maxBudgetMs]，失败返回 null。 */
+    private fun fetchNavHtml(maxBudgetMs: Long = NAV_FETCH_BUDGET_MS): String? {
+        navFetcherForTest?.let { fetcher -> return fetcher() }
+        val deadline = System.nanoTime() + maxBudgetMs * 1_000_000L
         for (proxy in proxyCandidates(URI(ZlibMirrorList.NAV_URL))) {
             var conn: HttpURLConnection? = null
             try {
@@ -844,6 +1131,7 @@ class ZlibClient(
     ): HttpResult {
         var target = uri
         var res = request(uri, deadlineNanos, formBody, followRedirects, htmlOnlyBody)
+        var sawChallenge = false
         var round = 0
         val startedAt = System.nanoTime()
         while (isChallengeResponse(res)) {
@@ -856,6 +1144,7 @@ class ZlibClient(
                 )
             }
             target = res.uri
+            sawChallenge = true
             val host = target.host ?: "unknown"
             // 挑战页原文诊断（R7-A）：hash + 前 300 字符 + 原文落盘，供与桌面 9592B 页面逐字节对比。
             val bodySha1 = sha1Of(res.body)
@@ -902,7 +1191,7 @@ class ZlibClient(
                 ZlibException.Kind.CHALLENGE_FAILED,
             )
         }
-        return res
+        return if (sawChallenge) res.copy(challenged = true) else res
     }
 
     /** 逐个尝试代理候选（系统代理 / debug 兜底 / 默认 ProxySelector），首个成功即用。 */
@@ -1262,6 +1551,13 @@ class ZlibClient(
      * 单测没有 Android 运行时，Log.i 会抛 "not mocked"；日志绝不该影响下载/搜索本身。
      */
     internal var testLogger: ((String) -> Unit)? = null
+
+    /** 单测 seam：返回导航页 HTML（null = 模拟抓取失败/超时）；仅测试设置。 */
+    internal var navFetcherForTest: (() -> String?)? = null
+
+    /** 最近一次探测失败的描述（NO_MIRROR 消息用）。 */
+    @Volatile
+    private var lastProbeError: String? = null
 
     private fun perfLog(line: String) {
         testLogger?.let { logger ->
@@ -2136,6 +2432,10 @@ class ZlibClient(
         /** P1c：导航页（zz.ggonav.com 已 NXDOMAIN，仅 best-effort）后台抓取总预算。 */
         private const val NAV_FETCH_BUDGET_MS = 8_000L
 
+        /** P1.5：/categories 文件缓存（约 343KB HTML，24h 有效）。 */
+        private const val CATEGORIES_CACHE_FILE = "zlib_categories.html"
+        private const val CATEGORIES_CACHE_TTL_MS = 24L * 60L * 60L * 1_000L
+
         /** 性能日志 tag（与 app 其他 phase 一致）。 */
         private const val PERF_TAG = "PBPERF"
         private const val TAG = "PBZlib"
@@ -2144,18 +2444,14 @@ class ZlibClient(
         private const val MAX_REDIRECTS = 5
         private const val MAX_CHALLENGE_ROUNDS = 3
 
-        /** 探测预算：最多 3 个镜像、单镜像 20s（首次 TLS via proxy 慢）、整轮 40s。 */
-        private const val MAX_PROBE_MIRRORS = 3
-        private const val PER_MIRROR_BUDGET_MS = 20_000L
-        private const val PROBE_BUDGET_MS = 40_000L
+        /** 探测预算（R7-H 分层）：单 host 3s、T0 官方合计 5s、整轮硬上限 12s。 */
+        private const val PER_MIRROR_BUDGET_MS = 3_000L
+        private const val OFFICIAL_PHASE_BUDGET_MS = 5_000L
+        private const val PROBE_BUDGET_MS = 12_000L
         private const val MIN_REQUEST_MS = 750L
 
-        /** SHA1 挑战站点（z-lib.by 类）：仅这些站点失败时重试，含首次最多 [MAX_MIRROR_ATTEMPTS] 次。 */
-        private val SHA1_CHALLENGE_HOSTS = setOf("z-lib.by")
+        /** 官方站挑战重试：含首次最多 [MAX_MIRROR_ATTEMPTS] 次。 */
         private const val MAX_MIRROR_ATTEMPTS = 3
-
-        /** 已知 DiamWall 站点（307 + __diamwall → 513 空 body，需执行 JS）：排到候选末尾。 */
-        private val KNOWN_UNSUPPORTED_HOSTS = setOf("zh.z-library.sk", "zh.1lib.sk")
 
         /** DEBUG 兜底代理端口连通性检查的超时。 */
         private const val FALLBACK_CONNECT_TIMEOUT_MS = 300

@@ -10,6 +10,21 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 
 usage() { echo "usage: lock.sh <build|emu> <command...>" >&2; exit 2; }
 kind="${1:-}"; [ -n "$kind" ] || usage; shift || usage
+if [ "$kind" = "status" ]; then
+  # 只读状态查询：lock.sh status [build|emu]；FREE 退出 0，BUSY 退出 1
+  sel="${1:-all}"; rc=0
+  for k in build emu; do
+    case "$k" in build) L="$BUILD_LOCK" ;; emu) L="$EMU_LOCK" ;; esac
+    if [ "$sel" != "all" ] && [ "$sel" != "$k" ]; then continue; fi
+    if [ -d "$L" ]; then
+      echo "BUSY|$L|$(cat "$L/owner" 2>/dev/null | tr '\n' ' ')"
+      rc=1
+    else
+      echo "FREE|$L"
+    fi
+  done
+  exit "$rc"
+fi
 case "$kind" in
   build) LOCK="$BUILD_LOCK"; TTL_MIN=40 ;;
   emu)   LOCK="$EMU_LOCK";   TTL_MIN=25 ;;
