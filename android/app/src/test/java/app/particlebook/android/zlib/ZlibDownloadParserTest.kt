@@ -63,4 +63,23 @@ class ZlibDownloadParserTest {
             ZlibDownloadParser.filenameFromDisposition("attachment; filename*=UTF-8''caf%C3%A9.pdf"),
         )
     }
+
+    @Test
+    fun filenameDispositionHandlesLanguageTagCharsetAndPlus() {
+        // D22：filename* 带 language tag + ISO-8859-1 charset。
+        assertEquals(
+            "café.pdf",
+            ZlibDownloadParser.filenameFromDisposition("attachment; filename*=ISO-8859-1'en'caf%E9.pdf"),
+        )
+        // D22：带引号的 plain filename 允许分号。
+        assertEquals(
+            "a;b.pdf",
+            ZlibDownloadParser.filenameFromDisposition("attachment; filename=\"a;b.pdf\""),
+        )
+        // D22：未编码的 + 不得被 URLDecoder 变成空格。
+        assertEquals(
+            "a+b.pdf",
+            ZlibDownloadParser.filenameFromDisposition("attachment; filename=a+b.pdf"),
+        )
+    }
 }

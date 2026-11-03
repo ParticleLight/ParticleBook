@@ -6,6 +6,25 @@ internal object ZlibHtml {
     private val TAG = Regex("<[^>]*>")
     private val ENTITY = Regex("&(#x[0-9A-Fa-f]+|#[0-9]+|[A-Za-z]{2,10});")
     private val SPACES = Regex("\\s+")
+    private val ATTR = Regex("""([A-Za-z_][-A-Za-z0-9_:.]*)\s*=\s*(?:"([^"]*)"|'([^']*)')""")
+
+    /** 标签头（<tag ...>）→ 属性 Map；值做实体解码并 trim（P1.5 各解析器共用）。 */
+    fun parseAttributes(tagHead: String): Map<String, String> {
+        val result = HashMap<String, String>()
+        for (match in ATTR.findAll(tagHead)) {
+            val name = match.groupValues[1].lowercase()
+            val raw = if (match.groupValues[2].isNotEmpty()) match.groupValues[2] else match.groupValues[3]
+            result[name] = decodeEntities(raw).trim()
+        }
+        return result
+    }
+
+    /** 裸属性判定（notlogged / short_description / editorschoice 等，无 =）。 */
+    fun hasBareAttribute(tagHead: String, name: String): Boolean =
+        // 注意要允许「属性正好在标签头末尾」：调用方传的 tagHead 可能不含 `>`，
+        // 否则最后一个裸属性（如 editorschoice）永远判不到。
+        Regex("\\s" + Regex.escape(name) + "(?=[\\s>/]|$)", RegexOption.IGNORE_CASE)
+            .containsMatchIn(tagHead)
 
     /** 去掉标签（保留文本）。 */
     fun stripTags(html: String): String = html.replace(TAG, " ")

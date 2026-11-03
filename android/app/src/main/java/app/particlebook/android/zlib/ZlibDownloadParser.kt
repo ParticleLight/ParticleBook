@@ -1,7 +1,6 @@
 package app.particlebook.android.zlib
 
 import java.net.URI
-import java.net.URLDecoder
 
 /**
  * /dl 页面解析（P1b 3.3 状态机，纯函数可单测）。
@@ -25,6 +24,8 @@ object ZlibDownloadParser {
 
     private val ANCHOR = Regex("""<a\b([^>]*)>([\s\S]*?)</a>""", RegexOption.IGNORE_CASE)
     private val ATTR = Regex("""([A-Za-z_][-A-Za-z0-9_:.]*)\s*=\s*(?:"([^"]*)"|'([^']*)')""")
+    private val EXTENDED_FILENAME = Regex("""filename\*\s*=\s*([^;]+)""", RegexOption.IGNORE_CASE)
+    private val PLAIN_FILENAME = Regex("""filename\s*=\s*("([^"]*)"|([^";]+))""", RegexOption.IGNORE_CASE)
     private val DATA_URL = Regex("""data-(?:download-)?url\s*=\s*["']([^"']+)["']""", RegexOption.IGNORE_CASE)
     private val DATA_COUNTDOWN = Regex("""data-countdown\s*=\s*["']?(\d{1,4})""", RegexOption.IGNORE_CASE)
     private val META_REFRESH = Regex(
@@ -102,17 +103,32 @@ object ZlibDownloadParser {
         return result.toList()
     }
 
-    /** Content-Disposition 里的文件名（优先 filename*，其次 filename）。 */
+    /**
+     * Content-Disposition 里的文件名（D22 修复）：
+     * - filename* 按 RFC 6266 解析 charset'lang'value（UTF-8 / ISO-8859-1 都支持，language tag 忽略）；
+     * - plain filename 支持带引号内含分号；未含 % 的值不做解码（避免 + 被当空格）。
+     */
     fun filenameFromDisposition(header: String?): String? {
         if (header.isNullOrBlank()) return null
-        val extended = Regex("""filename\*\s*=\s*(?:UTF-8|utf-8)''([^;]+)""", RegexOption.IGNORE_CASE)
-            .find(header)?.groupValues?.get(1)
-        val plain = Regex("""filename\s*=\s*"?([^";]+)"?""", RegexOption.IGNORE_CASE)
-            .find(header)?.groupValues?.get(1)
-        val raw = (extended ?: plain)?.trim() ?: return null
-        val decoded = runCatching { URLDecoder.decode(raw, "UTF-8") }.getOrDefault(raw)
-        return decoded.substringAfterLast('/').substringAfterLast('\\').takeIf { it.isNotBlank() }
+        val extendedMatch = EXTENDED_FILENAME.find(header)?.groupValues?.get(1)?.trim()?.trim('"')
+        if (!extendedMatch.isNullOrBlank()) {
+            val parts = extendedMatch.split('\'', limit = 3)
+            val raw = if (parts.size == 3) parts[2] else extendedMatch
+            val charset = if (parts.size == 3 && parts[0].isNotBlank()) parts[0] else "UTF-8"
+            val decoded = ZlibUrlPolicy.percentDecode(raw, charset) ?: raw
+            return cleanFileName(decoded)
+        }
+        val plainMatch = PLAIN_FILENAME.find(header) ?: return null
+        val quoted = plainMatch.groupValues[2]
+        val bare = plainMatch.groupValues[3]
+        val raw = quoted.ifEmpty { bare }.trim()
+        if (raw.isBlank()) return null
+        val decoded = if (raw.contains('%')) ZlibUrlPolicy.percentDecode(raw) ?: raw else raw
+        return cleanFileName(decoded)
     }
+
+    private fun cleanFileName(raw: String): String? =
+        raw.substringAfterLast('/').substringAfterLast('\\').trim().takeIf { it.isNotBlank() }
 
     private fun addCandidate(
         result: MutableSet<String>,
@@ -191,14 +207,25 @@ internal object ZlibResumePolicy {
      * @param contentRange 响应 Content-Range 头
      * @param contentLength 响应 Content-Length（本次响应体长度）
      */
+    /**
+     * 续传时的 `If-Range` 头（P1c 收尾④，审计 A1）：有 .part 且有 ETag/Last-Modified 才带。
+     *
+     * 服务端发现文件已变会回 200（而非 206），[decide] 随即按「从头写」截断重下，
+     * 避免「长度一样但内容换了」拼出坏文件。
+     */
+    fun ifRangeHeader(partLength: Long, validator: String?): String? =
+        if (partLength > 0L && !validator.isNullOrBlank()) validator else null
+
     fun decide(partLength: Long, status: Int, contentRange: String?, contentLength: Long): Decision {
         val range = contentRange(contentRange)
         val totalFromHeader = range?.second
         val base = if (status == 206) partLength else 0L
         val total = totalFromHeader ?: if (contentLength > 0) base + contentLength else 0L
         if (partLength <= 0 || status != 206) return Decision(false, 0L, total)
-        val start = range?.first
-        if (start != null && start != partLength) {
+        // D4（审计）：206 必须带 Content-Range 且起点正好等于 .part 长度，才允许 append。
+        // 缺头（部分代理/网关会剥掉）或起点不符 → 内容可能不是从断点接续的，截断重下。
+        val start = range?.first ?: return Decision(false, 0L, if (contentLength > 0) contentLength else 0L)
+        if (start != partLength) {
             // 服务端给了别的区间：不能追加，从头下，避免拼出损坏文件。
             return Decision(false, 0L, totalFromHeader ?: 0L)
         }

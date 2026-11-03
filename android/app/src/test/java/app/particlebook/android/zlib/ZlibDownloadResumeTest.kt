@@ -56,6 +56,29 @@ class ZlibDownloadResumeTest {
     }
 
     @Test
+    fun serverReturns206WithoutContentRangeRestartsFromZero() {
+        // D4（审计）：206 但缺 Content-Range（代理/网关可能剥掉）→ 不能盲目 append。
+        val decision = ZlibResumePolicy.decide(
+            partLength = 500L,
+            status = 206,
+            contentRange = null,
+            contentLength = 1_000L,
+        )
+        assertEquals(ZlibResumePolicy.Decision(append = false, offset = 0L, total = 1_000L), decision)
+    }
+
+    @Test
+    fun serverReturns206WithGarbageContentRangeRestartsFromZero() {
+        val decision = ZlibResumePolicy.decide(
+            partLength = 500L,
+            status = 206,
+            contentRange = "garbage",
+            contentLength = 1_000L,
+        )
+        assertEquals(ZlibResumePolicy.Decision(append = false, offset = 0L, total = 1_000L), decision)
+    }
+
+    @Test
     fun cancelFlagBeforeStartThrowsCancelledWithoutNetwork() {
         val client = ZlibClient()
         val dir = Files.createTempDirectory("zlib-cancel").toFile()

@@ -7,7 +7,11 @@ import java.security.MessageDigest
  *
  * 挑战页逻辑（实测，见 docs/android-port/zlibrary-p1a-spec.md §1.3）：
  * 取 40 位大写 HEX 常量 C，求最小 i 使 `sha1(C + i)` 摘要满足
- * `digest[5] == 0xB0 && digest[6] == 0x0B`，然后带 cookie `c_token = C + i` 重放请求。
+ * `digest[n] == 0xB0 && digest[n+1] == 0x0B`，然后带 cookie `c_token = C + i` 重放请求。
+ *
+ * **n 不固定**：页面 JS 写的是 `n1 = parseInt('0x' + C[0])`，即取常量首字符的十六进制值：
+ * 旧常量 `549E96…`（首位 5）→ n=5；服务端轮换到 `690F18…`（首位 6）→ n=6。
+ * 写死 5/6 会在常量轮换后恒 503（R7-A 真机根因）。
  */
 object ZlibChallenge {
 
@@ -33,17 +37,28 @@ object ZlibChallenge {
     }
 
     /**
+     * 页面 JS 的校验下标：`n1 = parseInt('0x' + 常量首字符)`（0..15）；非法常量返回 null。
+     */
+    fun nonceIndex(constant: String): Int? {
+        val first = constant.firstOrNull() ?: return null
+        val index = Character.digit(first, 16)
+        if (index < 0 || index + 1 >= 20) return null
+        return index
+    }
+
+    /**
      * 暴力搜索满足摘要字节条件的 nonce。
      *
      * 用预分配缓冲写十进制数字，避免 34 万次字符串分配（实测 < 400ms）。
      */
     fun solveNonce(constant: String, maxNonce: Int = MAX_NONCE): Int? {
+        val index = nonceIndex(constant) ?: return null
         val prefix = constant.toByteArray(Charsets.US_ASCII)
         val buffer = ByteArray(prefix.size + 8)
         prefix.copyInto(buffer)
         val digest = MessageDigest.getInstance("SHA-1")
-        val target5 = 0xB0.toByte()
-        val target6 = 0x0B.toByte()
+        val target = 0xB0.toByte()
+        val targetNext = 0x0B.toByte()
 
         for (i in 0 until maxNonce) {
             var end = prefix.size + digitsOf(i)
@@ -59,7 +74,7 @@ object ZlibChallenge {
             }
             digest.update(buffer, 0, end)
             val sum = digest.digest()
-            if (sum[5] == target5 && sum[6] == target6) return i
+            if (sum[index] == target && sum[index + 1] == targetNext) return i
         }
         return null
     }

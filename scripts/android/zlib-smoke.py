@@ -24,6 +24,9 @@ import subprocess
 import sys
 import time
 import traceback
+import urllib.error
+import urllib.parse
+import urllib.request
 import xml.etree.ElementTree as ET
 from datetime import datetime
 
@@ -153,6 +156,107 @@ def parse_ls_lines(out):
     return files
 
 
+MOCK_DEFAULT_URL = "http://127.0.0.1:8899"
+MOCK_MIRROR_EXTRA = "pb_zlib_mirror"
+MOCK_FAULT_CASES = ("first_packet_lost", "range_416", "slow", "cancel")
+FAULT_CASE_ALIASES = {
+    "first_packet_lost": "first_packet_lost",
+    "firstpacketlost": "first_packet_lost",
+    "first_packet": "first_packet_lost",
+    "range_416": "range_416",
+    "range416": "range_416",
+    "416": "range_416",
+    "slow": "slow",
+    "cancel": "cancel",
+    "cancelled": "cancel",
+}
+
+
+def parse_mock_entries(payload):
+    """把 GET /__log 的各种返回形态归一成 [dict]（entries/log/logs/requests/lines 或裸数组）。"""
+    if isinstance(payload, dict):
+        for key in ("entries", "log", "logs", "requests", "lines"):
+            value = payload.get(key)
+            if isinstance(value, list):
+                return [x for x in value if isinstance(x, dict)]
+        if "path" in payload or "status" in payload:
+            return [payload]
+        return []
+    if isinstance(payload, list):
+        return [x for x in payload if isinstance(x, dict)]
+    return []
+
+
+def parse_fault_cases(text):
+    """'first_packet_lost,range_416' -> 规范化列表；未知值抛 ValueError。"""
+    cases = []
+    for part in str(text or "").split(","):
+        key = part.strip().lower().replace("-", "_")
+        if not key:
+            continue
+        if key not in FAULT_CASE_ALIASES:
+            raise ValueError("unknown fault case: " + part.strip())
+        norm = FAULT_CASE_ALIASES[key]
+        if norm not in cases:
+            cases.append(norm)
+    return cases
+
+
+def mock_paths(entries):
+    return [str(e.get("path", "") or "") for e in entries]
+
+
+def mock_sequence_ok(entries, prefixes):
+    """请求序列里 prefixes 按顺序首次出现（空前缀表示不检查）。"""
+    need = [p for p in prefixes if p]
+    pos = 0
+    for e in entries:
+        path = str(e.get("path", "") or "")
+        if pos < len(need) and path.startswith(need[pos]):
+            pos += 1
+    return pos >= len(need)
+
+
+def mock_app_entries(entries):
+    """过滤掉 /__health /__stats /__log /__fault /__reset 等控制请求。"""
+    return [e for e in entries if not str(e.get("path", "")).startswith("/__")]
+
+
+def mock_range_of(entry):
+    """mock 日志里无 Range 时是 '-'（不是缺失）；归一成 ''。"""
+    value = str(entry.get("range", "") or "").strip()
+    return "" if value in ("", "-") else value
+
+
+def mock_faults(entries):
+    return [e for e in entries if str(e.get("fault", "none") or "none") != "none"]
+
+
+def mock_status_of(entry):
+    try:
+        return int(entry.get("status") or 0)
+    except Exception:
+        return 0
+
+
+def mock_success_after_fault(entries, mode):
+    """故障条目之后是否还有一次成功的 /cdn 响应（200/206）。"""
+    for i, e in enumerate(entries):
+        if str(e.get("fault", "none") or "none") != mode:
+            continue
+        for later in entries[i + 1:]:
+            if str(later.get("path", "")).startswith("/cdn") and 200 <= mock_status_of(later) < 300:
+                return True
+    return False
+
+
+def mock_stats_int(stats, key):
+    try:
+        return int(stats.get(key) or 0)
+    except Exception:
+        return 0
+
+
 def parse_xml_nodes(xml):
     """uiautomator dump XML 转 node dict；解析失败返回 []。"""
     nodes = []
@@ -254,6 +358,34 @@ def selftest():
     ck("dl.term_done", terminal_kind_texts(["下载完成 · x.pdf"]) == "done")
     ck("dl.term_failed", terminal_kind_texts(["下载失败 · x.pdf"]) == "failed")
     ck("dl.ls", parse_ls_lines("-rw-rw---- 1 u0_a1 ext_data_rw 2383 2026-11-02 22:51 x.pdf") == {"x.pdf": 2383})
+    # mock 契约 v1（pdf-tiles）：JSONL 条目归一 / 请求序列 / 故障后成功判定
+    entries = parse_mock_entries({"entries": [
+        {"path": "/s/android?page=1", "status": 200, "fault": "none"},
+        {"path": "/book/abc", "status": 200},
+        {"path": "/dl/abc", "status": 200},
+        {"path": "/cdn/x.epub", "status": 206, "fault": "first_packet_lost", "bytes": 0},
+        {"path": "/cdn/x.epub", "status": 200, "fault": "none"},
+    ]})
+    ck("mock.entries", len(entries) == 5, "n=" + str(len(entries)))
+    ck("mock.entries.list", len(parse_mock_entries([{"path": "/a"}, "x"])) == 1)
+    ck("mock.entries.empty", parse_mock_entries(None) == [] and parse_mock_entries({"ok": 1}) == [])
+    ck("mock.seq.ok", mock_sequence_ok(entries, ["/s/", "/book/", "/dl/", "/cdn/"]))
+    ck("mock.seq.bad", not mock_sequence_ok(entries, ["/book/", "/s/"]))
+    ck("mock.seq.missing", not mock_sequence_ok(entries, ["/s/", "/login"]))
+    ck("mock.faults", len(mock_faults(entries)) == 1 and mock_faults(entries)[0]["fault"] == "first_packet_lost")
+    ck("mock.fault.recovered", mock_success_after_fault(entries, "first_packet_lost"))
+    ck("mock.fault.not_recovered", not mock_success_after_fault(entries[:4], "first_packet_lost"))
+    ck("mock.cases", parse_fault_cases("first_packet_lost,416,slow,cancel,slow") ==
+       ["first_packet_lost", "range_416", "slow", "cancel"])
+    try:
+        parse_fault_cases("bogus")
+        ck("mock.cases.bad", False, "no ValueError")
+    except ValueError:
+        ck("mock.cases.bad", True)
+    ck("mock.stats", mock_stats_int({"cdn_requests": "7"}, "cdn_requests") == 7
+       and mock_stats_int({}, "status_416") == 0)
+    ck("mock.app_entries", len(mock_app_entries(entries)) == 5)
+    ck("mock.range", mock_range_of({"range": "-"}) == "" and mock_range_of({"range": "bytes=8-"}) == "bytes=8-")
     bad = 0
     for name, ok, detail in checks:
         print("SELFTEST|" + ("PASS" if ok else "FAIL") + "|" + name + (("|" + detail) if detail else ""))
@@ -306,6 +438,34 @@ class Smoke:
         self.dl = {}
         self.state = None
         self.skip_reason = ""
+        # mock（契约 v1，pdf-tiles）：host 进程 + adb reverse + pb_zlib_mirror extra
+        self.mock = bool(getattr(args, "mock", False))
+        self.mock_url = (getattr(args, "mock_url", "") or MOCK_DEFAULT_URL).rstrip("/")
+        self.mock_port = 0
+        try:
+            self.mock_port = int(urllib.parse.urlsplit(self.mock_url).port or 8899)
+        except Exception:
+            self.mock_port = 8899
+        self.mock_proc = None
+        self.mock_owned = False
+        self.mock_external = False
+        self.mock_added_reverse = False
+        self.mock_proxy_before = None
+        self.mock_server_log = None
+        self.mock_reused = False
+        self.mock_request_count = 0
+        # scenario 是场景名（download_faults），不是 fault case 名；这里不能走 parse_fault_cases（别名表里没有场景）。
+        self.scenarios = [x.strip() for x in (getattr(args, "scenario", "") or "").split(",") if x.strip()]
+        self.fault_cases = []
+        if self.scenarios:
+            try:
+                self.fault_cases = parse_fault_cases(getattr(args, "fault_cases", ""))
+            except ValueError:
+                self.fault_cases = []
+            if not self.fault_cases:
+                self.fault_cases = ["first_packet_lost", "range_416", "slow", "cancel"]
+        self.fault_results = []
+        self.mock_summary = None
 
     # ------------------------------------------------------------ 基础
     def log(self, msg):
@@ -389,7 +549,8 @@ class Smoke:
         last = ""
         while time.time() < end:
             try:
-                state = self.shell(["get-state"], timeout=10).strip()
+                # 注意：必须用 adb get-state（不是 adb shell get-state，后者是设备侧命令，输出为空）
+                state = self.adb(["get-state"], timeout=10).strip()
             except SmokeError:
                 state = ""
             if state == "device":
@@ -397,6 +558,12 @@ class Smoke:
             last = state or "unknown"
             try:
                 subprocess.run([self.adb_exe, "reconnect", "offline"], capture_output=True, timeout=10)
+            except Exception:
+                pass
+            try:
+                if "device" in (subprocess.run([self.adb_exe, "devices"], capture_output=True,
+                                               timeout=10).stdout or b"").decode("utf-8", "replace"):
+                    subprocess.run([self.adb_exe, "reconnect"], capture_output=True, timeout=10)
             except Exception:
                 pass
             time.sleep(1.0)
@@ -562,7 +729,7 @@ class Smoke:
     def find_download_button(self, nodes):
         for n in nodes:
             t = n["text"].strip()
-            if t.startswith("下载 ·") or t == "下载" or t.startswith("已下载"):
+            if t.startswith("下载 ·") or t == "下载" or t.startswith("继续") or t.startswith("已下载"):
                 return n
         return None
 
@@ -824,22 +991,881 @@ class Smoke:
         self.set_state("PASS", "")
         self.rec("download.state", True, "PASS: trigger+terminal+books+file")
 
+    # ------------------------------------------------------------ 故障场景（mock 契约 v1）
+    def ensure_search_results(self):
+        try:
+            if self.back_to_search(2):
+                return True
+        except SmokeError:
+            pass
+        try:
+            self.open_zlib_tab()
+        except SmokeError as e:
+            self.warn("re-open Z-Library tab failed: " + e.reason)
+        try:
+            if self.back_to_search(1):
+                return True
+        except SmokeError:
+            pass
+        try:
+            self.do_search()
+            return True
+        except SmokeError as e:
+            self.warn("re-search failed: " + e.reason)
+            return False
+
+    def open_fault_case(self, idx):
+        """为第 idx 个 fault case 打开一个未下载的搜索结果详情页。"""
+        if idx == 0 and self.ui.get("_detail_nodes"):
+            btn = self.find_download_button(self.ui["_detail_nodes"])
+            if btn is not None and not btn["text"].strip().startswith("已下载"):
+                return True
+        if not self.ensure_search_results():
+            return False
+        for attempt in range(10):
+            rows = self.refresh_search_rows()
+            if not rows:
+                return False
+            row = rows[min(idx, len(rows) - 1)]
+            self.tap_node(row, "fault_row" + str(attempt))
+            r, nodes = self.wait(lambda ns: self.find_exact(ns, "书籍详情"), 20,
+                                 "fault detail", save_name="fault-detail")
+            if not r:
+                self.ensure_search_results()
+                continue
+            btn = self.find_download_button(nodes)
+            if btn is not None and not btn["text"].strip().startswith("已下载"):
+                self.ui["_detail_nodes"] = nodes
+                self.ui["fault_row_title"] = row["text"].strip()
+                return True
+            self.warn("fault row " + str(idx) + " already downloaded; trying next row")
+            idx = (idx + 1) % max(1, len(rows))
+            if not self.ensure_search_results():
+                return False
+        return False
+
+    def _inject_fault(self, case):
+        if case == "first_packet_lost":
+            self.mock_set_fault("first_packet_lost", count=1, path="/cdn/", first_bytes=0)
+        elif case == "range_416":
+            self.mock_set_fault("range_416", count=1, path="/cdn/")
+        elif case == "slow":
+            self.mock_set_fault("slow", count=1, path="/cdn/",
+                                rate_kbps=int(self.args.mock_slow_kbps),
+                                duration_ms=int(self.args.mock_slow_stall_ms))
+        else:
+            raise SmokeError(2, "unknown fault case: " + case)
+
+    def _fault_detail(self, case, entries, stats):
+        faults = mock_faults(entries)
+        hit = [e for e in faults if str(e.get("fault")) == case]
+        detail = "fault_hit=" + str(len(hit))
+        if stats:
+            detail += " status_416=" + str(mock_stats_int(stats, "status_416"))
+            detail += " cdn_requests=" + str(mock_stats_int(stats, "cdn_requests"))
+            detail += " client_closed=" + str(mock_stats_int(stats, "client_closed"))
+        return hit, detail
+
+    def _assert_fault_case(self, case, entries, stats):
+        hit, detail = self._fault_detail(case, entries, stats)
+        recovered = mock_success_after_fault(entries, case)
+        completed = (self.state == "PASS")
+        if case == "first_packet_lost":
+            raw = self.read_logcat()
+            retry_log = "dl_retry reason=first_packet_lost" in raw
+            dl_reqs = len([e for e in entries if str(e.get("path", "")).startswith("/dl")])
+            retried = dl_reqs >= 2
+            ok = bool(hit) and recovered and completed and retried
+            detail += (" recovered=" + str(recovered) + " completed=" + str(completed)
+                       + " log_retry=" + str(retry_log) + " dl_requests=" + str(dl_reqs))
+            return ok, detail
+        if case == "range_416":
+            got416 = bool(hit) or mock_stats_int(stats, "status_416") > 0
+            ok = got416 and completed
+            detail += " completed=" + str(completed) + " bytes=" + str(self.dl.get("bytes"))
+            if got416 and not completed:
+                detail += "（416 已注入但下载未成功：B1 416 自愈 / 416 当直链 未实现？）"
+            if not got416:
+                detail += "（mock 未观测到 416：注入点应在正式流式 GET，而不是 HEAD/探测）"
+            return ok, detail
+        if case == "slow":
+            durations = []
+            for e in hit:
+                try:
+                    durations.append(float(e.get("duration_ms") or 0))
+                except Exception:
+                    pass
+            ok = bool(hit) and completed
+            detail += " completed=" + str(completed) + " duration_ms=" + str(max(durations) if durations else 0)
+            return ok, detail
+        return False, detail + " unknown case"
+
+    def find_cancel_control(self, nodes):
+        for n in nodes:
+            for text in (n.get("text", ""), n.get("desc", "")):
+                if "取消" in (text or "") and (n.get("clickable") or True):
+                    return n
+        return None
+
+    def find_part_files(self):
+        """返回 (paths|None, source)：None=读不到；[]=没有 .part。"""
+        found = []
+        cmds = [
+            "run-as " + self.pkg + " find files -name '*.part' 2>&1",
+            "run-as " + self.pkg + " ls -l /sdcard/Android/data/" + self.pkg
+            + "/files/Download/Z-Library 2>&1",
+        ]
+        readable = False
+        for cmd in cmds:
+            out = self._run_shell_capture(cmd)
+            low = (out or "").lower()
+            if "permission denied" in low or "not debuggable" in low or "unknown option" in low:
+                continue
+            readable = True
+            for line in (out or "").splitlines():
+                if ".part" in line:
+                    found.append(line.strip())
+        if not readable:
+            return None, "unreadable"
+        return found, "run-as"
+
+    def _part_sizes_in(self, path, prefix_args=None):
+        cmd = ""
+        if prefix_args:
+            cmd = " ".join(prefix_args) + " "
+        out = self._run_shell_capture(cmd + "ls -l " + self._shell_quote(path))
+        found = {}
+        for line in (out or "").splitlines():
+            parts = line.split()
+            if len(parts) < 8 or not parts[0].startswith("-"):
+                continue
+            name = " ".join(parts[7:])
+            if not name.endswith(".part"):
+                continue
+            try:
+                found[name] = int(parts[4])
+            except Exception:
+                pass
+        return found
+
+    def part_entries(self):
+        """列出默认下载目录与 cache/zlib-downloads 下的 .part（name -> size）。"""
+        out = dict(self._part_sizes_in(self.download_dir()))
+        out.update(self._part_sizes_in("cache/zlib-downloads", ["run-as", self.pkg]))
+        return out
+
+    def wait_part_bytes(self, target, timeout):
+        """轮询 .part 大小，直到 >= target 或超时；返回 (best_size, entries, elapsed)。"""
+        t0 = time.time()
+        best = 0
+        entries = {}
+        while time.time() - t0 < timeout:
+            entries = self.part_entries()
+            best = max(entries.values()) if entries else 0
+            if best >= target:
+                break
+            time.sleep(0.15)
+        return best, entries, time.time() - t0
+
+    @staticmethod
+    def sanitize_book_title(title):
+        import re as _re
+        base = _re.sub(r'[\\/:*?"<>|\n\r\t]', " ", (title or "").strip())
+        base = " ".join(base.split())
+        return base[:80] or "book"
+
+    def seed_oversized_part(self, name, kib=2500):
+        """用 run-as 在默认下载目录写一个超大 .part（> 服务端 total）。"""
+        path = self.download_dir() + "/" + name + ".part"
+        q = self._shell_quote(path)
+        out = self._run_shell_capture(
+            "run-as " + self.pkg + " sh -c 'dd if=/dev/zero of=" + q + " bs=1024 count=" + str(kib) + " 2>&1'",
+            timeout=40,
+        )
+        self.rec("d3.seed", True, "path=" + path + " kib=" + str(kib) + " out=" + (out or "").strip()[:120])
+        parts = self.part_entries()
+        size = parts.get(name + ".part")
+        if not size:
+            raise SmokeError(1, "D3 超大 .part 未写入: " + path + " (parts=" + str(parts) + ")", step="d3")
+        return path, size
+
+    def _wait_download_terminal(self, timeout):
+        t0 = time.time()
+        while time.time() - t0 < min(timeout, max(10, self.deadline - time.time())):
+            try:
+                nodes = self.dump_ui()[0]
+            except SmokeError:
+                nodes = []
+            term = self.find_terminal(nodes)
+            if term in ("done", "limit", "login", "failed"):
+                return term
+            self.read_logcat()
+            time.sleep(0.5)
+        return None
+
+    def _download_metrics(self):
+        stats = self.mock_stats()
+        return {
+            "status_416": mock_stats_int(stats, "status_416"),
+            "range_requests": mock_stats_int(stats, "range_requests"),
+            "partial_206": mock_stats_int(stats, "partial_206"),
+            "bytes_served": mock_stats_int(stats, "bytes_served"),
+        }
+
+    def run_fresh_416_case(self):
+        """a) 全新下载（无 Range）首包 416 → 无 Range 重试 → 200 完成（fresh-416 自愈）。"""
+        self.mock_reset()
+        self.mock_set_fault("fresh_416", count=1, path="/cdn/")
+        nodes = self.ui.get("_detail_nodes") or self.dump_ui()[0]
+        btn = self.find_download_button(nodes)
+        if btn is None:
+            raise SmokeError(1, "fresh_416：详情页无下载按钮", step="fresh_416")
+        self.tap_node(btn, "download_fresh_416")
+        terminal = self._wait_download_terminal(self.args.download_timeout)
+        metrics = self._download_metrics()
+        logs = self.read_logcat()
+        dl416 = [ln for ln in (logs or "").splitlines() if "dl_416" in ln]
+        no_range_retry = [ln for ln in dl416 if "retry=no_range" in ln]
+        events = self.download_events()
+        ok_event = self._pick_download_event(events, "ok")
+        ok = (terminal == "done" and metrics["status_416"] >= 1 and bool(no_range_retry)
+              and ok_event is not None)
+        detail = ("terminal=" + str(terminal) + " status_416=" + str(metrics["status_416"])
+                  + " dl_416_logs=" + str(len(dl416)) + " no_range_retry=" + str(len(no_range_retry))
+                  + " bytes=" + str(ok_event and ok_event.get("bytes")))
+        self.rec("fresh416.self_heal", ok, detail)
+        self.shot_once("fresh416_done", "fresh-416-selfheal")
+        if not ok:
+            raise SmokeError(1, "fresh_416 断言失败: " + detail, step="fresh_416")
+        self.state = "PASS"
+
+    def run_d3_case(self):
+        """D3：.part 长度 >= 服务端总长 → Range 请求 416 → 删 .part → 无 Range 重下 → 完整。"""
+        self.mock_reset()
+        health = self.mock_health() or {}
+        book = health.get("book") if isinstance(health.get("book"), dict) else {}
+        book_bytes = int(book.get("bytes") or 0)
+        if book_bytes <= 0:
+            raise SmokeError(2, "mock /__health 无 book.bytes")
+        title = self.ui.get("detail_title") or self.ui.get("first_title") or "book"
+        if title.lower().endswith(".pdf"):
+            title = title[:-4]
+        base = self.sanitize_book_title(title)
+        files, _src = self.list_download_files()
+        files = files or {}
+        name = base + ".pdf"
+        idx = 2
+        while name in files or (name + ".part") in files:
+            name = base + " (" + str(idx) + ").pdf"
+            idx += 1
+        path, size = self.seed_oversized_part(name)
+        self.dl["d3"] = {"part_path": path, "part_bytes": size, "expected_total": book_bytes, "file_name": name}
+        self.mock_reset()
+        self.mock_set_fault("range_416", count=1, path="/cdn/")
+        self.state = None
+        self.dl["d3_tap_at"] = time.time()
+        nodes = self.ui.get("_detail_nodes") or self.dump_ui()[0]
+        btn = self.find_download_button(nodes)
+        if btn is None:
+            raise SmokeError(1, "D3：详情页无下载按钮", step="d3")
+        self.tap_node(btn, "download_d3")
+        # 等终态（复用 do_download 的断言会重复点击，这里手动轮询终态）。
+        t0 = time.time()
+        terminal = None
+        while time.time() - t0 < min(self.args.download_timeout, max(10, self.deadline - time.time())):
+            try:
+                nodes_now = self.dump_ui()[0]
+            except SmokeError:
+                nodes_now = []
+            term = self.find_terminal(nodes_now)
+            if term in ("done", "limit", "login", "failed"):
+                terminal = term
+                break
+            self.read_logcat()
+            if self._pick_download_event(self.download_events(), None) is not None:
+                # 已有终态日志时再看一次 UI 后退出轮询
+                pass
+            time.sleep(0.5)
+        stats = self.mock_stats()
+        status_416 = mock_stats_int(stats, "status_416")
+        ranges = mock_stats_int(stats, "range_requests")
+        partial = mock_stats_int(stats, "partial_206")
+        self.dl["terminal"] = terminal
+        self.steps.append({"name": "d3.terminal", "ok": bool(terminal), "detail": str(terminal)})
+        time.sleep(1.0)
+        files_after, _s2 = self.list_download_files()
+        files_after = files_after or {}
+        part_left = [n for n in files_after if n.endswith(".part")]
+        final_name = name if name in files_after else None
+        final_size = files_after.get(final_name) if final_name else None
+        sha_ok = None
+        sha_dev = None
+        if final_name:
+            expected_sha = str(book.get("sha256") or "").lower()
+            out = self._run_shell_capture("sha256sum " + self._shell_quote(self.download_dir() + "/" + final_name), timeout=60)
+            if not (out or "").strip():
+                out = self._run_shell_capture("run-as " + self.pkg + " sha256sum " + self._shell_quote(self.download_dir() + "/" + final_name), timeout=60)
+            parts = (out or "").split()
+            if parts and len(parts[0]) == 64:
+                sha_dev = parts[0].lower()
+                sha_ok = (sha_dev == expected_sha) if expected_sha else None
+        dl_ok = terminal == "done"
+        ok = bool(dl_ok and status_416 >= 1 and ranges >= 1 and not part_left
+                  and final_size == book_bytes and sha_ok is not False)
+        detail = ("terminal=" + str(terminal) + " status_416=" + str(status_416)
+                  + " range_reqs=" + str(ranges) + " partial_206=" + str(partial)
+                  + " part_left=" + str(part_left) + " file=" + str(final_name)
+                  + " size=" + str(final_size) + "/" + str(book_bytes)
+                  + " sha_ok=" + str(sha_ok) + " sha=" + str(sha_dev))
+        self.rec("d3.self_heal", ok, detail)
+        self.shot_once("d3_done", "d3-416-selfheal")
+        if not ok:
+            raise SmokeError(1, "D3 断言失败: " + detail, step="d3")
+        self.state = "PASS"
+
+    def run_resume_case(self):
+        """续传：slow 下到 ~40% 杀进程 → 重启 → 再下载，断言 Range/206/最终完整。"""
+        self.mock_reset()
+        health = self.mock_health() or {}
+        book = health.get("book") if isinstance(health.get("book"), dict) else {}
+        book_bytes = int(book.get("bytes") or 0)
+        if book_bytes <= 0:
+            raise SmokeError(2, "mock /__health 无 book.bytes，无法做续传阈值")
+        target = book_bytes * 40 // 100
+        # 200KB/s：2MB 约 10s，足够在 .part 上取到 40% 再杀。
+        self.mock_set_fault("slow", count=1, path="/cdn/", rate_kbps=200)
+        nodes = self.ui.get("_detail_nodes") or self.dump_ui()[0]
+        btn = self.find_download_button(nodes)
+        if btn is None:
+            raise SmokeError(1, "续传用例：详情页无下载按钮")
+        self.tap_node(btn, "download_resume_first")
+        part_bytes, parts, waited = self.wait_part_bytes(target, timeout=40)
+        served = mock_stats_int(self.mock_stats(), "bytes_served")
+        self.rec("resume.partial", part_bytes >= target,
+                 "part=" + str(part_bytes) + "/" + str(target) + " target served=" + str(served)
+                 + "/" + str(book_bytes) + " files=" + str(parts) + " waited=" + str(round(waited, 2)) + "s")
+        self.shot_once("resume_shot", "resume-progress")
+        if part_bytes < target:
+            raise SmokeError(1, "未到 40% 或 .part 不存在（part=" + str(part_bytes) + " target=" + str(target) + "）", step="resume")
+        self.shell(["am", "force-stop", self.pkg], timeout=20)
+        time.sleep(1.5)
+        self.rec("resume.kill", True, "am force-stop after served=" + str(served))
+        self.start_app()
+        self.open_zlib_tab()
+        self.do_search()
+        self.open_detail()
+        self.mock_reset()
+        self.dl = {}
+        self.state = None
+        self.do_download()
+        entries = self.mock_log(tail=2000)
+        ranges = [e for e in entries if str(e.get("path", "")).startswith("/cdn") and mock_range_of(e)]
+        partial = [e for e in ranges if int(e.get("status") or 0) == 206]
+        ok = bool(ranges) and bool(partial) and self.state == "PASS"
+        detail = ("range_requests=" + str(len(ranges)) + " partial_206=" + str(len(partial))
+                  + " completed=" + str(self.state == "PASS")
+                  + " bytes=" + str(self.dl.get("bytes")) + " expect=" + str(book_bytes))
+        self.rec("resume.range", ok, detail)
+        if not ok:
+            raise SmokeError(1, "续传断言失败: " + detail, step="resume")
+        if self.dl.get("bytes") not in (book_bytes, None):
+            self.rec("resume.bytes", False, "bytes=" + str(self.dl.get("bytes")) + " expect=" + str(book_bytes))
+        else:
+            self.rec("resume.bytes", True, "bytes=" + str(self.dl.get("bytes")))
+        self.dl["resume"] = {"served_before_kill": served, "part_before_kill": part_bytes,
+                             "range_requests": len(ranges), "partial_206": len(partial)}
+
+    def run_cancel_case(self, out):
+        """取消用例：慢速下载中找『取消』控件 → 点 → 断言 CANCELLED + 不留 .part。"""
+        rate = int(getattr(self.args, "mock_cancel_kbps", 16))
+        self.mock_set_fault("slow", count=1, path="/cdn/", rate_kbps=rate)
+        nodes = self.ui.get("_detail_nodes") or self.dump_ui()[0]
+        btn = self.find_download_button(nodes) or self.find_download_button(self.dump_ui()[0])
+        if btn is None:
+            out.update(state="SKIP", detail="SKIP: 详情页无下载按钮" )
+            self.rec("fault.cancel", False, out["detail"])
+            return out
+        self.tap_node(btn, "download_cancel_case")
+        # 等下载真的开始（mock 有 /cdn 请求或 UI 出现进度）
+        started = False
+        end = min(time.time() + float(self.args.trigger_timeout), self.deadline)
+        while time.time() < end:
+            entries = self.mock_log(tail=100)
+            if any(str(e.get("path", "")).startswith("/cdn") for e in entries):
+                started = True
+                break
+            try:
+                ns, _ = self.dump_ui()
+            except SmokeError:
+                ns = []
+            p, _txt = self.find_progress(ns)
+            if p is not None:
+                started = True
+                break
+            time.sleep(float(self.args.poll_interval))
+        if not started:
+            out.update(state="FAIL", detail="点到下载后 30s 无 /cdn 请求/进度")
+            self.rec("fault.cancel", False, out["detail"])
+            return out
+        before = self.mock_stats()
+        nodes, _ = self.dump_ui()
+        cancel = self.find_cancel_control(nodes)
+        if cancel is None:
+            out.update(state="SKIP", detail="SKIP: 当前构建无『取消』控件（task-29 未落地取消入口）")
+            self.rec("fault.cancel", False, out["detail"])
+            self.warn("cancel 用例 SKIP：UI 无取消控件；若 task-29 加取消后本用例会自动启用")
+            return out
+        self.tap_node(cancel, "cancel_download")
+        time.sleep(2.0)
+        after = self.mock_stats()
+        closed = mock_stats_int(after, "client_closed") - mock_stats_int(before, "client_closed")
+        raw = self.read_logcat()
+        cancelled = "zlib_download" in raw and "kind:CANCELLED" in raw
+        parts, part_src = self.find_part_files()
+        no_part = (parts == [])
+        ok = closed >= 1 and cancelled and no_part
+        detail = ("client_closed+" + str(closed) + " perf_cancelled=" + str(cancelled)
+                  + " parts=" + str(parts) + "(" + part_src + ")")
+        out.update(state="PASS" if ok else "FAIL", detail=detail)
+        self.rec("fault.cancel", ok, detail)
+        return out
+
+    def run_one_fault_case(self, idx, case):
+        t0 = time.time()
+        out = {"case": case, "state": "FAIL", "detail": "", "started_at": now_iso()}
+        self.log("fault case " + str(idx + 1) + "/" + str(len(self.fault_cases)) + ": " + case)
+        try:
+            if not self.open_fault_case(idx):
+                out.update(state="SKIP", detail="SKIP: 无可用搜索结果行/详情页")
+                self.rec("fault." + case, False, out["detail"])
+                return out
+            self.mock_reset()
+            self.dl = {}
+            self.state = None
+            self.skip_reason = ""
+            if case == "cancel":
+                out = self.run_cancel_case(out)
+            else:
+                self._inject_fault(case)
+                self.do_download()
+                entries = self.mock_log(tail=2000)
+                stats = self.mock_stats()
+                ok, detail = self._assert_fault_case(case, entries, stats)
+                out.update(state="PASS" if ok else "FAIL", detail=detail)
+                out["mock_stats"] = stats
+                out["fault_entries"] = mock_faults(entries)
+                self.rec("fault." + case, ok, detail)
+            out["download"] = {k: v for k, v in self.dl.items() if not k.startswith("_")}
+            out["elapsed_ms"] = int((time.time() - t0) * 1000)
+            return out
+        except SmokeError as e:
+            out.update(state="FAIL", detail=e.reason)
+            out["download"] = {k: v for k, v in self.dl.items() if not k.startswith("_")}
+            out["elapsed_ms"] = int((time.time() - t0) * 1000)
+            self.warn("fault case " + case + " FAIL: " + e.reason)
+            self.rec("fault." + case, False, e.reason)
+            return out
+
+    def run_download_faults(self):
+        if not self.args.download:
+            raise SmokeError(2, "--scenario download_faults 需要 --download")
+        self.log("download_faults cases=" + ",".join(self.fault_cases))
+        for idx, case in enumerate(self.fault_cases):
+            self.fault_results.append(self.run_one_fault_case(idx, case))
+        self.dl["fault_cases"] = self.fault_results
+        states = [r.get("state") for r in self.fault_results]
+        passed = states.count("PASS")
+        skipped = states.count("SKIP")
+        failed = states.count("FAIL")
+        self.rec("fault.summary", failed == 0,
+                 "pass=" + str(passed) + " skip=" + str(skipped) + " fail=" + str(failed))
+        if failed:
+            bad = [r["case"] + ":" + r["detail"][:160] for r in self.fault_results
+                   if r.get("state") == "FAIL"]
+            raise SmokeError(1, "download_faults: " + str(failed) + " case(s) FAIL — " + " | ".join(bad),
+                             step="download_faults")
+        if passed == 0:
+            self.set_state("SKIP", "all fault cases skipped")
+
     # ------------------------------------------------------------ 主流程
+    # ------------------------------------------------------------ mock（契约 v1）
+    @staticmethod
+    def _tail(path, limit=1200):
+        try:
+            with open(path, "r", encoding="utf-8", errors="replace") as fh:
+                text = fh.read()
+            return text[-limit:]
+        except Exception:
+            return ""
+
+    def _mock_abs(self, path):
+        if not path.startswith("/"):
+            path = "/" + path
+        return self.mock_url + path
+
+    def _mock_http(self, method, path, body=None, timeout=6.0):
+        budget = min(float(timeout), max(1.0, self.rem()))
+        data = None
+        headers = {}
+        if body is not None:
+            data = json.dumps(body).encode("utf-8")
+            headers["Content-Type"] = "application/json"
+        req = urllib.request.Request(self._mock_abs(path), data=data, headers=headers, method=method)
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        with opener.open(req, timeout=budget) as resp:
+            raw = resp.read(4_000_000)
+            ctype = resp.headers.get("Content-Type", "") or ""
+        text = raw.decode("utf-8", "replace")
+        head = text.lstrip()[:1]
+        if "json" in ctype.lower() or head in ("{", "["):
+            try:
+                return json.loads(text)
+            except Exception:
+                return text
+        return text
+
+    def mock_health(self):
+        try:
+            return self._mock_http("GET", "/__health", timeout=3.0)
+        except Exception:
+            return None
+
+    def mock_ready(self, health=None):
+        h = health if isinstance(health, dict) else self.mock_health()
+        return isinstance(h, dict) and bool(h.get("ok")) and bool(h.get("ready"))
+
+    def mock_stats(self):
+        try:
+            stats = self._mock_http("GET", "/__stats", timeout=5.0)
+            if isinstance(stats, dict):
+                inner = stats.get("stats")
+                if isinstance(inner, dict):
+                    return inner
+                return stats
+        except Exception:
+            pass
+        return {}
+
+    def mock_log(self, tail=2000):
+        try:
+            data = self._mock_http("GET", "/__log?tail=" + str(int(tail)), timeout=8.0)
+            entries = parse_mock_entries(data)
+        except Exception:
+            entries = []
+        self.mock_request_count = max(self.mock_request_count, len(entries))
+        return entries
+
+    def mock_post(self, path, payload=None):
+        return self._mock_http("POST", path, payload or {}, timeout=8.0)
+
+    def mock_reset(self):
+        try:
+            self.mock_post("/__reset", {})
+        except Exception as e:
+            self.warn("mock /__reset failed: " + str(e))
+
+    def mock_set_fault(self, mode, count=1, path="/cdn/", **extra):
+        body = {"mode": mode, "count": int(count), "path": path}
+        body.update(extra)
+        try:
+            out = self.mock_post("/__fault", body)
+            self.log("mock fault " + json.dumps(body, ensure_ascii=False) + " -> " + str(out)[:200])
+            return out
+        except Exception as e:
+            raise SmokeError(4, "mock /__fault " + mode + " failed: " + str(e))
+
+    def start_mock(self):
+        if not self.mock:
+            return
+        start_mode = getattr(self.args, "mock_start", "auto")
+        health = self.mock_health()
+        if self.mock_ready(health) and start_mode != "always":
+            self.mock_owned = False
+            self.mock_reused = True
+            self.step("mock.reuse", "reuse " + self.mock_url + " version=" + str(health.get("version", "?")))
+            self.dev["mock_version"] = health.get("version")
+            return
+        if start_mode == "never":
+            raise SmokeError(4, "mock 不可用且 --mock-start=never: " + self.mock_url)
+        parts = urllib.parse.urlsplit(self.mock_url)
+        host = parts.hostname or ""
+        if host not in ("127.0.0.1", "localhost"):
+            raise SmokeError(4, "--mock 只支持本机 mock（host=" + host + "），外部服务请配合 --mock-start=never")
+        if health is not None:
+            raise SmokeError(4, "端口 " + str(self.mock_port) + " 被非 mock 服务占用：/__health 不是 {ok,ready} JSON")
+        script = winpath(getattr(self.args, "mock_script", "") or "") or \
+            os.path.join(self.root, "scripts", "android", "zlib-mock.py")
+        if not os.path.isfile(script):
+            raise SmokeError(4, "mock 脚本不存在: " + winpath(script) + "（等 pdf-tiles 落盘）")
+        log_path = winpath(getattr(self.args, "mock_log", "") or "")
+        if not log_path:
+            log_path = os.path.join(self.outdir, self.tag + "-" + self.stamp + "-mock.jsonl")
+        if not os.path.isabs(log_path):
+            log_path = os.path.join(self.root, log_path)
+        parent = os.path.dirname(log_path)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
+        self.mock_server_log = os.path.join(self.outdir, self.tag + "-" + self.stamp + "-mock-server.log")
+        env = dict(os.environ)
+        env["PYTHONIOENCODING"] = "utf-8"
+        env["PYTHONUNBUFFERED"] = "1"
+        cmd = [sys.executable, script, "--port", str(self.mock_port), "--log", log_path]
+        dl_mode = getattr(self.args, "mock_dl_mode", "") or ""
+        if dl_mode:
+            cmd.extend(["--dl-mode", dl_mode])
+        book_count = int(getattr(self.args, "mock_book_count", 3) or 3)
+        cmd.extend(["--book-count", str(book_count)])
+        self.log("spawn mock: " + " ".join(cmd))
+        with open(self.mock_server_log, "w", encoding="utf-8", newline="\n") as lf:
+            self.mock_proc = subprocess.Popen(cmd, cwd=self.root, stdout=lf, stderr=subprocess.STDOUT, env=env)
+        deadline = time.time() + float(getattr(self.args, "mock_wait", 25))
+        ready = False
+        while time.time() < deadline:
+            if self.mock_proc.poll() is not None:
+                raise SmokeError(4, "mock 进程退出 rc=" + str(self.mock_proc.returncode)
+                                 + " tail=" + self._tail(self.mock_server_log))
+            if self.mock_ready():
+                ready = True
+                break
+            time.sleep(0.3)
+        if not ready:
+            self.stop_mock()
+            raise SmokeError(4, "mock 未在 " + str(getattr(self.args, "mock_wait", 25))
+                             + "s 内 ready；server log=" + str(self.mock_server_log))
+        self.mock_owned = True
+        self.dev["mock_log"] = log_path
+        self.dev["mock_server_log"] = self.mock_server_log
+        self.step("mock.start", "pid=" + str(self.mock_proc.pid) + " port=" + str(self.mock_port))
+
+    def stop_mock(self):
+        if not self.mock:
+            return
+        proc = self.mock_proc
+        if proc is not None and self.mock_owned and not getattr(self.args, "keep_mock", False):
+            try:
+                proc.terminate()
+                try:
+                    proc.wait(timeout=4)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    proc.wait(timeout=3)
+            except Exception as e:
+                self.warn("mock stop failed: " + str(e))
+            self.dev["mock_stopped"] = True
+        elif proc is not None and getattr(self.args, "keep_mock", False):
+            self.warn("mock 保持运行（--keep-mock）pid=" + str(proc.pid))
+
+    def reset_state(self):
+        """mock 专用：清掉上一次 mock 下载留下的书籍/下载记录/临时文件，但**保留登录 cookie**。
+
+        不用 pm clear（设备上有真实账号登录态，Lead 2026-11-03 22:46 明确禁止）。
+        只删 books.json / zlib_downloads.json / cache 下的 .part 与 Mock Book*.pdf，
+        首启会从 assets fixtures 重建 4 本 seed 书。
+        """
+        if getattr(self.args, "reset_state", "none") != "mock":
+            return
+        self.step("reset_state", "mock books/downloads cleared (login kept)")
+        for argv in (
+            ["run-as", self.pkg, "rm", "-f", "files/books.json"],
+            ["run-as", self.pkg, "rm", "-f", "files/books.json.tmp"],
+            ["run-as", self.pkg, "rm", "-f", "files/zlib_downloads.json"],
+            ["run-as", self.pkg, "rm", "-rf", "cache/zlib-downloads"],
+        ):
+            try:
+                self.shell(argv, timeout=20)
+            except SmokeError as e:
+                self.warn("reset: " + " ".join(argv[:3]) + " -> " + e.reason)
+        # _pb_files 里的 mock 书（run-as 列目录后精确删除，避免误删用户导入的书）
+        try:
+            listing = self.shell(["run-as", self.pkg, "ls", "files/_pb_files"], timeout=20)
+            for name in (listing or "").splitlines():
+                name = name.strip()
+                if name and "Mock Book" in name:
+                    self.shell(["run-as", self.pkg, "rm", "-f", "files/_pb_files/" + name], timeout=20)
+        except SmokeError as e:
+            self.warn("reset _pb_files: " + e.reason)
+        # 外部下载目录里的 mock 书
+        dl_dir = "/sdcard/Android/data/" + self.pkg + "/files/Download/Z-Library"
+        try:
+            listing = self.shell(["ls", dl_dir], timeout=20)
+            for name in (listing or "").splitlines():
+                name = name.strip()
+                if name and "Mock Book" in name:
+                    self.shell(["rm", "-f", dl_dir + "/" + name], timeout=20)
+        except SmokeError as e:
+            self.warn("reset download dir: " + e.reason)
+
+    def mock_network_setup(self):
+        dump = self.shell(["dumpsys", "package", self.pkg], timeout=30)
+        if "DEBUGGABLE" not in dump:
+            raise SmokeError(1, "APK 非 debuggable：pb_zlib_mirror 会被 release 逻辑忽略，mock 无法生效（需 debug 包）")
+        before = (self.shell(["settings", "get", "global", "http_proxy"], timeout=15) or "").strip()
+        self.mock_proxy_before = before
+        self.dev["proxy_before"] = before
+        self.shell(["settings", "put", "global", "http_proxy", ":0"], timeout=15)
+        time.sleep(0.6)
+        now = (self.shell(["settings", "get", "global", "http_proxy"], timeout=15) or "").strip()
+        self.dev["proxy_mock"] = now
+        if now not in ("null", "", ":0"):
+            self.warn("系统代理未清空: " + now + "（app 可能把 mock 请求发给真实代理）")
+        mapping = "tcp:" + str(self.mock_port) + " tcp:" + str(self.mock_port)
+        rev = self.adb(["reverse", "--list"], timeout=20)
+        self.mock_added_reverse = mapping not in rev
+        if self.mock_added_reverse:
+            self.adb(["reverse", "tcp:" + str(self.mock_port), "tcp:" + str(self.mock_port)], timeout=20)
+        rev2 = self.adb(["reverse", "--list"], timeout=20)
+        if mapping not in rev2:
+            raise SmokeError(4, "adb reverse 未建立: " + mapping + " list=" + rev2.strip()[:200])
+        self.dev["mock"] = {
+            "url": self.mock_url,
+            "port": self.mock_port,
+            "reverse": mapping,
+            "reverse_added": self.mock_added_reverse,
+            "proxy_before": before,
+            "proxy_now": now,
+        }
+        self.step("mock.network", "proxy cleared + " + mapping)
+
+    def mock_network_restore(self):
+        if not self.mock:
+            return
+        if self.mock_added_reverse:
+            try:
+                self.adb(["reverse", "--remove", "tcp:" + str(self.mock_port)], timeout=15)
+            except Exception as e:
+                self.warn("adb reverse --remove failed: " + str(e))
+        try:
+            before = self.mock_proxy_before
+            if before in (None, "", "null", ":0"):
+                self.shell(["settings", "put", "global", "http_proxy", ":0"], timeout=15)
+            else:
+                self.shell(["settings", "put", "global", "http_proxy", before], timeout=15)
+            self.dev["proxy_restored"] = before
+        except Exception as e:
+            self.warn("restore proxy failed: " + str(e))
+
+    def mock_wait_requests(self, pred, timeout, desc):
+        end = min(time.time() + float(timeout), self.deadline)
+        stats = {}
+        entries = []
+        while time.time() < end:
+            stats = self.mock_stats()
+            entries = self.mock_log(tail=800)
+            try:
+                if pred(stats, entries):
+                    return stats, entries
+            except Exception:
+                pass
+            if self.mock_proc is not None and self.mock_proc.poll() is not None:
+                raise SmokeError(4, "mock 进程已退出 rc=" + str(self.mock_proc.returncode))
+            time.sleep(0.4)
+        detail = "stats=" + json.dumps(stats, ensure_ascii=False)[:320]
+        raise SmokeError(1, "mock 未收到预期请求（" + desc + "）: " + detail, step="mock")
+
+    def mock_assert_phase(self, name, prefixes, timeout=25):
+        stats, entries = self.mock_wait_requests(
+            lambda st, es: mock_sequence_ok(es, prefixes), timeout, name)
+        self.check("mock." + name, True,
+                   "paths=" + ",".join(mock_paths(entries)[-6:]) + " reqs="
+                   + str(mock_stats_int(stats, "requests")))
+
+    def mock_net_route_check(self):
+        # R7-G loopback 直连修复的日志证据（ZlibClient.kt:1125）：
+        # net_route host=127.0.0.1 proxy=none loopback=true
+        raw = self.read_logcat()
+        host_ok = "net_route host=127.0.0.1" in raw
+        loop_ok = "loopback=true" in raw
+        self.check("mock.net_route_loopback", host_ok and loop_ok,
+                   "host_127.0.0.1=" + str(host_ok) + " loopback=true=" + str(loop_ok),
+                   required=False)
+
+    def mock_verify_override(self):
+        raw = ""
+        ok = False
+        for _ in range(10):
+            raw = self.read_logcat()
+            ok = ("debug_mirror_override" in raw) and (self.mock_url in raw)
+            if ok:
+                break
+            time.sleep(0.5)
+        self.check("mock.app_override", ok,
+                   "PBZlib debug_mirror_override " + ("found" if ok else "missing")
+                   + " (base=" + self.mock_url + ")")
+
+    def mock_assert_download(self, entries=None):
+        entries = entries if entries is not None else self.mock_log(tail=2000)
+        stats = self.mock_stats()
+        cdn = [e for e in entries if str(e.get("path", "")).startswith("/cdn")]
+        dl = [e for e in entries if str(e.get("path", "")).startswith("/dl")]
+        ranges = [e for e in cdn if mock_range_of(e)]
+        self.check("mock.download_chain", bool(dl) and bool(cdn),
+                   "dl=" + str(len(dl)) + " cdn=" + str(len(cdn)) + " range=" + str(len(ranges)))
+        self.dl["mock"] = {
+            "stats": stats,
+            "requests": len(entries),
+            "cdn": len(cdn),
+            "dl": len(dl),
+            "range_requests": len(ranges),
+        }
+        return entries, stats
+
+    def mock_collect(self):
+        if not self.mock:
+            return
+        entries = self.mock_log(tail=2000)
+        stats = self.mock_stats()
+        self.mock_summary = {
+            "url": self.mock_url,
+            "port": self.mock_port,
+            "owned": self.mock_owned,
+            "reused": self.mock_reused,
+            "log": self.dev.get("mock_log"),
+            "server_log": self.mock_server_log,
+            "stats": stats,
+            "requests": entries,
+            "faults": mock_faults(entries),
+        }
+
     def run(self):
+        if self.mock:
+            self.start_mock()
         self.resolve_serial()
         self.wait_device()
         self.read_device()
         self.apk_fingerprint()
         self.install()
         self.finish_install()
+        self.reset_state()
+        if self.mock:
+            self.mock_network_setup()
         self.clear_logcat()
         self.wake()
         self.start_app()
+        if self.mock:
+            # app 启动时并不发网络请求（Z-Library 页才触发），先验 override 再开 tab，
+            # 否则会在这里空等 20s 误判 FAIL。override 日志要趁 buffer 新鲜时读（后面系统日志会冲刷）。
+            time.sleep(0.5)
+            self.mock_verify_override()
         self.open_zlib_tab()
         self.do_search()
+        if self.mock:
+            self.mock_assert_phase("search", ["/s/"])
+            self.mock_net_route_check()
         self.open_detail()
-        if self.args.download:
+        if self.mock:
+            self.mock_assert_phase("detail", ["/s/", "/book/"])
+        if "fresh_416" in self.scenarios:
+            self.run_fresh_416_case()
+        elif "d3_416" in self.scenarios:
+            self.run_d3_case()
+        elif "resume" in self.scenarios:
+            self.run_resume_case()
+        elif self.fault_cases:
+            self.run_download_faults()
+        elif self.args.download:
             self.do_download()
+            if self.mock:
+                self.mock_assert_download()
         else:
             self.rec("download.state", True, "skipped (--download not given)")
         self.collect_evidence()
@@ -904,7 +1930,12 @@ class Smoke:
         t = time.time()
         self.shell(["am", "force-stop", self.pkg], timeout=20)
         time.sleep(0.5)
-        out = self.shell(["am", "start", "-W", "-n", self.activity], timeout=60)
+        cmd = ["am", "start", "-W", "-n", self.activity]
+        if self.mock:
+            # debug MobileActivity.applyDebugMirrorOverride()：把 ZlibClient.mirror 固定成 mock 基址，
+            # 避免 app 先 probeMirrors 打外网（离线确定性）。
+            cmd += ["--es", MOCK_MIRROR_EXTRA, self.mock_url]
+        out = self.shell(cmd, timeout=60)
         m = re.search(r"TotalTime:\s*(\d+)", out)
         self.dev["am_total_ms"] = int(m.group(1)) if m else None
         m = re.search(r"Status:\s*(\w+)", out)
@@ -964,6 +1995,45 @@ class Smoke:
         if not r:
             raise SmokeError(1, "Z-Library page did not appear (no title/subtitle/search button)", step="zlib_tab")
         self.check("ui.zlib_tab", True, "Z-Library page opened")
+
+    @staticmethod
+    def result_rows(nodes, summary_y2):
+        """从搜索结果页 nodes 里挑结果标题行（按 y 排序）；summary_y2 是『已加载』表头底边。"""
+        bad = ["已加载", "第 ", "已经到底了", "书名", "作者", "ISBN", "搜索", "线路", "登录"]
+        cands = []
+        for n in nodes:
+            t = n["text"].strip()
+            if len(t) < 4:
+                continue
+            if n["bounds"][1] <= summary_y2 + 10 or n["bounds"][1] >= int(REF_H * 0.9):
+                continue
+            if any(b in t for b in bad):
+                continue
+            cands.append(n)
+        cands.sort(key=lambda n: n["bounds"][1])
+        return cands
+
+    def refresh_search_rows(self):
+        nodes, _ = self.dump_ui()
+        hdr = self.find_regex(nodes, r"(?:已加载|找到)\s*(\d+)\s*本")
+        if hdr is None:
+            return []
+        rows = self.result_rows(nodes, hdr["bounds"][3])
+        self.ui["result_rows"] = [{"title": n["text"].strip(), "bounds": list(n["bounds"])}
+                                  for n in rows]
+        return rows
+
+    def back_to_search(self, tries=3):
+        for _ in range(tries):
+            try:
+                nodes, _ = self.dump_ui()
+            except SmokeError:
+                nodes = []
+            if self.find_regex(nodes, r"(?:已加载|找到)\s*\d+\s*本") is not None:
+                return True
+            self.press_back()
+            time.sleep(1.2)
+        return False
 
     def do_search(self):
         nodes, _ = self.dump_ui()
@@ -1027,34 +2097,30 @@ class Smoke:
         count = int(m.group(1)) if m else 0
         self.ui["results_count"] = count
         self.check("ui.search_loaded", True, "header=" + node["text"].strip().replace("\n", " "))
-        if count < self.args.expect_results:
-            msg = "results=" + str(count) + " < expect=" + str(self.args.expect_results)
+        expect_results = self.args.mock_expect_results if self.mock else self.args.expect_results
+        if count < expect_results:
+            msg = "results=" + str(count) + " < expect=" + str(expect_results)
             if self.args.strict_results:
                 self.check("ui.results_count", False, msg + " (--strict-results)")
             else:
                 self.warn(msg)
                 self.check("ui.results_count", True, msg + " (warn only)")
         else:
-            self.check("ui.results_count", True, "results=" + str(count) + " >= expect=" + str(self.args.expect_results))
+            self.check("ui.results_count", True, "results=" + str(count) + " >= expect=" + str(expect_results))
 
-        # 第一条结果标题（用于详情页书名断言）
-        summary_y2 = node["bounds"][3]
-        cands = []
-        bad = ["已加载", "第 ", "已经到底了", "书名", "作者", "ISBN", "搜索", "线路", "登录"]
-        for n in nodes:
-            t = n["text"].strip()
-            if len(t) < 4:
-                continue
-            if n["bounds"][1] <= summary_y2 + 10 or n["bounds"][1] >= int(self.H * 0.9):
-                continue
-            if any(b in t for b in bad):
-                continue
-            cands.append(n)
-        cands.sort(key=lambda n: n["bounds"][1])
+        # 结果行（标题用于详情页书名断言；download_faults 用不同行跑多个 case）
+        cands = self.result_rows(nodes, node["bounds"][3])
+        self.ui["result_rows"] = [{"title": n["text"].strip(), "bounds": list(n["bounds"])}
+                                  for n in cands]
         if cands:
-            self.ui["first_title"] = cands[0]["text"].strip()
-            self.ui["first_title_bounds"] = list(cands[0]["bounds"])
-            self.ui["first_row"] = cands[0]
+            idx = int(getattr(self.args, "result_index", 0) or 0)
+            if idx < 0 or idx >= len(cands):
+                idx = 0
+            chosen = cands[idx]
+            self.ui["first_title"] = chosen["text"].strip()
+            self.ui["first_title_bounds"] = list(chosen["bounds"])
+            self.ui["first_row"] = chosen
+            self.ui["result_index"] = idx
         else:
             self.warn("cannot identify first result title (fallback coordinate tap)")
             self.ui["first_title"] = None
@@ -1095,6 +2161,13 @@ class Smoke:
         if expected and matched:
             self.ui["detail_title"] = matched
             self.check("ui.detail_title", True, "detail contains title: " + matched)
+        elif expected and self.mock and self.find_regex(nodes, r"Mock Book \d+") is not None:
+            # mock /book/<hash> 故意把 book-title 改写成 "Mock Book N"（fixture 限制），
+            # 详情页自然拿不到搜索结果里的真实书名；这不算 app 缺陷，记 advisory。
+            self.ui["detail_title"] = "Mock Book N (mock fixture)"
+            self.check("ui.detail_title", True,
+                       "mock fixture rewrites book-title; expected search title not required", required=False)
+            self.warn("mock detail book-title rewritten; search title='" + expected[:60] + "'")
         elif expected:
             self.ui["detail_title"] = None
             self.check("ui.detail_title", False, "detail does not contain first title: " + expected)
@@ -1310,11 +2383,13 @@ class Smoke:
 
     def assert_perf(self):
         self.analyze_perf()
+        # 故障/重置跑法里冷启数字不作验收指标（reset 后首启要重建 books.json，且 mock 日志缓冲会挤掉早期行）
+        perf_required = not (getattr(self.args, "scenario", "") or getattr(self.args, "reset_state", "none") != "none")
         cold = self.perf["cold_start"]
         if cold:
-            self.check("perf.cold_start", True, "cold_start ms=" + str(cold["ms"]))
+            self.check("perf.cold_start", True, "cold_start ms=" + str(cold["ms"]), required=perf_required)
         else:
-            self.check("perf.cold_start", False, "PBPERF phase=cold_start missing in logcat")
+            self.check("perf.cold_start", False, "PBPERF phase=cold_start missing in logcat", required=perf_required)
         search = self.perf["zlib_search"]
         if search:
             extra = kv_parse(search[-1]["extra"])
@@ -1369,6 +2444,19 @@ class Smoke:
                 self.shell(["am", "force-stop", self.pkg], timeout=20)
             except Exception:
                 pass
+        if self.mock:
+            try:
+                self.mock_collect()
+            except Exception as e:
+                self.warn("mock collect failed: " + str(e))
+            try:
+                self.mock_network_restore()
+            except Exception as e:
+                self.warn("mock network restore failed: " + str(e))
+            try:
+                self.stop_mock()
+            except Exception as e:
+                self.warn("mock stop failed: " + str(e))
         payload = self.payload()
         path = winpath(self.args.json) if self.args.json else os.path.join(
             self.outdir, self.tag + "-" + self.stamp + ".json")
@@ -1382,6 +2470,13 @@ class Smoke:
         except Exception as e:
             self.warn("json write failed: " + str(e))
         print("RESULT|" + self.result + "|exit=" + str(self.exit_code) + "|json=" + str(self.artifacts["json"]), flush=True)
+        if self.mock and self.mock_summary:
+            stats = self.mock_summary.get("stats") or {}
+            print("MOCK|url=" + self.mock_url + "|owned=" + str(self.mock_summary.get("owned"))
+                  + "|stats=" + json.dumps(stats, ensure_ascii=False), flush=True)
+        for case in self.fault_results:
+            print("MOCK|fault=" + str(case.get("case")) + "|" + str(case.get("state"))
+                  + "|" + str(case.get("detail")), flush=True)
         for k in ("cold_start", "zlib_search", "zlib_login", "zlib_download"):
             v = self.perf.get(k)
             if isinstance(v, list):
@@ -1420,6 +2515,9 @@ class Smoke:
                 "debug": self.perf.get("debug", []),
             },
             "download": {k: v for k, v in self.dl.items() if not k.startswith("_")},
+            "mock": self.mock_summary,
+            "scenario": self.scenarios,
+            "fault_cases": self.fault_results,
             "assertions": self.asserts,
             "warnings": self.warnings,
             "steps": self.steps,
@@ -1449,7 +2547,34 @@ def build_parser():
     ap.add_argument("--json", default="", metavar="PATH", help="JSON 输出路径（默认 <outdir>/<tag>-<ts>.json）")
     ap.add_argument("--download", action="store_true",
                     help="下载三态闭环：30s 触发证据 → 180s 终态 → 书架+1 + 下载目录文件")
-    ap.add_argument("--timeout", type=float, default=420, help="总超时秒（默认 420；含下载闭环）")
+    ap.add_argument("--mock", action="store_true",
+                    help="连本地 zlib-mock（127.0.0.1:8899 + adb reverse），跳过真实网络："
+                         "自动拉 mock 进程、清系统代理、启动带 pb_zlib_mirror，并断言 mock 请求序列/Range/重试")
+    ap.add_argument("--mock-url", default=MOCK_DEFAULT_URL, help="mock 基址（默认 http://127.0.0.1:8899）")
+    ap.add_argument("--mock-start", choices=("auto", "never", "always"), default="auto",
+                    help="mock 启动策略：auto=健康则复用否则自拉（默认），never=必须已启动，always=重新拉")
+    ap.add_argument("--mock-wait", type=float, default=25, help="等待 mock ready 秒（默认 25）")
+    ap.add_argument("--mock-log", default="", help="mock JSONL 日志路径（默认 <outdir>/<tag>-<ts>-mock.jsonl）")
+    ap.add_argument("--mock-script", default="", help="mock 脚本路径（默认 scripts/android/zlib-mock.py；自测可覆盖）")
+    ap.add_argument("--reset-state", choices=("none", "mock"), default="none",
+                    help="mock 前重置书籍/下载记录（mock 专用；保留登录 cookie，不 pm clear）")
+    ap.add_argument("--result-index", type=int, default=0,
+                    help="搜索结果里选第几条（0 起，默认首条；已下载书可换下一条避免 already_downloaded）")
+    ap.add_argument("--mock-dl-mode", choices=("page", "redirect", "limit", "direct"), default="page",
+                    help="传给 mock 的 /dl 模式（默认 page；redirect 验证 R7-G 302 签名 CDN 分支）")
+    ap.add_argument("--mock-book-count", type=int, default=3,
+                    help="mock 书籍变体数（默认 3；fault 矩阵建议 12，保证每例都能拿到未下载书）")
+    ap.add_argument("--mock-expect-results", type=int, default=20,
+                    help="mock 夹具搜索结果数（默认 20；仅 --mock 时用）")
+    ap.add_argument("--mock-slow-kbps", type=int, default=256, help="slow 故障限速 KB/s（默认 256）")
+    ap.add_argument("--mock-slow-stall-ms", type=int, default=0, help="slow 故障中途静默毫秒（默认 0）")
+    ap.add_argument("--mock-cancel-kbps", type=int, default=16, help="取消用例限速 KB/s（默认 16）")
+    ap.add_argument("--keep-mock", action="store_true", help="结束后不杀自拉的 mock 进程")
+    ap.add_argument("--scenario", default="",
+                    help="故障场景：download_faults（需 --mock --download；注入 first_packet_lost/range_416/slow/cancel）")
+    ap.add_argument("--fault-cases", default="first_packet_lost,range_416,slow,cancel",
+                    help="download_faults 子用例（默认全部；可逗号裁剪，如 first_packet_lost,slow）")
+    ap.add_argument("--timeout", type=float, default=420, help="总超时秒（默认 420；含下载闭环/故障场景）")
     ap.add_argument("--trigger-timeout", type=float, default=30,
                     help="点下载后等待触发证据（PBPERF 或进度百分比）秒（默认 30）")
     ap.add_argument("--download-timeout", type=float, default=180, help="等待下载终态秒（默认 180）")
@@ -1480,6 +2605,19 @@ def main(argv):
         return selftest()
     if not args.apk and not args.no_install:
         ap.error("--apk is required unless --no-install")
+    try:
+        parse_fault_cases(args.fault_cases)
+    except ValueError as e:
+        ap.error(str(e))
+    if args.scenario:
+        scenarios = [x.strip() for x in args.scenario.split(",") if x.strip()]
+        unknown = [x for x in scenarios if x not in ("download_faults", "resume", "d3_416", "fresh_416")]
+        if unknown:
+            ap.error("unknown --scenario: " + ",".join(unknown) + " (supported: download_faults,resume)")
+        if not args.mock:
+            ap.error("--scenario requires --mock")
+        if not args.download:
+            ap.error("--scenario requires --download")
     s = Smoke(args)
     s.log("start tag=" + s.tag + " timeout=" + str(args.timeout) + "s outdir=" + s.outdir)
     try:

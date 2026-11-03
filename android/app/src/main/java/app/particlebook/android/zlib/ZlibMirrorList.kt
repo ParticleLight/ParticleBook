@@ -80,17 +80,23 @@ internal object ZlibMirrorList {
         return scheme + "://" + host + "/"
     }
 
-    /** host 是否属于 Z-Library 域名族（按域名标签匹配，避免 zlib.evil.com 之外还放过 evil.com）。 */
+    /**
+     * host 是否属于 Z-Library 域名族（D9 修复）。
+     *
+     * 只看 TLD 前的主域名标签：z-lib.by / zh.z-library.sk / zlib0.ru / 1lib.sk /
+     * zh.101fbiwarning.ru 都命中；zlib.evil.com（主域名 evil.com）必须拒绝 ——
+     * 旧实现对任意标签做前缀匹配，任何以 zlib 开头的子域都能过。
+     */
     fun isTrustedHost(host: String): Boolean {
         val h = host.trim().lowercase()
         if (h.isEmpty() || h.contains(' ') || h.startsWith("[")) return false
-        val bare = h.substringBefore(':')
-        return bare.split('.').any { label ->
-            label.isNotEmpty() && (
-                PREFIX_TOKENS.any { label.startsWith(it) } ||
-                    CONTAINS_TOKENS.any { label.contains(it) }
-                )
-        }
+        val bare = h.substringBefore(':').trimEnd('.')
+        val labels = bare.split('.')
+        if (labels.size < 2) return false
+        if (labels.any { it.isEmpty() }) return false
+        val main = labels[labels.size - 2]
+        return PREFIX_TOKENS.any { main.startsWith(it) } ||
+            CONTAINS_TOKENS.any { main.contains(it) }
     }
 
     /** 永久黑名单判定（singlelogin.re 及其子域）。 */

@@ -59,6 +59,12 @@ object ZlibSearchParser {
             val end = CARD_END.find(html, tagEnd + 1)
             val blockEnd = end?.range?.last?.plus(1) ?: html.length
             val block = html.substring(start.range.first, blockEnd)
+            // 详情页/书单页尾部的隐藏模板卡：属性全是 JS 占位符
+            // （id="${book['book']['id']}"、download="${book['book']['dl']}"），不是真实书籍。
+            if (html.substring(start.range.first, tagEnd + 1).contains("\${")) {
+                searchFrom = blockEnd
+                continue
+            }
             // 空结果页里有一个 <div class="book-item resItemBoxBooks" hidden aria-hidden="true"> 模板卡片
             // （counter 0、publisher=查询词），必须跳过，否则空结果会被当成 1 条结果。
             if (!isHiddenTemplateCard(html, start.range.first)) {

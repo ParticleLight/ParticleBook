@@ -20,6 +20,7 @@ import java.net.URLEncoder
 import java.nio.charset.Charset
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * Z-Library 只读搜索客户端（阻塞 API，调用方必须放到 IO 线程）。
@@ -474,14 +475,8 @@ class ZlibClient(
         return books
     }
 
-    /** 绝对 URL 只保留 path+query，避免 [fetchCategory] 被传入外部主机。 */
-    private fun sitePathOf(raw: String): String {
-        if (!raw.startsWith("http://", ignoreCase = true) && !raw.startsWith("https://", ignoreCase = true)) return raw
-        val parsed = runCatching { URI(raw) }.getOrNull() ?: return raw
-        val path = parsed.rawPath?.takeIf { it.isNotEmpty() } ?: "/"
-        val query = parsed.rawQuery
-        return if (query.isNullOrEmpty()) path else path + "?" + query
-    }
+    /** 绝对 URL / 协议相对 URL 只保留 path+query，避免 [fetchCategory] 被传入外部主机（D10）。 */
+    private fun sitePathOf(raw: String): String = ZlibUrlPolicy.sitePathOf(raw)
 
     /**
      * 解析 /dl 页面为直链（P1b 3.3 状态机）：
@@ -496,6 +491,11 @@ class ZlibClient(
         ensureInitialized()
         val base = mirror ?: probeMirrors()
         val startUrl = absoluteSiteUrl(base, downloadPath)
+        // D5：downloadPath 可能是详情页里的任意绝对 URL（远程 HTML 可注入），入口先做白名单校验。
+        if (!isAllowedDownloadTarget(startUrl)) {
+            debugLog("dl_blocked_url host=" + hostOf(startUrl) + " stage=entry")
+            throw ZlibException("blocked download url: " + hostOf(startUrl), ZlibException.Kind.DOWNLOAD)
+        }
         var current = startUrl
         var lastBody: String? = null
         var pageHops = 0
@@ -516,7 +516,7 @@ class ZlibClient(
             val location = res.location
             if (res.status in 300..399 && !location.isNullOrBlank()) {
                 pageHops++
-                val direct = absoluteSiteUrl(current, location)
+                val direct = resolveDownloadLocation(current, location)
                 debugLog("dl_redirect host=" + hostOf(current) + " status=" + res.status + " to=" + hostOf(direct))
                 // R7-G②：CDN 签名直链（跨 host / 带 filename|expires|md5 参数）只能取一次。
                 // 任何额外探测（Range/HEAD/GET）都会消耗它，正式流式时被 CDN 断连（实测 connection closed）。
@@ -571,9 +571,19 @@ class ZlibClient(
                     throw ZlibException(state.message ?: "login required", ZlibException.Kind.LOGIN_REQUIRED)
                 }
                 is ZlibDownloadParser.PageState.Candidates -> {
+                    var probed = 0
+                    var skipped = 0
                     for (link in state.links) {
                         checkCancelled(cancelFlag)
+                        // D21：候选数量上限 + D5：外部/私网地址不探测。
+                        if (probed >= MAX_DL_CANDIDATES) break
                         val direct = absoluteSiteUrl(current, link)
+                        if (!isAllowedDownloadTarget(direct)) {
+                            skipped++
+                            debugLog("dl_candidate_skip host=" + hostOf(direct))
+                            continue
+                        }
+                        probed++
                         val handle = probeDirectLink(direct)
                         if (handle != null) {
                             debugLog("dl_resolved host=" + hostOf(handle.directUrl) + " type=" + (handle.contentType ?: "none"))
@@ -582,7 +592,8 @@ class ZlibClient(
                     }
                     logDlPage(current, "candidates_unusable:" + state.links.size, lastBody)
                     throw ZlibException(
-                        "download candidates unusable (" + state.links.size + ")",
+                        "download candidates unusable (" + state.links.size +
+                            ", probed=" + probed + ", skipped=" + skipped + ")",
                         ZlibException.Kind.PARSE,
                     )
                 }
@@ -602,7 +613,10 @@ class ZlibClient(
 
     /**
      * 可取消下载（P1c ①）：`cancelFlag` 置 true 后最多一个 8KB buffer 内停下，
-     * 删除半成品 .part 并抛 [ZlibException.Kind.CANCELLED]（msg=cancelled）。
+     * 抛 [ZlibException.Kind.CANCELLED]（msg=cancelled）。
+     *
+     * 取消**保留** `.part`（与续传语义一致，P1c 收尾①）：用户重试时从已下字节续传；
+     * 只有显式「删除下载/清理记录」才删文件（由调用方删目标文件与其 .part）。
      *
      * P1c ②：若 `destFile.part` 已存在且服务端支持 `Range`（206），自动续传；
      * 服务端回 200 或 Content-Range 起点不一致时从头下（不拼坏文件）。
@@ -648,7 +662,10 @@ class ZlibClient(
             )
             return downloaded
         } catch (e: ZlibException) {
-            if (e.kind == ZlibException.Kind.CANCELLED) deletePartFile(destFile)
+            // P1c 收尾①：取消不再删 .part —— 保留可续传；.part 的清理由“删除下载”负责。
+            if (e.kind == ZlibException.Kind.CANCELLED) {
+                debugLog("dl_cancel keep_part=" + partLength(destFile) + " ms=" + elapsedMs(startedAt))
+            }
             debugLog(
                 "dl_fail kind=" + e.kind + " ms=" + elapsedMs(startedAt) +
                     " msg=" + (e.message?.take(120) ?: "none"),
@@ -659,7 +676,6 @@ class ZlibClient(
             )
             throw e
         } catch (e: Exception) {
-            if (cancelFlag?.get() == true) deletePartFile(destFile)
             perfLog(
                 "PBPERF|phase=zlib_download|ms=" + elapsedMs(startedAt) +
                     "|extra=fail,kind:DOWNLOAD",
@@ -673,7 +689,7 @@ class ZlibClient(
         ensureInitialized()
         val base = mirror ?: MIRRORS.first()
         var last: Exception? = null
-        for (proxy in proxyCandidates()) {
+        for (proxy in proxyCandidates(URI(absoluteSiteUrl(base, url)))) {
             var current = absoluteSiteUrl(base, url)
             var hops = 0
             try {
@@ -737,6 +753,18 @@ class ZlibClient(
         return true
     }
 
+    /**
+     * 清掉缓存线路（P1c 收尾③）：prefs `KEY_MIRROR` + 内存 [mirror]。
+     *
+     * debug 下换 mock 服务 / 换镜像后必须调用，否则上一次的地址会「粘」在缓存里，
+     * 后续真实流程仍然打到 mock 或已失效的镜像。不动 cookie / 代理 / 动态名单缓存。
+     */
+    fun clearCachedMirror() {
+        mirror = null
+        prefs?.edit()?.remove(KEY_MIRROR)?.apply()
+        debugLog("clear_mirror prefs=removed memory=null")
+    }
+
     // ---------------------------------------------------------------- P1c: 动态镜像名单
 
     /** 静态名单 + 动态发现合并（只读内存缓存，零网络）。 */
@@ -778,7 +806,7 @@ class ZlibClient(
     /** GET 导航页（绝对 URL，非镜像相对路径）；整轮 <= [NAV_FETCH_BUDGET_MS]，失败返回 null。 */
     private fun fetchNavHtml(): String? {
         val deadline = System.nanoTime() + NAV_FETCH_BUDGET_MS * 1_000_000L
-        for (proxy in proxyCandidates()) {
+        for (proxy in proxyCandidates(URI(ZlibMirrorList.NAV_URL))) {
             var conn: HttpURLConnection? = null
             try {
                 conn = openConnection(URI(ZlibMirrorList.NAV_URL), proxy, deadline)
@@ -887,7 +915,7 @@ class ZlibClient(
     ): HttpResult {
         var last: Exception? = null
         var attempt = 0
-        for (proxy in proxyCandidates()) {
+        for (proxy in proxyCandidates(uri)) {
             if (deadlineNanos != null && remainingMs(deadlineNanos) < MIN_REQUEST_MS) {
                 debugLog("net_skip host=${uri.host} proxy=${proxyLabel(proxy)} remaining_ms=${remainingMs(deadlineNanos)}")
                 break
@@ -940,7 +968,7 @@ class ZlibClient(
                 // R7-G：/dl 探测只关心 HTML 状态页（限额/登录/倒计时/候选）与 302 Location；
                 // 二进制响应（CDN 直出的整本书）绝不读 body，否则整包进 String（2MB~18MB）拖死内存。
                 val shouldReadBody = !htmlOnlyBody || isHtmlContentType(contentType) || status == 503
-                val body = if (shouldReadBody) readBody(conn) else ""
+                val body = if (shouldReadBody) readBody(conn, MAX_HTML_BYTES) else ""
                 val server = conn.getHeaderField("Server")
                 val setCookieCount = storeResponseCookies(current, conn)
                 // 503 挑战页也会下发新 bsrv：确认它真的落进 jar（含挑战响应）。
@@ -985,6 +1013,8 @@ class ZlibClient(
         } else {
             url.openConnection(proxy) as HttpURLConnection
         }
+        debugLog("net_route host=${uri.host ?: "-"} proxy=" +
+            if (proxy == null || proxy == Proxy.NO_PROXY) "none" else proxyLabelOrNone(proxy))
         conn.instanceFollowRedirects = false
         conn.connectTimeout = timeoutFor(CONNECT_TIMEOUT_MS, deadlineNanos)
         conn.readTimeout = timeoutFor(READ_TIMEOUT_MS, deadlineNanos)
@@ -1028,32 +1058,16 @@ class ZlibClient(
         }
     }
 
-    private fun readBody(conn: HttpURLConnection): String {
+    /** 有上限读响应体（D11）：HTML/JSON 走 [MAX_HTML_BYTES]，图片等小文件走 [MAX_RESPONSE_BYTES]。 */
+    private fun readBody(conn: HttpURLConnection, maxBytes: Long = MAX_RESPONSE_BYTES): String {
         val stream = try {
             conn.inputStream
         } catch (e: IOException) {
             conn.errorStream
         } ?: return ""
-        val bytes = stream.use { input ->
-            val out = ByteArrayOutputStream(64 * 1024)
-            val buffer = ByteArray(16 * 1024)
-            var total = 0L
-            while (true) {
-                val read = input.read(buffer)
-                if (read < 0) break
-                total += read
-                // R7-G 兜底：任何响应体都不许无上限读进内存（/dl 误读整本书的教训）。
-                if (total > MAX_RESPONSE_BYTES) {
-                    throw ZlibException(
-                        "response too large (> " + MAX_RESPONSE_BYTES + " bytes)",
-                        ZlibException.Kind.HTTP,
-                    )
-                }
-                out.write(buffer, 0, read)
-            }
-            out.toByteArray()
+        return stream.use { input ->
+            ZlibBodyReader.read(input, maxBytes, charsetOf(conn.contentType))
         }
-        return String(bytes, charsetOf(conn.contentType))
     }
 
     private fun charsetOf(contentType: String?): Charset {
@@ -1104,7 +1118,13 @@ class ZlibClient(
      * 2. DEBUG 包且本地兜底代理端口可连时，走 `127.0.0.1:7897`，失败再直连；
      * 3. 直连（null = 默认 ProxySelector，系统若另有 PAC 仍可能生效）。
      */
-    private fun proxyCandidates(): List<Proxy?> {
+    private fun proxyCandidates(uri: URI? = null): List<Proxy?> {
+        // mock/localhost 场景（E2E 用 --es pb_zlib_mirror http://127.0.0.1:8899 + adb reverse）：
+        // 目标本身是 loopback 或直指 debug 兜底端口时必须直连，任何代理都会把请求带离本机。
+        if (isLoopbackTarget(uri)) {
+            debugLog("net_route host=${uri?.host ?: "-"} proxy=none loopback=true")
+            return listOf(Proxy.NO_PROXY)
+        }
         resolveSystemProxy()?.let { return listOf(it) }
         if (isDebuggable) {
             if (!fallbackChecked) {
@@ -1122,6 +1142,20 @@ class ZlibClient(
             fallbackProxy?.let { return listOf(it, null) }
         }
         return listOf(null)
+    }
+
+    /**
+     * 目标是否 loopback / debug 兜底端口（E2E mock 与 adb reverse 场景）：
+     * 127.0.0.0/8、localhost、::1，或任何端口 == LOCAL_PROXY 端口的 URI。
+     */
+    private fun isLoopbackTarget(uri: URI?): Boolean {
+        if (uri == null) return false
+        val host = uri.host?.trim()?.trim('[', ']')?.lowercase().orEmpty()
+        val loopbackHost = host == "localhost" || host == "::1" || host == "0.0.0.0" ||
+            host.startsWith("127.")
+        if (loopbackHost) return true
+        val fallbackPort = LOCAL_PROXY.substringAfter(':', "").toIntOrNull()
+        return fallbackPort != null && uri.port == fallbackPort
     }
 
     /** 读系统全局代理：Settings.Global["http_proxy"] 优先，其次 android.net.Proxy 默认值。 */
@@ -1223,8 +1257,22 @@ class ZlibClient(
         return ZLoginResult.Failed(kind, message)
     }
 
+    /**
+     * JVM 单测可注入的日志出口（null = 走 android.util.Log）。
+     * 单测没有 Android 运行时，Log.i 会抛 "not mocked"；日志绝不该影响下载/搜索本身。
+     */
+    internal var testLogger: ((String) -> Unit)? = null
+
     private fun perfLog(line: String) {
-        Log.i(PERF_TAG, line)
+        testLogger?.let { logger ->
+            logger(line)
+            return
+        }
+        try {
+            Log.i(PERF_TAG, line)
+        } catch (t: Throwable) {
+            // 极端情况（JVM 单测/无 Android 运行时）：日志失败不能影响业务流程。
+        }
     }
 
     private fun elapsedMs(startedAt: Long): Long = (System.nanoTime() - startedAt) / 1_000_000L
@@ -1256,16 +1304,9 @@ class ZlibClient(
         return href.takeIf { it.contains("/book/") }
     }
 
-    private fun absoluteSiteUrl(base: String, raw: String): String {
-        val trimmed = raw.trim()
-        return when {
-            trimmed.startsWith("//") -> "https:" + trimmed
-            trimmed.startsWith("http://", ignoreCase = true) ||
-                trimmed.startsWith("https://", ignoreCase = true) -> trimmed
-            trimmed.startsWith("/") -> hostBaseOf(base) + trimmed
-            else -> base.trimEnd('/') + "/" + trimmed
-        }
-    }
+    /** 相对引用解析（D6/D8）：统一 RFC 3986 语义，`../x`、`?q=1`、`//host/x` 都不再靠字符串拼接。 */
+    private fun absoluteSiteUrl(base: String, raw: String): String =
+        ZlibUrlPolicy.resolveLocation(base, raw)
 
     private fun hostBaseOf(url: String): String = runCatching {
         val uri = URI(url)
@@ -1291,6 +1332,10 @@ class ZlibClient(
      * Content-Range 或 Content-Type/Content-Disposition 像文件即返回 handle；HTML/4xx 返回 null。
      */
     private fun probeDirectLink(url: String): ZDownloadHandle? {
+        if (!isAllowedDownloadTarget(url)) {
+            debugLog("dl_probe_blocked host=" + hostOf(url) + " stage=entry")
+            return null
+        }
         var current = url
         var hops = 0
         while (hops < 3) {
@@ -1317,7 +1362,11 @@ class ZlibClient(
             )
             when {
                 probe.status in 300..399 && !probe.location.isNullOrBlank() -> {
-                    val next = absoluteSiteUrl(current, probe.location)
+                    val next = try {
+                        resolveDownloadLocation(current, probe.location)
+                    } catch (e: ZlibException) {
+                        return null
+                    }
                     // 跨 host 或签名直链：只能取一次，探测到此为止，把 URL 原样交给流式。
                     if (!sameHost(current, next) || isSignedDownloadUrl(next)) {
                         return ZDownloadHandle(next, probe.contentType)
@@ -1340,7 +1389,7 @@ class ZlibClient(
 
     private fun probeOnce(url: String, method: String = "GET"): DirectProbe {
         var last: Exception? = null
-        for (proxy in proxyCandidates()) {
+        for (proxy in proxyCandidates(URI(url))) {
             var conn: HttpURLConnection? = null
             try {
                 conn = openConnection(URI(url), proxy, method = method)
@@ -1430,13 +1479,14 @@ class ZlibClient(
         val parent = target.parentFile ?: File(".")
         parent.mkdirs()
         var lastError: Exception? = null
-        for (proxy in proxyCandidates()) {
+        for (proxy in proxyCandidates(URI(handle.directUrl))) {
             checkCancelled(cancelFlag)
             val part = File(parent, target.name + PART_SUFFIX)
             try {
                 val stats = streamOnce(handle, part, proxy, onProgress, cancelFlag)
                 if (stats.received < MIN_DOWNLOAD_BYTES) {
                     part.delete()
+                    ZlibPartMetaStore.delete(part)
                     throw ZlibException("download too small: " + stats.received, ZlibException.Kind.DOWNLOAD)
                 }
                 if (stats.total > 0 && stats.received < stats.total) {
@@ -1446,15 +1496,21 @@ class ZlibClient(
                         ZlibException.Kind.NETWORK,
                     )
                 }
-                val finalFile = withExtension(target, stats.disposition, stats.finalUrl)
+                var finalFile = withExtension(target, stats.disposition, stats.finalUrl)
                 if (!part.renameTo(finalFile)) {
                     part.copyTo(finalFile, overwrite = true)
                     part.delete()
                 }
+                // 完成：.part 已 rename 成正式文件，续传元数据随之作废。
+                ZlibPartMetaStore.delete(part)
+                // D14：扩展名可能来自 detail.format（不可信）或服务器文件名（不可达）→ 按文件头纠正。
+                finalFile = correctExtensionByContent(finalFile)
                 return finalFile
             } catch (e: ZlibException) {
-                if (e.kind == ZlibException.Kind.CANCELLED || e.kind == ZlibException.Kind.DOWNLOAD) {
+                // P1c 收尾①：CANCELLED 不再删 .part（保留续传）；只有“这不是书/太小/写盘失败”才清。
+                if (e.kind == ZlibException.Kind.DOWNLOAD) {
                     part.delete()
+                    ZlibPartMetaStore.delete(part)
                 }
                 throw e
             } catch (e: Exception) {
@@ -1475,9 +1531,21 @@ class ZlibClient(
         proxy: Proxy?,
         onProgress: (received: Long, total: Long) -> Unit,
         cancelFlag: AtomicBoolean?,
+        ignorePart: Boolean = false,
+        retried416: Boolean = false,
     ): StreamStats {
-        val resumeFrom = if (partFile.isFile) partFile.length() else 0L
+        val resumeFrom = if (!ignorePart && partFile.isFile) partFile.length() else 0L
+        // P1c 收尾④（审计 A1）：读上次落盘的 ETag/Last-Modified，续传带 If-Range。
+        val partMeta = if (resumeFrom > 0L) ZlibPartMetaStore.read(partFile) else null
         val startedAt = System.nanoTime()
+        // D5：流式入口同样校验（handle 可能来自远程 HTML 解析出的绝对 URL）。
+        if (!isAllowedDownloadTarget(handle.directUrl)) {
+            debugLog("dl_stream_blocked host=" + hostOf(handle.directUrl))
+            throw ZlibException(
+                "blocked download host: " + hostOf(handle.directUrl),
+                ZlibException.Kind.DOWNLOAD,
+            )
+        }
         var current = handle.directUrl
         var conn: HttpURLConnection? = null
         var hops = 0
@@ -1489,16 +1557,49 @@ class ZlibClient(
                 checkCancelled(cancelFlag)
                 conn = openConnection(URI(current), proxy)
                 // P1c ②：有 .part 就请求续传；服务端不支持会回 200，届时从头写。
-                if (resumeFrom > 0L) conn.setRequestProperty("Range", "bytes=" + resumeFrom + "-")
+                // P1c 收尾④（审计 A1）：同时带 If-Range；版本变了服务端回 200，decide() 会截断重下。
+                // D2（If-Range）：用上次响应的 ETag/Last-Modified 做版本校验。
+                // mock E2E 只能覆盖「.part 存在 → 206 起点一致」；真实 CDN 的 ETag 语义
+                // （弱 ETag、签名 URL 每次换 host/过期）等真实网络恢复后再补测（审计 D2/D16）。
+                if (resumeFrom > 0L) {
+                    conn.setRequestProperty("Range", "bytes=" + resumeFrom + "-")
+                    ZlibResumePolicy.ifRangeHeader(resumeFrom, partMeta?.validator)?.let { validator ->
+                        conn.setRequestProperty("If-Range", validator)
+                    }
+                }
                 val status = conn.responseCode
                 statusUsed = status
                 val location = conn.getHeaderField("Location")
                 if (status in 300..399 && !location.isNullOrBlank() && hops < MAX_DOWNLOAD_REDIRECTS) {
                     hops++
-                    current = absoluteSiteUrl(current, location)
+                    current = resolveDownloadLocation(current, location)
                     conn.disconnect()
                     conn = null
                     continue
+                }
+                // 审计 B1：.part 比服务端文件还长/版本变了 → 416；删半成品后不带 Range 自愈一次。
+                // Lead m02083：即使本次**没带 Range**（全新下载），真实 CDN/中间层偶尔也会回 416 ——
+                // 这是服务端违规，但会变成「用户点下载永远失败且重试无效」，所以同样无 Range 重发一次。
+                // 只重试一次（retried416），避免死循环；仍然 416 才判 HTTP 失败。
+                if (status == 416) {
+                    if (retried416) {
+                        debugLog("dl_416 host=" + hostOf(current) + " retried=true failed=true")
+                        throw ZlibException("HTTP 416 for " + current, ZlibException.Kind.HTTP)
+                    }
+                    if (resumeFrom > 0L && !ignorePart) {
+                        debugLog("dl_416 host=" + hostOf(current) + " part=" + resumeFrom + " retry=fresh")
+                        // 半成品不可信（可能比服务端文件还长或版本已变）：删掉后从头下。
+                        partFile.delete()
+                        ZlibPartMetaStore.delete(partFile)
+                    } else {
+                        debugLog("dl_416 host=" + hostOf(current) + " retry=no_range")
+                    }
+                    conn.disconnect()
+                    conn = null
+                    return streamOnce(
+                        handle, partFile, proxy, onProgress, cancelFlag,
+                        ignorePart = true, retried416 = true,
+                    )
                 }
                 if (status !in 200..299) {
                     throw ZlibException("HTTP " + status + " for " + current, ZlibException.Kind.HTTP)
@@ -1511,6 +1612,26 @@ class ZlibClient(
                 )
                 append = decision.append
                 total = decision.total
+                // P1c 收尾④：落盘本次响应的 ETag/Last-Modified/总长，供下次续传 If-Range。
+                val responseEtag = conn.getHeaderField("ETag")
+                val responseLastModified = conn.getHeaderField("Last-Modified")
+                val freshMeta = if (append) {
+                    ZlibPartMeta(
+                        etag = responseEtag ?: partMeta?.etag,
+                        lastModified = responseLastModified ?: partMeta?.lastModified,
+                        total = if (total > 0L) total else (partMeta?.total ?: -1L),
+                        host = hostOf(current),
+                    )
+                } else {
+                    ZlibPartMeta(responseEtag, responseLastModified, total, hostOf(current))
+                }
+                ZlibPartMetaStore.write(partFile, freshMeta)
+                debugLog(
+                    "dl_meta host=" + hostOf(current) +
+                        " etag=" + (if (responseEtag != null) "yes" else "no") +
+                        " lm=" + (if (responseLastModified != null) "yes" else "no") +
+                        " if_range=" + (if (partMeta?.validator != null) "yes" else "no"),
+                )
                 break
             }
             val contentType = conn.contentType
@@ -1537,55 +1658,116 @@ class ZlibClient(
                 conn.errorStream
             } ?: throw ZlibException("empty response", ZlibException.Kind.DOWNLOAD)
 
+            // P1c 收尾②：45s 零增长看门狗（对齐桌面 ZLibraryDownload.cpp 的 kStallMs=45000）。
+            // readTimeout=15s 只覆盖「单次 read 停顿」；服务端若持续滴数据（极慢但不断），
+            // 那个超时永远不会触发，下载可以挂到天荒地老 —— 这里按「received 字节零增长」兜底。
+            val receivedRef = AtomicLong(0L)
+            val stalledFlag = AtomicBoolean(false)
+            val detector = ZlibStallDetector()
+            val watchdog = Thread({
+                try {
+                    var running = true
+                    while (running) {
+                        Thread.sleep(ZlibStallDetector.TICK_MS)
+                        detector.onBytes(receivedRef.get())
+                        if (detector.stalled()) {
+                            running = false
+                            stalledFlag.set(true)
+                            debugLog(
+                                "dl_stall received=" + receivedRef.get() +
+                                    " idle_ms=" + detector.idleMs(),
+                            )
+                            try {
+                                conn?.disconnect()
+                            } catch (ignored: Exception) {
+                                // 连接可能已关闭
+                            }
+                        }
+                    }
+                } catch (e: InterruptedException) {
+                    // 下载正常结束 / 失败收尾：守护线程退出。
+                }
+            }, "zlib-stall-watchdog")
+            watchdog.isDaemon = true
+            watchdog.start()
+
             var received = 0L
             var lastProgressAt = 0L
             var lastProgressLogAt = 0L
             val buffer = ByteArray(DOWNLOAD_BUFFER_BYTES)
-            FileOutputStream(partFile, append).use { output ->
-                stream.use { input ->
-                    while (true) {
-                        checkCancelled(cancelFlag)
-                        val read = input.read(buffer)
-                        if (read < 0) break
-                        if (received == 0L && !append &&
-                            contentType?.contains("text/html", ignoreCase = true) == true &&
-                            looksLikeHtmlStart(buffer, read)
-                        ) {
-                            throw ZlibException("not a book (html response)", ZlibException.Kind.DOWNLOAD)
-                        }
-                        try {
-                            output.write(buffer, 0, read)
-                        } catch (e: IOException) {
-                            throw ZlibException(
-                                "file write failed: " + e.message,
-                                ZlibException.Kind.DOWNLOAD,
-                                e,
-                            )
-                        }
-                        received += read
-                        val written = (if (append) resumeFrom else 0L) + received
-                        val now = System.nanoTime()
-                        if (now - lastProgressAt > PROGRESS_THROTTLE_MS * 1_000_000L) {
-                            lastProgressAt = now
-                            onProgress(written, total)
-                        }
-                        // 每 2s 一条心跳：total=0（chunked/无 Content-Length）也照打，
-                        // 用 received 增长 + kbps 区分「慢」与「卡」。
-                        if (now - lastProgressLogAt > PROGRESS_LOG_INTERVAL_MS * 1_000_000L) {
-                            lastProgressLogAt = now
-                            // PBPERF 心跳（release 可见）：received/total/pct/kbps，用来区分「慢」与「卡」。
-                            perfLog(
-                                "PBPERF|phase=zlib_dl_progress|ms=" + elapsedMs(startedAt) +
-                                    "|extra=host:" + hostOf(current) +
-                                    ",received:" + written +
-                                    ",total:" + (if (total > 0L) total else 0L) +
-                                    ",pct:" + (if (total > 0L) (written * 100 / total) else -1) +
-                                    ",kbps:" + kbpsOf(written, startedAt) +
-                                    ",final:false",
-                            )
+            try {
+                FileOutputStream(partFile, append).use { output ->
+                    stream.use { input ->
+                        while (true) {
+                            checkCancelled(cancelFlag)
+                            if (stalledFlag.get()) {
+                                throw ZlibException(
+                                    "network stalled (no progress for " +
+                                        (ZlibStallDetector.STALL_TIMEOUT_MS / 1000) + "s)",
+                                    ZlibException.Kind.NETWORK,
+                                )
+                            }
+                            val read = input.read(buffer)
+                            if (read < 0) break
+                            if (received == 0L && !append &&
+                                contentType?.contains("text/html", ignoreCase = true) == true &&
+                                looksLikeHtmlStart(buffer, read)
+                            ) {
+                                throw ZlibException("not a book (html response)", ZlibException.Kind.DOWNLOAD)
+                            }
+                            try {
+                                output.write(buffer, 0, read)
+                            } catch (e: IOException) {
+                                throw ZlibException(
+                                    "file write failed: " + e.message,
+                                    ZlibException.Kind.DOWNLOAD,
+                                    e,
+                                )
+                            }
+                            received += read
+                            receivedRef.set(received)
+                            val written = (if (append) resumeFrom else 0L) + received
+                            val now = System.nanoTime()
+                            if (now - lastProgressAt > PROGRESS_THROTTLE_MS * 1_000_000L) {
+                                lastProgressAt = now
+                                onProgress(written, total)
+                            }
+                            // 每 2s 一条心跳：total=0（chunked/无 Content-Length）也照打，
+                            // 用 received 增长 + kbps 区分「慢」与「卡」。
+                            if (now - lastProgressLogAt > PROGRESS_LOG_INTERVAL_MS * 1_000_000L) {
+                                lastProgressLogAt = now
+                                // PBPERF 心跳（release 可见）：received/total/pct/kbps，用来区分「慢」与「卡」。
+                                perfLog(
+                                    "PBPERF|phase=zlib_dl_progress|ms=" + elapsedMs(startedAt) +
+                                        "|extra=host:" + hostOf(current) +
+                                        ",received:" + written +
+                                        ",total:" + (if (total > 0L) total else 0L) +
+                                        ",pct:" + (if (total > 0L) (written * 100 / total) else -1) +
+                                        ",kbps:" + kbpsOf(written, startedAt) +
+                                        ",final:false",
+                                )
+                            }
                         }
                     }
                 }
+            } catch (e: IOException) {
+                if (stalledFlag.get()) {
+                    throw ZlibException(
+                        "network stalled (no progress for " +
+                            (ZlibStallDetector.STALL_TIMEOUT_MS / 1000) + "s)",
+                        ZlibException.Kind.NETWORK,
+                        e,
+                    )
+                }
+                throw e
+            } finally {
+                watchdog.interrupt()
+            }
+            if (stalledFlag.get()) {
+                throw ZlibException(
+                    "network stalled (no progress for " + (ZlibStallDetector.STALL_TIMEOUT_MS / 1000) + "s)",
+                    ZlibException.Kind.NETWORK,
+                )
             }
             val finalSize = (if (append) resumeFrom else 0L) + received
             perfLog(
@@ -1626,7 +1808,16 @@ class ZlibClient(
 
     private fun deletePartFile(destFile: File) {
         val parent = destFile.absoluteFile.parentFile ?: File(".")
-        runCatching { File(parent, destFile.name + PART_SUFFIX).delete() }
+        val part = File(parent, destFile.name + PART_SUFFIX)
+        runCatching { part.delete() }
+        ZlibPartMetaStore.delete(part)
+    }
+
+    /** 当前 `.part` 长度（0 = 不存在/空），诊断取消保留用。 */
+    private fun partLength(destFile: File): Long {
+        val parent = destFile.absoluteFile.parentFile ?: File(".")
+        val part = File(parent, destFile.name + PART_SUFFIX)
+        return if (part.isFile) part.length() else 0L
     }
 
     /** 首包是否未到：`.part` 不存在或长度为 0（用于「断连后重取一次直链」判定）。 */
@@ -1636,33 +1827,64 @@ class ZlibClient(
         return !part.isFile || part.length() == 0L
     }
 
+    /**
+     * 下载层跳转解析 + 白名单校验（D5/D6/D8）：相对引用按 RFC 3986 解析，
+     * 结果必须是 http(s) + 镜像域名族 / CDN 白名单（loopback 仅 debug mock 放行）。
+     */
+    private fun resolveDownloadLocation(current: String, location: String): String {
+        val next = ZlibUrlPolicy.resolveLocation(current, location)
+        if (!isAllowedDownloadTarget(next)) {
+            debugLog("dl_redirect_blocked from=" + hostOf(current) + " to=" + hostOf(next))
+            throw ZlibException(
+                "blocked download redirect: " + hostOf(next),
+                ZlibException.Kind.HTTP,
+            )
+        }
+        return next
+    }
+
+    /** 下载目标是否在白名单内（D5）：当前镜像 / 镜像域名族 / CDN；debug 下允许本机 mock。 */
+    private fun isAllowedDownloadTarget(url: String): Boolean =
+        ZlibUrlPolicy.isAllowedDownloadUrl(url, mirror)
+
     /** host 归一比较（忽略大小写）。 */
     private fun sameHost(a: String, b: String): Boolean =
         hostOf(a).equals(hostOf(b), ignoreCase = true)
 
-    /** CDN 签名直链特征：带 filename / expires / md5 查询参数（一次有效，不可重复探测）。 */
-    private fun isSignedDownloadUrl(raw: String?): Boolean {
-        val value = raw ?: return false
-        return value.contains("filename=", ignoreCase = true) ||
-            value.contains("expires=", ignoreCase = true) ||
-            value.contains("md5=", ignoreCase = true)
+    /** CDN 签名直链判定（D9）：按 query key 解析（token/sig/X-Amz-*，filename+md5 组合），不再整串 contains。 */
+    private fun isSignedDownloadUrl(raw: String?): Boolean =
+        ZlibUrlPolicy.isSignedDownloadUrl(raw)
+
+    /**
+     * 从签名直链的 filename= 参数解出文件名（D22）：百分号解码保留 '+'（不按表单语义转空格），
+     * 去掉路径分隔符；文件名再交给 [withExtension] 取扩展名。
+     */
+    private fun downloadFileNameOf(url: String): String? {
+        val raw = ZlibUrlPolicy.rawQueryParam(url, "filename") ?: return null
+        val decoded = if (raw.contains('%')) ZlibUrlPolicy.percentDecode(raw) ?: raw else raw
+        return decoded.substringAfterLast('/').substringAfterLast('\\').trim()
+            .takeIf { it.isNotBlank() }
+    }
+    /**
+     * D14：下载完成后按文件头纠正扩展名（%PDF → .pdf、PK → .epub），
+     * 避免 detail.format 缺失/错误时存成 .pdf 再交给 PDF 解析器必失败。
+     */
+    private fun correctExtensionByContent(file: File): File {
+        val sniffed = ZlibBookFormat.sniff(file) ?: return file
+        val corrected = ZlibBookFormat.correctedName(file.name, sniffed) ?: return file
+        val target = File(file.parentFile, corrected)
+        if (target.exists()) {
+            debugLog("dl_format keep=" + file.extension + " sniff=" + sniffed + " reason=target_exists")
+            return file
+        }
+        return if (file.renameTo(target)) {
+            debugLog("dl_format from=" + file.extension + " to=" + sniffed)
+            target
+        } else {
+            file
+        }
     }
 
-    /** 从签名直链的 `filename=` 参数解出文件名（URLDecode，去路径分隔符）。 */
-    private fun downloadFileNameOf(url: String): String? {
-        val rawQuery = runCatching { URI(url).rawQuery }.getOrNull() ?: return null
-        for (pair in rawQuery.split('&')) {
-            val index = pair.indexOf('=')
-            if (index <= 0) continue
-            if (!pair.substring(0, index).equals("filename", ignoreCase = true)) continue
-            val decoded = runCatching {
-                java.net.URLDecoder.decode(pair.substring(index + 1), "UTF-8")
-            }.getOrNull() ?: continue
-            return decoded.substringAfterLast('/').substringAfterLast('\\')
-                .takeIf { it.isNotBlank() }
-        }
-        return null
-    }
     /** 扩展名缺失时按 Content-Disposition（优先）→ URL 末段 → 默认 pdf 补齐。 */
     private fun withExtension(destFile: File, disposition: String?, finalUrl: String): File {
         if (destFile.extension.isNotBlank()) return destFile
@@ -1714,6 +1936,11 @@ class ZlibClient(
     // ---------------------------------------------------------------- debug helpers (debug 包才打印)
 
     private fun debugLog(message: String) {
+        // JVM 单测：debugLog 也走注入出口，才能断言 dl_416/重试等关键分支。
+        testLogger?.let { logger ->
+            logger(message)
+            return
+        }
         if (isDebuggable) Log.i(TAG, message)
     }
 
@@ -1887,6 +2114,12 @@ class ZlibClient(
 
         /** 单个响应体上限（HTML/JSON 状态页远小于此；二进制下载走流式，不经过 readBody）。 */
         private const val MAX_RESPONSE_BYTES = 8L * 1_024 * 1_024
+
+        /** 页面/状态页（HTML）上限（D11）：正常 Z-Library 页面 < 250KB，4MB 已远超。 */
+        private const val MAX_HTML_BYTES = 4L * 1_024 * 1_024
+
+        /** 候选直链最多探测数（D21）：远程 /dl 可塞海量 class=btn 链接，必须有上限。 */
+        private const val MAX_DL_CANDIDATES = 5
         private const val MIN_DOWNLOAD_BYTES = 1_024L
         private const val DOWNLOAD_BUFFER_BYTES = 8 * 1_024
         private const val PROGRESS_THROTTLE_MS = 150L

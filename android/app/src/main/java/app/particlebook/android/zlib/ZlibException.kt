@@ -22,7 +22,7 @@ class ZlibException(
         /** 页面结构与预期不符（既无结果卡片也无空态标记）。 */
         PARSE,
 
-        /** 连接/读取失败（含超时）。 */
+        /** 连接/读取失败（含超时、45s 零增长网络停滞）。 */
         NETWORK,
 
         /** 匿名每日下载额度用尽（/dl 页面 "Daily limit reached"）。 */
@@ -34,7 +34,7 @@ class ZlibException(
         /** 下载失败（写入失败 / 不是书 / 不完整）。 */
         DOWNLOAD,
 
-        /** 用户取消下载（半成品 .part 已删除）。 */
+        /** 用户取消下载（P1c 收尾①：半成品 .part **保留**，可续传）。 */
         CANCELLED,
     }
 
