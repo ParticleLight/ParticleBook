@@ -55,6 +55,7 @@ import androidx.compose.ui.unit.sp
 import app.particlebook.android.ui.data.Book
 import app.particlebook.android.ui.data.LibraryStore
 import app.particlebook.android.zlib.ZBookDetail
+import app.particlebook.android.zlib.ZlibClient
 
 /**
  * Z-Library 书籍详情页（P1b §4.3，全屏 route zlib/detail）。
@@ -210,15 +211,21 @@ private fun DetailContent(
     }
 
     val tasks by ZlibDownloadManager.tasks.collectAsState()
+    // U11：下载记录是异步从磁盘恢复的 StateFlow，直接调 historyForBook() 读到的是当时的快照、
+    // 也不会订阅重组 —— 冷启动时记录还没加载完，「已下载」就永远不刷新。必须走 collectAsState 链。
+    val history by ZlibDownloadManager.history.collectAsState()
+    val historyTask = history.firstOrNull { it.bookId == detail.bookId }
     val activeTask = tasks.firstOrNull { it.bookId == detail.bookId && it.isActive }
+    // U3：用户取消的下载只留在内存卡片里（不写历史），可续传或删除。
+    val cancelledTask = tasks.firstOrNull {
+        it.bookId == detail.bookId && it.status == ZlibDownloadStatus.CANCELLED
+    }
     val failedTask = tasks.firstOrNull {
         it.bookId == detail.bookId && it.status == ZlibDownloadStatus.FAILED
-    } ?: ZlibDownloadManager.historyForBook(detail.bookId)
-        ?.takeIf { it.status == ZlibDownloadStatus.FAILED }
+    } ?: historyTask?.takeIf { it.status == ZlibDownloadStatus.FAILED }
     val completedTask = tasks.firstOrNull {
         it.bookId == detail.bookId && it.status == ZlibDownloadStatus.COMPLETED
-    } ?: ZlibDownloadManager.historyForBook(detail.bookId)
-        ?.takeIf { it.status == ZlibDownloadStatus.COMPLETED }
+    } ?: historyTask?.takeIf { it.status == ZlibDownloadStatus.COMPLETED }
     val completedBook = completedTask?.let { task ->
         // P1c：SAF 下载会复制成本地文件再入书架，filePath 对不上记录，用下载标记兜底。
         store.books.firstOrNull {
@@ -307,9 +314,12 @@ private fun DetailContent(
                 detail = detail,
                 store = store,
                 activeTask = activeTask,
+                cancelledTask = cancelledTask,
                 failedTask = failedTask,
                 completedTask = completedTask,
                 completedBook = completedBook,
+                // U9：未登录时「重试」必然再次 LOGIN_REQUIRED，按钮直接改成「去登录」。
+                loggedIn = ZlibClient.get(context).isLoggedIn(context),
                 onOpenBook = onOpenBook,
                 onRequireLogin = onRequireLogin,
             )
@@ -388,9 +398,11 @@ private fun DownloadAction(
     detail: ZBookDetail,
     store: LibraryStore,
     activeTask: ZlibDownloadTask?,
+    cancelledTask: ZlibDownloadTask?,
     failedTask: ZlibDownloadTask?,
     completedTask: ZlibDownloadTask?,
     completedBook: Book?,
+    loggedIn: Boolean,
     onOpenBook: (Book) -> Unit,
     onRequireLogin: () -> Unit,
 ) {
@@ -407,7 +419,12 @@ private fun DownloadAction(
                     )
                     Spacer(Modifier.height(Spacing.xs))
                     Text(
-                        text = "下载中 " + (progress * 100).toInt() + "%",
+                        // U4：文件已下完、正在复制/登记进书架（不可取消）。
+                        text = if (activeTask.importing) {
+                            "下载完成 · 正在加入书架"
+                        } else {
+                            "下载中 " + (progress * 100).toInt() + "%"
+                        },
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurface,
                     )
@@ -425,13 +442,61 @@ private fun DownloadAction(
                     )
                 }
                 Spacer(Modifier.height(Spacing.xs))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = activeTask.fileName,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                    if (!activeTask.importing) {
+                        Spacer(Modifier.width(Spacing.xs))
+                        // U3：进行中可取消；取消后先显示「正在取消…」，等协程收尾才翻成已取消。
+                        TextButton(
+                            onClick = { ZlibDownloadManager.cancel(activeTask.id) },
+                            enabled = !activeTask.cancelling,
+                            modifier = Modifier.heightIn(min = 48.dp),
+                        ) {
+                            Text(if (activeTask.cancelling) "正在取消…" else "取消")
+                        }
+                    }
+                }
+            }
+        }
+
+        // U3：已取消 —— .part 保留，可续传；只有「删除」才清理半成品。
+        cancelledTask != null -> {
+            Column(modifier = Modifier.fillMaxWidth()) {
                 Text(
-                    text = activeTask.fileName,
-                    style = MaterialTheme.typography.bodySmall,
+                    text = if (cancelledTask.cancelling) {
+                        "正在取消下载…"
+                    } else {
+                        "下载已取消（已下载的部分已保留，可续传）"
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
                 )
+                Spacer(Modifier.height(Spacing.xs))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Button(
+                        onClick = { ZlibDownloadManager.retry(cancelledTask.id, store) },
+                        enabled = !cancelledTask.cancelling,
+                        shape = RoundedCornerShape(Radius.cover),
+                        modifier = Modifier.heightIn(min = 48.dp),
+                    ) {
+                        Text(if (cancelledTask.cancelling) "正在取消…" else "续传")
+                    }
+                    Spacer(Modifier.width(Spacing.xs))
+                    TextButton(
+                        onClick = { ZlibDownloadManager.discard(cancelledTask.id) },
+                        enabled = !cancelledTask.cancelling,
+                        modifier = Modifier.heightIn(min = 48.dp),
+                    ) {
+                        Text("删除")
+                    }
+                }
             }
         }
 
@@ -443,29 +508,45 @@ private fun DownloadAction(
                     color = MaterialTheme.colorScheme.error,
                 )
                 Spacer(Modifier.height(Spacing.xs))
-                // 需要登录才能继续的失败：LOGIN_REQUIRED（未登录）与 DAILY_LIMIT（游客额度用完，
-                // 登录后可继续）都给「去登录」主按钮，并保留「重试」次按钮。
-                val needsLogin = failedTask.errorKind == "LOGIN_REQUIRED" ||
-                    failedTask.errorKind == "DAILY_LIMIT"
+                // U9：需要登录才能继续的失败（LOGIN_REQUIRED 未登录 / DAILY_LIMIT 游客额度用完）
+                // 在未登录时只给「去登录」，不再提供必然失败的「重试」；已登录则给「重试」。
+                // U4：文件已下完、只是导入书架失败（IMPORT_FAILED）→「重新导入」，不重下、不耗额度。
+                val importFailed = failedTask.errorKind == ZLIB_IMPORT_FAILED_KIND
+                val needsLogin = zlibFailureNeedsLogin(failedTask.errorKind)
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Button(
-                        onClick = {
-                            if (needsLogin) {
-                                onRequireLogin()
-                            } else {
+                    when {
+                        importFailed -> Button(
+                            onClick = {
+                                // 卡片还在内存里才有任务 id；冷启后只剩历史记录时走 start()（内部判定重导入）。
+                                if (
+                                    ZlibDownloadManager.taskForBook(failedTask.bookId)?.id ==
+                                    failedTask.id
+                                ) {
+                                    ZlibDownloadManager.reimport(failedTask.id, store)
+                                } else {
+                                    ZlibDownloadManager.start(detail, store)
+                                }
+                            },
+                            shape = RoundedCornerShape(Radius.cover),
+                            modifier = Modifier.heightIn(min = 48.dp),
+                        ) {
+                            Text("重新导入")
+                        }
+
+                        needsLogin && !loggedIn -> Button(
+                            onClick = onRequireLogin,
+                            shape = RoundedCornerShape(Radius.cover),
+                            modifier = Modifier.heightIn(min = 48.dp),
+                        ) {
+                            Text("去登录")
+                        }
+
+                        else -> Button(
+                            onClick = {
                                 // start() 会重置失败任务（含重启后从历史里恢复的失败记录）。
                                 ZlibDownloadManager.start(detail, store)
-                            }
-                        },
-                        shape = RoundedCornerShape(Radius.cover),
-                        modifier = Modifier.heightIn(min = 48.dp),
-                    ) {
-                        Text(if (needsLogin) "去登录" else "重试")
-                    }
-                    if (needsLogin) {
-                        Spacer(Modifier.width(Spacing.xs))
-                        TextButton(
-                            onClick = { ZlibDownloadManager.start(detail, store) },
+                            },
+                            shape = RoundedCornerShape(Radius.cover),
                             modifier = Modifier.heightIn(min = 48.dp),
                         ) {
                             Text("重试")

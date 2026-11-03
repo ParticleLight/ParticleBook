@@ -4,6 +4,7 @@ import android.net.Uri
 import android.text.format.DateUtils
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -24,7 +25,11 @@ import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.FolderOpen
+import androidx.compose.material.icons.outlined.MoreVert
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -39,6 +44,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -52,7 +58,9 @@ import androidx.compose.ui.unit.dp
 import app.particlebook.android.ui.data.Book
 import app.particlebook.android.ui.data.DownloadLocation
 import app.particlebook.android.ui.data.LibraryStore
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 
 /**
@@ -74,6 +82,9 @@ fun ZlibDownloadsScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     var importingBookId by remember { mutableStateOf<String?>(null) }
+    // D8：行的「更多」菜单与「删除记录」二次确认（只删记录 / 连文件一起删）。
+    var menuBookId by remember { mutableStateOf<String?>(null) }
+    var deleteTarget by remember { mutableStateOf<ZlibDownloadTask?>(null) }
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -147,15 +158,31 @@ fun ZlibDownloadsScreen(
                         it.filePath == record.destPath ||
                             it.tags.contains(zlibBookTag(record.bookId))
                     }
-                    val fileExists = remember(record.destPath) {
-                        DownloadLocation.exists(context, record.destPath)
+                    // U8：exists() 对 SAF/磁盘要真的去查，不能放在组合期同步执行（列表滚动会掉帧、
+                    // 冷启动也会卡）。produceState + Dispatchers.IO 异步查；null = 还在查。
+                    val fileExists by produceState<Boolean?>(
+                        initialValue = null,
+                        record.destPath,
+                    ) {
+                        value = withContext(Dispatchers.IO) {
+                            DownloadLocation.exists(context, record.destPath)
+                        }
                     }
                     DownloadRecordRow(
                         record = record,
                         imported = imported,
                         fileExists = fileExists,
                         importing = importingBookId == record.bookId,
+                        menuExpanded = menuBookId == record.bookId,
                         onOpen = { imported?.let(onOpenBook) },
+                        onMenuClick = { menuBookId = record.bookId },
+                        onDismissMenu = { if (menuBookId == record.bookId) menuBookId = null },
+                        onOpenFolder = {
+                            if (!DownloadLocation.openFolder(context)) {
+                                scope.launch { snackbarHostState.showSnackbar("无法打开文件管理器") }
+                            }
+                        },
+                        onDeleteClick = { deleteTarget = record },
                         onImport = {
                             if (importingBookId != null) return@DownloadRecordRow
                             importingBookId = record.bookId
@@ -201,6 +228,61 @@ fun ZlibDownloadsScreen(
             }
         }
     }
+
+    // D8：删除记录二次确认 —— 「只删记录」保留磁盘文件；「连文件一起删」同时清理下载的文件。
+    deleteTarget?.let { target ->
+        AlertDialog(
+            onDismissRequest = { deleteTarget = null },
+            title = { Text("删除下载记录") },
+            text = {
+                Text(
+                    "「只删记录」只从列表移除，下载的文件保留在下载目录；" +
+                        "「连文件一起删」会同时删除已下载的文件（已导入书架的副本不受影响）。",
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        deleteTarget = null
+                        val removed = ZlibDownloadManager.removeHistory(
+                            target.bookId,
+                            deleteFile = true,
+                        )
+                        scope.launch {
+                            snackbarHostState.showSnackbar(
+                                if (removed) "已删除记录与文件" else "记录已不存在",
+                            )
+                        }
+                    },
+                ) {
+                    Text("连文件一起删", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                Row {
+                    TextButton(
+                        onClick = {
+                            deleteTarget = null
+                            val removed = ZlibDownloadManager.removeHistory(
+                                target.bookId,
+                                deleteFile = false,
+                            )
+                            scope.launch {
+                                snackbarHostState.showSnackbar(
+                                    if (removed) "已删除记录" else "记录已不存在",
+                                )
+                            }
+                        },
+                    ) {
+                        Text("只删记录")
+                    }
+                    TextButton(onClick = { deleteTarget = null }) {
+                        Text("取消")
+                    }
+                }
+            },
+        )
+    }
 }
 
 @Composable
@@ -235,9 +317,15 @@ private fun EmptyDownloads(modifier: Modifier = Modifier) {
 private fun DownloadRecordRow(
     record: ZlibDownloadTask,
     imported: Book?,
-    fileExists: Boolean,
+    // U8：null = 仍在异步查询（避免同步 IO，也不要在结果出来前谎报「文件缺失」）。
+    fileExists: Boolean?,
     importing: Boolean,
+    menuExpanded: Boolean,
     onOpen: () -> Unit,
+    onMenuClick: () -> Unit,
+    onDismissMenu: () -> Unit,
+    onOpenFolder: () -> Unit,
+    onDeleteClick: () -> Unit,
     onImport: () -> Unit,
 ) {
     // 记录本身是否下载完成（文件是否还在另算）；SAF 目录下原文件可能被系统清理，
@@ -312,16 +400,45 @@ private fun DownloadRecordRow(
                 Text("打开")
             }
 
-            fileExists -> TextButton(onClick = onImport) {
+            fileExists == true -> TextButton(onClick = onImport) {
                 Text("导入书架")
             }
 
-            else -> Text(
+            fileExists == false -> Text(
                 text = "文件缺失",
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = Spacing.xs),
             )
+
+            // 仍在异步查询文件是否存在：这一格先留空，避免「文件缺失」闪一下。
+            else -> Unit
+        }
+        // D8：单行「在文件夹中打开」+「删除记录」。
+        Box {
+            IconButton(onClick = onMenuClick, modifier = Modifier.size(48.dp)) {
+                Icon(
+                    imageVector = Icons.Outlined.MoreVert,
+                    contentDescription = "更多操作",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            DropdownMenu(expanded = menuExpanded, onDismissRequest = onDismissMenu) {
+                DropdownMenuItem(
+                    text = { Text("在文件夹中打开") },
+                    onClick = {
+                        onDismissMenu()
+                        onOpenFolder()
+                    },
+                )
+                DropdownMenuItem(
+                    text = { Text("删除记录") },
+                    onClick = {
+                        onDismissMenu()
+                        onDeleteClick()
+                    },
+                )
+            }
         }
     }
 }

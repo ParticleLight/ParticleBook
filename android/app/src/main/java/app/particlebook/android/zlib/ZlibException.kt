@@ -7,6 +7,13 @@ class ZlibException(
     message: String,
     val kind: Kind,
     cause: Throwable? = null,
+    /**
+     * D12：真实 HTTP 响应的状态码（仅 [Kind.HTTP] 且由响应码抛出时有值）。
+     * 参数放在末尾并给默认值，旧的 (message, kind, cause) 三参调用保持兼容。
+     *
+     * UI 侧据此给「服务器返回错误 N」精确文案；为 null 时回退到通用 HTTP / 重定向文案。
+     */
+    val httpCode: Int? = null,
 ) : Exception(message, cause) {
 
     enum class Kind {
