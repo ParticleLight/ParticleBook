@@ -169,11 +169,16 @@ class LibraryStore(
         author: String?,
         extraTag: String? = null,
     ): Result<Book> {
-        // P2-3：同一本 zlib 书已经在书架（tag 命中）时直接返回已有条目，不再复制第二份。
+        // P2-3：同一本 zlib 书已经在书架（tag 命中）且文件确实还在时直接返回，不再复制第二份。
+        // P1-1 task-63：条目文件已缺失时不能提前返回，否则书架继续指向缺失路径、新副本成孤儿；
+        // 继续复制并让 registerFile 在锁内把路径改到新文件。
         extraTag?.takeIf { it.startsWith(ZLIB_TAG_PREFIX) }?.let { tag ->
             indexStore.findByTag(tag)?.let { existing ->
-                Log.i(TAG, "adopt saf document skipped, already in library id=" + existing.id)
-                return Result.success(existing)
+                if (File(existing.filePath).isFile) {
+                    Log.i(TAG, "adopt saf document skipped, already in library id=" + existing.id)
+                    return Result.success(existing)
+                }
+                Log.i(TAG, "adopt saf document: existing entry file missing, re-point id=" + existing.id)
             }
         }
         val local = withContext(Dispatchers.IO) {
@@ -271,11 +276,24 @@ class LibraryStore(
         ).map { resolveLocal(it, dir) }
         val loaded = indexStore.load { persisted -> mergePersisted(fixtures, persisted, dir) }
         val recovered = recoverOrphanLibraryFiles(dir, loaded, deletedSeeds)
-        // P2-1：这一次索引是被重建出来的（文件缺失/损坏，且没有 .bad/.bak 可恢复出条目）时，
-        // 默认下载目录（File 模式）里的书在索引里也不存在；用下载历史回填书名/作者/zlib tag
-        // 后补登记。正常启动不扫下载目录，避免用户从书架删掉、但文件与下载记录仍在的书被「复活」。
-        return if (indexStore.lastLoadLostIndex) recoverDownloadedFiles(recovered) else recovered
+        // P2-1/P1 task-63：默认下载目录（File 模式）的书不在 _pb_files，冷启文件扫描找不回来，
+        // 只能靠下载历史补登记。只有「索引被重建，且下载记录比恢复出的快照更新（或根本没有快照）」
+        // 才扫：既补回最近一次提交没进快照的新条目，也不复活用户早先删掉的书。
+        val hints = if (indexStore.lastLoadWasRebuilt) readDownloadHintsOrEmpty() else emptyList()
+        val newestHint = hints.maxOfOrNull { it.finishedAt } ?: 0L
+        val scanDownloads = shouldRecoverDownloadedBooks(
+            rebuilt = indexStore.lastLoadWasRebuilt,
+            recoveredSnapshotModified = indexStore.lastRecoveredSnapshotModified,
+            newestDownloadFinishedAt = newestHint,
+        )
+        return if (scanDownloads) recoverDownloadedFiles(recovered, hints) else recovered
     }
+
+    private fun readDownloadHintsOrEmpty(): List<LibraryDownloadHint> =
+        runCatching { downloadHints() }.getOrElse { throwable ->
+            Log.e(TAG, "read download history hints failed", throwable)
+            emptyList()
+        }
 
     /**
      * P2-1：索引重建后补登记默认下载目录里的书。
@@ -284,12 +302,11 @@ class LibraryStore(
      * 这里按下载历史 destPath 回填 title/author/zlib tag（同一书目的一条记录），
      * 再交给 [LibraryIndexStore.recoverCandidates] 一次写盘批量登记（路径幂等）。
      */
-    private suspend fun recoverDownloadedFiles(loaded: List<Book>): List<Book> {
+    private suspend fun recoverDownloadedFiles(
+        loaded: List<Book>,
+        hints: List<LibraryDownloadHint>,
+    ): List<Book> {
         val downloadDir = DownloadLocation.defaultDir(context)
-        val hints = runCatching { downloadHints() }.getOrElse { throwable ->
-            Log.e(TAG, "read download history hints failed", throwable)
-            emptyList()
-        }
         val candidates = buildDownloadRecoveryCandidates(downloadDir, loaded, hints)
         if (candidates.isEmpty()) return loaded
         val recovered = indexStore.recoverCandidates(candidates)
@@ -376,6 +393,23 @@ private data class CopiedFile(val file: File, val displayName: String)
 internal fun filterDeletedSeedBooks(fixtures: List<Book>, deletedSeedNames: Set<String>): List<Book> {
     if (deletedSeedNames.isEmpty()) return fixtures
     return fixtures.filterNot { book -> File(book.filePath).name in deletedSeedNames }
+}
+
+/**
+ * P1 task-63：索引重建后是否要扫默认下载目录补登记（纯函数，单测用）。
+ * - 没重建：正常启动不扫，避免复活用户删掉的书；
+ * - 重建且没有可解析快照（[recoveredSnapshotModified] <= 0）：索引真的丢了，扫；
+ * - 重建且从快照恢复：只有下载记录比快照更新时才扫——最近一次没进快照的登记要补回来，
+ *   更早的记录对应快照里已有/已被用户删除，不能重新复活。
+ */
+internal fun shouldRecoverDownloadedBooks(
+    rebuilt: Boolean,
+    recoveredSnapshotModified: Long,
+    newestDownloadFinishedAt: Long,
+): Boolean {
+    if (!rebuilt) return false
+    if (recoveredSnapshotModified <= 0L) return true
+    return newestDownloadFinishedAt > recoveredSnapshotModified
 }
 
 /**
@@ -670,8 +704,8 @@ internal class JsonLibraryIndexCodec : LibraryIndexCodec {
  * 4. 写失败不提交内存（[committed]/[onCommitted]），避免内存与磁盘不一致；
  * 5. 写 API 自带「先读」保护：首次 registerFile/remove 前在锁内读入磁盘索引（[loadedOnce]），
  *    即使调用方没先 load，也不会把已有的书覆盖成「空索引 + 新书」；
- * 6. 索引损坏/丢失时先尝试从历史 .bad 备份恢复（读失败类损坏可能原内容仍可解析），恢复不了
- *    才重建空索引，配合 LibraryStore 的冷启文件扫描把 _pb_files 里的书补回来；
+ * 6. 索引损坏/丢失时按快照文件 mtime 从新到旧挑第一个可解析的 .bad/.bak1/.bak2（允许空快照），
+ *    恢复不了才重建空索引，配合 LibraryStore 的冷启文件扫描把 _pb_files 里的书补回来；
  * 7. onCommitted 数据锁外串行回调：落盘/内存提交完成后才调用，回调里同步写 API 不再死锁。
  */
 internal class LibraryIndexStore(
@@ -700,11 +734,17 @@ internal class LibraryIndexStore(
         private set
 
     /**
-     * 索引不仅被重建，而且没有从 .bad/.bak 恢复出任何条目（等同于索引丢了）。
-     * 只有这种情况才扫默认下载目录补登记：索引完好/可恢复时不扫，避免删过的书被复活。
+     * P1 task-63：索引被重建，而且连一个可解析的快照都没有（等同于索引丢了）。
+     * 从备份恢复出（哪怕为空）快照时以快照为准；是否再扫下载目录由
+     * [shouldRecoverDownloadedBooks] 结合「下载记录是否比快照新」决定，避免复活已删书。
      */
     @Volatile
     var lastLoadLostIndex: Boolean = false
+        private set
+
+    /** 本次重建实际选中的快照 mtime（0 = 没有快照）；供上层比较下载记录是否比快照更新。 */
+    @Volatile
+    var lastRecoveredSnapshotModified: Long = 0L
         private set
 
     /** 最新已提交列表（与最后一次成功落盘的内容一致）。 */
@@ -743,7 +783,10 @@ internal class LibraryIndexStore(
             val version = commitLocked(merged)
             loadedOnce = true
             lastLoadWasRebuilt = read.rebuilt
-            lastLoadLostIndex = read.rebuilt && read.books.isEmpty()
+            // P1 task-63：只有「一个可解析快照都没有」才算索引真丢了；从备份恢复出（可能是空的）
+            // 快照时以快照为准，不能因为它是空书架就回头扫下载目录复活已删书。
+            lastLoadLostIndex = read.rebuilt && read.snapshotModified == null
+            lastRecoveredSnapshotModified = read.snapshotModified ?: 0L
             Committed(merged, merged, version)
         }
         dispatchCommitted(outcome.books, outcome.version)
@@ -764,8 +807,16 @@ internal class LibraryIndexStore(
                 // 幂等命中：同路径优先；否则按 zlib:<bookId>（SAF 复制路径不同 / 冷启恢复过也认得出，P2-3）。
                 val existing = findIdempotentBook(committed, file.absolutePath, tags)
                 if (existing != null) {
+                    // P1-1 task-63：tag 命中但书架条目指向的文件已不存在（旧下载文件被移走/清掉）时，
+                    // 把路径更新到这次真正落盘的文件并清 missing；否则书架会永远指向缺失路径，新文件成孤儿。
+                    val missingFile = !File(existing.filePath).isFile
+                    val repointed = if (missingFile) {
+                        existing.copy(filePath = file.absolutePath, fileSize = file.length())
+                    } else {
+                        existing
+                    }
                     // 文件回来了：清掉 missing 标记并回写；否则原样返回已有条目。
-                    val healed = clearMissingTag(existing)
+                    val healed = clearMissingTag(repointed)
                     if (healed != existing) {
                         val next = committed.map { if (it.id == existing.id) healed else it }
                         writeIndexLocked(next)
@@ -892,6 +943,9 @@ internal class LibraryIndexStore(
         throwIfQuarantineFailedLocked(read)
         commitLocked(read.books)
         loadedOnce = true
+        lastLoadWasRebuilt = read.rebuilt
+        lastLoadLostIndex = read.rebuilt && read.snapshotModified == null
+        lastRecoveredSnapshotModified = read.snapshotModified ?: 0L
     }
 
     /** 损坏索引连备份都没留下时，宁可报错也绝不回写覆盖唯一一份原文件。 */
@@ -938,17 +992,19 @@ internal class LibraryIndexStore(
         val quarantineFailed: Boolean = false,
         /** 索引来自重建（文件缺失/损坏），不是一次正常读取。 */
         val rebuilt: Boolean = false,
+        /** 重建时实际选中的快照 mtime；null 表示没有任何可解析的快照（索引真的丢了）。 */
+        val snapshotModified: Long? = null,
     )
 
     private fun readIndexLocked(): ReadResult {
         val file = indexFile()
         if (!file.exists()) {
-            // 上次损坏隔离后没来得及重建（或重建写盘失败）：先试 .bad/.bak 备份自愈。
-            val recovered = recoverFromBackupsLocked()
-            return if (recovered == null) {
+            // 上次损坏隔离后没来得及重建（或重建写盘失败）：先按快照 mtime 选最新可解析的备份。
+            val snapshot = recoverFromSnapshotLocked()
+            return if (snapshot == null) {
                 ReadResult(emptyList(), corrupted = false, rebuilt = true)
             } else {
-                ReadResult(recovered, corrupted = true, rebuilt = true)
+                ReadResult(snapshot.books, corrupted = true, rebuilt = true, snapshotModified = snapshot.modified)
             }
         }
         val text = try {
@@ -975,49 +1031,40 @@ internal class LibraryIndexStore(
         if (!quarantined) {
             return ReadResult(emptyList(), corrupted = true, quarantineFailed = true, rebuilt = true)
         }
-        val recovered = recoverFromBackupsLocked()
-        if (recovered != null) {
-            return ReadResult(recovered, corrupted = true, rebuilt = true)
+        val snapshot = recoverFromSnapshotLocked()
+        if (snapshot != null) {
+            return ReadResult(snapshot.books, corrupted = true, rebuilt = true, snapshotModified = snapshot.modified)
         }
         return ReadResult(emptyList(), corrupted = true, rebuilt = true)
     }
 
+    /** 从备份恢复出来的一份索引快照。 */
+    private data class SnapshotRecovery(val books: List<Book>, val source: String, val modified: Long)
+
     /**
-     * 尝试从 books.json*.bad 备份恢复：按修改时间从新到旧找第一个「可解析且非空」的备份。
-     * 只读，不删除/移动任何 .bad（保留损坏现场）；全都解析不了返回 null。
+     * P1 task-63：统一按「快照文件 mtime 从新到旧」选恢复源，而不是固定 .bad → bak1 → bak2。
+     * - 损坏现场 .bad 的 mtime 来自被隔离的原文件；陈旧 .bad 不再压过更新的 bak1，避免复活已删书；
+     * - 允许最新快照是空书架（用户确实删光了书时不能拿旧的非空快照复活）；
+     * - 解析不了的快照（截断/0 字节）跳过，继续看下一旧的有效快照；
+     * - 只读，不移动/删除任何快照（保留损坏现场）。
      */
-    private fun recoverFromBadLocked(): List<Book>? {
-        val backups = dir.listFiles().orEmpty()
-            .filter {
-                it.isFile && it.name.startsWith(INDEX_FILE_NAME + ".") && it.name.endsWith(BAD_SUFFIX)
-            }
+    private fun recoverFromSnapshotLocked(): SnapshotRecovery? {
+        val candidates = dir.listFiles().orEmpty()
+            .filter { it.isFile && isIndexSnapshotName(it.name) }
             .sortedByDescending { it.lastModified() }
-        for (backup in backups) {
-            val decoded = runCatching { codec.decode(backup.readText()) }.getOrNull()
-            if (!decoded.isNullOrEmpty()) return decoded
+        for (file in candidates) {
+            val decoded = runCatching { codec.decode(file.readText()) }.getOrNull() ?: continue
+            val label = if (file.name.endsWith(BAD_SUFFIX)) ".bad" else file.name
+            log("index recovered from " + label + " backup entries=" + decoded.size, null)
+            return SnapshotRecovery(decoded, file.name, file.lastModified())
         }
         return null
     }
 
-    /**
-     * 备份恢复顺序：先尝试损坏现场 .bad（readText 失败类损坏的原内容可能仍可解析），
-     * 再按 A/B 轮换备份 books.json.bak1（最近一次成功提交）→ bak2（上一次）。
-     * 只读，不移动/删除备份；.bad 只接受非空，.bak 允许空（用户确实删光了书，不能拿旧快照复活）。
-     */
-    private fun recoverFromBackupsLocked(): List<Book>? {
-        recoverFromBadLocked()?.let { recovered ->
-            log("index recovered from .bad backup entries=" + recovered.size, null)
-            return recovered
-        }
-        for (name in listOf(BAK1_NAME, BAK2_NAME)) {
-            val backup = File(dir, name)
-            if (!backup.isFile) continue
-            val decoded = runCatching { codec.decode(backup.readText()) }.getOrNull() ?: continue
-            log("index recovered from " + name + " backup entries=" + decoded.size, null)
-            return decoded
-        }
-        return null
-    }
+    /** books.json.bad(含时间戳版) / books.json.bak1 / books.json.bak2 都是候选快照。 */
+    private fun isIndexSnapshotName(name: String): Boolean =
+        name == BAK1_NAME || name == BAK2_NAME ||
+            (name.startsWith(INDEX_FILE_NAME + ".") && name.endsWith(BAD_SUFFIX))
 
     /**
      * 损坏索引留 .bad 备份后再重建，返回是否已安全备份。

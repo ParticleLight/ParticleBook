@@ -103,6 +103,60 @@ class LibraryRecoveryP2Test {
     }
 
     @Test
+    fun registerFileRepointsTaggedEntryWhenOldFileIsGone() = runBlocking {
+        val dir = newTempDir("zlib-heal-path")
+        val store = LibraryIndexStore(dir, TestIndexCodec())
+        store.load { it }
+
+        val oldFile = sniffableBookFile(dir, "old-download.epub")
+        val first = store.registerFile(
+            file = oldFile,
+            title = "同一本书",
+            author = null,
+            tags = listOf(zlibBookTag("book-1")),
+        ).getOrThrow()
+        assertTrue("模拟旧下载文件被移走/清掉", oldFile.delete())
+        val fresh = sniffableBookFile(dir, "saf-copy.epub")
+
+        val second = store.registerFile(
+            file = fresh,
+            title = "同一本书",
+            author = null,
+            tags = listOf(zlibBookTag("book-1")),
+        ).getOrThrow()
+
+        assertEquals("tag 命中仍应是同一条（不能新增第二条）", first.id, second.id)
+        assertEquals("旧路径缺失时应把 filePath 改到新文件", fresh.absolutePath, second.filePath)
+        assertEquals("内存态也要改路径", fresh.absolutePath, store.books.single().filePath)
+        assertEquals("索引回写后也要改路径", fresh.absolutePath, decodeIndex(dir).single().filePath)
+        assertFalse("路径修复后不应再带 missing", "missing" in second.tags)
+    }
+
+    @Test
+    fun downloadScanRunsOnlyWhenSnapshotIsOlderThanNewestRecord() {
+        assertFalse("正常启动（未重建）不扫，避免复活删掉的书", shouldRecoverDownloadedBooks(false, 0L, Long.MAX_VALUE))
+        assertTrue("索引真的丢了（无快照）要扫", shouldRecoverDownloadedBooks(true, 0L, 0L))
+        assertFalse("下载记录不比快照新时不能复活旧书", shouldRecoverDownloadedBooks(true, 1_000L, 1_000L))
+        assertFalse("更旧的记录不触发补扫", shouldRecoverDownloadedBooks(true, 1_000L, 999L))
+        assertTrue(
+            "p15 实测：从 bak2 恢复后，比快照新的入库记录必须补扫回来",
+            shouldRecoverDownloadedBooks(true, 1_000L, 1_001L),
+        )
+    }
+
+    @Test
+    fun adoptDocumentRechecksTaggedEntryFileBeforeSkippingCopy() {
+        val source = sourceFile("src/main/java/app/particlebook/android/ui/data/LibraryStore.kt")
+        val start = source.indexOf("suspend fun adoptDocument")
+        val end = source.indexOf("suspend fun removeBooks", start)
+        assertTrue("adoptDocument 应仍在 LibraryStore.kt", start >= 0 && end > start)
+        val body = source.substring(start, end)
+        assertTrue("命中 tag 后应检查条目文件是否还在", body.contains("File(existing.filePath).isFile"))
+        assertTrue("文件缺失时不能提前返回，要继续复制并重指路径", body.contains("re-point"))
+        assertTrue("锁定：findByTag 命中仍是第一道判重", body.contains("findByTag(tag)"))
+    }
+
+    @Test
     fun concurrentRegistrationsWithSameZlibTagKeepSingleBook() = runBlocking {
         val dir = newTempDir("zlib-concurrent")
         val store = LibraryIndexStore(dir, TestIndexCodec())
@@ -251,4 +305,27 @@ class LibraryRecoveryP2Test {
 
     private fun decodeIndex(dir: File): List<Book> =
         TestIndexCodec().decode(File(dir, "books.json").readText())
+
+    /** 从测试工作目录向上找 android/app 根定位生产源码（与 DownloadFolderOpenTest 同法）。 */
+    private fun sourceFile(relative: String): String {
+        val candidates = ArrayList<File>()
+        candidates += File(relative)
+        candidates += File("app/" + relative)
+        var dir: File? = File(System.getProperty("user.dir") ?: "").absoluteFile
+        repeat(6) {
+            val current = dir
+            if (current != null) {
+                candidates += File(current, "android/app/" + relative)
+                candidates += File(current, "app/" + relative)
+                candidates += File(current, relative)
+                dir = current.parentFile
+            }
+        }
+        val found = candidates.firstOrNull { it.isFile }
+        org.junit.Assume.assumeTrue(
+            "找不到 " + relative + "（工作目录=" + System.getProperty("user.dir") + "），跳过源码契约检查",
+            found != null,
+        )
+        return found!!.readText()
+    }
 }

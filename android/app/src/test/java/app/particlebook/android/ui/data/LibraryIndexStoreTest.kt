@@ -536,6 +536,85 @@ class LibraryIndexStoreTest {
         assertEquals(1, callbackSnapshot?.size)
     }
 
+    // ---------------------------------------------------------------- P1 task-63 快照选择
+
+    @Test
+    fun staleNonEmptyBadSnapshotDoesNotOverrideNewerBak1() = runBlocking {
+        val dir = newTempDir("snapshot-stale-bad")
+        val seed = LibraryIndexStore(dir, TestIndexCodec())
+        seed.load { it }
+        val oldBook = seed.registerFile(bookFile(dir, "deleted.epub"), "已删书", null, emptyList()).getOrThrow()
+        // 用户删掉旧书后重新入库一本新书：bak1=新书，旧的非空快照只剩 .bad 候选。
+        seed.remove(setOf(oldBook.id))
+        seed.registerFile(bookFile(dir, "newer.epub"), "新书", null, emptyList()).getOrThrow()
+        val staleContent = TestIndexCodec().encode(listOf(oldBook))
+        File(dir, "books.json.bad").writeText(staleContent)
+        val now = System.currentTimeMillis()
+        assertTrue(File(dir, "books.json.bad").setLastModified(now - 120_000))
+        assertTrue(File(dir, "books.json.bak2").setLastModified(now - 90_000))
+        assertTrue(File(dir, "books.json.bak1").setLastModified(now - 60_000))
+        File(dir, "books.json").delete()
+
+        val store = LibraryIndexStore(dir, TestIndexCodec())
+        val loaded = store.load { it }
+
+        assertEquals("陈旧 .bad 不得复活已删书", listOf("新书"), loaded.map { it.title })
+        assertTrue("应从 bak1 重建", store.lastLoadWasRebuilt)
+        assertFalse("恢复出了有效快照就不该扫下载目录", store.lastLoadLostIndex)
+        assertEquals(now - 60_000, store.lastRecoveredSnapshotModified)
+        assertEquals("重建后的索引也应是新书", listOf("新书"), decodeIndex(dir).map { it.title })
+        assertNoTempFilesLeft(dir)
+    }
+
+    @Test
+    fun bak2IsUsedWhenBak1IsGone() = runBlocking {
+        val dir = newTempDir("snapshot-bak2")
+        val seed = LibraryIndexStore(dir, TestIndexCodec())
+        seed.load { it }
+        seed.registerFile(bookFile(dir, "a.epub"), "A", null, emptyList()).getOrThrow()
+        seed.registerFile(bookFile(dir, "b.epub"), "B", null, emptyList()).getOrThrow()
+        val bak2 = File(dir, "books.json.bak2")
+        assertTrue("两次提交后应轮换出 bak2", bak2.isFile)
+        assertEquals("bak2 应是上一次提交（只有 A）", listOf("A"), TestIndexCodec().decode(bak2.readText()).map { it.title })
+        assertTrue(File(dir, "books.json.bak1").delete())
+        File(dir, "books.json").delete()
+
+        val logs = Collections.synchronizedList(mutableListOf<String>())
+        val store = LibraryIndexStore(dir, TestIndexCodec(), log = { message, _ -> logs += message })
+        val loaded = store.load { it }
+
+        assertEquals("bak1 丢失时应从 bak2 恢复", listOf("A"), loaded.map { it.title })
+        assertTrue("应记录 bak2 恢复日志: " + logs, logs.any { it.contains("recovered from books.json.bak2") })
+        assertNoTempFilesLeft(dir)
+    }
+
+    @Test
+    fun latestEmptySnapshotWinsOverOlderNonEmptyBad() = runBlocking {
+        val dir = newTempDir("snapshot-empty-latest")
+        val seed = LibraryIndexStore(dir, TestIndexCodec())
+        seed.load { it }
+        val book = seed.registerFile(bookFile(dir, "last.epub"), "最后一本", null, emptyList()).getOrThrow()
+        val oldEntry = TestIndexCodec().encode(listOf(book))
+        seed.remove(setOf(book.id)) // 用户删光：最新提交是空书架
+        File(dir, "books.json.bad").writeText(oldEntry)
+        val now = System.currentTimeMillis()
+        assertTrue(File(dir, "books.json.bad").setLastModified(now - 120_000))
+        assertTrue(File(dir, "books.json.bak2").setLastModified(now - 90_000))
+        assertTrue(File(dir, "books.json.bak1").setLastModified(now - 60_000))
+        File(dir, "books.json").delete()
+
+        val store = LibraryIndexStore(dir, TestIndexCodec())
+        val loaded = store.load { it }
+
+        assertTrue("最新快照是空书架时必须信任它，不能拿旧 .bad 复活", loaded.isEmpty())
+        assertTrue(store.lastLoadWasRebuilt)
+        assertFalse("空快照也算恢复成功，不应再扫下载目录", store.lastLoadLostIndex)
+        assertEquals(now - 60_000, store.lastRecoveredSnapshotModified)
+        assertTrue("重建后的索引应是空书架", decodeIndex(dir).isEmpty())
+        assertTrue("旧 .bad 现场保留", File(dir, "books.json.bad").isFile)
+        assertNoTempFilesLeft(dir)
+    }
+
     // ---------------------------------------------------------------- helpers
 
     /** 可切换写失败的最小代理编解码，用于验证「回写失败不提交内存」。 */
