@@ -72,6 +72,64 @@ class ZlibDetailRecommendationsTest {
         assertTrue(ZlibDetailParser.parseRecommendations(html, baseUrl).isEmpty())
     }
 
+    /** 封面相对路径按详情页 URL 做 URI.resolve，而不是字符串拼在 page.html 后面。 */
+    @Test
+    fun relativeCoverResolvesAgainstDetailPageUrl() {
+        val html = """
+            <z-masonry source="recommend">
+              <a href="/book/rel111/one.html">
+                <z-cover title="Relative"><img src="covers/x.jpg"></z-cover>
+              </a>
+              <a href="/book/rel222/two.html">
+                <z-cover title="Parent Relative"><img src="../img/y.jpg"></z-cover>
+              </a>
+            </z-masonry>
+        """.trimIndent()
+
+        val recs = ZlibDetailParser.parseRecommendations(html, baseUrl)
+
+        assertEquals(2, recs.size)
+        assertEquals("https://z-lib.by/book/" + bookHash + "/covers/x.jpg", recs[0].coverUrl)
+        assertEquals("https://z-lib.by/book/img/y.jpg", recs[1].coverUrl)
+    }
+
+    /** data:/blob: 内联封面不允许进入图片加载；返回 null 交给占位封面。 */
+    @Test
+    fun dataAndBlobCoversAreRejected() {
+        val html = """
+            <z-masonry source="recommend">
+              <a href="/book/data1/one.html">
+                <z-cover title="Data"><img src="data:image/png;base64,AAAA"></z-cover>
+              </a>
+              <a href="/book/blob1/two.html">
+                <z-cover title="Blob"><img src="blob:https://z-lib.by/1234"></z-cover>
+              </a>
+              <a href="/book/js1/three.html">
+                <z-cover title="Js"><img src="javascript:alert(1)"></z-cover>
+              </a>
+            </z-masonry>
+        """.trimIndent()
+
+        val recs = ZlibDetailParser.parseRecommendations(html, baseUrl)
+
+        assertEquals(3, recs.size)
+        assertNull(recs[0].coverUrl)
+        assertNull(recs[1].coverUrl)
+        assertNull(recs[2].coverUrl)
+    }
+
+    /** 畸形 HTML（容器未闭合/锚未闭合）不能抛异常；结构不可信时按无推荐处理。 */
+    @Test
+    fun malformedMarkupReturnsEmptyInsteadOfThrowing() {
+        val unclosedContainer = """
+            <div class="books-mosaic">
+              <z-masonry source="recommend">
+                <a href="/book/aaa111/one.html"><z-cover title="One"><img src="/c.jpg"></a>
+        """.trimIndent()
+
+        assertTrue(ZlibDetailParser.parseRecommendations(unclosedContainer, baseUrl).isEmpty())
+    }
+
     /** 合成：实体解码、协议相对封面、data-src 兜底、同 hash 去重、无标题/非 book 链接跳过。 */
     @Test
     fun syntheticCardsDecodeAndDropInvalid() {

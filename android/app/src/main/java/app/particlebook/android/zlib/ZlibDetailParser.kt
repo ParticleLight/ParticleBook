@@ -283,12 +283,32 @@ object ZlibDetailParser {
         return result
     }
 
-    private fun absoluteUrl(baseUrl: String, raw: String): String {
+    /**
+     * 把详情页里的封面地址转绝对 URL：按 URI.resolve 语义处理相对路径（相对的是详情页 URL，
+     * 不是目录字符串），只接受 http/https；data:/blob: 等内联/本地 scheme 返回 null，交给占位封面。
+     */
+    private fun absoluteUrl(baseUrl: String, raw: String): String? {
         val trimmed = raw.trim()
+        if (trimmed.isEmpty()) return null
+        val lower = trimmed.lowercase()
+        if (lower.startsWith("data:") || lower.startsWith("blob:")) return null
+        // 带 scheme 的绝对 URI：只放行 http(s)，javascript:/file:/intent: 等一律拒绝。
+        val rawUri = runCatching { URI(trimmed) }.getOrNull()
+        if (rawUri != null && rawUri.isAbsolute) {
+            return rawUri.takeIf { it.scheme.equals("http", true) || it.scheme.equals("https", true) }
+                ?.toString()
+        }
+        val baseUri = runCatching { URI(baseUrl) }.getOrNull()
+        if (baseUri != null) {
+            val resolved = runCatching { baseUri.resolve(trimmed) }.getOrNull()
+            if (resolved != null) {
+                return resolved.takeIf { it.scheme.equals("http", true) || it.scheme.equals("https", true) }
+                    ?.toString()
+            }
+        }
+        // baseUrl 非法时的保守兜底（正常详情页不会走到这里）。
         return when {
             trimmed.startsWith("//") -> "https:" + trimmed
-            trimmed.startsWith("http://", ignoreCase = true) ||
-                trimmed.startsWith("https://", ignoreCase = true) -> trimmed
             trimmed.startsWith("/") -> baseOrigin(baseUrl) + trimmed
             else -> baseUrl.trimEnd('/') + "/" + trimmed
         }

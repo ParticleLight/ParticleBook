@@ -108,7 +108,9 @@ class ZlibSearchViewModel internal constructor(
     val isCategoryMode: Boolean
         get() = currentCategory != null
 
-    private var currentQuery: String = ""
+    /** 最近一次已提交的关键词（分类模式为空）；换线重搜用这个，不能用输入框草稿。 */
+    var currentQuery: String = ""
+        private set
     private var currentCategory: String? = null
     private var firstPageJob: Job? = null
     private var nextPageJob: Job? = null
@@ -302,8 +304,24 @@ class ZlibSearchViewModel internal constructor(
     /** A5：应用筛选/排序（已 sanitized）。关键词结果在页时从第 1 页重搜；分类榜单不受筛选影响。 */
     fun applyFilters(newFilters: ZlibSearchFilters) {
         val sanitized = newFilters.sanitized()
+        // 无变更不重搜：用户打开筛选弹层直接点「应用」不应无条件重新请求第 1 页。
+        if (sanitized == filters) return
         filters = sanitized
         if (currentCategory != null) return
+        if (currentQuery.isEmpty()) return
+        search(currentQuery)
+    }
+
+    /**
+     * 切线路后重跑当前已提交的请求：关键词用 [currentQuery]（忽略输入框里可能未提交的草稿），
+     * 分类榜单重跑当前分类。保留 [filters]；无已提交请求时 no-op。
+     */
+    fun reloadCurrentRequest() {
+        val category = currentCategory
+        if (category != null) {
+            retry()
+            return
+        }
         if (currentQuery.isEmpty()) return
         search(currentQuery)
     }

@@ -332,6 +332,30 @@ fun DiscoverScreen(
                     }
                 }
                 Spacer(Modifier.height(Spacing.xs))
+            } else if (viewModel.filters.isActive) {
+                // 分类榜单不参与关键词筛选：明确告知筛选已暂存，并允许就地清除，避免用户误以为它生效。
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
+                ) {
+                    Text(
+                        text = "关键词筛选已暂存，回到关键词搜索时生效",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                    TextButton(
+                        onClick = { viewModel.clearFilters() },
+                        contentPadding = PaddingValues(horizontal = Spacing.xs),
+                        modifier = Modifier.heightIn(min = 32.dp),
+                    ) {
+                        Text("清除", style = MaterialTheme.typography.labelMedium)
+                    }
+                }
+                Spacer(Modifier.height(Spacing.xs))
             }
 
             when (val current = state) {
@@ -416,9 +440,12 @@ fun DiscoverScreen(
                                         append(" · 第 ").append(current.page)
                                             .append(" / ").append(current.totalPages).append(" 页")
                                     }
-                                    val activeFilters = viewModel.filters
-                                    if (activeFilters.isActive) {
-                                        append(" · 筛选：").append(zlibFilterSummary(activeFilters))
+                                    // 分类榜单请求不带关键词筛选，表头只在关键词结果里标注。
+                                    if (current.category == null) {
+                                        val activeFilters = viewModel.filters
+                                        if (activeFilters.isActive) {
+                                            append(" · 筛选：").append(zlibFilterSummary(activeFilters))
+                                        }
                                     }
                                 },
                                 style = MaterialTheme.typography.labelMedium,
@@ -507,17 +534,13 @@ fun DiscoverScreen(
             onSwitched = { host ->
                 mirrorSheetOpen = false
                 scope.launch { snackbarHostState.showSnackbar("已切换到 " + host) }
-                val term = query.trim()
-                if (term.isNotEmpty() && (
-                        state is ZlibSearchState.Success ||
-                            state is ZlibSearchState.Empty ||
-                            state is ZlibSearchState.Error
-                        )
+                // 用 ViewModel 记录的「上次已提交」查询/分类重搜，不能读输入框草稿：
+                // 用户可能改了搜索词但没提交，切线路不应替他把草稿搜出去。
+                if (state is ZlibSearchState.Success ||
+                    state is ZlibSearchState.Empty ||
+                    state is ZlibSearchState.Error
                 ) {
-                    viewModel.search(term)
-                } else if (term.isEmpty() && (state as? ZlibSearchState.Success)?.category != null) {
-                    // 分类模式没有搜索词（query 为空）：切线路后重跑当前分类第一页，避免继续展示旧线路结果/旧封面基址。
-                    viewModel.retry()
+                    viewModel.reloadCurrentRequest()
                 }
             },
         )

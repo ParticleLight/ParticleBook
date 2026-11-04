@@ -90,6 +90,24 @@ class ZlibDetailParserTest {
         assertEquals("2.5 MB", detail.fileSize)
     }
 
+    /** 主封面相对路径同样按 URI.resolve 解析（不能拼在页面文件名后）。 */
+    @Test
+    fun relativeDetailCoverResolvesAgainstPageUrl() {
+        val html = """
+            <div class="details-book cardBooks" data-book_id="43">
+              <div class="details-book-cover-container">
+                <z-cover><img src="covers/main.jpg"></z-cover>
+              </div>
+              <h1 class="book-title">Relative Cover</h1>
+              <a class="btn btn-default dlButton addDownloadedBook" href="/dl/REL">pdf, 1 MB</a>
+            </div>
+        """.trimIndent()
+
+        val detail = ZlibDetailParser.parse(html, "https://z-lib.by/book/cc/covered.html")
+
+        assertEquals("https://z-lib.by/book/cc/covers/main.jpg", detail.coverUrl)
+    }
+
     @Test
     fun missingTitleThrowsParse() {
         try {

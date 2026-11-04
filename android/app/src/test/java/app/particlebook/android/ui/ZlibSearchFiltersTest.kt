@@ -124,6 +124,114 @@ class ZlibSearchFiltersTest {
     }
 
     @Test
+    fun currentQueryExposesCommittedSearchAndClearsForCategory() {
+        val source = RecordingSearchSource()
+        val vm = newViewModel(source)
+
+        vm.search("三体")
+        waitUntil("first search did not finish") { vm.state is ZlibSearchState.Success }
+        assertEquals("三体", vm.currentQuery)
+
+        vm.searchCategory("文学")
+        waitUntil("category search did not finish") { vm.isCategoryMode && vm.state is ZlibSearchState.Success }
+        assertEquals("", vm.currentQuery)
+
+        vm.resetToIdle()
+        assertEquals("", vm.currentQuery)
+    }
+
+    /** 换线重跑：必须用上次已提交的查询，并沿用当前筛选（不能读输入框草稿）。 */
+    @Test
+    fun reloadCurrentRequestUsesCommittedQueryAndKeepsFilters() {
+        val source = RecordingSearchSource()
+        val vm = newViewModel(source)
+
+        vm.search("三体")
+        waitUntil("first search did not finish") { vm.state is ZlibSearchState.Success }
+        val filters = ZlibSearchFilters(languages = listOf("chinese"), extensions = listOf("EPUB"))
+        vm.applyFilters(filters)
+        waitUntil("filtered search did not finish") {
+            vm.state is ZlibSearchState.Success && source.requests.size == 2
+        }
+
+        vm.reloadCurrentRequest()
+        waitUntil("reload did not start") {
+            source.requests.size == 3 && vm.state is ZlibSearchState.Success
+        }
+        assertEquals("换线重搜应使用上次已提交的查询", "三体", source.requests[2].query)
+        assertEquals(1, source.requests[2].page)
+        assertEquals(filters, source.requests[2].filters)
+    }
+
+    @Test
+    fun reloadInCategoryModeRepeatsCategoryAndKeepsFilters() {
+        val source = RecordingSearchSource()
+        val vm = newViewModel(source)
+
+        vm.searchCategory("文学")
+        waitUntil("category search did not finish") { source.categoryRequests.size == 1 }
+        val filters = ZlibSearchFilters(extensions = listOf("PDF"))
+        vm.applyFilters(filters)
+        assertEquals("分类模式不应发起关键词搜索", 0, source.requests.size)
+
+        vm.reloadCurrentRequest()
+        waitUntil("category reload did not finish") { source.categoryRequests.size == 2 }
+        assertTrue(vm.isCategoryMode)
+        assertEquals(filters, vm.filters)
+        assertEquals(0, source.requests.size)
+    }
+
+    /** 用户没改筛选直接点「应用」：不重搜；真的改了才从第 1 页重搜。 */
+    @Test
+    fun applyingUnchangedFiltersDoesNotRestartSearch() {
+        val source = RecordingSearchSource()
+        val vm = newViewModel(source)
+
+        vm.search("三体")
+        waitUntil("first search did not finish") { vm.state is ZlibSearchState.Success }
+        assertEquals(1, source.requests.size)
+
+        vm.applyFilters(ZlibSearchFilters())
+        Thread.sleep(100)
+        assertEquals("未变更的筛选不应发起新请求", 1, source.requests.size)
+
+        val filters = ZlibSearchFilters(languages = listOf("chinese"))
+        vm.applyFilters(filters)
+        waitUntil("changed filters did not search") { source.requests.size == 2 }
+        assertEquals(filters, source.requests[1].filters)
+
+        vm.applyFilters(filters)
+        Thread.sleep(100)
+        assertEquals("重复应用同一筛选不应再搜", 2, source.requests.size)
+    }
+
+    @Test
+    fun pageTwoAfterFilteredSearchKeepsTheSameFilters() {
+        val source = RecordingSearchSource()
+        val vm = newViewModel(source)
+
+        vm.search("三体")
+        waitUntil("first search did not finish") { vm.state is ZlibSearchState.Success }
+        val filters = ZlibSearchFilters(
+            languages = listOf("chinese"),
+            yearFrom = 2020,
+            order = ZlibSortOrder.NEWEST,
+        )
+        vm.applyFilters(filters)
+        waitUntil("filtered search did not finish") {
+            vm.state is ZlibSearchState.Success && source.requests.size == 2
+        }
+
+        vm.loadNextPage()
+        waitUntil("page 2 did not finish") {
+            vm.state is ZlibSearchState.Success && source.requests.size == 3
+        }
+        assertEquals("三体", source.requests[2].query)
+        assertEquals(2, source.requests[2].page)
+        assertEquals(filters, source.requests[2].filters)
+    }
+
+    @Test
     fun applyFiltersInCategoryModeOnlyStoresForNextKeywordSearch() {
         val source = RecordingSearchSource()
         val vm = newViewModel(source)
@@ -170,6 +278,7 @@ class ZlibSearchFiltersTest {
 
     private class RecordingSearchSource : ZlibSearchSource {
         val requests = CopyOnWriteArrayList<Request>()
+        val categoryRequests = CopyOnWriteArrayList<String>()
 
         override fun search(query: String, page: Int, filters: ZlibSearchFilters?): ZSearchPage {
             requests.add(Request(query, page, filters))
@@ -181,7 +290,10 @@ class ZlibSearchFiltersTest {
             )
         }
 
-        override fun fetchCategory(path: String): List<ZBook> = listOf(book("cat-1"))
+        override fun fetchCategory(path: String): List<ZBook> {
+            categoryRequests.add(path)
+            return listOf(book("cat-1"))
+        }
 
         override fun resetConnectionState() = Unit
 
