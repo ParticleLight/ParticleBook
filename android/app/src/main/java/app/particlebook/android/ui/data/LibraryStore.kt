@@ -413,7 +413,10 @@ class LibraryStore(
         return withContext(Dispatchers.IO) {
             try {
                 // 写失败会抛异常：内存与索引都不变，避免「UI 删了但文件索引还在」或反过来的半状态。
-                val removed = indexStore.remove(ids)
+                // task-108 P1-1：删除与「删前 id 快照」必须在同一把索引锁内完成，回收阶段只动
+                // 本次删除开始后新出现的 id，不能误删删前就已存在的同 zlib tag 合法条目。
+                val removal = indexStore.removeWithSnapshot(ids)
+                val removed = removal.removed
                 if (removed.isNotEmpty()) {
                     if (notifyRemovalBus) {
                         // task-98 P1-2：bus 必须早于删文件/指纹哈希。下载管理器的 bookId 墓碑是在 bus
@@ -438,7 +441,8 @@ class LibraryStore(
                     if (notifyRemovalBus) {
                         // bus 已让管理器写墓碑；这里再兜一层：把 bus 前后竞态窗口里已经 adopt 成功的
                         // 同 zlib tag 新条目（新 id）静默回收，避免删完书架又冒出一本。
-                        reclaimAdoptedDuringRemoval(removed)
+                        // task-108 P1-1：只回收「不在删前快照」的新 id，删前就有的重复条目不陪葬。
+                        reclaimAdoptedDuringRemoval(removed, removal.preexistingIds)
                     }
                     // P3-4：删书级联清进度/封面。清理失败只记日志，不能把「书已删除」误报成失败。
                     val removedIds = removed.mapTo(ArrayList(removed.size)) { it.id }
@@ -476,12 +480,14 @@ class LibraryStore(
      * bus 已经前移到哈希之前，管理器墓碑会在本方法之前写好；但在「索引 remove 已提交、bus 尚未执行」
      * 的极短窗口里，下载完成回调仍可能 adopt 出同 zlib 书的新 Book.id。这里按本次删书的 zlib tag
      * 再扫一次索引（锁内原子删除），把这类新条目连同文件/进度/封面/墓碑一起静默回收，不再发 bus。
+     * [preexistingIds] 是删除开始前索引里的全部 id：只回收不在其中的新条目，避免误删删前已有的
+     * 同 tag 重复条目（旧版本并发导入、missing 条目被重下、历史 bug 残留等）。
      */
-    private suspend fun reclaimAdoptedDuringRemoval(removed: List<Book>) {
+    private suspend fun reclaimAdoptedDuringRemoval(removed: List<Book>, preexistingIds: Set<Long>) {
         val tags = zlibRemovalTags(removed)
         if (tags.isEmpty()) return
         val removedIds = removed.mapTo(HashSet(removed.size)) { it.id }
-        val reclaimed = runCatching { indexStore.removeBooksByTags(tags, removedIds) }
+        val reclaimed = runCatching { indexStore.removeBooksByTags(tags, removedIds, preexistingIds) }
             .onFailure { Log.w(TAG, "reclaim adopted books after removal failed", it) }
             .getOrDefault(emptyList())
         if (reclaimed.isEmpty()) return
@@ -1461,6 +1467,21 @@ internal data class LibraryIndexLoadInfo(
     val rebuilt: Boolean,
     val snapshotModified: Long?,
     val corrupted: Boolean,
+    /**
+     * task-108 P2-3：空书架只由 books.json.empty 的 marker 证据恢复，并没有解析到真实的空快照。
+     * 这种「marker-only」不是已提交空状态，不能用来抑制默认下载目录补扫（lastLoadLostIndex）。
+     */
+    val markerOnly: Boolean = false,
+)
+
+/**
+ * task-108 P1-1：一次删书的原子结果。
+ * [preexistingIds] 是删除开始前索引里的全部 id；随后按 zlib tag 回收竞态 adopt 时，只有
+ * 不在该集合里的 id 才是删除开始后新出现的条目（删前已存在的同 tag 合法重复条目必须保留）。
+ */
+internal data class LibraryRemovalSnapshot(
+    val removed: List<Book>,
+    val preexistingIds: Set<Long>,
 )
 
 /**
@@ -1572,6 +1593,7 @@ internal class LibraryIndexStore(
                     rebuilt = read.rebuilt,
                     snapshotModified = read.snapshotModified,
                     corrupted = read.corrupted,
+                    markerOnly = read.markerOnly,
                 ),
                 merged,
             )
@@ -1589,7 +1611,9 @@ internal class LibraryIndexStore(
             lastLoadWasRebuilt = read.rebuilt
             // P1 task-63：只有「一个可解析快照都没有」才算索引真丢了；从备份恢复出（可能是空的）
             // 快照时以快照为准，不能因为它是空书架就回头扫下载目录复活已删书。
-            lastLoadLostIndex = read.rebuilt && read.snapshotModified == null
+            // task-108 P2-3：marker-only 只证明「曾经想清空书架」，不是已提交空快照。它必须保留
+            // 补扫资格，否则 marker 是未提交删除或旧 marker 残留时，下载目录里较新的书会永久丢条目。
+            lastLoadLostIndex = read.rebuilt && (read.snapshotModified == null || read.markerOnly)
             lastRecoveredSnapshotModified = read.snapshotModified ?: 0L
             Committed(final, final, version)
         }
@@ -1766,16 +1790,25 @@ internal class LibraryIndexStore(
     }
 
     /**
-     * task-98 P1-2：删书竞态回收——一次锁内删除所有带指定 tag、且不在 [excludeIds] 里的条目。
-     * 用于删书已经提交、但下载完成回调在这之后才 adopt 出一本同 zlib 书的新条目（新 id）。
-     * 只删本次删书的书目身份 tag，不能误删用户新导入的其它书。
+     * task-98 P1-2 / task-108 P1-1：删书竞态回收——一次锁内删除所有带指定 tag、
+     * 且不在 [excludeIds] 与 [preexistingIds] 里的条目。
+     *
+     * [preexistingIds] 必须是「本次删书开始前索引里的全部 id」。只有不在其中的条目才是删除开始后
+     * 竞态 adopt 出来的新书；删前已有的同 tag 重复条目（旧版本并发导入、missing 条目被重下、
+     * 历史 bug 残留）不能因为 tag 相同就一起删。默认空集合仅保留给旧调用/单测，生产路径必须传入快照。
      */
-    suspend fun removeBooksByTags(tags: Set<String>, excludeIds: Set<Long> = emptySet()): List<Book> {
+    suspend fun removeBooksByTags(
+        tags: Set<String>,
+        excludeIds: Set<Long> = emptySet(),
+        preexistingIds: Set<Long> = emptySet(),
+    ): List<Book> {
         if (tags.isEmpty()) return emptyList()
         val outcome = mutex.withLock {
             ensureLoadedLocked()
             val removed = committed.filter { book ->
-                book.id !in excludeIds && book.tags.any { it in tags }
+                book.id !in excludeIds &&
+                    book.id !in preexistingIds &&
+                    book.tags.any { it in tags }
             }
             if (removed.isEmpty()) {
                 return@withLock Committed(emptyList<Book>(), committed, committedVersion)
@@ -1790,23 +1823,35 @@ internal class LibraryIndexStore(
         return outcome.value
     }
 
-    /** 按 id 删除并回写索引，返回真正被移除的条目（供调用方删文件）。 */
-    suspend fun remove(ids: Set<Long>): List<Book> {
-        if (ids.isEmpty()) return emptyList()
+    /**
+     * task-108 P1-1：按 id 删除并回写索引，同时返回删除开始前的完整 id 快照。
+     * 快照与删除在同一把锁内取得，竞态 adopt 在之后提交的 id 一定不在快照里，回收阶段才能安全区分
+     * 「删前已有」与「删除开始后新出现」。
+     */
+    suspend fun removeWithSnapshot(ids: Set<Long>): LibraryRemovalSnapshot {
+        if (ids.isEmpty()) return LibraryRemovalSnapshot(emptyList(), emptySet())
         val outcome = mutex.withLock {
             ensureLoadedLocked()
+            val preexistingIds = committed.mapTo(HashSet(committed.size)) { it.id }
             val removed = committed.filter { it.id in ids }
             if (removed.isEmpty()) {
-                return@withLock Committed(emptyList<Book>(), committed, committedVersion)
+                return@withLock Committed(
+                    LibraryRemovalSnapshot(emptyList(), preexistingIds),
+                    committed,
+                    committedVersion,
+                )
             }
             val next = committed.filterNot { it.id in ids }
             writeIndexLocked(next) // 写失败直接抛给调用方：内存/磁盘都不动。
             val version = commitLocked(next)
-            Committed(removed, next, version)
+            Committed(LibraryRemovalSnapshot(removed, preexistingIds), next, version)
         }
         dispatchCommitted(outcome.books, outcome.version)
         return outcome.value
     }
+
+    /** 按 id 删除并回写索引，返回真正被移除的条目（供调用方删文件）。 */
+    suspend fun remove(ids: Set<Long>): List<Book> = removeWithSnapshot(ids).removed
 
     /**
      * 冷启扫描：把 _pb_files 里「文件头像 EPUB/PDF 但索引中没有」的文件批量补登记。
@@ -1896,7 +1941,8 @@ internal class LibraryIndexStore(
         syncEmptyMarkerLocked(read.books.isEmpty())
         loadedOnce = true
         lastLoadWasRebuilt = read.rebuilt
-        lastLoadLostIndex = read.rebuilt && read.snapshotModified == null
+        // task-108 P2-3：marker-only 不能算「索引真丢」之外的可信空快照，保留补扫资格。
+        lastLoadLostIndex = read.rebuilt && (read.snapshotModified == null || read.markerOnly)
         lastRecoveredSnapshotModified = read.snapshotModified ?: 0L
     }
 
@@ -1946,6 +1992,8 @@ internal class LibraryIndexStore(
         val rebuilt: Boolean = false,
         /** 重建时实际选中的快照 mtime；null 表示没有任何可解析的快照（索引真的丢了）。 */
         val snapshotModified: Long? = null,
+        /** task-108 P2-3：仅由空书架 marker 恢复，没有解析到真实空快照；不能抑制下载补扫。 */
+        val markerOnly: Boolean = false,
     )
 
     private fun readIndexLocked(): ReadResult {
@@ -1956,7 +2004,13 @@ internal class LibraryIndexStore(
             return if (snapshot == null) {
                 ReadResult(emptyList(), corrupted = false, rebuilt = true)
             } else {
-                ReadResult(snapshot.books, corrupted = true, rebuilt = true, snapshotModified = snapshot.modified)
+                ReadResult(
+                    snapshot.books,
+                    corrupted = true,
+                    rebuilt = true,
+                    snapshotModified = snapshot.modified,
+                    markerOnly = snapshot.markerOnly,
+                )
             }
         }
         val text = try {
@@ -1985,13 +2039,25 @@ internal class LibraryIndexStore(
         }
         val snapshot = recoverFromSnapshotLocked()
         if (snapshot != null) {
-            return ReadResult(snapshot.books, corrupted = true, rebuilt = true, snapshotModified = snapshot.modified)
+            return ReadResult(
+                snapshot.books,
+                corrupted = true,
+                rebuilt = true,
+                snapshotModified = snapshot.modified,
+                markerOnly = snapshot.markerOnly,
+            )
         }
         return ReadResult(emptyList(), corrupted = true, rebuilt = true)
     }
 
     /** 从备份恢复出来的一份索引快照。 */
-    private data class SnapshotRecovery(val books: List<Book>, val source: String, val modified: Long)
+    private data class SnapshotRecovery(
+        val books: List<Book>,
+        val source: String,
+        val modified: Long,
+        /** true = 只有空书架 marker 证据，没有任何真实空快照；见 task-108 P2-3。 */
+        val markerOnly: Boolean = false,
+    )
 
     /**
      * P1 task-63：统一按「快照文件 mtime 从新到旧」选恢复源，而不是固定 .bad → bak1 → bak2。
@@ -2021,13 +2087,24 @@ internal class LibraryIndexStore(
         val markerTime = readEmptyMarkerTimeLocked()
         var staleByEmptyMarker = false
         for (candidate in candidates) {
-            // task-98 P1-1：marker 是最近一次「空书架提交」的证据。比 marker 还旧的非空快照属于删前旧数据，
-            // 即使它是唯一可解析的快照也不能恢复；否则删光书后 main 损坏会把旧书复活。
-            // marker 之后的非空快照（用户删完后又导入/下载的新书）不受影响。
-            if (markerTime != null && candidate.books.isNotEmpty() && markerTime >= candidate.modified) {
+            // task-108 P2-2：未来 mtime 快照被钳成 current 后可能大于旧 marker，从而绕过 marker
+            // 复活删前旧数据。有 marker 时未来快照一律不可信，跳过并保留 marker-only 判定。
+            if (markerTime != null && candidate.future) {
                 staleByEmptyMarker = true
-                log("skip snapshot older than empty marker " + candidate.file.name, null)
+                log("skip future snapshot while empty marker exists " + candidate.file.name, null)
                 continue
+            }
+            // task-98 P1-1 / task-108 P2-2：marker 是最近一次「空书架提交」的证据。明显早于 marker
+            // （超过与空快照一致的 2s 容差）的非空快照属于删前旧数据，即使它是唯一可解析的快照也不能恢复；
+            // 否则删光书后 main 损坏会把旧书复活。同毫秒/时钟回拨 2s 内的合法新快照不受影响。
+            if (markerTime != null && candidate.books.isNotEmpty()) {
+                val stale = candidate.modified == Long.MIN_VALUE ||
+                    markerTime - candidate.modified > EMPTY_MARKER_TOLERANCE_MS
+                if (stale) {
+                    staleByEmptyMarker = true
+                    log("skip snapshot older than empty marker " + candidate.file.name, null)
+                    continue
+                }
             }
             if (candidate.books.isEmpty() && !isTrustedEmptySnapshotLocked(candidate, candidates, markerTime)) {
                 log("skip empty index snapshot " + candidate.file.name + " (no fresh empty marker)", null)
@@ -2038,10 +2115,11 @@ internal class LibraryIndexStore(
             return SnapshotRecovery(candidate.books, candidate.file.name, candidate.modified)
         }
         if (staleByEmptyMarker && markerTime != null) {
-            // 所有可恢复快照都被 marker 判为删前旧数据：空书架就是最新已提交状态。
-            // 用 marker 时间当恢复边界，lastLoadLostIndex 再走「索引真丢」的全量补扫就会复活已删书。
+            // 所有可恢复快照都被 marker 判为删前旧数据：空书架是当前状态，但这里只有 marker 证据，
+            // 没有解析到真实空快照。marker 可能来自「未提交的删除」或删除失败残留（task-108 P2-1/P2-3），
+            // 因此标记 markerOnly，让 LibraryStore 保留下载补扫资格（按 markerTime 有界）。
             log("index recovered from empty marker (all snapshots older than marker)", null)
-            return SnapshotRecovery(emptyList(), EMPTY_MARKER_NAME, markerTime)
+            return SnapshotRecovery(emptyList(), EMPTY_MARKER_NAME, markerTime, markerOnly = true)
         }
         return null
     }
@@ -2146,20 +2224,49 @@ internal class LibraryIndexStore(
 
     /** task-81：空快照证据。只在本次提交确实是空书架时写；非空提交必须删除。 */
     private fun syncEmptyMarkerLocked(empty: Boolean) {
-        runCatching {
-            val marker = File(dir, EMPTY_MARKER_NAME)
-            if (!empty) {
-                marker.delete()
-                return@runCatching
-            }
-            dir.mkdirs()
-            writePayloadLocked(marker, now().toString())
-        }.onFailure { log("write empty index marker failed", it) }
+        if (empty) {
+            runCatching {
+                val marker = File(dir, EMPTY_MARKER_NAME)
+                dir.mkdirs()
+                writePayloadLocked(marker, now().toString())
+            }.onFailure { log("write empty index marker failed", it) }
+            return
+        }
+        deleteEmptyMarkerLocked()
     }
 
+    /**
+     * task-108 P2-4：非空提交删除空书架 marker。删除失败会静默留下旧证据，后续 main 损坏时
+     * 可能把新快照误判成删前数据；这里有限次重试并记录失败日志（不因 marker 残留让本次写失败）。
+     */
+    private fun deleteEmptyMarkerLocked() {
+        val marker = File(dir, EMPTY_MARKER_NAME)
+        if (!marker.exists()) return
+        repeat(EMPTY_MARKER_DELETE_ATTEMPTS) {
+            runCatching { marker.delete() }
+            if (!marker.exists()) return
+        }
+        log("delete empty index marker failed after " + EMPTY_MARKER_DELETE_ATTEMPTS + " attempts path=" + marker.absolutePath, null)
+    }
+
+    /**
+     * task-108 P2-2：marker 时间必须可解析、为正，且不能明显来自未来；非法/未来 marker 会永久压制
+     * 所有非空快照，宁可当作没有证据，也不让它否决真实数据。
+     */
     private fun readEmptyMarkerTimeLocked(): Long? = runCatching {
         val marker = File(dir, EMPTY_MARKER_NAME)
-        if (!marker.isFile) null else marker.readText().trim().toLongOrNull() ?: marker.lastModified()
+        if (!marker.isFile) return@runCatching null
+        val parsed = marker.readText().trim().toLongOrNull()
+        if (parsed == null || parsed <= 0L) {
+            log("ignore invalid empty index marker content", null)
+            return@runCatching null
+        }
+        val current = now()
+        if (parsed > current + SNAPSHOT_FUTURE_TOLERANCE_MS) {
+            log("ignore future empty index marker time=" + parsed + " now=" + current, null)
+            return@runCatching null
+        }
+        parsed
     }.getOrNull()
 
     /** 唯一临时名 + fsync + rename：同目录 rename 原子，读者只会看到旧/新的完整文件。 */
@@ -2254,6 +2361,7 @@ private const val BAK1_NAME = "books.json.bak1"
 private const val BAK2_NAME = "books.json.bak2"
 private const val EMPTY_MARKER_NAME = "books.json.empty"
 private const val EMPTY_MARKER_TOLERANCE_MS = 2_000L
+private const val EMPTY_MARKER_DELETE_ATTEMPTS = 3
 private const val SNAPSHOT_FUTURE_TOLERANCE_MS = 5 * 60_000L
 private const val MAX_DELETED_FILE_TOMBSTONES = 200
 private const val MISSING_TAG = "missing"
