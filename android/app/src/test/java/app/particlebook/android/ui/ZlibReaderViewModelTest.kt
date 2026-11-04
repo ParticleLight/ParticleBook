@@ -5,9 +5,11 @@ import kotlin.coroutines.suspendCoroutine
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.yield
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -100,6 +102,86 @@ class ZlibReaderViewModelTest {
 
         vm.retry("hash-a", null)
         assertEquals(2, calls)
+    }
+
+    // task-43 P2-1：点击路径在调用方协程里直接拿 URL（不再靠 LaunchedEffect 自动打开）。
+    @Test
+    fun loadNowReturnsUrlForClickPathAndWritesState() = runBlocking {
+        val scope = CoroutineScope(Dispatchers.Unconfined)
+        val vm = ZlibReaderViewModel(scope) { _, _ -> ready("A") }
+
+        val result = vm.loadNow("hash-a", null)
+
+        assertEquals(readyUrl("A"), (result as ZlibReaderLaunchState.Ready).readerUrl)
+        assertEquals(result, vm.state)
+    }
+
+    @Test
+    fun loadNowFailureBecomesErrorState() = runBlocking {
+        val scope = CoroutineScope(Dispatchers.Unconfined)
+        val vm = ZlibReaderViewModel(scope) { _, _ ->
+            throw ZlibException("HTTP 404 for /book/x", ZlibException.Kind.HTTP, httpCode = 404)
+        }
+
+        val result = vm.loadNow("hash-a", null)
+
+        assertEquals(ZlibReaderLaunchState.Error("服务器返回错误 404"), result)
+        assertEquals(result, vm.state)
+    }
+
+    @Test
+    fun loadNowDropsResultIfAnotherRequestStarted() = runBlocking {
+        val gateA = CompletableDeferred<ZlibReaderLaunchState>()
+        val scope = CoroutineScope(Dispatchers.Unconfined)
+        val vm = ZlibReaderViewModel(scope) { hash, _ ->
+            if (hash == "hash-a") awaitIgnoringCancellation(gateA) else ready("B")
+        }
+        var resultA: ZlibReaderLaunchState? = ZlibReaderLaunchState.Idle
+
+        val jobA = launch(Dispatchers.Unconfined) { resultA = vm.loadNow("hash-a", null) }
+        vm.load("hash-b", null)
+        assertEquals(readyUrl("B"), (vm.state as ZlibReaderLaunchState.Ready).readerUrl)
+
+        gateA.complete(ready("A"))
+        jobA.join()
+
+        assertNull(resultA)
+        assertEquals(readyUrl("B"), (vm.state as ZlibReaderLaunchState.Ready).readerUrl)
+    }
+
+    // task-43 P2-2：URL 交给浏览器后必须消费，下次点击重新解析，不复用过期/旧账号票据。
+    @Test
+    fun consumeReadyForcesFreshResolveOnNextClick() = runBlocking {
+        var calls = 0
+        val scope = CoroutineScope(Dispatchers.Unconfined)
+        val vm = ZlibReaderViewModel(scope) { _, _ ->
+            calls += 1
+            ready("A")
+        }
+
+        vm.load("hash-a", null)
+        vm.load("hash-a", null)
+        assertEquals(1, calls)
+
+        vm.consumeReady()
+        assertEquals(ZlibReaderLaunchState.Idle, vm.state)
+
+        vm.load("hash-a", null)
+        assertEquals(2, calls)
+    }
+
+    @Test
+    fun consumeReadyDoesNotResetErrorState() = runBlocking {
+        val scope = CoroutineScope(Dispatchers.Unconfined)
+        val vm = ZlibReaderViewModel(scope) { _, _ ->
+            ZlibReaderLaunchState.Error(ZLIB_READER_MISSING_LINK_MESSAGE)
+        }
+
+        vm.load("hash-a", null)
+        val error = vm.state
+        vm.consumeReady()
+
+        assertEquals(error, vm.state)
     }
 
     private fun readyUrl(tag: String): String =

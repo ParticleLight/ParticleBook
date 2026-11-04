@@ -1,6 +1,5 @@
 package app.particlebook.android.ui
 
-import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
@@ -8,6 +7,7 @@ import android.net.Uri
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -51,6 +51,7 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Alignment
@@ -68,6 +69,8 @@ import app.particlebook.android.ui.data.LibraryStore
 import app.particlebook.android.zlib.ZBookDetail
 import app.particlebook.android.zlib.ZRecommendation
 import app.particlebook.android.zlib.ZlibClient
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.launch
 
 /**
  * Z-Library 书籍详情页（P1b §4.3，全屏 route zlib/detail）。
@@ -118,32 +121,34 @@ fun ZlibDetailScreen(
             )
         },
     ) { innerPadding ->
-        when (val current = state) {
-            is ZlibDetailState.Loading -> BoxLoading(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding),
-            )
+        // task-43 P2-1：详情层被上层压住时 AppRoot 会把本层压成 0 约束；用可见性代替不可靠的
+        // 「composable 还在组合里就当作活跃」——解析完成时若本层已不可见，绝不替用户拉起浏览器。
+        BoxWithConstraints(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding),
+        ) {
+            val layerVisible = maxWidth > 0.dp && maxHeight > 0.dp
+            when (val current = state) {
+                is ZlibDetailState.Loading -> BoxLoading(modifier = Modifier.fillMaxSize())
 
-            is ZlibDetailState.Error -> BoxError(
-                message = current.message,
-                onRetry = { viewModel.retry(hash, slug) },
-                onBack = onBack,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding),
-            )
+                is ZlibDetailState.Error -> BoxError(
+                    message = current.message,
+                    onRetry = { viewModel.retry(hash, slug) },
+                    onBack = onBack,
+                    modifier = Modifier.fillMaxSize(),
+                )
 
-            is ZlibDetailState.Ready -> DetailContent(
-                detail = current.detail,
-                store = store,
-                onOpenBook = onOpenBook,
-                onRequireLogin = onRequireLogin,
-                onOpenDetail = onOpenDetail,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding),
-            )
+                is ZlibDetailState.Ready -> DetailContent(
+                    detail = current.detail,
+                    store = store,
+                    onOpenBook = onOpenBook,
+                    onRequireLogin = onRequireLogin,
+                    onOpenDetail = onOpenDetail,
+                    layerVisible = layerVisible,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
         }
     }
 }
@@ -216,6 +221,7 @@ private fun DetailContent(
     onOpenBook: (Book) -> Unit,
     onRequireLogin: () -> Unit,
     onOpenDetail: (String, String?) -> Unit,
+    layerVisible: Boolean,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -345,6 +351,7 @@ private fun DetailContent(
             ReaderAction(
                 bookHash = detail.hash,
                 loggedIn = loggedIn,
+                layerVisible = layerVisible,
             )
         }
         // A12：站点「You may be interested in」推荐区；无数据时整区不渲染（不造占位）。
@@ -697,33 +704,40 @@ private fun DownloadAction(
  * 站点的 reader-link 在详情页 HTML 里动态签发（file_access_token 约 7 天），不能预先拼；
  * 点击时才用 [ZlibReaderResolver] 走 ZlibClient 解析（复用进程内挑战/cookie 会话）。
  * 未登录时禁用；解析失败或无浏览器时在按钮下方给中文提示，不弹 WebView。
+ *
+ * task-43 P2-1：不再用 LaunchedEffect(state) 自动打开浏览器 —— 解析期间用户可能已离开本层
+ * （详情层被上层压住时仍保持组合），迟到的 Ready 会把用户从当前页面拉去浏览器。现在由点击处
+ * scope.launch 直接 load→open，打开前同时校验本层仍可见、协程仍活跃。
+ * task-43 P2-2：URL 成功交给浏览器后调用 [ZlibReaderViewModel.consumeReady] 复位 Idle，
+ * 下次点击重新解析，不复用可能过期或属于旧账号的票据。
  */
 @Composable
 private fun ReaderAction(
     bookHash: String,
     loggedIn: Boolean,
+    layerVisible: Boolean,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val viewModel = remember(bookHash) { ZlibReaderViewModel(scope = scope, context = context) }
     val state = viewModel.state
     var launchError by remember(bookHash) { mutableStateOf<String?>(null) }
+    var opened by remember(bookHash) { mutableStateOf(false) }
+    // 解析期间本层可能被上层压住；读最新可见性而不是点击那一刻的快照。
+    val visibleNow by rememberUpdatedState(layerVisible)
 
-    // Ready 只表示拿到了 URL：交给系统浏览器；没有浏览器时提示，不重试（重试也一样）。
-    LaunchedEffect(state) {
-        when (val current = state) {
-            is ZlibReaderLaunchState.Ready -> {
-                launchError = if (openZlibReaderInBrowser(context, current.readerUrl)) {
-                    null
-                } else {
-                    ZLIB_READER_NO_BROWSER_MESSAGE
-                }
-            }
-            else -> launchError = null
+    fun openFromClick(readerUrl: String) {
+        if (openZlibReaderInBrowser(context, readerUrl)) {
+            opened = true
+            launchError = null
+            viewModel.consumeReady()
+        } else {
+            opened = false
+            launchError = ZLIB_READER_NO_BROWSER_MESSAGE
         }
     }
 
-    val inlineMessage = zlibReaderActionHint(loggedIn, state, launchError)
+    val inlineMessage = zlibReaderActionHint(loggedIn, state, launchError, opened)
     val isError = launchError != null || state is ZlibReaderLaunchState.Error
 
     Column(modifier = Modifier.fillMaxWidth()) {
@@ -731,16 +745,24 @@ private fun ReaderAction(
             onClick = {
                 when (val current = viewModel.state) {
                     is ZlibReaderLaunchState.Ready -> {
-                        launchError = if (openZlibReaderInBrowser(context, current.readerUrl)) {
-                            null
-                        } else {
-                            ZLIB_READER_NO_BROWSER_MESSAGE
-                        }
+                        // 旧 URL 只给一次机会：成功打开即消费；无浏览器时保留，下次点击重试同一条。
+                        openFromClick(current.readerUrl)
                     }
                     is ZlibReaderLaunchState.Loading -> Unit
                     else -> {
+                        opened = false
                         launchError = null
-                        viewModel.load(bookHash, null)
+                        scope.launch {
+                            val result = viewModel.loadNow(bookHash, null) ?: return@launch
+                            if (result !is ZlibReaderLaunchState.Ready) return@launch
+                            if (!zlibReaderShouldOpenBrowser(visibleNow, result)) {
+                                // 本层已不可见/离场：丢弃这次 URL，回 Idle；用户回到本层再点会重新解析。
+                                viewModel.consumeReady()
+                                return@launch
+                            }
+                            ensureActive()
+                            openFromClick(result.readerUrl)
+                        }
                     }
                 }
             },
@@ -774,10 +796,13 @@ private fun ReaderAction(
     }
 }
 
-/** 交给系统浏览器；无浏览器时返回 false（不崩溃）。reader URL 已由 [ZlibReaderUrl] 严格校验。 */
+/**
+ * 交给系统浏览器；无浏览器/系统拒绝（SecurityException 等）时返回 false，不崩溃。
+ * reader URL 已由 [ZlibReaderUrl] 严格校验。
+ */
 private fun openZlibReaderInBrowser(context: Context, readerUrl: String): Boolean = try {
     context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(readerUrl)))
     true
-} catch (_: ActivityNotFoundException) {
+} catch (_: Exception) {
     false
 }
