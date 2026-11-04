@@ -12,10 +12,18 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * A13：在线阅读页请求令牌（与详情页 U2 同款）。
+ * A13：在线阅读按钮的请求令牌（与详情页 U2 同款）。
  * 慢请求/迟到失败不得覆盖当前书的阅读状态（否则会打开上一本书的 reader URL）。
  */
 class ZlibReaderViewModelTest {
+
+    @Test
+    fun initialStateIsIdleUntilRequested() = runBlocking {
+        val scope = CoroutineScope(Dispatchers.Unconfined)
+        val vm = ZlibReaderViewModel(scope) { _, _ -> ready("A") }
+
+        assertEquals(ZlibReaderLaunchState.Idle, vm.state)
+    }
 
     @Test
     fun slowPreviousBookResponseIsDropped() = runBlocking {
@@ -29,11 +37,11 @@ class ZlibReaderViewModelTest {
         assertEquals(ZlibReaderLaunchState.Loading, vm.state)
 
         vm.load("hash-b", null)
-        assertEquals("B", (vm.state as ZlibReaderLaunchState.Ready).title)
+        assertEquals(readyUrl("B"), (vm.state as ZlibReaderLaunchState.Ready).readerUrl)
 
         gateA.complete(ready("A"))
         yield()
-        assertEquals("B", (vm.state as ZlibReaderLaunchState.Ready).title)
+        assertEquals(readyUrl("B"), (vm.state as ZlibReaderLaunchState.Ready).readerUrl)
     }
 
     @Test
@@ -50,7 +58,7 @@ class ZlibReaderViewModelTest {
         yield()
 
         assertTrue(vm.state is ZlibReaderLaunchState.Ready)
-        assertEquals("B", (vm.state as ZlibReaderLaunchState.Ready).title)
+        assertEquals(readyUrl("B"), (vm.state as ZlibReaderLaunchState.Ready).readerUrl)
     }
 
     @Test
@@ -94,11 +102,11 @@ class ZlibReaderViewModelTest {
         assertEquals(2, calls)
     }
 
-    private fun ready(title: String): ZlibReaderLaunchState.Ready =
-        ZlibReaderLaunchState.Ready(
-            readerUrl = "https://reader.z-lib.by/read/a/book/hash/x.html?file_access_token=t",
-            title = title,
-        )
+    private fun readyUrl(tag: String): String =
+        "https://reader.z-lib.by/read/" + tag + "/book/hash/x.html?file_access_token=t"
+
+    private fun ready(tag: String): ZlibReaderLaunchState.Ready =
+        ZlibReaderLaunchState.Ready(readerUrl = readyUrl(tag))
 
     /** 故意用不可取消的挂起，模拟阻塞 IO 无法被 Job.cancel 中断。 */
     private suspend fun awaitIgnoringCancellation(

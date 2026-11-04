@@ -9,7 +9,7 @@ import org.junit.Assert.fail
 import org.junit.Test
 
 /**
- * A13：详情页 → reader URL 解析器。
+ * A13：详情页 → reader URL 解析器（解析成功后交给外部浏览器，不再内嵌 WebView）。
  *
  * 不改 ZlibDetailParser/ZBookDetail（本任务作用域只新增 ZlibReader*.kt），
  * 所以先 fetchDetail 拿 detailPath，再 fetchBytes 抓原始详情 HTML 抽 reader-link。
@@ -35,7 +35,6 @@ class ZlibReaderResolverTest {
 
         assertTrue(state is ZlibReaderLaunchState.Ready)
         val ready = state as ZlibReaderLaunchState.Ready
-        assertEquals("Android 编程权威指南", ready.title)
         assertTrue(ready.readerUrl, ready.readerUrl.startsWith("https://reader.z-lib.by/read/"))
         assertTrue(ready.readerUrl, ready.readerUrl.contains("file_access_token="))
     }
@@ -53,7 +52,7 @@ class ZlibReaderResolverTest {
     }
 
     @Test
-    fun invalidReaderLinkIsRejectedBeforeWebView() = runBlocking {
+    fun invalidReaderLinkIsRejectedBeforeBrowserOpen() = runBlocking {
         val html = "<a class=\"reader-link\" href=\"http://reader.z-lib.by/read/a/b/c.html?file_access_token=t\">x</a>"
         val resolver = resolverWith(detailPath = "/book/hash/x.html", loadPage = { html })
 
@@ -105,6 +104,30 @@ class ZlibReaderResolverTest {
             assertEquals(ZlibException.Kind.HTTP, expected.kind)
             assertEquals(500, expected.httpCode)
         }
+    }
+
+    @Test
+    fun urlFailuresMapToActionableChineseMessages() {
+        // realnet task-33：所有解析失败都带「当前受限、建议下载」主提示，不承诺可读。
+        for (reason in ZlibReaderUrl.Failure.values()) {
+            val message = zlibReaderUrlFailureMessage(reason)
+            assertTrue(
+                reason.name + " 文案缺少受限提示: " + message,
+                message.contains(ZLIB_READER_LIMITED_MESSAGE),
+            )
+        }
+        assertTrue(
+            zlibReaderUrlFailureMessage(ZlibReaderUrl.Failure.MISSING_TICKET)
+                .contains("缺少访问票据"),
+        )
+        assertTrue(
+            zlibReaderUrlFailureMessage(ZlibReaderUrl.Failure.UNTRUSTED_HOST)
+                .contains("域名不受信任"),
+        )
+        assertTrue(
+            zlibReaderUrlFailureMessage(ZlibReaderUrl.Failure.INSECURE_SCHEME)
+                .contains("HTTPS"),
+        )
     }
 
     private fun resolverWith(

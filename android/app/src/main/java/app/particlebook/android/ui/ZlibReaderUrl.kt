@@ -13,7 +13,7 @@ import java.util.Locale
  * 兜底：整页没有 reader-link 锚（站点改版）时，扫第一个 reader 域 /read/ 链接
  * （详情页「Create a quote」分享链接实测也带完整票据）。
  *
- * 链接里自带 file_access_token，WebView 直接 load 即可；不要为了取票据而把 URL 拼进日志。
+ * 链接里自带 file_access_token，交给系统浏览器直接打开即可；不要为了取票据而把 URL 拼进日志。
  */
 internal object ZlibReaderUrl {
 

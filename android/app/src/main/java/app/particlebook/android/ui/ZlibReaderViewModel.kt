@@ -15,9 +15,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
- * A13 在线阅读页 ViewModel：先解析详情页拿到带票据的 reader URL，再交给 WebView 加载。
+ * A13 详情页「在线阅读」按钮的 ViewModel：解析详情页拿到带票据的 reader URL，再交给外部浏览器。
  *
- * 与详情页同款 U2 防护：route 换书时旧请求可能乱序返回，故 requestSeq 请求令牌 + loadedKey
+ * 与详情页同款 U2 防护：连续点击/换书时旧请求可能乱序返回，故 requestSeq 请求令牌 + loadedKey
  * 双校验，只有当前书的响应能写 state；load 失败可 retry。
  *
  * [loadReader] 可注入（JVM 单测用假实现构造慢/快响应）；生产环境 secondary constructor
@@ -40,7 +40,7 @@ internal class ZlibReaderViewModel(
         },
     )
 
-    var state by mutableStateOf<ZlibReaderLaunchState>(ZlibReaderLaunchState.Loading)
+    var state by mutableStateOf<ZlibReaderLaunchState>(ZlibReaderLaunchState.Idle)
         private set
 
     private var loadedKey: String? = null
@@ -84,6 +84,7 @@ internal class ZlibReaderViewModel(
 
 /**
  * 详情页 → 在线阅读链接的解析器（纯逻辑，两段 IO 可注入，JVM 单测覆盖）。
+ * 解析成功的 URL 由详情页交给系统浏览器打开，不再内嵌 WebView。
  *
  * 不修改 ZlibDetailParser / ZBookDetail（A13 作用域只新增 ZlibReader*.kt）：先 fetchDetail
  * 拿到 detailPath（顺带解掉站点挑战），再 fetchBytes 取原始详情 HTML 抽 reader-link。
@@ -99,7 +100,7 @@ internal class ZlibReaderResolver(
         val html = loadPageWithChallengeRetry(bookHash, bookSlug, detail.detailPath)
         return when (val parsed = ZlibReaderUrl.extract(html)) {
             is ZlibReaderUrl.ParseResult.Ok ->
-                ZlibReaderLaunchState.Ready(readerUrl = parsed.url, title = detail.title)
+                ZlibReaderLaunchState.Ready(readerUrl = parsed.url)
             is ZlibReaderUrl.ParseResult.Failed ->
                 ZlibReaderLaunchState.Error(zlibReaderUrlFailureMessage(parsed.reason))
         }

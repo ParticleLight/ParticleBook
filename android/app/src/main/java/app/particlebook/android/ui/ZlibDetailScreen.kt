@@ -1,6 +1,10 @@
 package app.particlebook.android.ui
 
+import android.content.ActivityNotFoundException
+import android.content.Context
+import android.content.Intent
 import android.graphics.Bitmap
+import android.net.Uri
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -32,6 +36,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -44,6 +49,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.collectAsState
@@ -214,6 +220,7 @@ private fun DetailContent(
 ) {
     val context = LocalContext.current
     val density = androidx.compose.ui.platform.LocalDensity.current
+    val loggedIn = ZlibClient.get(context).isLoggedIn(context)
     val coverWidthPx = with(density) { 112.dp.roundToPx() }
     val coverBitmap by produceState<Bitmap?>(initialValue = null, detail.bookId, detail.coverUrl) {
         value = ZlibCoverCache.load(context, detail.bookId, detail.coverUrl, coverWidthPx)
@@ -328,9 +335,16 @@ private fun DetailContent(
                 completedTask = completedTask,
                 completedBook = completedBook,
                 // U9：未登录时「重试」必然再次 LOGIN_REQUIRED，按钮直接改成「去登录」。
-                loggedIn = ZlibClient.get(context).isLoggedIn(context),
+                loggedIn = loggedIn,
                 onOpenBook = onOpenBook,
                 onRequireLogin = onRequireLogin,
+            )
+            Spacer(Modifier.height(Spacing.sm))
+            // A13 转向：reader.z-lib.by 内容接口对当前账号全部不可读，不做内嵌 WebView，
+            // 只在外部浏览器打开站点签发的 reader URL。
+            ReaderAction(
+                bookHash = detail.hash,
+                loggedIn = loggedIn,
             )
         }
         // A12：站点「You may be interested in」推荐区；无数据时整区不渲染（不造占位）。
@@ -675,4 +689,95 @@ private fun DownloadAction(
             }
         }
     }
+}
+
+/**
+ * A13：在线阅读入口（外部浏览器）。
+ *
+ * 站点的 reader-link 在详情页 HTML 里动态签发（file_access_token 约 7 天），不能预先拼；
+ * 点击时才用 [ZlibReaderResolver] 走 ZlibClient 解析（复用进程内挑战/cookie 会话）。
+ * 未登录时禁用；解析失败或无浏览器时在按钮下方给中文提示，不弹 WebView。
+ */
+@Composable
+private fun ReaderAction(
+    bookHash: String,
+    loggedIn: Boolean,
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val viewModel = remember(bookHash) { ZlibReaderViewModel(scope = scope, context = context) }
+    val state = viewModel.state
+    var launchError by remember(bookHash) { mutableStateOf<String?>(null) }
+
+    // Ready 只表示拿到了 URL：交给系统浏览器；没有浏览器时提示，不重试（重试也一样）。
+    LaunchedEffect(state) {
+        when (val current = state) {
+            is ZlibReaderLaunchState.Ready -> {
+                launchError = if (openZlibReaderInBrowser(context, current.readerUrl)) {
+                    null
+                } else {
+                    ZLIB_READER_NO_BROWSER_MESSAGE
+                }
+            }
+            else -> launchError = null
+        }
+    }
+
+    val inlineMessage = zlibReaderActionHint(loggedIn, state, launchError)
+    val isError = launchError != null || state is ZlibReaderLaunchState.Error
+
+    Column(modifier = Modifier.fillMaxWidth()) {
+        OutlinedButton(
+            onClick = {
+                when (val current = viewModel.state) {
+                    is ZlibReaderLaunchState.Ready -> {
+                        launchError = if (openZlibReaderInBrowser(context, current.readerUrl)) {
+                            null
+                        } else {
+                            ZLIB_READER_NO_BROWSER_MESSAGE
+                        }
+                    }
+                    is ZlibReaderLaunchState.Loading -> Unit
+                    else -> {
+                        launchError = null
+                        viewModel.load(bookHash, null)
+                    }
+                }
+            },
+            enabled = zlibReaderActionEnabled(loggedIn, state),
+            shape = RoundedCornerShape(Radius.cover),
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 48.dp),
+        ) {
+            if (state is ZlibReaderLaunchState.Loading) {
+                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                Spacer(Modifier.width(Spacing.xs))
+                Text(zlibReaderActionLabel(state))
+            } else {
+                Text(
+                    text = zlibReaderActionLabel(state),
+                    fontWeight = FontWeight.Medium,
+                )
+            }
+        }
+        Spacer(Modifier.height(Spacing.xs))
+        Text(
+            text = inlineMessage.orEmpty(),
+            style = MaterialTheme.typography.bodySmall,
+            color = if (isError) {
+                MaterialTheme.colorScheme.error
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            },
+        )
+    }
+}
+
+/** 交给系统浏览器；无浏览器时返回 false（不崩溃）。reader URL 已由 [ZlibReaderUrl] 严格校验。 */
+private fun openZlibReaderInBrowser(context: Context, readerUrl: String): Boolean = try {
+    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(readerUrl)))
+    true
+} catch (_: ActivityNotFoundException) {
+    false
 }
