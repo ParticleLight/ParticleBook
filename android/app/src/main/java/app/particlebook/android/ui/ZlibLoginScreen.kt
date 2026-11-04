@@ -64,6 +64,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import app.particlebook.android.zlib.ZlibClient
+import java.net.URI
 
 /**
  * Z-Library 登录页（P1b §4.2，全屏 route zlib/login）。
@@ -87,14 +88,19 @@ fun ZlibLoginScreen(
     val error = viewModel.error
     val canSubmit = email.isNotBlank() && password.isNotEmpty() && !busy
     // B12 修正（realnet T26，2026-11-04）：站点已无找回密码页（全部线路软 404），
-    // 因此不再生成「忘记密码」链接（不做死链），只保留实测 200 的注册外链；
-    // 注册入口同样必须落在「当前线路」上（不硬编码域名），无当前线路时隐藏。
+    // 因此不再生成「忘记密码」链接（不做死链），只保留实测 200 的注册外链。
+    // B12/T52 修正（realnet，2026-11-04）：注册外链不能再用「当前线路」直接拼。网关线路
+    // zlib.ch / zlib.re 会把 /registration 301 到 z-lib.by 首页（实测），用户点「注册」会落到
+    // 首页而不是注册页；改为从镜像注册表取官方线路（official，registry 排序 APP/未降权优先），
+    // 跳过已知网关，官方线路全不可用时回退实测 200 的 z-lib.by。
     val context = LocalContext.current
-    val currentMirrorBase = remember(context) {
-        val info = ZlibClient.get(context).mirrorInfo()
-        info.mirrors.getOrNull(info.index - 1)
+    val registrationBase = remember(context) {
+        val officialMirrors = ZlibClient.get(context).mirrorRows()
+            .filter { it.tier == "official" }
+            .map { it.url }
+        zlibRegistrationBase(officialMirrors)
     }
-    val registrationUrl = zlibAccountHelpUrl(currentMirrorBase, "registration")
+    val registrationUrl = zlibAccountHelpUrl(registrationBase, "registration")
 
     fun submit() {
         if (!canSubmit) return
@@ -275,10 +281,59 @@ fun ZlibLoginScreen(
     }
 }
 
+/** B12/T52：注册外链兜底 base。z-lib.by 是站点自声明首选域名，2026-11-04 实测 /registration 200/21,790B。 */
+internal const val ZLIB_REGISTRATION_FALLBACK_BASE: String = "https://z-lib.by"
+
 /**
- * B12 修正：当前线路下的注册页 URL。没有当前线路时返回 null → UI 隐藏入口。
- * 找回密码页已从产品中移除（realnet T26：站点全部线路软 404），本函数不要再拼该路径。
- * 用字符串拼接而非 Uri 解析，避免线路 URL 自带的路径/查询参数被丢掉。
+ * B12/T52：已知网关线路（2026-11-04 实测：任意路径都 301 → https://z-lib.by/ 首页）。
+ * 这些线路能返回 200，但页面不是站点本体，不能用来拼注册页等深链。
+ */
+private val ZLIB_GATEWAY_HOSTS: Set<String> = setOf("zlib.ch", "zlib.re")
+
+/**
+ * B12/T52：从镜像注册表的官方线路里挑注册外链 base。
+ *
+ * 官方线路按 registry 顺序传入（APP/未降权/低延迟优先，见 ZlibMirrorRegistry），这里只做两件事：
+ * 1. 归一成 scheme://host[:port]（注册页在站点根路径，丢掉线路自带的 path/query）；
+ * 2. 跳过 [ZLIB_GATEWAY_HOSTS]；全部不可用时回退 [ZLIB_REGISTRATION_FALLBACK_BASE]。
+ *
+ * 不在 UI 里联网做 HEAD 校验：注册页 URL 固定为 /registration，z-lib.by 已实测 200 且带真表单；
+ * 网关线路靠静态 host 名单排除，无需额外网络等待。
+ */
+internal fun zlibRegistrationBase(officialMirrors: List<String>): String {
+    officialMirrors.asSequence()
+        .mapNotNull(::zlibMirrorOrigin)
+        .distinct()
+        .filterNot { zlibIsGatewayHost(zlibOriginHost(it)) }
+        .firstOrNull()
+        ?.let { return it }
+    return ZLIB_REGISTRATION_FALLBACK_BASE
+}
+
+/** 线路 URL 归一成 origin（小写 scheme/host、保留端口、去掉 path/query/fragment）；无效返回 null。 */
+internal fun zlibMirrorOrigin(raw: String?): String? {
+    val trimmed = raw?.trim().orEmpty()
+    if (trimmed.isEmpty()) return null
+    val uri = runCatching {
+        URI(if (trimmed.contains("://")) trimmed else "https://$trimmed")
+    }.getOrNull() ?: return null
+    val scheme = uri.scheme?.lowercase() ?: return null
+    if (scheme != "http" && scheme != "https") return null
+    val host = uri.host?.lowercase()?.trim().orEmpty()
+    if (host.isEmpty() || host.contains(' ')) return null
+    val port = if (uri.port > 0) ":" + uri.port else ""
+    return scheme + "://" + host + port
+}
+
+private fun zlibOriginHost(origin: String): String =
+    runCatching { URI(origin).host.orEmpty().lowercase() }.getOrDefault("")
+
+private fun zlibIsGatewayHost(host: String): Boolean =
+    ZLIB_GATEWAY_HOSTS.any { host == it || host.endsWith("." + it) }
+
+/**
+ * B12 修正：注册页 URL。找回密码页已从产品中移除（realnet T26：站点全部线路软 404），
+ * 本函数不要再拼该路径。用字符串拼接而非 Uri 解析，避免线路 URL 自带的路径/查询参数被丢掉。
  */
 internal fun zlibAccountHelpUrl(mirrorBase: String?, path: String): String? {
     val rawBase = mirrorBase?.trim() ?: return null

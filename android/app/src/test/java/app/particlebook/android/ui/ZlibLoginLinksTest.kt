@@ -59,6 +59,69 @@ class ZlibLoginLinksTest {
         assertNull(zlibAccountHelpUrl("   ", "registration"))
     }
 
+    // ------------------------------------------------------------ B12/T52 注册 base 选择
+
+    @Test
+    fun registrationBaseUsesFirstOfficialLineInRegistryOrder() {
+        assertEquals(
+            "https://z-lib.by",
+            zlibRegistrationBase(listOf("https://z-lib.by", "https://zh.z-lib.gd")),
+        )
+    }
+
+    @Test
+    fun registrationBaseSkipsGatewayMirrors() {
+        // 2026-11-04 实测：zlib.ch / zlib.re 的 /registration 301 -> z-lib.by 首页，不能作为注册 base。
+        assertEquals(
+            "https://zh.z-lib.gd",
+            zlibRegistrationBase(
+                listOf("https://zlib.ch", "https://zlib.re", "https://zh.z-lib.gd"),
+            ),
+        )
+        assertEquals(
+            "https://z-lib.by",
+            zlibRegistrationBase(listOf("https://zlib.ch", "https://zlib.re", "https://z-lib.by")),
+        )
+        // 网关子域同样要跳过（如 www.zlib.ch）。
+        assertEquals(
+            "https://z-lib.by",
+            zlibRegistrationBase(listOf("https://www.zlib.ch/registration", "https://z-lib.by")),
+        )
+    }
+
+    @Test
+    fun registrationBaseFallsBackToZlibByWhenNoOfficialLineIsUsable() {
+        assertEquals(ZLIB_REGISTRATION_FALLBACK_BASE, zlibRegistrationBase(emptyList()))
+        assertEquals(
+            ZLIB_REGISTRATION_FALLBACK_BASE,
+            zlibRegistrationBase(listOf("https://zlib.ch", "https://zlib.re", "not a url", "")),
+        )
+    }
+
+    @Test
+    fun registrationBaseNormalizesOriginAndDropsPathQuery() {
+        assertEquals(
+            "https://z-lib.by",
+            zlibRegistrationBase(listOf("  HTTPS://Z-LIB.BY/some/path?utm=1#top  ")),
+        )
+        assertEquals(
+            "https://z-lib.by:8443",
+            zlibRegistrationBase(listOf("https://z-lib.by:8443/book/1")),
+        )
+        assertEquals(
+            "http://zh.z-lib.gd",
+            zlibRegistrationBase(listOf("http://zh.z-lib.gd/")),
+        )
+        assertNull(zlibMirrorOrigin(null))
+        assertNull(zlibMirrorOrigin("ftp://z-lib.by"))
+    }
+
+    @Test
+    fun registrationUrlCombinesChosenBaseWithRegistrationPath() {
+        val base = zlibRegistrationBase(listOf("https://zlib.ch", "https://z-lib.by"))
+        assertEquals("https://z-lib.by/registration", zlibAccountHelpUrl(base, "registration"))
+    }
+
     @Test
     fun loginScreenDoesNotLinkToPasswordRecovery() {
         val source = loginScreenSource()
@@ -71,8 +134,16 @@ class ZlibLoginLinksTest {
             source.contains("Text(\"忘记密码\")"),
         )
         assertTrue(
-            "注册外链必须保留且落在当前线路",
-            source.contains("zlibAccountHelpUrl(currentMirrorBase, \"registration\")"),
+            "注册外链必须保留，并改走官方线路选择",
+            source.contains("zlibRegistrationBase("),
+        )
+        assertTrue(
+            "官方线路应取自镜像注册表（tier == official）",
+            source.contains(".filter { it.tier == \"official\" }"),
+        )
+        assertFalse(
+            "注册外链不得再用当前线路拼（网关线路 301 后落首页）",
+            source.contains("zlibAccountHelpUrl(currentMirrorBase"),
         )
     }
 
