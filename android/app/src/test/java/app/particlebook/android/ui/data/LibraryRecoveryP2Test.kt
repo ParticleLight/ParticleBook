@@ -136,7 +136,8 @@ class LibraryRecoveryP2Test {
     fun downloadScanRunsOnlyWhenSnapshotIsOlderThanNewestRecord() {
         assertFalse("正常启动（未重建）不扫，避免复活删掉的书", shouldRecoverDownloadedBooks(false, 0L, Long.MAX_VALUE))
         assertTrue("索引真的丢了（无快照）要扫", shouldRecoverDownloadedBooks(true, 0L, 0L))
-        assertFalse("下载记录不比快照新时不能复活旧书", shouldRecoverDownloadedBooks(true, 1_000L, 1_000L))
+        assertTrue("同一毫秒完成的记录不能丢（task-81 边界改为 >=）", shouldRecoverDownloadedBooks(true, 1_000L, 1_000L))
+        assertTrue("未知 finishedAt 不能静默漏扫", shouldRecoverDownloadedBooks(true, 1_000L, 0L, hasUnknownFinishedAt = true))
         assertFalse("更旧的记录不触发补扫", shouldRecoverDownloadedBooks(true, 1_000L, 999L))
         assertTrue(
             "p15 实测：从 bak2 恢复后，比快照新的入库记录必须补扫回来",

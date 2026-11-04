@@ -71,6 +71,9 @@ class LibraryStore(
         log = { message, throwable -> Log.e(TAG, message, throwable) },
     )
 
+    /** task-81：默认下载目录残留文件的持久化指纹墓碑，防止索引补扫复活已删书。 */
+    private val deletionTombstoneMutex = Mutex()
+
     init {
         // 落盘成功后在锁内同步内存态：并发完成时不会出现「后返回的旧列表覆盖新列表」。
         indexStore.onCommitted = { committed -> books = committed }
@@ -161,17 +164,25 @@ class LibraryStore(
                     add(uriTag)
                     fingerprintTag?.let(::add)
                 }
-                indexStore.registerFile(
+                val registered = indexStore.registerFile(
                     file = copied.file,
                     title = copied.displayName.substringBeforeLast('.', copied.displayName),
                     author = null,
                     tags = tags,
-                ).map { book ->
-                    // 并发导入时可能命中已有条目（identity tag 幂等）：刚复制出来的副本是多余的，删掉。
-                    val deduped = pathKey(book.filePath) != pathKey(copied.file.absolutePath)
-                    if (deduped) runCatching { copied.file.delete() }
-                    ImportOutcome(book, alreadyInLibrary = deduped)
-                }.onFailure { runCatching { copied.file.delete() } }
+                )
+                if (registered.isFailure) {
+                    runCatching { copied.file.delete() }
+                    return@withContext Result.failure<ImportOutcome>(
+                        registered.exceptionOrNull() ?: IllegalStateException("导入登记失败"),
+                    )
+                }
+                val book = registered.getOrThrow()
+                // 并发导入时可能命中已有条目（identity tag 幂等）：刚复制出来的副本是多余的，删掉。
+                val deduped = pathKey(book.filePath) != pathKey(copied.file.absolutePath)
+                // task-81：导入成功也算「文件回到书架」，清掉同内容旧删除墓碑（删除前算指纹）。
+                forgetDeletedFileTombstonesBestEffort(listOf(copied.file))
+                if (deduped) runCatching { copied.file.delete() }
+                Result.success(ImportOutcome(book, alreadyInLibrary = deduped))
             } catch (throwable: Throwable) {
                 if (throwable is CancellationException) throw throwable
                 Result.failure(throwable)
@@ -237,6 +248,12 @@ class LibraryStore(
                 existingFileValidator = existingFileValidator,
             )
         }
+        if (result.isSuccess) {
+            val adopted = result.getOrNull()
+            forgetDeletedFileTombstonesBestEffort(
+                listOfNotNull(file, adopted?.let { File(it.filePath) }),
+            )
+        }
         result.onSuccess {
             Log.i(
                 PERF_TAG,
@@ -248,6 +265,17 @@ class LibraryStore(
             Log.e(TAG, "adopt local file failed path=" + file.absolutePath, throwable)
         }
         return result
+    }
+
+    /** task-81：清删除墓碑（导入/下载成功共用，best-effort；与删书记录串行）。 */
+    private suspend fun forgetDeletedFileTombstonesBestEffort(files: List<File>) {
+        if (files.isEmpty()) return
+        withContext(Dispatchers.IO) {
+            deletionTombstoneMutex.withLock {
+                runCatching { forgetDeletedFileTombstones(context.filesDir, files) }
+                    .onFailure { Log.w(TAG, "forget deleted file tombstone failed", it) }
+            }
+        }
     }
 
     /**
@@ -348,6 +376,7 @@ class LibraryStore(
                         runCatching { file.delete() }
                     }
                 }
+                rememberDeletedFileTombstones(removed)
                 // P3-4：删书级联清进度/封面。清理失败只记日志，不能把「书已删除」误报成失败。
                 if (removed.isNotEmpty()) {
                     val removedIds = removed.mapTo(ArrayList(removed.size)) { it.id }
@@ -377,6 +406,18 @@ class LibraryStore(
         }
     }
 
+    /** task-81：删书成功后给默认下载目录里仍存在的源文件记指纹墓碑（best-effort）。 */
+    private suspend fun rememberDeletedFileTombstones(removed: List<Book>) {
+        if (removed.isEmpty()) return
+        val files = removed.map { File(it.filePath) }
+            .filter { it.isFile && it.parentFile?.name != LIBRARY_DIR_NAME }
+        if (files.isEmpty()) return
+        deletionTombstoneMutex.withLock {
+            runCatching { addDeletedFileTombstones(context.filesDir, files) }
+                .onFailure { Log.w(TAG, "remember deleted file tombstones failed", it) }
+        }
+    }
+
     /** P3-5：删掉内置样书时记下文件名，之后启动不再复制、fixtures 也不再合并回书架。 */
     private fun markDeletedSeeds(removed: List<Book>) {
         runCatching {
@@ -400,19 +441,13 @@ class LibraryStore(
             parseBooks(Assets.readText(context, "fixtures.json")),
             deletedSeeds,
         ).map { resolveLocal(it, dir) }
-        val loaded = indexStore.load { persisted -> mergePersisted(fixtures, persisted, dir) }
-        val recovered = recoverOrphanLibraryFiles(dir, loaded, deletedSeeds)
-        // P2-1/P1 task-63：默认下载目录（File 模式）的书不在 _pb_files，冷启文件扫描找不回来，
-        // 只能靠下载历史补登记。只有「索引被重建，且下载记录比恢复出的快照更新（或根本没有快照）」
-        // 才扫：既补回最近一次提交没进快照的新条目，也不复活用户早先删掉的书。
-        val hints = if (indexStore.lastLoadWasRebuilt) readDownloadHintsOrEmpty() else emptyList()
-        val newestHint = hints.maxOfOrNull { it.finishedAt } ?: 0L
-        val scanDownloads = shouldRecoverDownloadedBooks(
-            rebuilt = indexStore.lastLoadWasRebuilt,
-            recoveredSnapshotModified = indexStore.lastRecoveredSnapshotModified,
-            newestDownloadFinishedAt = newestHint,
+        // task-81：补扫必须在 LibraryIndexStore 首次写回之前完成，否则「写回成功、补扫前进程被杀」
+        // 会让下一次启动看到有效索引、rebuilt=false，默认下载目录里较新的书永久不补。
+        val loaded = indexStore.loadWithRecovery(
+            merge = { persisted -> mergePersisted(fixtures, persisted, dir) },
+            recover = { info, books -> recoveryCandidates(info, books, deletedSeeds) },
         )
-        return if (scanDownloads) recoverDownloadedFiles(recovered, hints) else recovered
+        return loaded
     }
 
     private fun readDownloadHintsOrEmpty(): List<LibraryDownloadHint> =
@@ -422,24 +457,60 @@ class LibraryStore(
         }
 
     /**
-     * P2-1：索引重建后补登记默认下载目录里的书。
+     * task-81：在索引写回前决定并生成默认下载目录候选。
      *
-     * 默认目录的书由 [adoptLocalFile] 原地登记，文件不在 _pb_files，冷启扫描 _pb_files 找不回来；
-     * 这里按下载历史 destPath 回填 title/author/zlib tag（同一书目的一条记录），
-     * 再交给 [LibraryIndexStore.recoverCandidates] 一次写盘批量登记（路径幂等）。
+     * 快照恢复路径只接受「有下载记录且记录时间不早于快照」的文件，并过滤删除墓碑；
+     * 没有快照（索引真丢）时才保留扫全部文件的兜底，但墓碑仍然生效。
      */
-    private suspend fun recoverDownloadedFiles(
+    private fun downloadRecoveryCandidates(
+        info: LibraryIndexLoadInfo,
         loaded: List<Book>,
-        hints: List<LibraryDownloadHint>,
-    ): List<Book> {
-        val downloadDir = DownloadLocation.defaultDir(context)
-        val candidates = buildDownloadRecoveryCandidates(downloadDir, loaded, hints)
-        if (candidates.isEmpty()) return loaded
-        val recovered = indexStore.recoverCandidates(candidates)
-        if (recovered.adopted.isNotEmpty()) {
-            Log.w(TAG, "recovered downloaded books count=" + recovered.adopted.size)
+    ): List<LibraryFileCandidate> {
+        if (!info.rebuilt) return emptyList()
+        val hints = readDownloadHintsOrEmpty()
+        val newestHint = hints.maxOfOrNull { it.finishedAt } ?: 0L
+        val hasUnknownHint = hints.any { it.finishedAt <= 0L }
+        if (!shouldRecoverDownloadedBooks(
+                rebuilt = true,
+                recoveredSnapshotModified = info.snapshotModified ?: 0L,
+                newestDownloadFinishedAt = newestHint,
+                hasUnknownFinishedAt = hasUnknownHint,
+            )
+        ) {
+            return emptyList()
         }
-        return recovered.all
+        val snapshotModified = info.snapshotModified ?: 0L
+        val tombstones = readDeletedFileTombstones(context.filesDir).keys
+        val candidates = buildDownloadRecoveryCandidates(
+            downloadDir = DownloadLocation.defaultDir(context),
+            loaded = loaded,
+            hints = hints,
+            // 有快照（哪怕是 0/未来 mtime 的异常快照）就不能补无下载记录的孤儿；只有索引真丢（null）才扫全部。
+            minFinishedAt = info.snapshotModified?.let { maxOf(1L, it) },
+            tombstonedFingerprints = tombstones,
+        )
+        if (candidates.isNotEmpty()) {
+            Log.w(TAG, "recover downloaded candidates count=" + candidates.size)
+        }
+        return candidates
+    }
+
+    /**
+     * task-81：所有冷启补扫候选（默认下载目录 + _pb_files 孤儿）都必须在索引写回前交给
+     * [LibraryIndexStore.loadWithRecovery]；这样「写回成功、补扫前进程被杀」不会让下一次启动
+     * 因为 rebuilt=false 而永久漏掉这些文件。
+     */
+    private fun recoveryCandidates(
+        info: LibraryIndexLoadInfo,
+        loaded: List<Book>,
+        deletedSeeds: Set<String>,
+    ): List<LibraryFileCandidate> {
+        val downloads = downloadRecoveryCandidates(info, loaded)
+        val orphans = orphanRecoveryCandidates(loaded, deletedSeeds)
+        if (downloads.isEmpty()) return orphans
+        if (orphans.isEmpty()) return downloads
+        val knownPaths = downloads.mapTo(HashSet(downloads.size)) { pathKey(it.file.path) }
+        return downloads + orphans.filterNot { pathKey(it.file.path) in knownPaths }
     }
 
     /**
@@ -447,23 +518,20 @@ class LibraryStore(
      * 把索引里没有的、文件头确实像 EPUB/PDF 的文件补登记回来，避免「索引没了 = 书架清空、
      * 文件白占空间且再也打不开」。已知路径（fixtures/索引内条目）跳过；重复调用幂等。
      */
-    private suspend fun recoverOrphanLibraryFiles(
-        dir: File,
+    private fun orphanRecoveryCandidates(
         loaded: List<Book>,
         deletedSeeds: Set<String>,
-    ): List<Book> {
+    ): List<LibraryFileCandidate> {
+        val dir = libraryDir()
         val knownPaths = loaded.mapTo(HashSet(loaded.size)) { pathKey(it.filePath) }
-        val candidates = dir.listFiles().orEmpty().filter { file ->
-            file.name !in deletedSeeds &&
-                isRecoverableLibraryFile(file) &&
-                pathKey(file.absolutePath) !in knownPaths
-        }
-        if (candidates.isEmpty()) return loaded
-        val recovered = indexStore.recoverFiles(candidates, tags = listOf(RECOVERED_TAG))
-        if (recovered.adopted.isNotEmpty()) {
-            Log.w(TAG, "recovered orphan library files count=" + recovered.adopted.size)
-        }
-        return recovered.all
+        return dir.listFiles().orEmpty()
+            .filter { file ->
+                file.name !in deletedSeeds &&
+                    isRecoverableLibraryFile(file) &&
+                    pathKey(file.absolutePath) !in knownPaths
+            }
+            .sortedBy { it.name }
+            .map { LibraryFileCandidate(file = it, tags = listOf(RECOVERED_TAG)) }
     }
 
     /** fixtures 优先，持久化条目按 filePath 去重；缺失文件保留并打 missing 标记（P2-1）。 */
@@ -532,10 +600,17 @@ internal fun shouldRecoverDownloadedBooks(
     rebuilt: Boolean,
     recoveredSnapshotModified: Long,
     newestDownloadFinishedAt: Long,
+    /**
+     * task-81：旧版本下载记录可能没有 finishedAt（Read 为 0），无法证明它比快照旧；
+     * 此时不能静默漏扫，交给墓碑/记录过滤兜底。
+     */
+    hasUnknownFinishedAt: Boolean = false,
 ): Boolean {
     if (!rebuilt) return false
     if (recoveredSnapshotModified <= 0L) return true
-    return newestDownloadFinishedAt > recoveredSnapshotModified
+    if (hasUnknownFinishedAt) return true
+    // task-81：同一毫秒完成的记录不能被快照边界漏掉（之前用 strict >）。
+    return newestDownloadFinishedAt >= recoveredSnapshotModified
 }
 
 /**
@@ -706,6 +781,85 @@ internal fun sha256Hex(bytes: ByteArray): String {
     return out.toString()
 }
 
+/** task-81：默认下载目录已删源文件的持久化指纹墓碑（纯文本，JVM 单测无需 org.json）。 */
+internal const val DELETED_FILES_FILE_NAME = "library_deleted_files.json"
+
+/** task-81：墓碑文件格式：每行 "fp:<size>-<sha256>\t<createdAt>"；最多保留 200 条。 */
+internal fun readDeletedFileTombstones(filesDir: File): Map<String, Long> {
+    val file = File(filesDir, DELETED_FILES_FILE_NAME)
+    if (!file.isFile) return emptyMap()
+    return runCatching {
+        val out = LinkedHashMap<String, Long>()
+        file.readLines().forEach { line ->
+            val tab = line.indexOf('\t')
+            val fingerprint = (if (tab >= 0) line.substring(0, tab) else line).trim()
+            if (!fingerprint.startsWith(CONTENT_FINGERPRINT_TAG_PREFIX)) return@forEach
+            val createdAt = if (tab >= 0) line.substring(tab + 1).trim().toLongOrNull() ?: 0L else 0L
+            out[fingerprint] = createdAt
+        }
+        out
+    }.getOrElse { emptyMap() }
+}
+
+/** 记录一组文件的指纹墓碑；返回当前全部指纹，写入失败时抛异常由调用方 best-effort 处理。 */
+internal fun addDeletedFileTombstones(
+    filesDir: File,
+    files: List<File>,
+    now: Long = System.currentTimeMillis(),
+): Set<String> {
+    val tombstones = LinkedHashMap(readDeletedFileTombstones(filesDir))
+    files.forEach { file ->
+        contentFingerprintTag(file)?.let { tombstones[it] = now }
+    }
+    while (tombstones.size > MAX_DELETED_FILE_TOMBSTONES) {
+        val oldest = tombstones.minByOrNull { it.value } ?: break
+        tombstones.remove(oldest.key)
+    }
+    writeDeletedFileTombstones(filesDir, tombstones)
+    return tombstones.keys
+}
+
+/** 重新导入/重新下载成功后清掉对应指纹墓碑，避免用户新文件被旧删除记录挡住。 */
+internal fun forgetDeletedFileTombstones(filesDir: File, files: List<File>): Boolean {
+    val tombstones = LinkedHashMap(readDeletedFileTombstones(filesDir))
+    if (tombstones.isEmpty()) return false
+    var changed = false
+    files.forEach { file ->
+        contentFingerprintTag(file)?.let { fingerprint ->
+            if (tombstones.remove(fingerprint) != null) changed = true
+        }
+    }
+    if (changed) writeDeletedFileTombstones(filesDir, tombstones)
+    return changed
+}
+
+private fun writeDeletedFileTombstones(filesDir: File, tombstones: Map<String, Long>) {
+    val target = File(filesDir, DELETED_FILES_FILE_NAME)
+    if (tombstones.isEmpty()) {
+        target.delete()
+        return
+    }
+    filesDir.mkdirs()
+    val payload = buildString {
+        tombstones.forEach { (fingerprint, createdAt) ->
+            append(fingerprint).append('\t').append(createdAt).append('\n')
+        }
+    }
+    val tmp = File(filesDir, DELETED_FILES_FILE_NAME + ".tmp")
+    FileOutputStream(tmp).use { output ->
+        output.write(payload.toByteArray(Charsets.UTF_8))
+        output.flush()
+        output.fd.sync()
+    }
+    if (!tmp.renameTo(target)) {
+        target.delete()
+        if (!tmp.renameTo(target)) {
+            target.writeText(payload)
+            tmp.delete()
+        }
+    }
+}
+
 /** 文件回到磁盘后清掉 missing 标记（索引会被回写，避免书架永远显示「文件缺失」）。 */
 internal fun clearMissingTag(book: Book): Book =
     if (MISSING_TAG in book.tags) book.copy(tags = book.tags - MISSING_TAG) else book
@@ -760,21 +914,33 @@ internal fun readDownloadHistoryHints(filesDir: File): List<LibraryDownloadHint>
                 title = item.optString("title").takeIf { it.isNotBlank() },
                 author = item.optString("author").takeUnless { it.isBlank() || it == "null" },
                 bookId = bookId,
-                finishedAt = item.optLong("finishedAt", 0L),
+                finishedAt = downloadHintFinishedAt(destPath, item.optLong("finishedAt", 0L)),
             )
         }
         out
     }.getOrElse { emptyList() }
 }
 
+/** task-81：旧下载记录没有 finishedAt 时回退到目标文件 mtime，避免 0 永远小于快照而漏扫。 */
+internal fun downloadHintFinishedAt(destPath: String, rawFinishedAt: Long): Long {
+    if (rawFinishedAt > 0L) return rawFinishedAt
+    return runCatching { File(destPath).lastModified() }.getOrNull()?.takeIf { it > 0L } ?: 0L
+}
+
 /**
- * P2-1：把默认下载目录里「文件头像书籍、但书架里没有」的文件整理成待登记候选，
+ * P2-1/task-81：把默认下载目录里「文件头像书籍、但书架里没有」的文件整理成待登记候选，
  * 并用下载历史按 destPath 回填书名/作者/zlib tag/完成时间（纯函数，可单测）。
+ *
+ * [minFinishedAt] 非 null 表示这次是从有效快照恢复：只允许「有下载记录且记录时间不早于快照」
+ * 的候选，无记录孤儿一律不补，避免索引损坏时复活用户删掉的书。
+ * [tombstonedFingerprints] 是已删除默认目录文件的持久化指纹（task-79 墓碑的 LibraryStore 侧扩展）。
  */
 internal fun buildDownloadRecoveryCandidates(
     downloadDir: File,
     loaded: List<Book>,
     hints: List<LibraryDownloadHint>,
+    minFinishedAt: Long? = null,
+    tombstonedFingerprints: Set<String> = emptySet(),
 ): List<LibraryFileCandidate> {
     if (!downloadDir.isDirectory) return emptyList()
     val knownPaths = loaded.mapTo(HashSet(loaded.size)) { pathKey(it.filePath) }
@@ -784,8 +950,17 @@ internal fun buildDownloadRecoveryCandidates(
     return downloadDir.listFiles().orEmpty()
         .filter { file -> isRecoverableLibraryFile(file) && pathKey(file.absolutePath) !in knownPaths }
         .sortedBy { it.name }
-        .map { file ->
+        .mapNotNull { file ->
             val hint = hintsByPath[pathKey(file.absolutePath)]
+            if (minFinishedAt != null) {
+                // 无记录孤儿不补；未知 0 允许进入（由墓碑/记录过滤兜底）。
+                if (hint == null) return@mapNotNull null
+                if (hint.finishedAt > 0L && hint.finishedAt < minFinishedAt) return@mapNotNull null
+            }
+            if (tombstonedFingerprints.isNotEmpty()) {
+                val fingerprint = contentFingerprintTag(file)
+                if (fingerprint != null && fingerprint in tombstonedFingerprints) return@mapNotNull null
+            }
             val tags = buildList {
                 add(DOWNLOAD_TAG)
                 hint?.bookId?.takeIf { it.isNotBlank() }?.let { add(zlibBookTag(it)) }
@@ -927,6 +1102,13 @@ internal class JsonLibraryIndexCodec : LibraryIndexCodec {
         .put("tags", JSONArray(book.tags))
 }
 
+/** task-81：LibraryIndexStore.load 的读结果，供 LibraryStore 在写回前决定下载补扫。 */
+internal data class LibraryIndexLoadInfo(
+    val rebuilt: Boolean,
+    val snapshotModified: Long?,
+    val corrupted: Boolean,
+)
+
 /**
  * books.json 的串行化持久层（纯 JVM，可单测）。
  *
@@ -947,6 +1129,8 @@ internal class LibraryIndexStore(
     private val dir: File,
     private val codec: LibraryIndexCodec = JsonLibraryIndexCodec(),
     private val log: (message: String, throwable: Throwable?) -> Unit = { _, _ -> },
+    /** task-81：快照选源/空标记使用可注入时钟，便于同 mtime/未来时间单测。 */
+    private val now: () -> Long = System::currentTimeMillis,
 ) {
     private val mutex = Mutex()
 
@@ -1004,25 +1188,56 @@ internal class LibraryIndexStore(
      * 索引损坏或整理结果与磁盘不一致时回写。返回最终列表。
      * 回调在数据锁释放后执行，拿到的快照若已被更新提交覆盖会被丢弃。
      */
-    suspend fun load(merge: (persisted: List<Book>) -> List<Book>): List<Book> {
+    /**
+     * 兼容原有单回调调用：正常 load 不做下载补扫。
+     * task-81 需要补扫前置于写回时改用 [loadWithRecovery]。
+     */
+    suspend fun load(merge: (persisted: List<Book>) -> List<Book>): List<Book> =
+        loadInternal(merge, recover = { _, _ -> emptyList() })
+
+    /**
+     * task-81：索引读完之后、写回之前调用 recover；返回的候选与 merged 一起只写一次盘。
+     * 回调抛异常时本次不写盘/不提交，下一次 load 会重新走 rebuilt 分支并重试补扫。
+     */
+    suspend fun loadWithRecovery(
+        merge: (persisted: List<Book>) -> List<Book>,
+        recover: (LibraryIndexLoadInfo, List<Book>) -> List<LibraryFileCandidate>,
+    ): List<Book> = loadInternal(merge, recover)
+
+    private suspend fun loadInternal(
+        merge: (persisted: List<Book>) -> List<Book>,
+        recover: (LibraryIndexLoadInfo, List<Book>) -> List<LibraryFileCandidate>,
+    ): List<Book> {
         val outcome = mutex.withLock {
             cleanupStaleTmpLocked()
             val read = readIndexLocked()
             throwIfQuarantineFailedLocked(read)
             val merged = merge(read.books)
-            if (read.corrupted || merged != read.books) {
+            val candidates = recover(
+                LibraryIndexLoadInfo(
+                    rebuilt = read.rebuilt,
+                    snapshotModified = read.snapshotModified,
+                    corrupted = read.corrupted,
+                ),
+                merged,
+            )
+            val final = adoptCandidatesLocked(merged, candidates)
+            if (read.corrupted || final != read.books) {
                 // 回写失败直接抛（与写路径一致）：不提交内存，由调用方提示错误并允许重试；
                 // 否则会出现「内存有书、磁盘还是旧/损坏内容」的不一致。
-                writeIndexLocked(merged)
+                writeIndexLocked(final)
+            } else {
+                // 索引本身有效但可能是空书架：补写/清理空快照证据，供下次恢复判断。
+                syncEmptyMarkerLocked(final.isEmpty())
             }
-            val version = commitLocked(merged)
+            val version = commitLocked(final)
             loadedOnce = true
             lastLoadWasRebuilt = read.rebuilt
             // P1 task-63：只有「一个可解析快照都没有」才算索引真丢了；从备份恢复出（可能是空的）
             // 快照时以快照为准，不能因为它是空书架就回头扫下载目录复活已删书。
             lastLoadLostIndex = read.rebuilt && read.snapshotModified == null
             lastRecoveredSnapshotModified = read.snapshotModified ?: 0L
-            Committed(merged, merged, version)
+            Committed(final, final, version)
         }
         dispatchCommitted(outcome.books, outcome.version)
         return outcome.value
@@ -1141,39 +1356,46 @@ internal class LibraryIndexStore(
     suspend fun recoverCandidates(candidates: List<LibraryFileCandidate>): LibraryRecoveryResult {
         val outcome = mutex.withLock {
             ensureLoadedLocked()
-            if (candidates.isEmpty()) {
+            val next = adoptCandidatesLocked(committed, candidates)
+            if (next.size == committed.size) {
                 return@withLock Committed(LibraryRecoveryResult(emptyList(), committed), committed, committedVersion)
             }
-            val knownPaths = committed.mapTo(HashSet(committed.size)) { pathKey(it.filePath) }
-            val usedIds = committed.mapTo(HashSet(committed.size)) { it.id }
-            val adopted = ArrayList<Book>(candidates.size)
-            candidates.forEach { candidate ->
-                val file = candidate.file
-                // 双重过滤：调用方已经筛过一遍，这里再兜一层——不接受目录、.tmp 半成品和非 epub/pdf 文件。
-                if (!isRecoverableLibraryFile(file)) return@forEach
-                if (!knownPaths.add(pathKey(file.absolutePath))) return@forEach
-                val format = sniffBookFormat(file) ?: return@forEach
-                adopted += Book(
-                    id = freshBookId(usedIds),
-                    title = candidate.title?.takeIf { it.isNotBlank() } ?: recoveredBookTitle(file),
-                    author = candidate.author?.takeIf { it.isNotBlank() },
-                    format = format,
-                    filePath = file.absolutePath,
-                    fileSize = file.length(),
-                    addedAt = candidate.addedAt ?: isoUtcTimestamp(file.lastModified()),
-                    tags = candidate.tags,
-                )
-            }
-            if (adopted.isEmpty()) {
-                return@withLock Committed(LibraryRecoveryResult(emptyList(), committed), committed, committedVersion)
-            }
-            val next = committed + adopted
+            val adopted = next.drop(committed.size)
             writeIndexLocked(next)
             val version = commitLocked(next)
             Committed(LibraryRecoveryResult(adopted, next), next, version)
         }
         dispatchCommitted(outcome.books, outcome.version)
         return outcome.value
+    }
+
+    /** 锁内把候选映射成 Book 列表（不写盘）；load 与 recoverCandidates 共用。 */
+    private fun adoptCandidatesLocked(
+        base: List<Book>,
+        candidates: List<LibraryFileCandidate>,
+    ): List<Book> {
+        if (candidates.isEmpty()) return base
+        val knownPaths = base.mapTo(HashSet(base.size)) { pathKey(it.filePath) }
+        val usedIds = base.mapTo(HashSet(base.size)) { it.id }
+        val adopted = ArrayList<Book>(candidates.size)
+        candidates.forEach { candidate ->
+            val file = candidate.file
+            // 双重过滤：调用方已经筛过一遍，这里再兜一层——不接受目录、.tmp 半成品和非 epub/pdf 文件。
+            if (!isRecoverableLibraryFile(file)) return@forEach
+            if (!knownPaths.add(pathKey(file.absolutePath))) return@forEach
+            val format = sniffBookFormat(file) ?: return@forEach
+            adopted += Book(
+                id = freshBookId(usedIds),
+                title = candidate.title?.takeIf { it.isNotBlank() } ?: recoveredBookTitle(file),
+                author = candidate.author?.takeIf { it.isNotBlank() },
+                format = format,
+                filePath = file.absolutePath,
+                fileSize = file.length(),
+                addedAt = candidate.addedAt ?: isoUtcTimestamp(file.lastModified()),
+                tags = candidate.tags,
+            )
+        }
+        return if (adopted.isEmpty()) base else base + adopted
     }
 
     /**
@@ -1200,6 +1422,7 @@ internal class LibraryIndexStore(
         val read = readIndexLocked()
         throwIfQuarantineFailedLocked(read)
         commitLocked(read.books)
+        syncEmptyMarkerLocked(read.books.isEmpty())
         loadedOnce = true
         lastLoadWasRebuilt = read.rebuilt
         lastLoadLostIndex = read.rebuilt && read.snapshotModified == null
@@ -1306,17 +1529,72 @@ internal class LibraryIndexStore(
      * - 解析不了的快照（截断/0 字节）跳过，继续看下一旧的有效快照；
      * - 只读，不移动/删除任何快照（保留损坏现场）。
      */
+    private data class SnapshotCandidate(
+        val file: File,
+        val books: List<Book>,
+        val modified: Long,
+        val future: Boolean,
+    )
+
     private fun recoverFromSnapshotLocked(): SnapshotRecovery? {
+        val current = now()
         val candidates = dir.listFiles().orEmpty()
             .filter { it.isFile && isIndexSnapshotName(it.name) }
-            .sortedByDescending { it.lastModified() }
-        for (file in candidates) {
-            val decoded = runCatching { codec.decode(file.readText()) }.getOrNull() ?: continue
-            val label = if (file.name.endsWith(BAD_SUFFIX)) ".bad" else file.name
-            log("index recovered from " + label + " backup entries=" + decoded.size, null)
-            return SnapshotRecovery(decoded, file.name, file.lastModified())
+            .mapNotNull { file -> snapshotCandidate(file, current) }
+            .sortedWith(
+                // 未来 mtime 视为可疑：排在所有正常时间快照之后；只有它是唯一候选时才用它。
+                compareByDescending<SnapshotCandidate> { !it.future }
+                    .thenByDescending { it.modified }
+                    .thenBy { snapshotPriority(it.file) },
+            )
+        for (candidate in candidates) {
+            if (candidate.books.isEmpty() && !isTrustedEmptySnapshotLocked(candidate, candidates)) {
+                log("skip empty index snapshot " + candidate.file.name + " (no fresh empty marker)", null)
+                continue
+            }
+            val label = if (candidate.file.name.endsWith(BAD_SUFFIX)) ".bad" else candidate.file.name
+            log("index recovered from " + label + " backup entries=" + candidate.books.size, null)
+            return SnapshotRecovery(candidate.books, candidate.file.name, candidate.modified)
         }
         return null
+    }
+
+    private fun snapshotCandidate(file: File, current: Long): SnapshotCandidate? {
+        val books = runCatching { codec.decode(file.readText()) }.getOrNull() ?: return null
+        val raw = file.lastModified()
+        val future = raw > current + SNAPSHOT_FUTURE_TOLERANCE_MS
+        if (raw <= 0L) log("index snapshot has zero mtime " + file.name, null)
+        if (future) log("index snapshot mtime in future, deprioritized " + file.name, null)
+        val modified = when {
+            raw <= 0L -> Long.MIN_VALUE
+            future -> current
+            else -> raw
+        }
+        return SnapshotCandidate(file, books, modified, future)
+    }
+
+    /** task-81：同 mtime 时优先 bak1（最近一次成功提交），其次 bak2，最后 .bad 损坏现场。 */
+    private fun snapshotPriority(file: File): Int = when (file.name) {
+        BAK1_NAME -> 0
+        BAK2_NAME -> 1
+        else -> 2
+    }
+
+    /**
+     * task-81：空快照必须有“空书架提交证据”才信任。
+     * - 有标记：标记时间不早于候选 mtime（容差 2s）；
+     * - 无标记：仅当所有可解析快照都为空（迁移场景）才信任；否则回退旧非空快照。
+     */
+    private fun isTrustedEmptySnapshotLocked(
+        candidate: SnapshotCandidate,
+        all: List<SnapshotCandidate>,
+    ): Boolean {
+        val markerTime = readEmptyMarkerTimeLocked()
+        if (markerTime != null) {
+            if (candidate.modified == Long.MIN_VALUE) return false
+            return markerTime >= candidate.modified - EMPTY_MARKER_TOLERANCE_MS
+        }
+        return all.none { it.books.isNotEmpty() }
     }
 
     /** books.json.bad(含时间戳版) / books.json.bak1 / books.json.bak2 都是候选快照。 */
@@ -1352,7 +1630,7 @@ internal class LibraryIndexStore(
     private fun nextBadFileLocked(): File {
         val plain = File(dir, INDEX_FILE_NAME + ".bad")
         if (!plain.exists()) return plain
-        val stamp = System.currentTimeMillis().toString()
+        val stamp = now().toString()
         var candidate = File(dir, INDEX_FILE_NAME + "." + stamp + ".bad")
         var suffix = 2
         while (candidate.exists()) {
@@ -1369,7 +1647,27 @@ internal class LibraryIndexStore(
         // P2-1：A/B 轮换备份 = 本次成功提交（bak1）与上一次（bak2）。
         // 主索引被删除/损坏时优先恢复备份，避免「索引没了 = 默认下载目录的书永久丢条目」。
         writeLastGoodBackupLocked(payload)
+        // task-81：空书目提交留证据，非空提交清掉证据。
+        syncEmptyMarkerLocked(books.isEmpty())
     }
+
+    /** task-81：空快照证据。只在本次提交确实是空书架时写；非空提交必须删除。 */
+    private fun syncEmptyMarkerLocked(empty: Boolean) {
+        runCatching {
+            val marker = File(dir, EMPTY_MARKER_NAME)
+            if (!empty) {
+                marker.delete()
+                return@runCatching
+            }
+            dir.mkdirs()
+            writePayloadLocked(marker, now().toString())
+        }.onFailure { log("write empty index marker failed", it) }
+    }
+
+    private fun readEmptyMarkerTimeLocked(): Long? = runCatching {
+        val marker = File(dir, EMPTY_MARKER_NAME)
+        if (!marker.isFile) null else marker.readText().trim().toLongOrNull() ?: marker.lastModified()
+    }.getOrNull()
 
     /** 唯一临时名 + fsync + rename：同目录 rename 原子，读者只会看到旧/新的完整文件。 */
     private fun writePayloadLocked(target: File, payload: String) {
@@ -1461,5 +1759,9 @@ private const val RECOVERED_TAG = "recovered"
 private const val BAD_SUFFIX = ".bad"
 private const val BAK1_NAME = "books.json.bak1"
 private const val BAK2_NAME = "books.json.bak2"
+private const val EMPTY_MARKER_NAME = "books.json.empty"
+private const val EMPTY_MARKER_TOLERANCE_MS = 2_000L
+private const val SNAPSHOT_FUTURE_TOLERANCE_MS = 5 * 60_000L
+private const val MAX_DELETED_FILE_TOMBSTONES = 200
 private const val MISSING_TAG = "missing"
 private const val DOWNLOAD_HISTORY_FILE_NAME = "zlib_downloads.json"
