@@ -11,6 +11,7 @@ import androidx.compose.runtime.setValue
 import app.particlebook.android.Assets
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -213,6 +214,11 @@ class LibraryStore(
         title: String?,
         author: String?,
         extraTag: String? = null,
+        /**
+         * task-79/task-73：可选校验已有书架条目的文件是否完整（例如 zlibInspectBookFile == COMPLETE）。
+         * 返回 false 时不会把坏文件当作幂等命中，改为把条目路径修到这次的新文件；默认 null 不改行为。
+         */
+        existingFileValidator: ((File) -> Boolean)? = null,
     ): Result<Book> {
         if (!file.isFile) {
             return Result.failure(IllegalArgumentException("下载文件不存在或不可读"))
@@ -223,7 +229,13 @@ class LibraryStore(
             extraTag?.takeIf { it.isNotBlank() && it != DOWNLOAD_TAG }?.let(::add)
         }
         val result = withContext(Dispatchers.IO) {
-            indexStore.registerFile(file = file, title = title, author = author, tags = tags)
+            indexStore.registerFile(
+                file = file,
+                title = title,
+                author = author,
+                tags = tags,
+                existingFileValidator = existingFileValidator,
+            )
         }
         result.onSuccess {
             Log.i(
@@ -248,17 +260,28 @@ class LibraryStore(
         title: String?,
         author: String?,
         extraTag: String? = null,
+        /**
+         * task-79/task-73：可选校验已有书架条目的文件是否完整；返回 false 时继续复制并重指路径，
+         * 不能把 0 字节/截断的旧副本当作「已在书架」。默认 null 不改行为。
+         */
+        existingFileValidator: ((File) -> Boolean)? = null,
     ): Result<Book> {
         // P2-3：同一本 zlib 书已经在书架（tag 命中）且文件确实还在时直接返回，不再复制第二份。
         // P1-1 task-63：条目文件已缺失时不能提前返回，否则书架继续指向缺失路径、新副本成孤儿；
         // 继续复制并让 registerFile 在锁内把路径改到新文件。
         extraTag?.takeIf { it.startsWith(ZLIB_TAG_PREFIX) }?.let { tag ->
             indexStore.findByTag(tag)?.let { existing ->
-                if (File(existing.filePath).isFile) {
+                val existingFile = File(existing.filePath)
+                val existingUsable = existingFile.isFile &&
+                    (existingFileValidator == null || existingFileValidator(existingFile))
+                if (existingUsable) {
                     Log.i(TAG, "adopt saf document skipped, already in library id=" + existing.id)
                     return Result.success(existing)
                 }
-                Log.i(TAG, "adopt saf document: existing entry file missing, re-point id=" + existing.id)
+                Log.i(
+                    TAG,
+                    "adopt saf document: existing entry unusable (missing/incomplete), re-point id=" + existing.id,
+                )
             }
         }
         val local = withContext(Dispatchers.IO) {
@@ -278,6 +301,7 @@ class LibraryStore(
                         ?: copied.displayName.substringBeforeLast('.', ""),
                     author = author,
                     extraTag = extraTag,
+                    existingFileValidator = existingFileValidator,
                 ).onSuccess { book ->
                     // 并发导入时可能命中已有条目（tag 幂等）：刚复制出来的副本是多余的，删掉防重复占空间。
                     if (pathKey(book.filePath) != pathKey(copied.file.absolutePath)) {
@@ -296,8 +320,23 @@ class LibraryStore(
      * 删除选中的书：串行重写索引（成功后再删 _pb_files 里的文件）。
      * 返回 [Result]：成功携带真正移除的条数；写索引失败时返回 failure，内存与磁盘都不变，
      * 由 UI 提示「删除失败，请重试」，不能无条件提示删除成功。
+     *
+     * task-79：级联通知 [LibraryRemovalBus] 统一切到主线程（并且不可取消）——下载管理器在回调里
+     * 读写 history/pending 队列，必须与它的主线程协程串行；否则「先查 historyLoaded=false 入队、
+     * 紧接着初始化读盘完成清空队列」会丢删除事件，完成回调还会把刚删的书/记录复活。
      */
-    suspend fun removeBooks(ids: Set<Long>): Result<Int> {
+    suspend fun removeBooks(ids: Set<Long>): Result<Int> =
+        removeBooksInternal(ids, notifyRemovalBus = true)
+
+    /**
+     * task-79：墓碑命中后的静默回收——删除下载管理器在删书竞态窗口里补 adopt 的书架条目
+     * （索引/文件/进度/封面/样书记录），但**不**再通知 [LibraryRemovalBus]，避免回调递归。
+     * 供下载管理器在「删书后完成回调发现墓碑」时调用；返回真正移除的条数。
+     */
+    suspend fun removeBooksSilently(ids: Set<Long>): Result<Int> =
+        removeBooksInternal(ids, notifyRemovalBus = false)
+
+    private suspend fun removeBooksInternal(ids: Set<Long>, notifyRemovalBus: Boolean): Result<Int> {
         if (ids.isEmpty()) return Result.success(0)
         return withContext(Dispatchers.IO) {
             try {
@@ -317,9 +356,16 @@ class LibraryStore(
                     runCatching { BookCoverLoader.evict(context, removedIds) }
                         .onFailure { Log.w(TAG, "evict cover cache failed ids=" + removedIds, it) }
                     markDeletedSeeds(removed)
-                    // 下载记录按 filePath/zlib tag 关联清理（RECORD_ONLY）；data 层不反向依赖下载管理器。
-                    runCatching { LibraryRemovalBus.notifyRemoved(removed) }
-                        .onFailure { Log.w(TAG, "notify removed books failed", it) }
+                    if (notifyRemovalBus) {
+                        // 下载记录按 filePath/zlib tag 关联清理（RECORD_ONLY）；data 层不反向依赖下载管理器。
+                        // NonCancellable：索引已经删了，不能因为调用方协程在这一步被取消而漏发级联事件。
+                        withContext(NonCancellable) {
+                            withContext(Dispatchers.Main.immediate) {
+                                runCatching { LibraryRemovalBus.notifyRemoved(removed) }
+                                    .onFailure { Log.w(TAG, "notify removed books failed", it) }
+                            }
+                        }
+                    }
                 }
                 Result.success(removed.size)
             } catch (cancellation: CancellationException) {
@@ -992,6 +1038,12 @@ internal class LibraryIndexStore(
         title: String?,
         author: String?,
         tags: List<String>,
+        /**
+         * task-79/task-73：可选校验 idempotent 命中的已有条目文件是否仍可用。
+         * 返回 false 时按「文件缺失」处理：把条目路径/大小修到本次落盘的文件，而不是继续指向坏文件。
+         * 默认 null 保持原行为。
+         */
+        existingFileValidator: ((File) -> Boolean)? = null,
     ): Result<Book> {
         if (!file.isFile) return Result.failure(IllegalArgumentException("文件不存在或不可读"))
         return try {
@@ -1002,7 +1054,9 @@ internal class LibraryIndexStore(
                 if (existing != null) {
                     // P1-1 task-63：tag 命中但书架条目指向的文件已不存在（旧下载文件被移走/清掉）时，
                     // 把路径更新到这次真正落盘的文件并清 missing；否则书架会永远指向缺失路径，新文件成孤儿。
-                    val missingFile = !File(existing.filePath).isFile
+                    val existingFile = File(existing.filePath)
+                    val missingFile = !existingFile.isFile ||
+                        (existingFileValidator != null && !existingFileValidator(existingFile))
                     val repointed = if (missingFile) {
                         existing.copy(filePath = file.absolutePath, fileSize = file.length())
                     } else {

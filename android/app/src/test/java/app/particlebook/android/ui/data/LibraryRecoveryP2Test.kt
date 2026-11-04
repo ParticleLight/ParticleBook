@@ -151,8 +151,11 @@ class LibraryRecoveryP2Test {
         val end = source.indexOf("suspend fun removeBooks", start)
         assertTrue("adoptDocument 应仍在 LibraryStore.kt", start >= 0 && end > start)
         val body = source.substring(start, end)
-        assertTrue("命中 tag 后应检查条目文件是否还在", body.contains("File(existing.filePath).isFile"))
-        assertTrue("文件缺失时不能提前返回，要继续复制并重指路径", body.contains("re-point"))
+        assertTrue(
+            "命中 tag 后应检查条目文件是否还在",
+            body.contains("val existingFile = File(existing.filePath)") && body.contains("existingFile.isFile"),
+        )
+        assertTrue("文件缺失/不完整时不能提前返回，要继续复制并重指路径", body.contains("re-point"))
         assertTrue("锁定：findByTag 命中仍是第一道判重", body.contains("findByTag(tag)"))
     }
 
