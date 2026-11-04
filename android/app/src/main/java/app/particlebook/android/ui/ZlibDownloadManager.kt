@@ -178,6 +178,40 @@ internal fun zlibCompleteLibraryBook(books: List<Book>): Book? =
     }
 
 /**
+ * P1-1 task-73：传给 LibraryStore 的「已有条目文件是否仍可用」校验器。
+ *
+ * LibraryStore 只按 File.isFile 判幂等命中时，旧书架条目指向 0 字节/截断文件、而这次导入的是
+ * 完整新文件，会返回旧条目并让新文件成孤儿；这里复用下载完整性校验（魔数 + EOF + expectedBytes），
+ * 让 registerFile/adoptDocument 把条目路径修到新文件。
+ */
+internal fun zlibExistingFileValidator(expectedBytes: Long): (File) -> Boolean =
+    { file -> zlibInspectBookFile(file, expectedBytes) == ZlibDownloadTargetState.COMPLETE }
+
+/**
+ * P1-2 task-73：重新导入前对目标做完整性裁决。
+ * 只有 COMPLETE 才能进入书架；MISSING 与 INCOMPLETE/UNKNOWN 分别给出不同文案，
+ * 失败态统一走 [ZLIB_IMPORT_FAILED_KIND]，UI 再提供「重新下载」出口。
+ */
+internal enum class ZlibReimportDecision { IMPORT, FAIL_MISSING, FAIL_INCOMPLETE }
+
+internal fun zlibReimportDecision(state: ZlibDownloadTargetState): ZlibReimportDecision = when (state) {
+    ZlibDownloadTargetState.COMPLETE -> ZlibReimportDecision.IMPORT
+    ZlibDownloadTargetState.MISSING -> ZlibReimportDecision.FAIL_MISSING
+    ZlibDownloadTargetState.INCOMPLETE,
+    ZlibDownloadTargetState.UNKNOWN,
+    -> ZlibReimportDecision.FAIL_INCOMPLETE
+}
+
+/** 重新导入被拒时的用户文案（不能再说「可点重新导入」，否则会引导用户反复失败）。 */
+internal fun zlibReimportFailureMessage(state: ZlibDownloadTargetState): String = when (state) {
+    ZlibDownloadTargetState.MISSING -> "下载文件已不存在，请重新下载"
+    ZlibDownloadTargetState.COMPLETE -> "下载文件完整，可重新导入"
+    ZlibDownloadTargetState.INCOMPLETE,
+    ZlibDownloadTargetState.UNKNOWN,
+    -> "下载文件不完整，请重新下载"
+}
+
+/**
  * P2-4：FileChannel 版本（SAF 文档也可能通过 provider 的 fd 随机读取）。
  * - PDF：%PDF 头 + 末尾 %%EOF（容许尾部空白/换行）；
  * - EPUB：ZIP 头 + 末尾 EOCD，且中央目录结束位置落在文件内（截断包一定过不了）；
@@ -569,14 +603,23 @@ internal object ZlibDownloadCompletion {
         finishedAt = System.currentTimeMillis(),
     )
 
-    /** 导入失败：文件仍在，标 IMPORT_FAILED 供卡片/详情页「重新导入」。 */
-    fun importFailed(task: ZlibDownloadTask, cause: Throwable?): ZlibDownloadTask = task.copy(
+    /**
+     * 导入失败：文件仍在，标 IMPORT_FAILED 供卡片/详情页「重新导入」。
+     * P1-2 task-73：[messageOverride] 用于目标不完整/缺失——此时不能再引导「重新导入」，
+     * 必须明确让用户「重新下载」。
+     */
+    fun importFailed(
+        task: ZlibDownloadTask,
+        cause: Throwable?,
+        messageOverride: String? = null,
+    ): ZlibDownloadTask = task.copy(
         status = ZlibDownloadStatus.FAILED,
         importing = false,
         cancelling = false,
         errorKind = ZLIB_IMPORT_FAILED_KIND,
-        errorMessage = "下载完成，但加入书架失败，可点「重新导入」重试" +
-            (cause?.message?.takeIf { it.isNotBlank() }?.let { "（" + it.take(40) + "）" } ?: ""),
+        errorMessage = messageOverride?.takeIf { it.isNotBlank() }
+            ?: ("下载完成，但加入书架失败，可点「重新导入」重试" +
+                (cause?.message?.takeIf { it.isNotBlank() }?.let { "（" + it.take(40) + "）" } ?: "")),
         finishedAt = System.currentTimeMillis(),
     )
 }
@@ -784,6 +827,7 @@ object ZlibDownloadManager {
                     .map { safTempPrefix(it.id) }
                     .toSet()
                 zlibCleanTempDownloads(File(app.cacheDir, SAF_TEMP_DIR), keepPrefixes)
+                zlibCleanInspectTemps(app.cacheDir)
             }
         }
     }
@@ -803,11 +847,16 @@ object ZlibDownloadManager {
      * P2-5：先查书架是否已有同一本（zlib:<bookId> 标签）。删掉下载记录后再点「下载」时，
      * 不能再下/导入第二份（会产生新 Book.id，阅读进度/封面永久脱钩），而是补一条 COMPLETED
      * 记录让详情页恢复「已下载 · 打开」。命中时通过 [onAlreadyInLibrary] 通知调用方打开书。
+     *
+     * P1-2 task-73：[forceRedownload] 用于「目标文件已损坏/缺失」的场景——跳过所有
+     * COMPLETED/IMPORT_FAILED 的重新导入早退，清掉旧终态记录后重新下载，避免坏文件
+     * 在「重新导入」里反复失败却出不去。
      */
     fun start(
         detail: ZBookDetail,
         store: LibraryStore,
         onAlreadyInLibrary: ((Book) -> Unit)? = null,
+        forceRedownload: Boolean = false,
     ) {
         val context = appContext ?: return
         // T15(U8)：start 在 Compose 主线程调用；DownloadLocation.exists 在 SAF 下会走
@@ -845,8 +894,14 @@ object ZlibDownloadManager {
                     return@launch
                 }
                 val saf = withContext(Dispatchers.IO) { DownloadLocation.isCustom(context) }
+                // P1-2 task-73：用户明确选择「重新下载」时，旧 COMPLETED/IMPORT_FAILED 记录不能
+                // 再触发重新导入（坏文件会反复失败）；先清掉旧记录，下面按全新任务走。
+                if (forceRedownload) {
+                    pendingRecords.remove(detail.bookId)
+                    removeHistoryRecord(detail.bookId)
+                }
                 // 判定期间历史可能刚加载完（冷启）→ 在 IO hop 之后再读一次，避免重复下载已完成的书。
-                val done = historyForBook(detail.bookId)
+                val done = if (forceRedownload) null else historyForBook(detail.bookId)
                 // T23：上次取消留下的记录 —— 复用原目标文件，客户端凭旁边的 .part 续传，不再新建目标。
                 val cancelledRecord = done?.takeIf { it.status == ZlibDownloadStatus.CANCELLED }
                 // P2-4：进程在「文件已下完、COMPLETED 写盘之前」被杀 → 恢复成 INTERRUPTED。
@@ -897,19 +952,13 @@ object ZlibDownloadManager {
                     )
                     return@launch
                 }
-                val needsFileCheck = done != null && (
-                    done.status == ZlibDownloadStatus.COMPLETED ||
-                        (done.status == ZlibDownloadStatus.FAILED &&
-                            done.errorKind == ZLIB_IMPORT_FAILED_KIND)
-                    )
-                val fileExists = done != null && needsFileCheck &&
-                    withContext(Dispatchers.IO) { DownloadLocation.exists(context, done.destPath) }
-                // P2-5/task-55：历史是 COMPLETED、目标文件也还在，但书架里没有对应条目
-                // （用户删过书或旧版本没打 zlib 标签）→ 重新导入，不能直接当成「已下载」什么都不做。
-                if (done != null && done.status == ZlibDownloadStatus.COMPLETED && fileExists) {
+                // P1-1/P1-2 task-73：COMPLETED / IMPORT_FAILED 一律交给 reimportTask 重新裁决目标
+                // （存在性、PDF/EPUB 魔数 + EOF、expectedBytes）。0 字节/截断/缺失目标会在那里落
+                // IMPORT_FAILED 并提示「重新下载」，不能只凭 exists 直接标 COMPLETED 把坏书登记入书架。
+                if (done != null && done.status == ZlibDownloadStatus.COMPLETED) {
                     Log.i(
                         TAG,
-                        "zlib_download_completed_book_missing book=" + detail.bookId +
+                        "zlib_download_completed_reimport book=" + detail.bookId +
                             " target=" + if (saf) "saf" else "file",
                     )
                     reimportTask(
@@ -921,9 +970,10 @@ object ZlibDownloadManager {
                     )
                     return@launch
                 }
-                // U4：上次下载完成但导入失败 → 文件还在，只需重新导入（不再消耗下载额度）。
+                // U4：上次下载完成但导入失败 → 文件完整才只需重新导入；reimportTask 内部同样校验，
+                // 不完整时落 IMPORT_FAILED，详情页给「重新下载」出口。
                 if (done != null && done.status == ZlibDownloadStatus.FAILED &&
-                    done.errorKind == ZLIB_IMPORT_FAILED_KIND && fileExists
+                    done.errorKind == ZLIB_IMPORT_FAILED_KIND
                 ) {
                     reimportTask(
                         done.copy(
@@ -1351,6 +1401,7 @@ object ZlibDownloadManager {
             title = task.title,
             author = task.author,
             extraTag = bookTag(task.bookId),
+            existingFileValidator = zlibExistingFileValidator(size),
         )
         if (!runs.isCurrent(run)) return true
         if (adopt.isSuccess) {
@@ -1394,6 +1445,7 @@ object ZlibDownloadManager {
             title = task.title,
             author = task.author,
             extraTag = bookTag(task.bookId),
+            existingFileValidator = zlibExistingFileValidator(size),
         )
         if (!runs.isCurrent(run)) return true
         if (adopt.isSuccess) {
@@ -1439,6 +1491,7 @@ object ZlibDownloadManager {
             title = task.title,
             author = task.author,
             extraTag = bookTag(task.bookId),
+            existingFileValidator = zlibExistingFileValidator(size),
         )
         if (!runs.isCurrent(run)) return
         if (adopt.isSuccess) {
@@ -1518,6 +1571,7 @@ object ZlibDownloadManager {
                 title = task.title,
                 author = task.author,
                 extraTag = bookTag(task.bookId),
+                existingFileValidator = zlibExistingFileValidator(bytes),
             )
             if (!runs.isCurrent(run)) return
             if (adopt.isSuccess) {
@@ -1624,13 +1678,16 @@ object ZlibDownloadManager {
         id: String,
         size: Long,
         cause: Throwable?,
+        messageOverride: String? = null,
     ) {
-        val failed = updateTask(id) { ZlibDownloadCompletion.importFailed(it, cause) } ?: return
+        val failed = updateTask(id) {
+            ZlibDownloadCompletion.importFailed(it, cause, messageOverride)
+        } ?: return
         addHistory(failed, size)
         Log.e(TAG, "adopt downloaded file failed book=" + failed.bookId, cause)
     }
 
-    /** U4：文件已下完但导入失败的「重新导入」实现（不重下，只重做复制/登记）。 */
+    /** U4/P1-2：文件已下完但导入失败的「重新导入」实现（不重下，只重做复制/登记）。 */
     private fun reimportTask(task: ZlibDownloadTask, store: LibraryStore) {
         val context = appContext ?: return
         if (task.isActive) return
@@ -1648,18 +1705,39 @@ object ZlibDownloadManager {
         persistActive(_tasks.value.firstOrNull { it.id == task.id } ?: task)
         scope.launch {
             try {
-                // P2-4：INTERRUPTED 记录的 received 可能来自旧快照（甚至 0），导入前以目标实际
-                // 字节数为准；同时把 total 落进 pending 快照，下次再被杀也能凭 expectedBytes 判定。
-                val size = targetSizeOf(context, task)
+                // P1-2 task-73：重新导入前必须校验目标完整性（0 字节/截断/非书文件不能入书架）。
+                // 记录里的 received/total 可能来自旧快照，以目标实际字节数为准。
+                val target = withContext(Dispatchers.IO) { resolveReimportTarget(context, task) }
+                if (!runs.isCurrent(run)) return@launch
+                val decision = zlibReimportDecision(target.state)
+                if (decision != ZlibReimportDecision.IMPORT) {
+                    val message = zlibReimportFailureMessage(target.state)
+                    failImport(
+                        id = task.id,
+                        size = target.size,
+                        cause = IllegalStateException(message),
+                        messageOverride = message,
+                    )
+                    Log.i(
+                        TAG,
+                        "zlib_download_reimport_rejected book=" + task.bookId +
+                            " state=" + target.state,
+                    )
+                    return@launch
+                }
+                val effective = target.task
+                val size = target.size
                 val importing = updateTask(task.id) {
-                    ZlibDownloadCompletion.importing(it, size, task.fileName, task.destPath)
+                    ZlibDownloadCompletion.importing(it, size, effective.fileName, effective.destPath)
                 } ?: return@launch
                 persistActive(importing)
                 if (!runs.isCurrent(run)) return@launch
-                val adopt = withContext(Dispatchers.IO) { adoptExisting(context, task, store) }
+                val adopt = withContext(Dispatchers.IO) {
+                    adoptExisting(context, effective, store, size)
+                }
                 if (!runs.isCurrent(run)) return@launch
                 if (adopt.isSuccess) {
-                    completeImport(task.id, size, task.fileName, task.destPath)
+                    completeImport(task.id, size, effective.fileName, effective.destPath)
                 } else {
                     failImport(task.id, size, adopt.exceptionOrNull())
                 }
@@ -1669,13 +1747,52 @@ object ZlibDownloadManager {
         }
     }
 
+    /** 重新导入的目标：SAF 走文档检查；File 允许扩展名纠正，并把路径换成实际命中的文件。 */
+    private suspend fun resolveReimportTarget(
+        context: Context,
+        task: ZlibDownloadTask,
+    ): ZlibReimportTarget = withContext(Dispatchers.IO) {
+        if (task.destPath.startsWith("content://")) {
+            val state = inspectSafDownloadTarget(context, task)
+            val actual = if (state == ZlibDownloadTargetState.COMPLETE) {
+                runCatching { Uri.parse(task.destPath) }.getOrNull()
+                    ?.let { safDocumentSize(context, it) }
+                    ?: 0L
+            } else {
+                0L
+            }
+            val size = actual.takeIf { it > 0L }
+                ?: task.total.takeIf { it > 0L }
+                ?: task.received
+            ZlibReimportTarget(task, size, state)
+        } else {
+            val file = resolveExistingFileTarget(task)
+                ?: return@withContext ZlibReimportTarget(task, 0L, ZlibDownloadTargetState.MISSING)
+            ZlibReimportTarget(
+                task = task.copy(destPath = file.absolutePath, fileName = file.name),
+                size = file.length(),
+                state = zlibInspectBookFile(file, task.total),
+            )
+        }
+    }
+
+    private data class ZlibReimportTarget(
+        val task: ZlibDownloadTask,
+        val size: Long,
+        val state: ZlibDownloadTargetState,
+    )
+
     /** 重新导入时按存储类型选择复制/登记方式。 */
     private suspend fun adoptExisting(
         context: Context,
         task: ZlibDownloadTask,
         store: LibraryStore,
+        expectedBytes: Long,
     ): Result<Book> {
         val dest = task.destPath
+        // P1-1 task-73：已有书架条目文件截断时，LibraryStore 需要完整性校验器才会把条目重指到
+        // 这次导入的完整文件；否则 completeImport 会把旧坏条目当成功、新文件成孤儿。
+        val validator = zlibExistingFileValidator(expectedBytes)
         if (dest.startsWith("content://")) {
             return store.adoptDocument(
                 uri = Uri.parse(dest),
@@ -1683,6 +1800,7 @@ object ZlibDownloadManager {
                 title = task.title,
                 author = task.author,
                 extraTag = bookTag(task.bookId),
+                existingFileValidator = validator,
             )
         }
         return store.adoptLocalFile(
@@ -1690,6 +1808,7 @@ object ZlibDownloadManager {
             title = task.title,
             author = task.author,
             extraTag = bookTag(task.bookId),
+            existingFileValidator = validator,
         )
     }
 
@@ -1770,15 +1889,22 @@ object ZlibDownloadManager {
             context.cacheDir,
             "zlib-inspect-" + record.id.replace(':', '_') + "-" + UUID.randomUUID() + ".tmp",
         )
-        val copied = runCatching {
+        // P1-2 task-73：复制失败（含取消）必须无条件删掉临时文件；CancellationException
+        // 要透传，不能像 runCatching 那样吞掉后把取消当 UNKNOWN 悄悄继续。
+        val copied = try {
             context.contentResolver.openInputStream(uri)?.use { input ->
                 temp.outputStream().use { output -> input.copyTo(output) }
-            } ?: return@runCatching false
-            true
-        }.onFailure {
-            Log.w(TAG, "inspect saf download copy failed uri=" + raw, it)
-        }.getOrDefault(false)
+                true
+            } ?: false
+        } catch (cancellation: CancellationException) {
+            temp.delete()
+            throw cancellation
+        } catch (throwable: Throwable) {
+            Log.w(TAG, "inspect saf download copy failed uri=" + raw, throwable)
+            false
+        }
         if (!copied) {
+            temp.delete()
             Log.w(TAG, "inspect saf download unknown uri=" + raw)
             return@withContext ZlibDownloadTargetState.UNKNOWN
         }
@@ -1807,20 +1933,6 @@ object ZlibDownloadManager {
             } ?: 0L
         }.getOrDefault(0L)
     }
-
-    /** 目标实际字节数：File 直接 length；SAF 走 provider 查询。 */
-    private suspend fun targetSizeOf(context: Context, task: ZlibDownloadTask): Long =
-        withContext(Dispatchers.IO) {
-            if (task.destPath.startsWith("content://")) {
-                runCatching { Uri.parse(task.destPath) }.getOrNull()
-                    ?.let { safDocumentSize(context, it) }
-                    ?: 0L
-            } else if (task.destPath.isNotBlank()) {
-                runCatching { File(task.destPath).length() }.getOrDefault(0L)
-            } else {
-                0L
-            }
-        }
 
     /** SAF 临时文件名（cacheDir/zlib-downloads/<id>.part）；init 清理按同一前缀保留。 */
     private fun safTempFile(context: Context, id: String): File {
@@ -2142,3 +2254,22 @@ internal fun zlibCleanTempDownloads(dir: File, keepPrefixes: Set<String> = empty
     if (kept == 0) dir.delete()
     return removed
 }
+
+/**
+ * P1-2 task-73：清理完整性检查遗留的 cacheDir/zlib-inspect-*.tmp。
+ *
+ * inspectSafDownloadTarget 会在 provider 无法随机读时整份复制复核；正常路径 finally 删除，
+ * 但进程被杀/历史版本异常会留下临时文件。启动时统一扫掉，避免长期占缓存。
+ * 返回删除的文件数。
+ */
+internal fun zlibCleanInspectTemps(cacheDir: File): Int {
+    if (!cacheDir.isDirectory) return 0
+    return cacheDir.listFiles()?.count { file ->
+        file.isFile &&
+            file.name.startsWith(ZLIB_INSPECT_TMP_PREFIX) &&
+            file.name.endsWith(".tmp") &&
+            file.delete()
+    } ?: 0
+}
+
+private const val ZLIB_INSPECT_TMP_PREFIX = "zlib-inspect-"
