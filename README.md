@@ -162,6 +162,20 @@ ctest --test-dir particlebook-cpp/build2 --output-on-failure
 
 > 历史对比：旧 Electron 版安装包 ~150MB / 启动 3-5 秒；现 C++ 版 ~29MB / 启动 <1 秒 / 内存 ~100MB。
 
+## Android 移植版（开发中，未发布）
+
+仓库内的 `android/` 是 ParticleBook 的 Android 移植：Jetpack Compose + Material 3 原生界面，
+Z-Library 网络层为原生 HTTP（无 WebView），与桌面端是两套独立工程。当前为内部开发阶段，
+minSdk 26、compileSdk 35，单测 54 suites / 255 tests。
+
+```bash
+bash scripts/android/build-debug.sh                                  # debug APK
+bash scripts/android/spike2/build.sh android :app:testDebugUnitTest  # JVM 单测
+```
+
+模块说明、构建前置与目录结构见 [android/README.md](android/README.md)；设计与验收文档在本地
+`docs/android-port/`（gitignore，不随仓库分发）。
+
 ## 项目结构
 
 ```
