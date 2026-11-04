@@ -6,6 +6,7 @@ import java.util.Collections
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -326,6 +327,9 @@ class ZlibMirrorPinStaleTest {
                 val store = MemoryPinStore()
                 val client = newClient(store)
                 client.mirror = a.baseUrl
+                // task-95：固定已耗时 500ms，确保 stale 后剩余预算充足，不依赖真实时钟。
+                val elapsedMs = AtomicLong(500L)
+                client.searchFailoverElapsedMsForTest = { elapsedMs.get() }
 
                 var failure: Throwable? = null
                 var page: ZSearchPage? = null
@@ -347,6 +351,7 @@ class ZlibMirrorPinStaleTest {
                 assertNull("不得抛 stale NO_MIRROR: " + failure, failure)
                 assertTrue("应返回搜索结果", page != null)
                 assertEquals("应停留在用户选择的线路", b.baseUrl, client.mirror)
+                assertTrue("预算充足时应在 B 上重试成功", b.hits.get() > 0)
                 assertTrue(
                     "应记录 stale 后在新线路重试: " + logs,
                     logs.any { it.startsWith("search_stale_retry") },
@@ -445,9 +450,12 @@ class ZlibMirrorPinStaleTest {
                 freshRegistry(listOf(a.baseUrl), listOf(b.baseUrl))
                 val store = MemoryPinStore()
                 val client = newClient(store)
-                // 预算要大于一次最小请求（否则连首包都不发），又要在闸门等待期间耗尽。
+                // 预算要大于一次最小请求（否则连首包都不发），又要在闸门释放时已耗尽。
                 client.searchFailoverBudgetMs = 1_500L
                 client.mirror = a.baseUrl
+                // task-95：注入已耗时，不再 Thread.sleep；闸门一发一收仍是真实请求。
+                val elapsedMs = AtomicLong(0L)
+                client.searchFailoverElapsedMsForTest = { elapsedMs.get() }
 
                 var failure: Throwable? = null
                 val searchThread = Thread {
@@ -461,22 +469,128 @@ class ZlibMirrorPinStaleTest {
                 searchThread.start()
                 assertTrue("搜索请求未发出", a.awaitAccepted())
                 assertTrue("切到 B 应成功", client.switchMirror(b.baseUrl))
-                Thread.sleep(1_700L)
+                elapsedMs.set(1_400L)
                 a.release()
                 searchThread.join(10_000L)
 
                 // 显式 as? 快照：避免对捕获闭包里赋值的局部变量做智能转换（IDE/编译器版本差异）。
-                val kind = (failure as? ZlibException)?.kind
+                val error = failure as? ZlibException
                 assertTrue(
                     "预算耗尽后 stale retry 应跳过并抛 NO_MIRROR: " + failure,
-                    kind == ZlibException.Kind.NO_MIRROR,
+                    error?.kind == ZlibException.Kind.NO_MIRROR,
+                )
+                assertTrue(
+                    "错误文案应带 stale_budget（与真实失败区分）: " + failure,
+                    error?.message?.contains("stale_budget") == true,
                 )
                 assertTrue(
                     "应记录预算不足跳过: " + logs,
-                    logs.any { it.startsWith("search_stale_skip") && it.contains("reason=budget") },
+                    logs.any {
+                        it.startsWith("search_stale_skip") && it.contains("reason=stale_budget")
+                    },
                 )
                 assertEquals("预算不足时不得再请求用户新选的线路", 0, b.hits.get())
             }
+        }
+    }
+
+    /** task-95：剩余预算 >=750ms 时 stale retry 会真的发到新线路；新线路失败则返回它自己的错误。 */
+    @Test
+    fun staleRetryWithRemainingBudgetCanFailOnNewMirror() {
+        GatedHttpServer("boom", status = 500).use { a ->
+            StubHttpServer("boom", status = 500).use { b ->
+                freshRegistry(listOf(a.baseUrl), listOf(b.baseUrl))
+                // B 残留 PAGE 证据：自动换线不选它，确保失败来自 stale retry 而不是普通换线。
+                ZlibMirrorRegistry.recordProbeResult(b.baseUrl, ZlibMirrorRegistry.Rank.PAGE, 10L, now)
+                val client = newClient(MemoryPinStore())
+                client.searchFailoverBudgetMs = 1_500L
+                client.mirror = a.baseUrl
+                val elapsedMs = AtomicLong(500L)
+                client.searchFailoverElapsedMsForTest = { elapsedMs.get() }
+
+                var failure: Throwable? = null
+                val searchThread = Thread {
+                    try {
+                        client.search("android")
+                    } catch (t: Throwable) {
+                        failure = t
+                    }
+                }
+                searchThread.isDaemon = true
+                searchThread.start()
+                assertTrue("搜索请求未发出", a.awaitAccepted())
+                assertTrue("切到 B 应成功", client.switchMirror(b.baseUrl))
+                a.release()
+                searchThread.join(10_000L)
+
+                val error = failure as? ZlibException
+                assertEquals(
+                    "剩余预算充足时应重试新线路，并返回它的 HTTP 错误: " + failure,
+                    ZlibException.Kind.HTTP,
+                    error?.kind,
+                )
+                assertTrue("应请求用户新选的线路 B", b.hits.get() > 0)
+                assertTrue(
+                    "应记录 stale 后在新线路重试: " + logs,
+                    logs.any { it.startsWith("search_stale_retry") },
+                )
+            }
+        }
+    }
+
+    /** task-95 P3：翻页请求期间切线路，应在新线路上重跑同一页。 */
+    @Test
+    fun stalePageTwoRetriesCurrentMirror() {
+        GatedHttpServer(emptySearchBody).use { a ->
+            StubHttpServer(emptySearchBody).use { b ->
+                freshRegistry(listOf(a.baseUrl), listOf(b.baseUrl))
+                val client = newClient(MemoryPinStore())
+                client.mirror = a.baseUrl
+
+                var failure: Throwable? = null
+                var page: ZSearchPage? = null
+                val searchThread = Thread {
+                    try {
+                        page = client.search("android", page = 2)
+                    } catch (t: Throwable) {
+                        failure = t
+                    }
+                }
+                searchThread.isDaemon = true
+                searchThread.start()
+                assertTrue("翻页请求未发出", a.awaitAccepted())
+                assertTrue("切到 B 应成功", client.switchMirror(b.baseUrl))
+                a.release()
+                searchThread.join(10_000L)
+
+                assertNull("翻页 stale retry 不应失败: " + failure, failure)
+                assertTrue("应返回第 2 页结果", page != null)
+                assertEquals(2, page?.page)
+                assertTrue("应在用户新选的线路 B 上重跑", b.hits.get() > 0)
+                assertTrue(
+                    "应记录翻页 stale 重跑: " + logs,
+                    logs.any { it.startsWith("search_stale_retry") && it.contains("page=2") },
+                )
+            }
+        }
+    }
+
+    /** task-95 P3：mirrorSnapshot 的 info 与 rows 必须来自同一批行。 */
+    @Test
+    fun mirrorSnapshotKeepsInfoAndRowsConsistent() {
+        StubHttpServer(appBody).use { server ->
+            freshRegistry(listOf(server.baseUrl))
+            val client = newClient()
+            assertEquals(server.baseUrl, client.probeMirrors())
+
+            val snapshot = client.mirrorSnapshot()
+            assertEquals("URL 列表必须来自同一批 rows", snapshot.rows.map { it.url }, snapshot.info.mirrors)
+            assertEquals("total 必须等于 rows 数", snapshot.rows.size, snapshot.info.total)
+            assertEquals(
+                "index 必须与 rows 的 current 行一致",
+                snapshot.rows.indexOfFirst { it.current } + 1,
+                snapshot.info.index,
+            )
         }
     }
 }

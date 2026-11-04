@@ -225,4 +225,103 @@ class ZlibRealSoftPageProbeTest {
             )
         }
     }
+
+    /** task-95：正常搜索页有 <z-bookcard> + 登录 CTA，不得因 “sign in to” 被降级清 pin。 */
+    @Test
+    fun appPageWithWeakLoginCtaIsStillAdopted() {
+        val body = "<html><title>Z-Library</title><z-bookcard id=\"1\"></z-bookcard>" +
+            "<a href=\"/login\">Sign in to your account</a></html>"
+        StubHttpServer(body).use { server ->
+            freshRegistry(listOf(server.baseUrl))
+            val client = newClient()
+
+            assertEquals("APP 页面上的登录 CTA 不应让线路降级", server.baseUrl, client.probeMirrors())
+            assertEquals(server.baseUrl, client.mirror)
+            assertTrue(
+                "应采用 APP 线路: " + logs,
+                logs.any { it.startsWith("mirror_pick") && it.contains("rank=app") },
+            )
+            assertTrue(
+                "不得产生登录页清 pin 证据: " + logs,
+                logs.none { it.contains("unpin=probe_login_page") },
+            )
+        }
+    }
+
+    /** task-95：没有 APP 组件时，弱证据 “sign in to” 仍按登录页清 pin（不能收得过头）。 */
+    @Test
+    fun weakLoginCtaWithoutAppStillClearsPin() {
+        val body = "<html><title>Z-Library</title><a href=\"/login\">Sign in to your account</a></html>"
+        StubHttpServer(body).use { server ->
+            freshRegistry(listOf(server.baseUrl))
+            val store = MemoryPinStore(server.baseUrl)
+            val client = newClient(store)
+
+            assertNoMirror(probeFailure(client))
+
+            assertNull("无 APP 组件的登录 CTA 仍应清 pin", store.stored)
+            assertNull("不得 adopt 登录 CTA 页", client.mirror)
+            assertTrue(
+                "应记录 probe_login_page: " + logs,
+                logs.any {
+                    it.startsWith("mirror_unpin") && it.contains("reason=probe_login_page")
+                },
+            )
+        }
+    }
+
+    /** task-95：password input / 登录标题是强证据，即使页面还带 APP 组件也不能 adopt。 */
+    @Test
+    fun appPageWithStrongLoginEvidenceIsPagedAndClearsPin() {
+        val body = "<html><title>Login</title><z-bookcard id=\"1\"></z-bookcard>" +
+            "<input type=\"password\" name=\"pw\"></html>"
+        StubHttpServer(body).use { server ->
+            freshRegistry(listOf(server.baseUrl))
+            val store = MemoryPinStore(server.baseUrl)
+            val client = newClient(store)
+
+            assertNoMirror(probeFailure(client))
+
+            assertNull("强登录证据应清 pin", store.stored)
+            assertNull("不得 adopt 登录墙", client.mirror)
+            assertTrue(
+                "应判 PAGE 且 reason=probe_login_page: " + logs,
+                logs.any {
+                    it.startsWith("mirror_probe_soft") && it.contains("rank=page") &&
+                        it.contains("unpin=probe_login_page")
+                },
+            )
+        }
+    }
+
+    /** task-95：限额页的英文/中文变体都必须先于登录证据，且不清 pin。 */
+    @Test
+    fun limitPageVariantsKeepPinAndDoNotAdopt() {
+        val variants = listOf(
+            "Daily limit reached",
+            "Download limit reached",
+            "今日下载限额已用尽",
+        )
+        for (marker in variants) {
+            val body = "<html><title>Z-Library</title><z-bookcard id=\"1\"></z-bookcard>" +
+                "<p>" + marker + "</p><a>Sign in to your account</a></html>"
+            StubHttpServer(body).use { server ->
+                freshRegistry(listOf(server.baseUrl))
+                val store = MemoryPinStore(server.baseUrl)
+                val client = newClient(store)
+
+                assertNoMirror(probeFailure(client))
+
+                assertEquals("限额变体不得清 pin: " + marker, server.baseUrl, store.stored)
+                assertNull("限额变体不得被 adopt: " + marker, client.mirror)
+                assertTrue(
+                    "限额变体应标 limit=1 且无清 pin 证据: " + marker + " / " + logs,
+                    logs.any {
+                        it.startsWith("mirror_probe_soft") && it.contains("limit=1") &&
+                            it.contains("unpin=none")
+                    },
+                )
+            }
+        }
+    }
 }
