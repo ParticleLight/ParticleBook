@@ -165,27 +165,33 @@ object DownloadLocation {
     }
 
     /**
-     * 用系统文件管理器打开「下载所在文件夹」。
-     * - 自定义目录：ACTION_VIEW 打开 tree uri；
-     * - 默认目录：先尝试 ExternalStorageProvider 的 document uri，再退 storage 根目录与部分文件管理器支持的 file:// 目录 intents。
-     * 返回 false 表示所有尝试都没有可用 Activity（调用方显示 Snackbar）。
+     * 用系统文件管理器打开「下载所在文件夹」（D1）。
+     *
+     * - SAF 目录：把 tree uri 转成 DocumentsUI 认的 **document uri**
+     *   （[DocumentsContract.buildDocumentUriUsingTree] + tree document id），再 ACTION_VIEW；
+     *   直接拿 tree uri 当 data 在 Pixel/Android 12 上没有 Activity 接。
+     * - 默认目录：仍先尝试 ExternalStorageProvider 的 document uri；
+     * - 都失败时回退 ACTION_OPEN_DOCUMENT_TREE（系统文档选择器），带 INITIAL_URI 尽量直达当前目录；
+     * - 返回 false 表示确实没有可用入口，调用方用 [openFolderFailureMessage] 显示包含路径的提示。
      */
     fun openFolder(context: Context): Boolean {
-        val custom = treeUri(context)
-        if (custom != null) {
+        val customTree = treeUri(context)
+        val customDocument = customTree?.let { treeDocumentUri(it) }
+        if (customDocument != null) {
             if (tryStart(
                     context,
                     Intent(Intent.ACTION_VIEW)
-                        .setDataAndType(custom, DocumentsContract.Document.MIME_TYPE_DIR)
-                        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION),
+                        .setDataAndType(customDocument, DocumentsContract.Document.MIME_TYPE_DIR)
+                        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION),
                 )
             ) {
                 return true
             }
+            // 个别 DocumentsUI 版本只认 data 不认 type。
             if (tryStart(
                     context,
-                    Intent(Intent.ACTION_VIEW, custom)
-                        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION),
+                    Intent(Intent.ACTION_VIEW, customDocument)
+                        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION),
                 )
             ) {
                 return true
@@ -211,6 +217,16 @@ object DownloadLocation {
         ) {
             return true
         }
+
+        // D1 回退：直接 ACTION_VIEW 打不开（Android/data 受 scoped storage 限制）时，
+        // 打开系统文档选择器；EXTRA_INITIAL_URI 尽量让用户从当前目录附近开始。
+        val picker = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE)
+            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+        (customDocument ?: documentUri)?.let { initial ->
+            picker.putExtra(DocumentsContract.EXTRA_INITIAL_URI, initial)
+        }
+        if (tryStart(context, picker)) return true
+
         // 部分系统文件管理器只认 storage 根。
         val rootUri = DocumentsContract.buildRootUri(EXTERNAL_STORAGE_AUTHORITY, "primary")
         if (tryStart(
@@ -230,6 +246,21 @@ object DownloadLocation {
             )
             true
         }.getOrDefault(false)
+    }
+
+    /** D1：所有打开入口都不可用时给用户的提示，附带真实下载位置（默认绝对路径 / SAF tree id）。 */
+    fun openFolderFailureMessage(context: Context): String =
+        folderOpenFailureText(locationForMessage(context))
+
+    /** 下载位置文案：默认目录绝对路径；SAF 目录用 tree document id（如 primary:Books）。 */
+    fun locationForMessage(context: Context): String {
+        val tree = treeUri(context)
+        if (tree != null) {
+            return runCatching { DocumentsContract.getTreeDocumentId(tree) }.getOrNull()
+                ?.takeIf { it.isNotBlank() }
+                ?: tree.toString()
+        }
+        return defaultDir(context).absolutePath
     }
 
     // ------------------------------------------------------------------ helpers
@@ -265,3 +296,7 @@ object DownloadLocation {
     }.onFailure { Log.w(TAG, "open folder intent failed: " + intent.action) }
         .getOrDefault(false)
 }
+
+/** D1 的失败文案（纯函数，JVM 单测可直接断言）。 */
+internal fun folderOpenFailureText(location: String): String =
+    "无法打开文件管理器，下载位置：" + location

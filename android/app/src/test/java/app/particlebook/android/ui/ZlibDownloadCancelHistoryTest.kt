@@ -202,4 +202,26 @@ class ZlibDownloadCancelHistoryTest {
         assertEquals(1234L, recovered[0].finishedAt)
         assertFalse(recovered[0].isActive)
     }
+
+    @Test
+    fun interruptedFailedRecordIsResumableFromHistory() {
+        // D3：进程被杀后恢复出来的 FAILED(INTERRUPTED) 记录也保留 .part，记录页要给「重试」。
+        val interrupted = task(status = ZlibDownloadStatus.FAILED).copy(
+            errorKind = ZlibDownloadManager.ZLIB_INTERRUPTED_KIND,
+        )
+        assertTrue(zlibIsResumableHistoryRecord(interrupted))
+        assertEquals(ZlibResumeSource.PARTIAL, zlibResumeSourceFor(interrupted, partialBytes = 512L))
+        assertEquals(ZlibResumeSource.RESTART, zlibResumeSourceFor(interrupted, partialBytes = 0L))
+
+        // 普通网络失败仍走详情/卡片重试，不从记录页开续传口子。
+        val networkFailed = task(status = ZlibDownloadStatus.FAILED).copy(errorKind = "NETWORK")
+        assertFalse(zlibIsResumableHistoryRecord(networkFailed))
+        assertEquals(
+            ZlibResumeSource.UNAVAILABLE,
+            zlibResumeSourceFor(networkFailed, partialBytes = 512L),
+        )
+
+        assertTrue(zlibIsResumableHistoryRecord(zlibCancelledHistoryRecord(task(), 1L)))
+        assertFalse(zlibIsResumableHistoryRecord(task(status = ZlibDownloadStatus.COMPLETED)))
+    }
 }

@@ -126,7 +126,11 @@ fun ZlibDownloadsScreen(
                     IconButton(
                         onClick = {
                             if (!DownloadLocation.openFolder(context)) {
-                                scope.launch { snackbarHostState.showSnackbar("无法打开文件管理器") }
+                                scope.launch {
+                                    snackbarHostState.showSnackbar(
+                                        DownloadLocation.openFolderFailureMessage(context),
+                                    )
+                                }
                             }
                         },
                         modifier = Modifier.size(48.dp),
@@ -198,17 +202,27 @@ fun ZlibDownloadsScreen(
                         onDismissMenu = { if (menuBookId == record.bookId) menuBookId = null },
                         onOpenFolder = {
                             if (!DownloadLocation.openFolder(context)) {
-                                scope.launch { snackbarHostState.showSnackbar("无法打开文件管理器") }
+                                scope.launch {
+                                    snackbarHostState.showSnackbar(
+                                        DownloadLocation.openFolderFailureMessage(context),
+                                    )
+                                }
                             }
                         },
                         onDeleteClick = { deleteTarget = record },
-                        // T23：CANCELLED 记录（含进程重启后）给「续传」；半成品被系统清掉时如实提示从头下载。
+                        // T23/D3：CANCELLED（续传）与 FAILED(INTERRUPTED)（重试）都从历史恢复下载；
+                        // 半成品被系统清掉时如实提示从头下载。记录页暂无进行中区块（已知限制），
+                        // 进度要到详情页/主 tab 卡片查看。
                         onResume = {
+                            val interrupted = record.status == ZlibDownloadStatus.FAILED &&
+                                record.errorKind == ZlibDownloadManager.ZLIB_INTERRUPTED_KIND
                             val source = ZlibDownloadManager.resumeCancelled(record.bookId, store)
                             val message = when (source) {
-                                ZlibResumeSource.PARTIAL -> "已从上次进度续传"
+                                ZlibResumeSource.PARTIAL ->
+                                    if (interrupted) "已从中断处继续下载" else "已从上次进度续传"
                                 ZlibResumeSource.RESTART -> "临时文件已被清理，将从头重新下载"
-                                ZlibResumeSource.UNAVAILABLE, null -> "无法续传，请稍后重试"
+                                ZlibResumeSource.UNAVAILABLE, null ->
+                                    if (interrupted) "无法重试，请稍后重试" else "无法续传，请稍后重试"
                             }
                             scope.launch { snackbarHostState.showSnackbar(message) }
                         },
@@ -419,6 +433,9 @@ private fun DownloadRecordRow(
     val recordCompleted = record.status == ZlibDownloadStatus.COMPLETED
     // T23：用户取消的半成品保留在磁盘上（可续传），记录页要显示「已取消」而不是「未完成/失败」。
     val recordCancelled = record.status == ZlibDownloadStatus.CANCELLED
+    // D3：进程被杀后恢复出来的中断记录 —— 记录页要有「重试」入口，且 .part 仍保留可续传。
+    val recordInterrupted = record.status == ZlibDownloadStatus.FAILED &&
+        record.errorKind == ZlibDownloadManager.ZLIB_INTERRUPTED_KIND
     val clickable = recordCompleted && imported != null
     // P1-6：200% 字号下三行都只有省略号 → 书名放到 2 行、隐藏文件名行（标题已足够识别）。
     val largeFont = LocalDensity.current.fontScale >= 1.3f
@@ -484,9 +501,13 @@ private fun DownloadRecordRow(
                 strokeWidth = 2.dp,
             )
 
-            // T23：取消态（含进程重启后）给「续传」；半成品若被清掉，resumeCancelled 会提示从头下载。
+            // T23/D3：取消态给「续传」；中断记录给「重试」——两者都走 resumeCancelled 从历史恢复。
             recordCancelled -> TextButton(onClick = onResume) {
                 Text("续传")
+            }
+
+            recordInterrupted -> TextButton(onClick = onResume) {
+                Text("重试")
             }
 
             !recordCompleted -> Text(
@@ -571,6 +592,9 @@ private fun recordMetaLine(record: ZlibDownloadTask, completed: Boolean): String
     val status = when {
         completed -> "已完成"
         record.status == ZlibDownloadStatus.CANCELLED -> "已取消"
+        // D3：区分「进程中断、可重试」与普通下载失败。
+        record.status == ZlibDownloadStatus.FAILED &&
+            record.errorKind == ZlibDownloadManager.ZLIB_INTERRUPTED_KIND -> "已中断"
         record.status == ZlibDownloadStatus.FAILED -> "失败"
         else -> "未完成"
     }

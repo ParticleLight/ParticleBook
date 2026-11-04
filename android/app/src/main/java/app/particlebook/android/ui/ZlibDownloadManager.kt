@@ -417,11 +417,22 @@ internal fun zlibCancelledHistoryRecord(
 /** T23：续传时半成品是否还在（决定提示「续传」还是「临时文件已被清理，将从头下载」）。 */
 enum class ZlibResumeSource { PARTIAL, RESTART, UNAVAILABLE }
 
+/**
+ * D3：哪些下载历史记录可以从记录页直接续传。
+ * - CANCELLED：用户主动取消，.part 按设计保留；
+ * - FAILED(INTERRUPTED)：进程被杀后启动恢复出来的中断记录，同样保留 .part 供续传。
+ * 其余失败（NETWORK/LOGIN_REQUIRED 等）仍走详情页/卡片重试，不在这里开续传口子。
+ */
+internal fun zlibIsResumableHistoryRecord(record: ZlibDownloadTask): Boolean =
+    record.status == ZlibDownloadStatus.CANCELLED ||
+        (record.status == ZlibDownloadStatus.FAILED &&
+            record.errorKind == ZlibDownloadManager.ZLIB_INTERRUPTED_KIND)
+
 internal fun zlibResumeSourceFor(
     record: ZlibDownloadTask,
     partialBytes: Long,
 ): ZlibResumeSource = when {
-    record.status != ZlibDownloadStatus.CANCELLED -> ZlibResumeSource.UNAVAILABLE
+    !zlibIsResumableHistoryRecord(record) -> ZlibResumeSource.UNAVAILABLE
     partialBytes > 0L -> ZlibResumeSource.PARTIAL
     else -> ZlibResumeSource.RESTART
 }
@@ -541,8 +552,9 @@ object ZlibDownloadManager {
             // U10/T23：清掉上次进程被杀留下的 cacheDir 半成品；但 CANCELLED 的 SAF 记录还要续传，
             // 对应半成品按 task id 前缀保留（其余判为孤儿，含审计 B2 指出的 .part.part 泄漏）。
             withContext(Dispatchers.IO) {
+                // D3：中断（INTERRUPTED）记录同样要保留 SAF 半成品，否则记录页的「重试」续不上。
                 val keepPrefixes = _history.value
-                    .filter { it.status == ZlibDownloadStatus.CANCELLED && it.saf }
+                    .filter { it.saf && zlibIsResumableHistoryRecord(it) }
                     .map { safTempPrefix(it.id) }
                     .toSet()
                 zlibCleanTempDownloads(File(app.cacheDir, SAF_TEMP_DIR), keepPrefixes)
@@ -719,19 +731,18 @@ object ZlibDownloadManager {
     }
 
     /**
-     * T23：从下载历史续传一条 CANCELLED 记录（进程重启后也可用）。
+     * T23/D3：从下载历史续传一条 CANCELLED 或 FAILED(INTERRUPTED) 记录（进程重启后也可用）。
      *
      * 目标路径沿用记录里的值：普通路径的 .part 就在目标文件旁边；SAF 的 cacheDir 半成品按
-     * task id 命名（init 清理时已按 CANCELLED 记录保留）。旧记录会先移除，续传结果以新终态覆盖。
+     * task id 命名（init 清理时已按可续传记录保留）。旧记录会先移除，续传结果以新终态覆盖。
      *
      * @return 续传来源（[ZlibResumeSource.PARTIAL] 可接上半成品 / [ZlibResumeSource.RESTART]
-     *   半成品已被清理、将从头下载）；null = 无法续传（记录不是 CANCELLED、已有活动任务或未初始化）。
+     *   半成品已被清理、将从头下载）；null = 无法续传（记录不可续传、已有活动任务或未初始化）。
      */
     fun resumeCancelled(bookId: String, store: LibraryStore): ZlibResumeSource? {
         val context = appContext ?: return null
-        val record = historyForBook(bookId)?.takeIf {
-            it.status == ZlibDownloadStatus.CANCELLED
-        } ?: return null
+        val record = historyForBook(bookId)?.takeIf { zlibIsResumableHistoryRecord(it) }
+            ?: return null
         if (_tasks.value.any { it.bookId == bookId && it.isActive }) return null
         if (runs.current(record.id) != null) return null
         // 半成品大小只做一次 stat（cacheDir/外部目录的小文件），用于提示「续传」还是「从头下载」。
