@@ -295,8 +295,14 @@ object ZlibDetailParser {
         // 带 scheme 的绝对 URI：只放行 http(s)，javascript:/file:/intent: 等一律拒绝。
         val rawUri = runCatching { URI(trimmed) }.getOrNull()
         if (rawUri != null && rawUri.isAbsolute) {
-            return rawUri.takeIf { it.scheme.equals("http", true) || it.scheme.equals("https", true) }
-                ?.toString()
+            val httpCover = rawUri.scheme.equals("http", true) && !rawUri.host.isNullOrBlank()
+            return when {
+                // 绝对 http 封面升 https（CDN 均支持 TLS；避免明文封面被网络策略拦掉）。
+                httpCover && lower.startsWith("http://") -> "https" + trimmed.substring(4)
+                rawUri.scheme.equals("http", true) || rawUri.scheme.equals("https", true) ->
+                    rawUri.toString()
+                else -> null
+            }
         }
         val baseUri = runCatching { URI(baseUrl) }.getOrNull()
         if (baseUri != null) {
@@ -306,18 +312,23 @@ object ZlibDetailParser {
                     ?.toString()
             }
         }
-        // baseUrl 非法时的保守兜底（正常详情页不会走到这里）。
-        return when {
-            trimmed.startsWith("//") -> "https:" + trimmed
-            trimmed.startsWith("/") -> baseOrigin(baseUrl) + trimmed
-            else -> baseUrl.trimEnd('/') + "/" + trimmed
+        // baseUrl 非法时的保守兜底（正常详情页不会走到这里）：先校验 base 的 scheme/authority，
+        // 否则会拼出 "null://null/..." 这种协议无效的封面 URL，宁可返回 null 交给占位封面。
+        if (trimmed.startsWith("//")) {
+            return runCatching { URI("https:" + trimmed) }.getOrNull()
+                ?.takeIf { !it.host.isNullOrBlank() }
+                ?.toString()
         }
+        val origin = baseOrigin(baseUrl) ?: return null
+        return if (trimmed.startsWith("/")) origin + trimmed else origin + "/" + trimmed
     }
 
-    private fun baseOrigin(baseUrl: String): String = try {
-        val uri = URI(baseUrl)
-        uri.scheme + "://" + uri.authority
-    } catch (e: Exception) {
-        baseUrl.trimEnd('/')
+    /** baseUrl 的 http(s) origin；scheme/authority 缺失（相对路径/垃圾串）时返回 null。 */
+    private fun baseOrigin(baseUrl: String): String? {
+        val uri = runCatching { URI(baseUrl) }.getOrNull() ?: return null
+        val scheme = uri.scheme?.lowercase() ?: return null
+        if (scheme != "http" && scheme != "https") return null
+        val authority = uri.authority?.takeIf { it.isNotBlank() } ?: return null
+        return scheme + "://" + authority
     }
 }

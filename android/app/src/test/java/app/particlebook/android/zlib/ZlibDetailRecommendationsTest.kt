@@ -159,4 +159,32 @@ class ZlibDetailRecommendationsTest {
         assertEquals("bbb222", recs[1].hash)
         assertEquals("https://z-lib.by/img/two.jpg", recs[1].coverUrl)
     }
+
+    /** P3：推荐封面绝对 http 升 https；baseUrl 非法时相对封面返回 null（不能拼 null 协议）。 */
+    @Test
+    fun recommendationCoverUpgradesHttpAndDropsInvalidBase() {
+        val html = """
+            <div class="books-mosaic">
+              <z-masonry source="recommend">
+                <a href="/book/aaa111/one.html">
+                  <z-cover title="One"><img src="http://covers.example/abs.jpg"></z-cover>
+                </a>
+                <a href="/book/bbb222/two.html">
+                  <z-cover title="Two"><img src="/img/two.jpg"></z-cover>
+                </a>
+              </z-masonry>
+            </div>
+        """.trimIndent()
+
+        val withValidBase = ZlibDetailParser.parseRecommendations(
+            html,
+            "https://z-lib.by/book/abc/real.html",
+        )
+        assertEquals("https://covers.example/abs.jpg", withValidBase[0].coverUrl)
+        assertEquals("https://z-lib.by/img/two.jpg", withValidBase[1].coverUrl)
+
+        val withInvalidBase = ZlibDetailParser.parseRecommendations(html, "not a valid base url")
+        assertEquals("绝对 http 封面不依赖 baseUrl", "https://covers.example/abs.jpg", withInvalidBase[0].coverUrl)
+        assertNull("baseUrl 无 scheme/authority 时相对封面应放弃", withInvalidBase[1].coverUrl)
+    }
 }

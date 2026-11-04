@@ -536,12 +536,9 @@ fun DiscoverScreen(
                 scope.launch { snackbarHostState.showSnackbar("已切换到 " + host) }
                 // 用 ViewModel 记录的「上次已提交」查询/分类重搜，不能读输入框草稿：
                 // 用户可能改了搜索词但没提交，切线路不应替他把草稿搜出去。
-                if (state is ZlibSearchState.Success ||
-                    state is ZlibSearchState.Empty ||
-                    state is ZlibSearchState.Error
-                ) {
-                    viewModel.reloadCurrentRequest()
-                }
+                // Loading 时请求已用旧线路发出：ViewModel 记 pendingReload，等它结束再自动重跑；
+                // 其他状态立即重跑（Idle/无已提交请求时 no-op）。
+                viewModel.onMirrorSwitched()
             },
         )
     }

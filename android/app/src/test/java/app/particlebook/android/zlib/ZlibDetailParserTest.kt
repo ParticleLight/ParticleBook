@@ -108,6 +108,43 @@ class ZlibDetailParserTest {
         assertEquals("https://z-lib.by/book/cc/covers/main.jpg", detail.coverUrl)
     }
 
+    /** P3：baseUrl 没有 scheme/authority 时，相对封面不能兜底成 "null://null/..."。 */
+    @Test
+    fun invalidBaseUrlDoesNotProduceNullProtocolCover() {
+        val html = """
+            <div class="details-book cardBooks" data-book_id="44">
+              <div class="details-book-cover-container">
+                <z-cover><img src="/img/covers/none.jpg"></z-cover>
+              </div>
+              <h1 class="book-title">No Base</h1>
+              <a class="btn btn-default dlButton addDownloadedBook" href="/dl/NB">pdf, 1 MB</a>
+            </div>
+        """.trimIndent()
+
+        // 带空格的非法 baseUrl 让 URI(baseUrl) 解析失败，才会走到 baseOrigin 兜底分支。
+        val detail = ZlibDetailParser.parse(html, "not a valid base url")
+
+        assertNull("baseUrl 无 scheme/authority 时不能拼出 null 协议封面", detail.coverUrl)
+    }
+
+    /** P3：绝对 http 封面升 https，避免明文封面被网络策略拦掉。 */
+    @Test
+    fun absoluteHttpCoverIsUpgradedToHttps() {
+        val html = """
+            <div class="details-book cardBooks" data-book_id="45">
+              <div class="details-book-cover-container">
+                <z-cover><img src="http://covers.example/x.jpg"></z-cover>
+              </div>
+              <h1 class="book-title">Http Cover</h1>
+              <a class="btn btn-default dlButton addDownloadedBook" href="/dl/HTTP">pdf, 1 MB</a>
+            </div>
+        """.trimIndent()
+
+        val detail = ZlibDetailParser.parse(html, "https://z-lib.by/book/abc/http-cover.html")
+
+        assertEquals("https://covers.example/x.jpg", detail.coverUrl)
+    }
+
     @Test
     fun missingTitleThrowsParse() {
         try {

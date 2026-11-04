@@ -7,6 +7,7 @@ import app.particlebook.android.zlib.ZlibException
 import java.io.IOException
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import org.junit.Assert.assertEquals
@@ -67,6 +68,52 @@ class ZlibSearchViewModelRaceTest {
     }
 
     @Test
+    fun mirrorSwitchWhileLoadingReloadsAgainstNewMirror() {
+        val source = FakeSearchSource()
+        source.slowThrows = false
+        source.mirror = MIRROR_A
+        val vm = newViewModel(source)
+
+        vm.search(SLOW)
+        assertTrue("slow request did not start", source.slowStarted.await(5, TimeUnit.SECONDS))
+
+        // 用户在第一页请求在途时切线路：当前请求仍会以旧线路跑完，完成后必须自动用新线路重跑。
+        source.mirror = MIRROR_B
+        vm.onMirrorSwitched()
+        source.slowGate.countDown()
+
+        waitUntil("mirror switch while loading did not reload") {
+            source.slowCalls.get() >= 2 &&
+                (vm.state as? ZlibSearchState.Success)
+                    ?.books
+                    ?.firstOrNull()
+                    ?.id == "slow-" + hostOf(MIRROR_B)
+        }
+        val state = vm.state as ZlibSearchState.Success
+        assertEquals(SLOW, state.query)
+        assertEquals("旧线路结果不应留在新线路标签下", 2, source.slowCalls.get())
+    }
+
+    @Test
+    fun mirrorSwitchWhileLoadingButSameMirrorDoesNotReload() {
+        val source = FakeSearchSource()
+        source.slowThrows = false
+        source.mirror = MIRROR_A
+        val vm = newViewModel(source)
+
+        vm.search(SLOW)
+        assertTrue("slow request did not start", source.slowStarted.await(5, TimeUnit.SECONDS))
+
+        // 切换未生效（mirror 还是原值）时，不应产生第二次请求。
+        vm.onMirrorSwitched()
+        source.slowGate.countDown()
+        waitUntil("initial request did not finish") { vm.state is ZlibSearchState.Success }
+        Thread.sleep(200)
+
+        assertEquals(1, source.slowCalls.get())
+    }
+
+    @Test
     fun firstPageNoMirrorKeepsKindForBanner() {
         val source = FakeSearchSource()
         val vm = newViewModel(source)
@@ -120,6 +167,8 @@ class ZlibSearchViewModelRaceTest {
         assertNotNull(state.books)
     }
 
+    private fun hostOf(url: String): String = url.substringAfter("://", url).substringBefore('/')
+
     private fun newViewModel(source: ZlibSearchSource): ZlibSearchViewModel =
         ZlibSearchViewModel(
             scope = CoroutineScope(Dispatchers.Unconfined),
@@ -141,6 +190,11 @@ class ZlibSearchViewModelRaceTest {
     private class FakeSearchSource : ZlibSearchSource {
         val slowStarted = CountDownLatch(1)
         val slowGate = CountDownLatch(1)
+        val slowCalls = AtomicInteger()
+
+        /** 测试可改：模拟 ZlibClient.mirror 在请求中途被切换。 */
+        @Volatile
+        var mirror: String = MIRROR_A
         val page2Started = CountDownLatch(1)
         val page2Gate = CountDownLatch(1)
 
@@ -154,10 +208,14 @@ class ZlibSearchViewModelRaceTest {
         override fun search(query: String, page: Int, filters: ZlibSearchFilters?): ZSearchPage {
             when {
                 query == SLOW -> {
+                    val startedOn = mirror
+                    slowCalls.incrementAndGet()
                     slowStarted.countDown()
                     check(slowGate.await(10, TimeUnit.SECONDS)) { "slow gate timeout" }
                     if (slowThrows) throw IOException("stale network failure")
-                    return page(query, page, listOf(book("slow-1", "Slow")))
+                    // 结果带发起时线路，测试可断言最终展示的是新线路的重跑结果。
+                    val host = startedOn.substringAfter("://", startedOn).substringBefore('/')
+                    return page(query, page, listOf(book("slow-" + host, "Slow")))
                 }
                 query == NO_MIRROR -> throw ZlibException("all mirrors down", ZlibException.Kind.NO_MIRROR)
                 query == PAGE2_FAIL && page == 2 -> {
@@ -175,7 +233,7 @@ class ZlibSearchViewModelRaceTest {
 
         override fun resetConnectionState() = Unit
 
-        override fun mirrorUrl(): String? = "https://mirror.example.com"
+        override fun mirrorUrl(): String? = mirror
 
         private fun page(query: String, page: Int, books: List<ZBook>) =
             ZSearchPage(query = query, page = page, totalPages = if (query == PAGE2_FAIL) 2 else 1, books = books)
@@ -197,6 +255,8 @@ class ZlibSearchViewModelRaceTest {
     }
 
     private companion object {
+        const val MIRROR_A = "https://mirror-a.example.com"
+        const val MIRROR_B = "https://mirror-b.example.com"
         const val SLOW = "slow"
         const val FAST = "fast"
         const val NO_MIRROR = "nomirror"

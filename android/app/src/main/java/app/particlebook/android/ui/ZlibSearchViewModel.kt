@@ -115,6 +115,12 @@ class ZlibSearchViewModel internal constructor(
     private var firstPageJob: Job? = null
     private var nextPageJob: Job? = null
 
+    /** Loading 中切线路：等当前请求结束、且线路确实变了再重跑（见 [onMirrorSwitched]）。 */
+    private var pendingReloadForMirror = false
+
+    /** 当前首屏请求开始时的线路；请求结束时与 [mirrorBase] 对比判断是否换过线。 */
+    private var requestMirrorBase: String? = null
+
     /** 请求令牌：只在主线程自增；写状态前比对，旧请求的迟到结果直接丢弃。 */
     @Volatile
     private var requestId: Int = 0
@@ -144,12 +150,14 @@ class ZlibSearchViewModel internal constructor(
                         totalPages = result.totalPages,
                     )
                 }
+                reloadAfterMirrorSwitch(request)
             } catch (cancellation: CancellationException) {
                 throw cancellation
             } catch (throwable: Throwable) {
                 // 旧请求失败（超时/连接断开）不能把新请求的 Loading/Success 覆盖成错误态。
                 if (!isCurrent(request)) return@launch
                 state = toErrorState(throwable)
+                reloadAfterMirrorSwitch(request)
             }
         }
     }
@@ -187,11 +195,13 @@ class ZlibSearchViewModel internal constructor(
                         category = trimmed,
                     )
                 }
+                reloadAfterMirrorSwitch(request)
             } catch (cancellation: CancellationException) {
                 throw cancellation
             } catch (throwable: Throwable) {
                 if (!isCurrent(request)) return@launch
                 state = toErrorState(throwable)
+                reloadAfterMirrorSwitch(request)
             }
         }
     }
@@ -326,6 +336,19 @@ class ZlibSearchViewModel internal constructor(
         search(currentQuery)
     }
 
+    /**
+     * 用户切换线路后调用（FindScreen 的 onSwitched）：
+     * - Loading：请求已用旧线路发出，记 pendingReload，等请求结束且线路确实变了再自动重跑；
+     * - 其他状态：立即重跑已提交的查询/分类（Idle/无已提交请求时 no-op）。
+     */
+    fun onMirrorSwitched() {
+        if (state is ZlibSearchState.Loading) {
+            pendingReloadForMirror = true
+        } else {
+            reloadCurrentRequest()
+        }
+    }
+
     /** A5：清除所有筛选（等价应用默认值）。 */
     fun clearFilters() {
         applyFilters(ZlibSearchFilters())
@@ -336,12 +359,26 @@ class ZlibSearchViewModel internal constructor(
         currentQuery = query
         currentCategory = category
         activeFilters = requestFilters
+        pendingReloadForMirror = false
+        requestMirrorBase = mirrorBase
         firstPageJob?.cancel()
         nextPageJob?.cancel()
         firstPageJob = null
         nextPageJob = null
         requestId += 1
         return requestId
+    }
+
+    /**
+     * 首屏请求落定后检查：Loading 期间用户切过线路，且实际生效的 mirror 已变 → 用当前查询/分类重跑。
+     * 线路没变（切到同一线路/切换未生效）则清掉 pending，避免无意义重复请求。
+     */
+    private fun reloadAfterMirrorSwitch(request: Int) {
+        if (!isCurrent(request)) return
+        if (!pendingReloadForMirror) return
+        pendingReloadForMirror = false
+        if (mirrorBase == requestMirrorBase) return
+        reloadCurrentRequest()
     }
 
     private fun isCurrent(request: Int): Boolean = request == requestId
