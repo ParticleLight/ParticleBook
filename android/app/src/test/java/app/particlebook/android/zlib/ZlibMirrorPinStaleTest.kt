@@ -353,6 +353,58 @@ class ZlibMirrorPinStaleTest {
         }
     }
 
+    /** task-75：跨 host adopt 的 finalRoot 不在注册表时，也要能 switchMirror(current) 并标成 current。 */
+    @Test
+    fun adoptedFinalRootIsSwitchableAndListedOnce() {
+        StubHttpServer(appBody).use { home ->
+            HomeRedirectGateway(home.baseUrl + "/s/test").use { gateway ->
+                freshRegistry(listOf(gateway.baseUrl))
+                val store = MemoryPinStore()
+                val client = newClient(store)
+
+                val picked = client.probeMirrors()
+                assertEquals(home.baseUrl, picked)
+                assertTrue("finalRoot 应能直接切换（不能因不在注册表返回 false）", client.switchMirror(picked))
+                assertEquals(home.baseUrl, client.mirror)
+                assertEquals("pin 应指向 finalRoot", home.baseUrl, store.stored)
+
+                val info = client.mirrorInfo()
+                val count = info.mirrors.count {
+                    it.trim().trimEnd('/').lowercase() == home.baseUrl.lowercase()
+                }
+                assertEquals("名单里 finalRoot 只能出现一次: " + info.mirrors, 1, count)
+                assertTrue("mirrorInfo 应把 finalRoot 标成 current: " + info, info.index > 0)
+                assertEquals(home.baseUrl, info.mirrors[info.index - 1].trimEnd('/'))
+
+                // pin 到 finalRoot 后新客户端冷启应优先直接用它，不因不在注册表而失效。
+                val coldClient = newClient(store)
+                assertEquals("pin finalRoot 应可作为优选线路", home.baseUrl, coldClient.probeMirrors())
+            }
+        }
+    }
+
+    /** task-75：finalRoot 本身是官方 seed 时，并入名单不得产生重复，官方元数据/rank 保持原样。 */
+    @Test
+    fun adoptedFinalRootKeepsOfficialSeedMetadata() {
+        StubHttpServer(appBody).use { home ->
+            HomeRedirectGateway(home.baseUrl + "/s/test").use { gateway ->
+                freshRegistry(listOf(gateway.baseUrl, home.baseUrl))
+                val store = MemoryPinStore()
+                val client = newClient(store)
+
+                assertEquals("跨 host 跳转应采用官方站 finalRoot", home.baseUrl, client.probeMirrors())
+                val homeRows = client.mirrorRows().filter {
+                    it.url.trim().trimEnd('/').lowercase() == home.baseUrl.lowercase()
+                }
+                assertEquals("官方 seed 在名单里只能有一行: " + client.mirrorRows(), 1, homeRows.size)
+                assertEquals("官方 seed 的 tier 不得被覆盖", "official", homeRows.single().tier)
+                assertTrue("finalRoot 行应标成 current", homeRows.single().current)
+                assertTrue(client.switchMirror(home.baseUrl))
+                assertEquals(home.baseUrl, store.stored)
+            }
+        }
+    }
+
     /** P2-4：跨 host 跳转（网关 -> 正式站）时采用最终落点，后续请求省一跳。 */
     @Test
     fun crossHostRedirectAdoptsFinalRoot() {

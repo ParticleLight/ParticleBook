@@ -1795,11 +1795,23 @@ class ZlibClient(
 
     // ---------------------------------------------------------------- P1c: 动态镜像名单
 
-    /** 静态名单 + 动态发现 + 已探测成功的动态主机（首次调用加载注册表文件，之后纯内存）。 */
+    /**
+     * 静态名单 + 动态发现 + 已探测成功的动态主机（首次调用加载注册表文件，之后纯内存）。
+     * task-75：跨 host 301 adopt 的 finalRoot 可能不在注册表（注册表只改 candidate 的 finalUrl 字段），
+     * 但它才是当前直连使用的线路；把它并入名单末尾（按 normalize 去重、不动既有条目的 rank/官方元数据），
+     * 保证 mirrorInfo() 能标出 current、switchMirror(currentUrl) 不会误判「不在名单」而返回 false。
+     */
     private fun mergedMirrors(): List<String> {
         val now = System.currentTimeMillis()
         ZlibMirrorRegistry.ensureLoaded(registryFile(), now)
-        return ZlibMirrorRegistry.orderedUrls(now)
+        val listed = ZlibMirrorRegistry.orderedUrls(now)
+        val current = mirror ?: pinned() ?: prefs?.getString(KEY_MIRROR, null)
+        val currentNorm = normalizeMirror(current)
+        if (currentNorm.isEmpty() || listed.any { normalizeMirror(it) == currentNorm }) return listed
+        val direct = current?.trim()?.trimEnd('/') ?: return listed
+        if (direct.isEmpty()) return listed
+        debugLog("mirror_list append_current host=" + hostOf(direct) + " registry=" + listed.size)
+        return listed + direct
     }
 
     /**
