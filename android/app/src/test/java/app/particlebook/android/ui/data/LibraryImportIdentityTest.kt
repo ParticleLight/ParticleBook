@@ -165,7 +165,7 @@ class LibraryImportIdentityTest {
     }
 
     @Test
-    fun registerFileCleansOldCopyWhenValidatorRejectsEvenIfHeaderLooksComplete() = runBlocking {
+    fun registerFileQuarantinesCompleteOldCopyWhenValidatorRejects() = runBlocking {
         val dir = newDir("validator-reject")
         val library = File(dir, "_pb_files").apply { mkdirs() }
         val oldFile = validEpubFile(File(library, "old.epub"))
@@ -186,9 +186,14 @@ class LibraryImportIdentityTest {
         assertEquals(first.id, second.id)
         assertEquals(newFile.absolutePath, second.filePath)
         assertFalse(
-            "validator 判定不可用的旧副本要清理，否则冷启扫描可能把它登记成第二条",
+            "旧副本结构完整、只是 validator 拒绝，不能直接删掉唯一完整副本",
             oldFile.exists(),
         )
+        assertTrue(
+            "改为 .deleted 隔离，既保留数据又不会被孤儿扫描登记成第二条",
+            File(library, "old.epub.deleted").isFile,
+        )
+        assertEquals(1, store.books.size)
         assertTrue(newFile.exists())
     }
 

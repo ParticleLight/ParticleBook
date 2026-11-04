@@ -20,13 +20,17 @@ import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
+import java.io.InputStream
 import java.io.RandomAccessFile
 import java.security.MessageDigest
 import java.text.SimpleDateFormat
+import java.time.Instant
 import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
 import java.util.UUID
+import kotlinx.coroutines.ensureActive
+import kotlin.coroutines.coroutineContext
 
 /** [LibraryStore.importDocument] 的结果：区分「新导入」与「已在书架」的重复导入，供 UI 分文案/跳转。 */
 data class ImportOutcome(
@@ -226,6 +230,8 @@ class LibraryStore(
         title: String?,
         author: String?,
         extraTag: String? = null,
+        /** task-102：附加身份 tag（例如 SAF URI）；与 [extraTag] 一起写入新条目/rep 后条目。 */
+        extraTags: List<String> = emptyList(),
         /**
          * task-79/task-73：可选校验已有书架条目的文件是否完整（例如 zlibInspectBookFile == COMPLETE）。
          * 返回 false 时不会把坏文件当作幂等命中，改为把条目路径修到这次的新文件；默认 null 不改行为。
@@ -239,6 +245,9 @@ class LibraryStore(
         val tags = buildList {
             add(DOWNLOAD_TAG)
             extraTag?.takeIf { it.isNotBlank() && it != DOWNLOAD_TAG }?.let(::add)
+            extraTags.forEach { tag ->
+                if (tag.isNotBlank() && tag != DOWNLOAD_TAG && tag !in this) add(tag)
+            }
         }
         val result = withContext(Dispatchers.IO) {
             indexStore.registerFile(
@@ -324,31 +333,43 @@ class LibraryStore(
                 return Result.success(earlyExisting)
             }
         }
-        val local = withContext(Dispatchers.IO) {
-            try {
-                Result.success(copyUriToLibrary(uri, prefix = "zlib"))
-            } catch (throwable: Throwable) {
-                if (throwable is CancellationException) throw throwable
-                Log.e(TAG, "copy saf document failed uri=" + uri, throwable)
-                Result.failure(throwable)
+        var copiedRef: CopiedFile? = null
+        val local = try {
+            withContext(Dispatchers.IO) {
+                val copied = copyUriToLibrary(uri, prefix = "zlib")
+                copiedRef = copied
+                Result.success(copied)
             }
+        } catch (cancellation: CancellationException) {
+            // task-102 P1-2：copy 已 rename 但 withContext 退出时被取消，不能让最终文件留在 _pb_files。
+            discardCopiedFileOnCancellation(copiedRef)
+            throw cancellation
+        } catch (throwable: Throwable) {
+            Log.e(TAG, "copy saf document failed uri=" + uri, throwable)
+            Result.failure(throwable)
         }
         return local.fold(
             onSuccess = { copied ->
-                adoptLocalFile(
-                    file = copied.file,
-                    title = title?.takeIf { it.isNotBlank() }
-                        ?: copied.displayName.substringBeforeLast('.', ""),
-                    author = author,
-                    extraTag = extraTag,
-                    existingFileValidator = existingFileValidator,
-                ).onSuccess { book ->
+                // task-102 P1-2：复制成功后，登记放进 NonCancellable 临界区。否则取消若落在
+                // rename 之后、索引登记之前，会留下未登记的最终文件（冷启扫描当孤儿或与已有条目重复）。
+                val adopted = withContext(NonCancellable + Dispatchers.IO) {
+                    adoptLocalFile(
+                        file = copied.file,
+                        title = title?.takeIf { it.isNotBlank() }
+                            ?: copied.displayName.substringBeforeLast('.', ""),
+                        author = author,
+                        extraTag = extraTag,
+                        extraTags = listOf(safUriTag(uri.toString())),
+                        existingFileValidator = existingFileValidator,
+                    )
+                }
+                adopted.onSuccess { book ->
                     // 并发导入时可能命中已有条目（tag 幂等）：刚复制出来的副本是多余的，删掉防重复占空间。
                     if (pathKey(book.filePath) != pathKey(copied.file.absolutePath)) {
                         runCatching { copied.file.delete() }
                     }
                 }.onFailure { throwable ->
-                    runCatching { copied.file.delete() }
+                    discardCopiedFileOnCancellation(copied)
                     Log.e(TAG, "adopt saf document failed uri=" + uri, throwable)
                 }
             },
@@ -589,8 +610,22 @@ class LibraryStore(
     private fun mergePersisted(fixtures: List<Book>, persisted: List<Book>, dir: File): List<Book> =
         mergePersistedBooks(fixtures, persisted, dir)
 
+    /** task-102：取消时清理已经落盘的复制文件；必须用 NonCancellable，避免清理本身被取消。 */
+    private suspend fun discardCopiedFileOnCancellation(copied: CopiedFile?) {
+        if (copied == null) return
+        withContext(NonCancellable + Dispatchers.IO) {
+            val deleted = runCatching { copied.file.delete() }.getOrElse { throwable ->
+                Log.w(TAG, "cleanup copied file failed path=" + copied.file.absolutePath, throwable)
+                false
+            }
+            if (!deleted && copied.file.exists()) {
+                Log.w(TAG, "cleanup copied file returned false path=" + copied.file.absolutePath)
+            }
+        }
+    }
+
     /** 把 SAF 文档复制进 _pb_files；临时文件名带 uuid，并发导入不会互踩。 */
-    private fun copyUriToLibrary(uri: Uri, prefix: String): CopiedFile {
+    private suspend fun copyUriToLibrary(uri: Uri, prefix: String): CopiedFile {
         val dir = libraryDir()
         val displayName = queryDisplayName(uri) ?: "未命名"
         val extension = displayName.substringAfterLast('.', "").lowercase()
@@ -612,9 +647,8 @@ class LibraryStore(
         try {
             val input = context.contentResolver.openInputStream(uri) ?: error("无法读取所选文件")
             input.use { source ->
-                temp.outputStream().use { sink -> source.copyTo(sink) }
+                copySourceToFile(source, temp, destination)
             }
-            if (!temp.renameTo(destination)) error("保存导入文件失败")
         } catch (throwable: Throwable) {
             runCatching { temp.delete() }
             throw throwable
@@ -680,6 +714,44 @@ internal object LibraryRemovalBus {
 }
 
 /**
+ * task-102 P1-2：分块复制输入流到临时文件，再原子 rename 成最终文件。
+ *
+ * 阻塞的 [InputStream.copyTo] 不响应协程取消；这里每块前检查 [coroutineContext] 的 active 状态，
+ * 取消时用 NonCancellable 清掉 tmp 与已经 rename 的 destination，避免留下未登记、冷启被当孤儿的最终文件。
+ * 非取消异常只清 tmp；destination 只在确认来自本次复制时才删除（调用方传入唯一目标名）。
+ */
+internal suspend fun copySourceToFile(
+    source: InputStream,
+    temp: File,
+    destination: File,
+    bufferSize: Int = 64 * 1024,
+) {
+    require(bufferSize > 0) { "bufferSize 必须大于 0" }
+    try {
+        FileOutputStream(temp).use { sink ->
+            val buffer = ByteArray(bufferSize)
+            while (true) {
+                coroutineContext.ensureActive()
+                val read = source.read(buffer)
+                if (read < 0) break
+                if (read > 0) sink.write(buffer, 0, read)
+            }
+        }
+        coroutineContext.ensureActive()
+        if (!temp.renameTo(destination)) error("保存导入文件失败")
+    } catch (cancellation: CancellationException) {
+        withContext(NonCancellable + Dispatchers.IO) {
+            runCatching { temp.delete() }
+            runCatching { destination.delete() }
+        }
+        throw cancellation
+    } catch (throwable: Throwable) {
+        runCatching { temp.delete() }
+        throw throwable
+    }
+}
+
+/**
  * P2-1：fixtures + 持久化索引的合并规则（纯函数，可单测）。
  *
  * - fixtures 优先；持久化条目按 filePath 去重、id 冲突时重新分配（沿用原行为）；
@@ -726,9 +798,23 @@ internal fun resolveLocal(book: Book, dir: File): Book {
 internal fun findBookByZlibTag(books: List<Book>, tag: String): Book? =
     books.firstOrNull { tag in it.tags }
 
-/** addedAt 升序、id 兜底：同一 identity tag 多命中时取最新一条。 */
+/**
+ * addedAt 解析成毫秒时间戳；空串/非法格式返回 null。
+ * task-102 P2-1：不能直接按 ISO 字符串字典序比——空 addedAt、不同时区/格式会让「最新」失真。
+ */
+internal fun addedAtEpochMillis(addedAt: String?): Long? {
+    if (addedAt.isNullOrBlank()) return null
+    return runCatching { Instant.parse(addedAt).toEpochMilli() }.getOrNull()
+}
+
+/** 按 addedAt 真实时间升序、id 兜底；空/非法 addedAt 视为最旧，合法时间戳的条目优先。 */
 internal fun newestBook(books: List<Book>): Book? =
-    books.maxWithOrNull(compareBy<Book>({ it.addedAt.orEmpty() }, { it.id }))
+    books.maxWithOrNull(
+        compareBy<Book>(
+            { addedAtEpochMillis(it.addedAt) ?: Long.MIN_VALUE },
+            { it.id },
+        ),
+    )
 
 /**
  * task-83：按 tag 查已有条目时优先「文件结构完整」的条目，多命中取最新。
@@ -1107,35 +1193,67 @@ internal fun isRecoverableLibraryFile(file: File): Boolean {
 internal fun isRecoverableOrphanLibraryFile(file: File): Boolean =
     isRecoverableLibraryFile(file) && isUsableImportedFile(file)
 
-/**
- * task-83：identity tag 命中的已有条目文件是否「结构上确实是一本完整的书」。
- *
- * 只做结构完整性判断（PDF：%PDF 头 + 末尾 %%EOF；EPUB：ZIP 头 + 完整中央目录），不要求
- * 下载管理器那套 expectedBytes（那是下载完成态的额外约束）。0 字节、HTML 错误页、截断包都返回 false，
- * 调用方据此 repoint 到本次新落盘的文件，而不是把坏文件当成「已在书架」。
- */
-internal fun isUsableImportedFile(file: File): Boolean {
-    if (!file.isFile || file.length() <= 0L) return false
-    return runCatching {
-        RandomAccessFile(file, "r").use { raf ->
-            val size = raf.length()
-            if (size <= 0L) return@use false
-            val header = libraryReadBytes(raf, 0L, 8)
-            when {
-                libraryStartsWith(header, 0x25, 0x50, 0x44, 0x46) -> libraryPdfHasEof(raf, size)
-                libraryStartsWith(header, 0x50, 0x4B, 0x03, 0x04) -> libraryZipCentralDirectoryLooksComplete(raf, size)
-                else -> false
-            }
-        }
-    }.getOrDefault(false)
+/** task-102：文件结构判定的三态。删除/隔离旧副本前必须能区分「确认损坏」与「读不出来/无法判定」。 */
+internal enum class ImportedFileIntegrity {
+    /** 确认结构完整（PDF：%PDF 头 + 尾部 %%EOF；EPUB：ZIP 头 + 完整中央目录）。 */
+    COMPLETE,
+
+    /** 确认损坏（0 字节、截断、缺少 EOCD/%%EOF 等），内容不可恢复。 */
+    CORRUPT,
+
+    /** 未找到文件、读失败、权限问题或格式无法识别；不能据此删除任何旧副本。 */
+    UNKNOWN,
 }
 
 /**
- * task-83/task-86：repoint 后可安全删除的旧文件；只动 _pb_files 内、且无其它条目引用的文件。
+ * task-83/task-102：identity tag 命中的已有条目文件是否「结构上确实是一本完整的书」。
  *
- * 调用点只在 identity tag 命中被判定为不可用时（文件缺失/结构不完整/调用方校验器拒绝）。旧文件留在
- * _pb_files 会继续占空间，并可能被冷启扫描重新登记成第二条（新 id，进度/封面脱钩），因此在索引写盘
- * 成功后清掉。结构上完整但调用方校验器拒绝的旧副本也属于「不可用」，与 validator 的权威判定保持一致。
+ * 只做结构完整性判断，不要求下载管理器 `zlibInspectBookFile` 那套额外约束（1KiB 最小体积、
+ * expectedBytes 下载长度）；这里回答的是「文件头/尾结构是否像一本完整的书」，供导入去重与 repoint
+ * 安全判定使用。两套判定刻意保持独立：数据层不反向依赖 UI 下载管理器。
+ *
+ * task-102：读失败/未识别格式返回 [ImportedFileIntegrity.UNKNOWN]，不能和确认损坏混为一谈
+ * （否则会误删唯一完整的旧副本）。
+ */
+internal fun classifyImportedFile(file: File): ImportedFileIntegrity {
+    if (!file.isFile) return ImportedFileIntegrity.UNKNOWN
+    if (file.length() <= 0L) return ImportedFileIntegrity.CORRUPT
+    return runCatching {
+        RandomAccessFile(file, "r").use { raf ->
+            val size = raf.length()
+            if (size <= 0L) return@use ImportedFileIntegrity.CORRUPT
+            val header = libraryReadBytes(raf, 0L, 8)
+            when {
+                libraryStartsWith(header, 0x25, 0x50, 0x44, 0x46) ->
+                    if (libraryPdfHasEof(raf, size)) {
+                        ImportedFileIntegrity.COMPLETE
+                    } else {
+                        ImportedFileIntegrity.CORRUPT
+                    }
+                libraryStartsWith(header, 0x50, 0x4B, 0x03, 0x04) ->
+                    if (libraryZipCentralDirectoryLooksComplete(raf, size)) {
+                        ImportedFileIntegrity.COMPLETE
+                    } else {
+                        ImportedFileIntegrity.CORRUPT
+                    }
+                // 不认识的格式可能是合法但本层无法判定的书；按 UNKNOWN 处理，不能删旧副本。
+                else -> ImportedFileIntegrity.UNKNOWN
+            }
+        }
+    }.getOrDefault(ImportedFileIntegrity.UNKNOWN)
+}
+
+/** task-83：identity tag 命中是否可以作为「已在书架」的幂等命中（只认结构完整的文件）。 */
+internal fun isUsableImportedFile(file: File): Boolean =
+    classifyImportedFile(file) == ImportedFileIntegrity.COMPLETE
+
+/**
+ * task-83/task-102：repoint 后可以清理的旧文件候选；只动 _pb_files 内、且无其它条目引用的文件。
+ *
+ * 本函数只做路径/引用守卫，不再代表「可以删」。调用方必须结合 [classifyImportedFile] 的三态：
+ * - CORRUPT 且新文件 COMPLETE：删除；
+ * - COMPLETE 但 only validator 拒绝：改名为 .deleted 隔离，避免冷启孤儿扫描重新登记；
+ * - UNKNOWN：保留，不能因为读失败/格式未知就删掉可能是唯一完整的副本。
  */
 internal fun oldRepointedBrokenFile(
     oldFile: File,
@@ -1152,6 +1270,25 @@ internal fun oldRepointedBrokenFile(
         return null
     }
     return oldFile
+}
+
+/** task-102：删除确认损坏的旧副本；File.delete() 的 Boolean 不能丢（失败要由调用方记日志）。 */
+internal fun deleteRepointedFile(file: File): Boolean =
+    runCatching { file.delete() }.getOrDefault(false)
+
+/**
+ * task-102：结构完整但调用方 validator 拒绝的旧副本不能直接删（可能是唯一完整副本），也不能留在
+ * _pb_files（严格孤儿扫描会把它登记成第二条）。改名为 `.deleted` 隔离，数据可人工恢复、扫描会忽略。
+ */
+internal fun quarantineRepointedCompleteFile(file: File): File? {
+    if (file.parentFile?.name != LIBRARY_DIR_NAME || !file.isFile) return null
+    val plain = File(file.parentFile, file.name + ".deleted")
+    val target = if (plain.exists()) {
+        File(file.parentFile, file.name + "." + UUID.randomUUID().toString().take(8) + ".deleted")
+    } else {
+        plain
+    }
+    return if (file.renameTo(target)) target else null
 }
 
 private fun libraryStartsWith(bytes: ByteArray, vararg prefix: Int): Boolean =
@@ -1449,6 +1586,13 @@ internal class LibraryIndexStore(
         return outcome.value
     }
 
+    /** task-102：repoint 后对旧文件的安全清理动作，等索引提交成功后再执行。 */
+    private data class RepointCleanup(
+        val oldFile: File,
+        val oldIntegrity: ImportedFileIntegrity,
+        val newFile: File,
+    )
+
     /**
      * 登记一个已落盘文件（下载完成 / 导入）：同路径或同 identity tag（zlib/SAF URI/内容指纹）幂等，
      * 幂等命中时把本次的新 tag 合并进已有条目（重复导入不同 URI 时补记新 URI，下次直接认领）。
@@ -1468,6 +1612,7 @@ internal class LibraryIndexStore(
     ): Result<Book> {
         if (!file.isFile) return Result.failure(IllegalArgumentException("文件不存在或不可读"))
         return try {
+            var repointCleanup: RepointCleanup? = null
             val outcome = mutex.withLock {
                 ensureLoadedLocked()
                 // 幂等命中：同路径优先；否则按 identity tag（zlib:<bookId> / SAF URI / 内容指纹）。
@@ -1475,11 +1620,16 @@ internal class LibraryIndexStore(
                 if (existing != null) {
                     // P1-1 task-63：tag 命中但书架条目指向的文件已不存在（旧下载文件被移走/清掉）时，
                     // 把路径更新到这次真正落盘的文件并清 missing；否则书架会永远指向缺失路径，新文件成孤儿。
-                    // task-83：identity tag 命中还要求文件结构完整（0 字节/截断的旧副本不能算幂等命中）。
-                    // 同路径命中不额外做结构校验：调用方 registerFile 就是登记这个已落盘文件本身。
+                    // task-83/task-102：identity tag 命中还要求文件结构完整；同路径命中不额外校验。
                     val hitByPath = pathKey(existing.filePath) == pathKey(file.absolutePath)
                     val existingFile = File(existing.filePath)
-                    val structurallyUsable = if (hitByPath) existingFile.isFile else isUsableImportedFile(existingFile)
+                    // task-102：区分「确认损坏 / 读失败或无法判定」；UNKNOWN 绝不能据此删旧文件。
+                    val oldIntegrity = if (hitByPath) null else classifyImportedFile(existingFile)
+                    val structurallyUsable = if (hitByPath) {
+                        existingFile.isFile
+                    } else {
+                        oldIntegrity == ImportedFileIntegrity.COMPLETE
+                    }
                     val missingFile = !structurallyUsable ||
                         (existingFileValidator != null && !existingFileValidator(existingFile))
                     // task-83/P2-1：repoint 到新文件时，旧的 SAF URI/内容指纹 tag 已不再描述这个文件，
@@ -1502,7 +1652,13 @@ internal class LibraryIndexStore(
                     }
                     // task-70：重复导入命中时合并新的识别 tag（例如第二次用不同 SAF URI 导入同一内容），
                     // 以后再选这个 URI 就能在第一道判重直接命中。
-                    val addedTags = tags.filterNot { it in repointed.tags }
+                    val addedTags = tags.filterNot { it in repointed.tags }.distinct().toMutableList()
+                    // task-102 P2-2：repoint 到新文件后补内容指纹；旧 fp 已清掉，不补的话换 URI 再导入
+                    // 无法走指纹快路径。只在 repoint 分支计算，正常同路径登记不额外读大文件。
+                    if (missingFile && !hitByPath) {
+                        contentFingerprintTag(file)?.takeIf { it !in repointed.tags && it !in addedTags }
+                            ?.let(addedTags::add)
+                    }
                     val tagged = if (addedTags.isEmpty()) {
                         repointed
                     } else {
@@ -1514,13 +1670,14 @@ internal class LibraryIndexStore(
                         val next = committed.map { if (it.id == existing.id) healed else it }
                         writeIndexLocked(next)
                         val version = commitLocked(next)
-                        // task-83/task-86：repoint 后旧文件不该留在 _pb_files 里被下次冷启扫描复活。
-                        // 只在没有其它条目引用时清理；文件缺失时 oldRepointedBrokenFile 返回 null。
+                        // task-102：索引写成功后只记录清理候选，不在锁内做删文件/改名/大文件校验。
                         if (missingFile && !hitByPath) {
                             oldRepointedBrokenFile(existingFile, file.absolutePath, next, existing.id)?.let { old ->
-                                runCatching { old.delete() }.onFailure {
-                                    Log.w(TAG, "delete repointed broken file failed path=" + old.absolutePath, it)
-                                }
+                                repointCleanup = RepointCleanup(
+                                    oldFile = old,
+                                    oldIntegrity = oldIntegrity ?: ImportedFileIntegrity.UNKNOWN,
+                                    newFile = file,
+                                )
                             }
                         }
                         return@withLock Committed(healed, next, version)
@@ -1544,11 +1701,56 @@ internal class LibraryIndexStore(
                 Committed(book, next, version)
             }
             dispatchCommitted(outcome.books, outcome.version)
+            // task-102：索引提交后再清理旧副本；删除/隔离/保留由三态判定，绝不先删后写。
+            repointCleanup?.let(::performRepointCleanup)
             Result.success(outcome.value)
         } catch (cancellation: CancellationException) {
             throw cancellation
         } catch (throwable: Throwable) {
             Result.failure(throwable)
+        }
+    }
+
+    /**
+     * task-102 P1-1：repoint 后旧文件的安全清理。
+     * - 新文件必须 COMPLETE；新文件 UNKNOWN/CORRUPT 时不动旧文件（避免把条目指向坏文件后连旧副本也没了）；
+     * - 旧文件 CORRUPT：可删；delete() 返回 false/抛异常都记日志；
+     * - 旧文件 COMPLETE（仅调用方 validator 拒绝）：改名 .deleted 隔离，保留数据且不被孤儿扫描复活；
+     * - 旧文件 UNKNOWN：原样保留，读失败/格式无法判定不能作为删除依据。
+     */
+    private fun performRepointCleanup(cleanup: RepointCleanup) {
+        val newIntegrity = classifyImportedFile(cleanup.newFile)
+        if (newIntegrity != ImportedFileIntegrity.COMPLETE) {
+            log(
+                "skip repoint file cleanup: new file integrity=" + newIntegrity +
+                    " path=" + cleanup.newFile.absolutePath,
+                null,
+            )
+            return
+        }
+        when (cleanup.oldIntegrity) {
+            ImportedFileIntegrity.CORRUPT -> {
+                if (deleteRepointedFile(cleanup.oldFile)) {
+                    log("deleted repointed corrupt file path=" + cleanup.oldFile.absolutePath, null)
+                } else {
+                    log("delete repointed broken file failed path=" + cleanup.oldFile.absolutePath, null)
+                }
+            }
+            ImportedFileIntegrity.COMPLETE -> {
+                val quarantined = quarantineRepointedCompleteFile(cleanup.oldFile)
+                if (quarantined != null) {
+                    log(
+                        "quarantined repointed complete file path=" + cleanup.oldFile.absolutePath +
+                            " to=" + quarantined.absolutePath,
+                        null,
+                    )
+                } else {
+                    log("quarantine repointed complete file failed path=" + cleanup.oldFile.absolutePath, null)
+                }
+            }
+            ImportedFileIntegrity.UNKNOWN -> {
+                log("keep repointed old file with unknown integrity path=" + cleanup.oldFile.absolutePath, null)
+            }
         }
     }
 
