@@ -1,7 +1,10 @@
 package app.particlebook.android.ui.data
 
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.nio.file.Files
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
 import java.util.concurrent.CyclicBarrier
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
@@ -53,7 +56,7 @@ class LibraryRecoveryP2Test {
         assertEquals("文件不在也不能丢条目（否则回写索引就永久丢书）", 1, first.size)
         assertTrue("文件不在时应打 missing 标记", "missing" in first.single().tags)
 
-        missing.writeBytes(epubHeader())
+        missing.writeBytes(validEpubBytes())
         val second = mergePersistedBooks(emptyList(), first, dir)
         assertEquals(1, second.size)
         assertFalse("文件回来后应清掉 missing 标记", "missing" in second.single().tags)
@@ -300,12 +303,27 @@ class LibraryRecoveryP2Test {
         tags = tags,
     )
 
+    /** task-83：identity tag 命中会校验结构完整性，fixture 必须是真正可解析的 EPUB（含中央目录）。 */
     private fun sniffableBookFile(dir: File, name: String): File = File(dir, name).apply {
-        writeBytes(epubHeader())
+        if (name.endsWith(".pdf", ignoreCase = true)) {
+            writeBytes("%PDF-1.7 recovered content\n%%EOF\n".toByteArray())
+        } else {
+            writeBytes(validEpubBytes())
+        }
     }
 
-    private fun epubHeader(): ByteArray =
-        byteArrayOf(0x50, 0x4B, 0x03, 0x04) + "epub test content".toByteArray()
+    private fun validEpubBytes(): ByteArray {
+        val output = ByteArrayOutputStream()
+        ZipOutputStream(output).use { zip ->
+            zip.putNextEntry(ZipEntry("mimetype"))
+            zip.write("application/epub+zip".toByteArray())
+            zip.closeEntry()
+            zip.putNextEntry(ZipEntry("META-INF/container.xml"))
+            zip.write("<container/>".toByteArray())
+            zip.closeEntry()
+        }
+        return output.toByteArray()
+    }
 
     private fun decodeIndex(dir: File): List<Book> =
         TestIndexCodec().decode(File(dir, "books.json").readText())

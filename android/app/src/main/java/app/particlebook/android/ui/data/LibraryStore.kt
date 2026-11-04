@@ -121,7 +121,7 @@ class LibraryStore(
             try {
                 // ① 同一 SAF URI 再次导入：文件还在就直接认领，不复制。
                 indexStore.findByTag(uriTag)?.let { existing ->
-                    if (File(existing.filePath).isFile) {
+                    if (isUsableImportedFile(File(existing.filePath))) {
                         Log.i(TAG, "import skipped, already in library by uri id=" + existing.id)
                         return@withContext Result.success(ImportOutcome(existing, alreadyInLibrary = true))
                     }
@@ -146,7 +146,7 @@ class LibraryStore(
                 val legacyDuplicate = if (fingerprintTag != null) {
                     indexStore.books.firstOrNull { book ->
                         book.fileSize == copied.file.length() &&
-                            File(book.filePath).isFile &&
+                            isUsableImportedFile(File(book.filePath)) &&
                             contentFingerprintTag(File(book.filePath)) == fingerprintTag
                     }
                 } else {
@@ -209,7 +209,8 @@ class LibraryStore(
     private suspend fun mergeImportTags(book: Book, tags: List<String>) {
         if (tags.isEmpty()) return
         val file = File(book.filePath)
-        if (!file.isFile) return
+        // task-83：只给「文件结构确实完整」的条目补 tag，不能把新导入的识别信息挂到坏文件上。
+        if (!isUsableImportedFile(file)) return
         indexStore.registerFile(file = file, title = book.title, author = book.author, tags = tags)
             .onFailure { Log.w(TAG, "merge import tags failed id=" + book.id, it) }
     }
@@ -298,18 +299,29 @@ class LibraryStore(
         // P1-1 task-63：条目文件已缺失时不能提前返回，否则书架继续指向缺失路径、新副本成孤儿；
         // 继续复制并让 registerFile 在锁内把路径改到新文件。
         extraTag?.takeIf { it.startsWith(ZLIB_TAG_PREFIX) }?.let { tag ->
-            indexStore.findByTag(tag)?.let { existing ->
-                val existingFile = File(existing.filePath)
-                val existingUsable = existingFile.isFile &&
-                    (existingFileValidator == null || existingFileValidator(existingFile))
-                if (existingUsable) {
-                    Log.i(TAG, "adopt saf document skipped, already in library id=" + existing.id)
-                    return Result.success(existing)
+            // task-83/⑧：tag 查询与文件结构校验都可能读磁盘，整体放 IO，避免 Manager 的 main scope 被阻塞。
+            val earlyExisting = withContext(Dispatchers.IO) {
+                indexStore.findByTag(tag)?.let { existing ->
+                    val existingFile = File(existing.filePath)
+                    // 必须同时过「文件结构完整」与调用方完整性校验（下载长度等），缺一不可。
+                    val existingUsable = existingFile.isFile &&
+                        isUsableImportedFile(existingFile) &&
+                        (existingFileValidator == null || existingFileValidator(existingFile))
+                    if (existingUsable) {
+                        existing
+                    } else {
+                        Log.i(
+                            TAG,
+                            "adopt saf document: existing entry unusable (missing/incomplete), re-point id=" +
+                                existing.id,
+                        )
+                        null
+                    }
                 }
-                Log.i(
-                    TAG,
-                    "adopt saf document: existing entry unusable (missing/incomplete), re-point id=" + existing.id,
-                )
+            }
+            if (earlyExisting != null) {
+                Log.i(TAG, "adopt saf document skipped, already in library id=" + earlyExisting.id)
+                return Result.success(earlyExisting)
             }
         }
         val local = withContext(Dispatchers.IO) {
@@ -527,7 +539,7 @@ class LibraryStore(
         return dir.listFiles().orEmpty()
             .filter { file ->
                 file.name !in deletedSeeds &&
-                    isRecoverableLibraryFile(file) &&
+                    isRecoverableOrphanLibraryFile(file) &&
                     pathKey(file.absolutePath) !in knownPaths
             }
             .sortedBy { it.name }
@@ -675,6 +687,27 @@ internal fun resolveLocal(book: Book, dir: File): Book {
 internal fun findBookByZlibTag(books: List<Book>, tag: String): Book? =
     books.firstOrNull { tag in it.tags }
 
+/** addedAt 升序、id 兜底：同一 identity tag 多命中时取最新一条。 */
+internal fun newestBook(books: List<Book>): Book? =
+    books.maxWithOrNull(compareBy<Book>({ it.addedAt.orEmpty() }, { it.id }))
+
+/**
+ * task-83：按 tag 查已有条目时优先「文件结构完整」的条目，多命中取最新。
+ * 全部命中都不可用时仍返回最新一条（调用方据此 repoint 到新文件，保留 Book.id/进度），
+ * 而不是直接当成未命中再登记第二条。
+ */
+internal fun findNewestUsableBookByTag(
+    books: List<Book>,
+    tag: String,
+    isUsable: (Book) -> Boolean = { isUsableImportedFile(File(it.filePath)) },
+): Book? {
+    if (tag.isBlank()) return null
+    val matches = books.filter { tag in it.tags }
+    if (matches.isEmpty()) return null
+    val usable = matches.filter(isUsable)
+    return newestBook(if (usable.isEmpty()) matches else usable)
+}
+
 /** 重复导入识别 tag：zlib 书号 / SAF URI 哈希 / 内容指纹。 */
 internal fun isImportIdentityTag(tag: String): Boolean =
     tag.startsWith(ZLIB_TAG_PREFIX) ||
@@ -686,12 +719,22 @@ internal fun isImportIdentityTag(tag: String): Boolean =
  * task-70 起 identity tag 覆盖 zlib:<bookId>、saf-uri:<sha256>、fp:<size>-<sha256>：
  * 同一 SAF 文档换路径 / 不同 URI 导入同一内容都能认回已有条目，不再登记第二条。
  */
-internal fun findIdempotentBook(books: List<Book>, filePath: String, tags: List<String>): Book? {
+internal fun findIdempotentBook(
+    books: List<Book>,
+    filePath: String,
+    tags: List<String>,
+    isUsable: (Book) -> Boolean = { isUsableImportedFile(File(it.filePath)) },
+): Book? {
     val target = pathKey(filePath)
+    // 同路径优先：调用方 registerFile 会按本处文件是否存在/校验器决定是否 repoint，不在查找阶段过滤。
     books.firstOrNull { pathKey(it.filePath) == target }?.let { return it }
     val identityTags = tags.filterTo(HashSet()) { isImportIdentityTag(it) }
     if (identityTags.isEmpty()) return null
-    return books.firstOrNull { book -> book.tags.any { it in identityTags } }
+    val matches = books.filter { book -> book.tags.any { it in identityTags } }
+    if (matches.isEmpty()) return null
+    // task-83：多命中时优先仍可用的最新条目；全坏则返回最新条目让 registerFile 修路径。
+    val usable = matches.filter(isUsable)
+    return newestBook(if (usable.isEmpty()) matches else usable)
 }
 
 /** task-70：一次重复导入命中：URI 优先于内容指纹。 */
@@ -709,15 +752,16 @@ internal fun findDuplicateImport(
     books: List<Book>,
     uriTag: String,
     fingerprintTag: String?,
-    fileExists: (Book) -> Boolean = { File(it.filePath).isFile },
+    fileExists: (Book) -> Boolean = { isUsableImportedFile(File(it.filePath)) },
 ): DuplicateImport? {
+    // task-83：命中条目必须是结构完整的文件；同 tag 多命中取最新，避免旧坏条目挡住新副本。
     if (uriTag.isNotBlank()) {
-        books.firstOrNull { uriTag in it.tags && fileExists(it) }?.let {
+        newestBook(books.filter { uriTag in it.tags && fileExists(it) })?.let {
             return DuplicateImport(it, DuplicateImportKind.SAF_URI)
         }
     }
     if (fingerprintTag != null) {
-        books.firstOrNull { fingerprintTag in it.tags && fileExists(it) }?.let {
+        newestBook(books.filter { fingerprintTag in it.tags && fileExists(it) })?.let {
             return DuplicateImport(it, DuplicateImportKind.CONTENT)
         }
     }
@@ -1011,6 +1055,123 @@ internal fun isRecoverableLibraryFile(file: File): Boolean {
     return sniffBookFormat(file) != null
 }
 
+/**
+ * task-83/task-86：冷启孤儿扫描的严格版本——除了扩展名/魔数，还要求 PDF 尾部有 %%EOF、
+ * EPUB 中央目录完整。repoint 后残留的旧坏文件（0 字节/截断）因此不会被重新登记成第二条。
+ */
+internal fun isRecoverableOrphanLibraryFile(file: File): Boolean =
+    isRecoverableLibraryFile(file) && isUsableImportedFile(file)
+
+/**
+ * task-83：identity tag 命中的已有条目文件是否「结构上确实是一本完整的书」。
+ *
+ * 只做结构完整性判断（PDF：%PDF 头 + 末尾 %%EOF；EPUB：ZIP 头 + 完整中央目录），不要求
+ * 下载管理器那套 expectedBytes（那是下载完成态的额外约束）。0 字节、HTML 错误页、截断包都返回 false，
+ * 调用方据此 repoint 到本次新落盘的文件，而不是把坏文件当成「已在书架」。
+ */
+internal fun isUsableImportedFile(file: File): Boolean {
+    if (!file.isFile || file.length() <= 0L) return false
+    return runCatching {
+        RandomAccessFile(file, "r").use { raf ->
+            val size = raf.length()
+            if (size <= 0L) return@use false
+            val header = libraryReadBytes(raf, 0L, 8)
+            when {
+                libraryStartsWith(header, 0x25, 0x50, 0x44, 0x46) -> libraryPdfHasEof(raf, size)
+                libraryStartsWith(header, 0x50, 0x4B, 0x03, 0x04) -> libraryZipCentralDirectoryLooksComplete(raf, size)
+                else -> false
+            }
+        }
+    }.getOrDefault(false)
+}
+
+/**
+ * task-83/task-86：repoint 后可安全删除的旧文件；只动 _pb_files 内、且无其它条目引用的文件。
+ *
+ * 调用点只在 identity tag 命中被判定为不可用时（文件缺失/结构不完整/调用方校验器拒绝）。旧文件留在
+ * _pb_files 会继续占空间，并可能被冷启扫描重新登记成第二条（新 id，进度/封面脱钩），因此在索引写盘
+ * 成功后清掉。结构上完整但调用方校验器拒绝的旧副本也属于「不可用」，与 validator 的权威判定保持一致。
+ */
+internal fun oldRepointedBrokenFile(
+    oldFile: File,
+    newPath: String,
+    booksAfterRepoint: List<Book>,
+    existingId: Long,
+): File? {
+    if (pathKey(oldFile.absolutePath) == pathKey(newPath)) return null
+    if (oldFile.parentFile?.name != LIBRARY_DIR_NAME || !oldFile.isFile) return null
+    if (booksAfterRepoint.any {
+            it.id != existingId && pathKey(it.filePath) == pathKey(oldFile.absolutePath)
+        }
+    ) {
+        return null
+    }
+    return oldFile
+}
+
+private fun libraryStartsWith(bytes: ByteArray, vararg prefix: Int): Boolean =
+    bytes.size >= prefix.size && prefix.indices.all { (bytes[it].toInt() and 0xFF) == prefix[it] }
+
+private fun libraryPdfHasEof(raf: RandomAccessFile, size: Long): Boolean {
+    val tailLength = minOf(size, 2_048L).toInt()
+    val tail = libraryReadBytes(raf, size - tailLength, tailLength)
+    return tail.isNotEmpty() && String(tail, Charsets.ISO_8859_1).contains("%%EOF")
+}
+
+/** EPUB 中央目录完整性：截断包通常仍有 ZIP 头，但末尾没有 EOCD 或中央目录越界。 */
+private fun libraryZipCentralDirectoryLooksComplete(raf: RandomAccessFile, size: Long): Boolean {
+    val tailLength = minOf(size, 65_557L + 22L).toInt()
+    val tail = libraryReadBytes(raf, size - tailLength, tailLength)
+    if (tail.size < 22) return false
+    var eocd = -1
+    for (index in tail.size - 22 downTo 0) {
+        if (tail[index] == 0x50.toByte() &&
+            tail[index + 1] == 0x4B.toByte() &&
+            tail[index + 2] == 0x05.toByte() &&
+            tail[index + 3] == 0x06.toByte()
+        ) {
+            eocd = index
+            break
+        }
+    }
+    if (eocd < 0) return false
+    val totalEntries = libraryU16(tail, eocd + 10)
+    val centralDirSize = libraryU32(tail, eocd + 12)
+    val centralDirOffset = libraryU32(tail, eocd + 16)
+    val commentLength = libraryU16(tail, eocd + 20)
+    if (eocd + 22 + commentLength > tail.size) return false
+    if (totalEntries == 0 || centralDirSize <= 0L) return false
+    val eocdAbsolute = size - tailLength + eocd
+    if (centralDirOffset + centralDirSize > eocdAbsolute) return false
+    val signature = libraryReadBytes(raf, centralDirOffset, 4)
+    return signature.size == 4 &&
+        signature[0] == 0x50.toByte() &&
+        signature[1] == 0x4B.toByte() &&
+        signature[2] == 0x01.toByte() &&
+        signature[3] == 0x02.toByte()
+}
+
+private fun libraryReadBytes(raf: RandomAccessFile, position: Long, length: Int): ByteArray {
+    if (position < 0L || length <= 0) return ByteArray(0)
+    val size = runCatching { raf.length() }.getOrDefault(0L)
+    if (position >= size) return ByteArray(0)
+    val toRead = minOf(length.toLong(), size - position).toInt()
+    if (toRead <= 0) return ByteArray(0)
+    val bytes = ByteArray(toRead)
+    raf.seek(position)
+    raf.readFully(bytes)
+    return bytes
+}
+
+private fun libraryU16(bytes: ByteArray, offset: Int): Int =
+    (bytes[offset].toInt() and 0xFF) or ((bytes[offset + 1].toInt() and 0xFF) shl 8)
+
+private fun libraryU32(bytes: ByteArray, offset: Int): Long =
+    (bytes[offset].toLong() and 0xFFL) or
+        ((bytes[offset + 1].toLong() and 0xFFL) shl 8) or
+        ((bytes[offset + 2].toLong() and 0xFFL) shl 16) or
+        ((bytes[offset + 3].toLong() and 0xFFL) shl 24)
+
 /** 冷启恢复条目的标题：复制用的「prefix-时间戳-uuid」没有语义，统一用可读占位。 */
 internal fun recoveredBookTitle(file: File): String {
     val base = file.nameWithoutExtension
@@ -1269,11 +1430,28 @@ internal class LibraryIndexStore(
                 if (existing != null) {
                     // P1-1 task-63：tag 命中但书架条目指向的文件已不存在（旧下载文件被移走/清掉）时，
                     // 把路径更新到这次真正落盘的文件并清 missing；否则书架会永远指向缺失路径，新文件成孤儿。
+                    // task-83：identity tag 命中还要求文件结构完整（0 字节/截断的旧副本不能算幂等命中）。
+                    // 同路径命中不额外做结构校验：调用方 registerFile 就是登记这个已落盘文件本身。
+                    val hitByPath = pathKey(existing.filePath) == pathKey(file.absolutePath)
                     val existingFile = File(existing.filePath)
-                    val missingFile = !existingFile.isFile ||
+                    val structurallyUsable = if (hitByPath) existingFile.isFile else isUsableImportedFile(existingFile)
+                    val missingFile = !structurallyUsable ||
                         (existingFileValidator != null && !existingFileValidator(existingFile))
+                    // task-83/P2-1：repoint 到新文件时，旧的 SAF URI/内容指纹 tag 已不再描述这个文件，
+                    // 清掉避免下次导入被旧身份误认领；zlib tag 是书目身份，保留。
+                    val baseTags = if (missingFile && !hitByPath) {
+                        existing.tags.filterNot { tag ->
+                            isImportIdentityTag(tag) && !tag.startsWith(ZLIB_TAG_PREFIX)
+                        }
+                    } else {
+                        existing.tags
+                    }
                     val repointed = if (missingFile) {
-                        existing.copy(filePath = file.absolutePath, fileSize = file.length())
+                        existing.copy(
+                            filePath = file.absolutePath,
+                            fileSize = file.length(),
+                            tags = baseTags,
+                        )
                     } else {
                         existing
                     }
@@ -1291,6 +1469,15 @@ internal class LibraryIndexStore(
                         val next = committed.map { if (it.id == existing.id) healed else it }
                         writeIndexLocked(next)
                         val version = commitLocked(next)
+                        // task-83/task-86：repoint 后旧文件不该留在 _pb_files 里被下次冷启扫描复活。
+                        // 只在没有其它条目引用时清理；文件缺失时 oldRepointedBrokenFile 返回 null。
+                        if (missingFile && !hitByPath) {
+                            oldRepointedBrokenFile(existingFile, file.absolutePath, next, existing.id)?.let { old ->
+                                runCatching { old.delete() }.onFailure {
+                                    Log.w(TAG, "delete repointed broken file failed path=" + old.absolutePath, it)
+                                }
+                            }
+                        }
                         return@withLock Committed(healed, next, version)
                     }
                     return@withLock Committed(existing, committed, committedVersion)
@@ -1406,7 +1593,8 @@ internal class LibraryIndexStore(
         if (tag.isBlank()) return null
         return mutex.withLock {
             ensureLoadedLocked()
-            committed.firstOrNull { tag in it.tags }
+            // task-83：多命中取「最新且文件结构完整」的条目；全坏时返回最新条目供调用方 repoint。
+            findNewestUsableBookByTag(committed, tag)
         }
     }
 

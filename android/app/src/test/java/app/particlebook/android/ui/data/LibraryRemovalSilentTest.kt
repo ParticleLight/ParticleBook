@@ -109,10 +109,10 @@ class LibraryRemovalSilentTest {
         try {
             val store = LibraryIndexStore(dir, TestIndexCodec())
             store.load { it }
-            val good = File(dir, "good.epub").apply { writeText("PK complete epub") }
+            val good = validEpubFile(File(dir, "good.epub"))
             val zlibTag = zlibBookTag("z2")
             val first = store.registerFile(good, "good", null, listOf(zlibTag)).getOrThrow()
-            val another = File(dir, "another.epub").apply { writeText("PK another epub") }
+            val another = validEpubFile(File(dir, "another.epub"))
 
             val second = store.registerFile(
                 file = another,
@@ -148,6 +148,17 @@ class LibraryRemovalSilentTest {
     }
 
     // ---------------------------------------------------------------- helpers
+
+    /** task-83：identity tag 命中校验文件结构，必须给真正可解析的 ZIP/EPUB（含中央目录）。 */
+    private fun validEpubFile(file: File): File {
+        val output = java.io.ByteArrayOutputStream()
+        java.util.zip.ZipOutputStream(output).use { zip ->
+            zip.putNextEntry(java.util.zip.ZipEntry("mimetype"))
+            zip.write("application/epub+zip".toByteArray())
+            zip.closeEntry()
+        }
+        return file.apply { writeBytes(output.toByteArray()) }
+    }
 
     private fun book(id: Long): Book = Book(
         id = id,
