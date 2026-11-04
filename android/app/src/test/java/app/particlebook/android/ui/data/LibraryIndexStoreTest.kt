@@ -184,7 +184,7 @@ class LibraryIndexStoreTest {
     // ---------------------------------------------------------------- 损坏重建
 
     @Test
-    fun corruptIndexKeepsBadBackupAndRebuildsValidEmptyIndex() = runBlocking {
+    fun corruptIndexRecoversFromBackupAndKeepsBadCopy() = runBlocking {
         val dir = newTempDir("corrupt")
         val seed = LibraryIndexStore(dir, TestIndexCodec())
         seed.load { it }
@@ -202,13 +202,18 @@ class LibraryIndexStoreTest {
         )
         val loaded = recovering.load { it }
 
-        assertTrue("损坏索引应重建为空书架", loaded.isEmpty())
+        assertEquals("损坏前已写 bak1，应从备份恢复出那本书而不是空书架", 1, loaded.size)
+        assertEquals("seed", loaded.single().title)
         val bad = File(dir, "books.json.bad")
         assertTrue("应保留 .bad 备份", bad.isFile)
         assertEquals(" .bad 内容应为被替换前的原文", corruptText, bad.readText())
-        assertEquals("重建后索引应可解析", 0, indexEntries(dir).size)
-        assertEquals(0, decodeIndex(dir).size)
+        assertEquals("恢复后索引应可解析", 1, indexEntries(dir).size)
+        assertEquals("seed", decodeIndex(dir).single().title)
         assertTrue("应记录 parse failed 日志: " + logs, logs.any { it.contains("parse failed") })
+        assertTrue(
+            "应记录从 bak1 恢复的日志: " + logs,
+            logs.any { it.contains("recovered from books.json.bak1") },
+        )
         assertNoTempFilesLeft(dir)
     }
 
@@ -387,11 +392,11 @@ class LibraryIndexStoreTest {
         seed.registerFile(bookFile(dir, "seed.epub"), "seed", null, emptyList()).getOrThrow()
 
         File(dir, "books.json").writeText("corrupt-first")
-        assertTrue(LibraryIndexStore(dir, TestIndexCodec()).load { it }.isEmpty())
+        assertEquals("第一次损坏应从 bak1 恢复出 seed", 1, LibraryIndexStore(dir, TestIndexCodec()).load { it }.size)
         assertEquals("corrupt-first", File(dir, "books.json.bad").readText())
 
         File(dir, "books.json").writeText("corrupt-second")
-        assertTrue(LibraryIndexStore(dir, TestIndexCodec()).load { it }.isEmpty())
+        assertEquals("第二次损坏仍应从 bak1 恢复出 seed", 1, LibraryIndexStore(dir, TestIndexCodec()).load { it }.size)
 
         assertEquals("旧 .bad 不得被新损坏覆盖", "corrupt-first", File(dir, "books.json.bad").readText())
         val timestamped = dir.listFiles().orEmpty().filter {

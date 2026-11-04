@@ -196,6 +196,7 @@ fun ZlibDownloadsScreen(
                         imported = imported,
                         fileExists = fileExists,
                         importing = importingBookId == record.bookId,
+                        importEnabled = !libraryLoading,
                         menuExpanded = menuBookId == record.bookId,
                         onOpen = { imported?.let(onOpenBook) },
                         onMenuClick = { menuBookId = record.bookId },
@@ -230,6 +231,14 @@ fun ZlibDownloadsScreen(
                             if (importingBookId != null) return@DownloadRecordRow
                             importingBookId = record.bookId
                             scope.launch {
+                                // P2-3：冷启时书架可能还在读盘，books 为空会让「已导入」判断失真、
+                                // 也可能重复登记；先等书架就绪，仍加载中就禁用式提示，不硬导。
+                                if (store.loading) store.ensureLoaded()
+                                if (store.loading) {
+                                    importingBookId = null
+                                    snackbarHostState.showSnackbar("书架加载中，请稍后再导入")
+                                    return@launch
+                                }
                                 val result = if (record.saf || record.destPath.startsWith("content://")) {
                                     store.adoptDocument(
                                         uri = Uri.parse(record.destPath),
@@ -419,6 +428,8 @@ private fun DownloadRecordRow(
     // U8：null = 仍在异步查询（避免同步 IO，也不要在结果出来前谎报「文件缺失」）。
     fileExists: Boolean?,
     importing: Boolean,
+    // P2-3：书架加载完成前禁用导入，避免把书登记两次/误判未导入。
+    importEnabled: Boolean,
     menuExpanded: Boolean,
     onOpen: () -> Unit,
     onMenuClick: () -> Unit,
@@ -522,8 +533,8 @@ private fun DownloadRecordRow(
                 Text("打开")
             }
 
-            fileExists == true -> TextButton(onClick = onImport) {
-                Text("导入书架")
+            fileExists == true -> TextButton(onClick = onImport, enabled = importEnabled) {
+                Text(if (importEnabled) "导入书架" else "书架加载中")
             }
 
             fileExists == false -> Text(

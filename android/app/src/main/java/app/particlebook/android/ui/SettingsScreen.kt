@@ -109,15 +109,25 @@ fun SettingsScreen(
         ActivityResultContracts.OpenDocumentTree(),
     ) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
-        val persisted = DownloadLocation.setTree(context.applicationContext, uri)
+        // P2-2：只有授权 + 可写校验都通过才保存；失败时目录不变，提示也必须说清「未更改」。
+        val accepted = DownloadLocation.setTree(context.applicationContext, uri)
         downloadLabel = DownloadLocation.summary(context.applicationContext)
         scope.launch {
             snackbarHostState.showSnackbar(
-                if (persisted) "已切换下载目录" else "无法使用该文件夹，请换一个",
+                if (accepted) {
+                    "已切换下载目录"
+                } else {
+                    "无法使用该文件夹（需要可写权限），下载目录未更改"
+                },
             )
         }
     }
     LaunchedEffect(Unit) {
+        // P2-2：启动校验持久授权；失效时回默认目录并提示重选，避免下载一直写只读目录。
+        if (DownloadLocation.validateStoredTree(context.applicationContext)) {
+            downloadLabel = DownloadLocation.summary(context.applicationContext)
+            snackbarHostState.showSnackbar("下载目录授权已失效，已恢复默认目录，请重新选择")
+        }
         mirrorInfo = withContext(Dispatchers.IO) {
             runCatching { client.mirrorInfo() }.getOrNull()
         }

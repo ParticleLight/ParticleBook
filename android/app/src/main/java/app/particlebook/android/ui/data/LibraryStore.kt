@@ -33,7 +33,17 @@ import java.util.UUID
  * - 并发（P1c U1）：adopt/import/remove/load 的索引写路径全部经 [LibraryIndexStore] 的 Mutex 串行化，
  *   锁内基于**最新已提交列表**合并（不再用进入 IO 前的快照）；写失败不提交内存。
  */
-class LibraryStore(private val context: Context) {
+class LibraryStore(
+    private val context: Context,
+    /**
+     * P2-1：下载历史线索（destPath → 书名/作者/zlib tag）。仅在索引缺失/损坏重建时用来回填
+     * 默认下载目录里的书；只读 filesDir/zlib_downloads.json，不反向依赖 UI 层的
+     * ZlibDownloadManager（便于单测注入空实现）。读不到时返回空列表。
+     */
+    private val downloadHints: () -> List<LibraryDownloadHint> = {
+        readDownloadHistoryHints(File(context.filesDir, DOWNLOAD_HISTORY_FILE_NAME))
+    },
+) {
 
     var books by mutableStateOf<List<Book>>(emptyList())
         private set
@@ -159,6 +169,13 @@ class LibraryStore(private val context: Context) {
         author: String?,
         extraTag: String? = null,
     ): Result<Book> {
+        // P2-3：同一本 zlib 书已经在书架（tag 命中）时直接返回已有条目，不再复制第二份。
+        extraTag?.takeIf { it.startsWith(ZLIB_TAG_PREFIX) }?.let { tag ->
+            indexStore.findByTag(tag)?.let { existing ->
+                Log.i(TAG, "adopt saf document skipped, already in library id=" + existing.id)
+                return Result.success(existing)
+            }
+        }
         val local = withContext(Dispatchers.IO) {
             try {
                 Result.success(copyUriToLibrary(uri, prefix = "zlib"))
@@ -176,7 +193,12 @@ class LibraryStore(private val context: Context) {
                         ?: copied.displayName.substringBeforeLast('.', ""),
                     author = author,
                     extraTag = extraTag,
-                ).onFailure { throwable ->
+                ).onSuccess { book ->
+                    // 并发导入时可能命中已有条目（tag 幂等）：刚复制出来的副本是多余的，删掉防重复占空间。
+                    if (pathKey(book.filePath) != pathKey(copied.file.absolutePath)) {
+                        runCatching { copied.file.delete() }
+                    }
+                }.onFailure { throwable ->
                     runCatching { copied.file.delete() }
                     Log.e(TAG, "adopt saf document failed uri=" + uri, throwable)
                 }
@@ -220,7 +242,33 @@ class LibraryStore(private val context: Context) {
         val fixtures = parseBooks(Assets.readText(context, "fixtures.json"))
             .map { resolveLocal(it, dir) }
         val loaded = indexStore.load { persisted -> mergePersisted(fixtures, persisted, dir) }
-        return recoverOrphanLibraryFiles(dir, loaded)
+        val recovered = recoverOrphanLibraryFiles(dir, loaded)
+        // P2-1：这一次索引是被重建出来的（文件缺失/损坏，且没有 .bad/.bak 可恢复出条目）时，
+        // 默认下载目录（File 模式）里的书在索引里也不存在；用下载历史回填书名/作者/zlib tag
+        // 后补登记。正常启动不扫下载目录，避免用户从书架删掉、但文件与下载记录仍在的书被「复活」。
+        return if (indexStore.lastLoadLostIndex) recoverDownloadedFiles(recovered) else recovered
+    }
+
+    /**
+     * P2-1：索引重建后补登记默认下载目录里的书。
+     *
+     * 默认目录的书由 [adoptLocalFile] 原地登记，文件不在 _pb_files，冷启扫描 _pb_files 找不回来；
+     * 这里按下载历史 destPath 回填 title/author/zlib tag（同一书目的一条记录），
+     * 再交给 [LibraryIndexStore.recoverCandidates] 一次写盘批量登记（路径幂等）。
+     */
+    private suspend fun recoverDownloadedFiles(loaded: List<Book>): List<Book> {
+        val downloadDir = DownloadLocation.defaultDir(context)
+        val hints = runCatching { downloadHints() }.getOrElse { throwable ->
+            Log.e(TAG, "read download history hints failed", throwable)
+            emptyList()
+        }
+        val candidates = buildDownloadRecoveryCandidates(downloadDir, loaded, hints)
+        if (candidates.isEmpty()) return loaded
+        val recovered = indexStore.recoverCandidates(candidates)
+        if (recovered.adopted.isNotEmpty()) {
+            Log.w(TAG, "recovered downloaded books count=" + recovered.adopted.size)
+        }
+        return recovered.all
     }
 
     /**
@@ -241,36 +289,9 @@ class LibraryStore(private val context: Context) {
         return recovered.all
     }
 
-    /** fixtures 优先，持久化条目按 filePath 去重、缺失文件跳过；id 冲突时重新分配。 */
-    private fun mergePersisted(fixtures: List<Book>, persisted: List<Book>, dir: File): List<Book> {
-        val merged = ArrayList<Book>(fixtures.size + persisted.size)
-        val seenPaths = HashSet<String>(fixtures.size + persisted.size)
-        val seenIds = HashSet<Long>(fixtures.size + persisted.size)
-        fixtures.forEach { book ->
-            seenPaths += pathKey(book.filePath)
-            seenIds += book.id
-            merged += book
-        }
-        persisted.forEach { stored ->
-            val book = resolveLocal(stored, dir)
-            if (!File(book.filePath).exists()) {
-                // 文件已不存在：跳过，由索引层重写时清掉这条。
-                Log.w(TAG, "skip missing book id=" + book.id + " path=" + book.filePath)
-                return@forEach
-            }
-            if (!seenPaths.add(pathKey(book.filePath))) return@forEach
-            val idFixed = if (seenIds.add(book.id)) book else book.copy(id = freshBookId(seenIds))
-            merged += idFixed
-        }
-        return merged
-    }
-
-    /** fixtures 里的 file_path 是设备绝对路径，换成 _pb_files 下的本地文件（存在才换）。 */
-    private fun resolveLocal(book: Book, dir: File): Book {
-        val declared = File(book.filePath)
-        val local = File(dir, declared.name)
-        return if (local.exists()) book.copy(filePath = local.absolutePath) else book
-    }
+    /** fixtures 优先，持久化条目按 filePath 去重；缺失文件保留并打 missing 标记（P2-1）。 */
+    private fun mergePersisted(fixtures: List<Book>, persisted: List<Book>, dir: File): List<Book> =
+        mergePersistedBooks(fixtures, persisted, dir)
 
     /** 把 SAF 文档复制进 _pb_files；临时文件名带 uuid，并发导入不会互踩。 */
     private fun copyUriToLibrary(uri: Uri, prefix: String): CopiedFile {
@@ -313,6 +334,147 @@ class LibraryStore(private val context: Context) {
 }
 
 private data class CopiedFile(val file: File, val displayName: String)
+
+/**
+ * P2-1：fixtures + 持久化索引的合并规则（纯函数，可单测）。
+ *
+ * - fixtures 优先；持久化条目按 filePath 去重、id 冲突时重新分配（沿用原行为）；
+ * - **文件已不存在的持久化条目不丢**：保留并打上 [MISSING_TAG]，等文件回来时再清掉标记。
+ *   之前直接跳过会让索引回写时永久清掉该条目（默认下载目录的书没有 _pb_files 冷启扫描兜底，
+ *   重导又会换新 id → 阅读进度/封面全丢）。
+ */
+internal fun mergePersistedBooks(fixtures: List<Book>, persisted: List<Book>, dir: File): List<Book> {
+    val merged = ArrayList<Book>(fixtures.size + persisted.size)
+    val seenPaths = HashSet<String>(fixtures.size + persisted.size)
+    val seenIds = HashSet<Long>(fixtures.size + persisted.size)
+    fixtures.forEach { book ->
+        seenPaths += pathKey(book.filePath)
+        seenIds += book.id
+        merged += book
+    }
+    persisted.forEach { stored ->
+        val book = resolveLocal(stored, dir)
+        val present = File(book.filePath).exists()
+        val normalized = when {
+            present && MISSING_TAG in book.tags -> book.copy(tags = book.tags - MISSING_TAG)
+            !present && MISSING_TAG !in book.tags -> book.copy(tags = book.tags + MISSING_TAG)
+            else -> book
+        }
+        if (!seenPaths.add(pathKey(normalized.filePath))) return@forEach
+        val idFixed = if (seenIds.add(normalized.id)) {
+            normalized
+        } else {
+            normalized.copy(id = freshBookId(seenIds))
+        }
+        merged += idFixed
+    }
+    return merged
+}
+
+/** fixtures 里的 file_path 是设备绝对路径，换成 _pb_files 下的本地文件（存在才换）。 */
+internal fun resolveLocal(book: Book, dir: File): Book {
+    val declared = File(book.filePath)
+    val local = File(dir, declared.name)
+    return if (local.exists()) book.copy(filePath = local.absolutePath) else book
+}
+
+/** P2-3：书架里按 zlib tag 找已有条目（下载记录重复导入时不再复制/登记第二条）。 */
+internal fun findBookByZlibTag(books: List<Book>, tag: String): Book? =
+    books.firstOrNull { tag in it.tags }
+
+/** P2-3：登记前的幂等命中：先同路径，再按 zlib:<bookId> 标签（SAF 复制路径不同也认得出）。 */
+internal fun findIdempotentBook(books: List<Book>, filePath: String, tags: List<String>): Book? {
+    val target = pathKey(filePath)
+    books.firstOrNull { pathKey(it.filePath) == target }?.let { return it }
+    val zlibTags = tags.filterTo(HashSet()) { it.startsWith(ZLIB_TAG_PREFIX) }
+    if (zlibTags.isEmpty()) return null
+    return books.firstOrNull { book -> book.tags.any { it in zlibTags } }
+}
+
+/** 文件回到磁盘后清掉 missing 标记（索引会被回写，避免书架永远显示「文件缺失」）。 */
+internal fun clearMissingTag(book: Book): Book =
+    if (MISSING_TAG in book.tags) book.copy(tags = book.tags - MISSING_TAG) else book
+
+/** 下载完成时给书架条目打的标记，与下载记录页的 zlibBookTag 保持一致。 */
+internal const val ZLIB_TAG_PREFIX = "zlib:"
+
+/** P2-1：一条下载历史线索（只关心能直接对应的本地 File 记录）。public：作为 LibraryStore 构造参数类型。 */
+data class LibraryDownloadHint(
+    val destPath: String,
+    val title: String?,
+    val author: String?,
+    val bookId: String,
+    val finishedAt: Long = 0L,
+)
+
+/**
+ * 读 ZlibDownloadManager 持久化的下载历史，只取「COMPLETED 且目标是本地 File」的记录。
+ *
+ * 只读文件、不依赖 DownloadManager 单例：LibraryStore 在冷启重建索引时需要它，
+ * 而 DownloadManager 的 init/history 是异步的，拿不到可靠快照。格式由
+ * ZlibDownloadManager.HISTORY_NAME/HISTORY_VERSION 固定（version + downloads[]）。
+ */
+internal fun readDownloadHistoryHints(filesDir: File): List<LibraryDownloadHint> {
+    val file = File(filesDir, DOWNLOAD_HISTORY_FILE_NAME)
+    if (!file.isFile) return emptyList()
+    return runCatching {
+        val array = JSONObject(file.readText()).optJSONArray("downloads") ?: return emptyList()
+        val out = ArrayList<LibraryDownloadHint>(array.length())
+        for (index in 0 until array.length()) {
+            val item = array.optJSONObject(index) ?: continue
+            val destPath = item.optString("filePath")
+            val bookId = item.optString("bookId")
+            val status = item.optString("status")
+            if (destPath.isBlank() || bookId.isBlank()) continue
+            if (destPath.startsWith("content://")) continue // SAF 目标不是本地 File
+            if (status.isNotBlank() && status != "COMPLETED") continue
+            out += LibraryDownloadHint(
+                destPath = destPath,
+                title = item.optString("title").takeIf { it.isNotBlank() },
+                author = item.optString("author").takeUnless { it.isBlank() || it == "null" },
+                bookId = bookId,
+                finishedAt = item.optLong("finishedAt", 0L),
+            )
+        }
+        out
+    }.getOrElse { emptyList() }
+}
+
+/**
+ * P2-1：把默认下载目录里「文件头像书籍、但书架里没有」的文件整理成待登记候选，
+ * 并用下载历史按 destPath 回填书名/作者/zlib tag/完成时间（纯函数，可单测）。
+ */
+internal fun buildDownloadRecoveryCandidates(
+    downloadDir: File,
+    loaded: List<Book>,
+    hints: List<LibraryDownloadHint>,
+): List<LibraryFileCandidate> {
+    if (!downloadDir.isDirectory) return emptyList()
+    val knownPaths = loaded.mapTo(HashSet(loaded.size)) { pathKey(it.filePath) }
+    val hintsByPath = hints
+        .filter { it.destPath.isNotBlank() && !it.destPath.startsWith("content://") }
+        .associateBy { pathKey(it.destPath) }
+    return downloadDir.listFiles().orEmpty()
+        .filter { file -> isRecoverableLibraryFile(file) && pathKey(file.absolutePath) !in knownPaths }
+        .sortedBy { it.name }
+        .map { file ->
+            val hint = hintsByPath[pathKey(file.absolutePath)]
+            val tags = buildList {
+                add(DOWNLOAD_TAG)
+                hint?.bookId?.takeIf { it.isNotBlank() }?.let { add(zlibBookTag(it)) }
+            }
+            LibraryFileCandidate(
+                file = file,
+                title = hint?.title,
+                author = hint?.author,
+                tags = tags,
+                addedAt = hint?.finishedAt?.takeIf { it > 0L }?.let(::isoUtcTimestamp),
+            )
+        }
+}
+
+/** 下载记录的 zlib:<bookId> tag（与下载页 UI 的拼法一致）。 */
+internal fun zlibBookTag(bookId: String): String = ZLIB_TAG_PREFIX + bookId
 
 /** 复制进书架的本地文件名：prefix-时间戳-uuid 前 8 位.扩展名（uuid 保证并发唯一）。 */
 internal fun libraryCopyFileName(prefix: String, extension: String, millis: Long, uuid: String): String =
@@ -361,6 +523,18 @@ internal fun isoUtcTimestamp(millis: Long): String =
         .format(Date(millis))
 
 internal data class LibraryRecoveryResult(val adopted: List<Book>, val all: List<Book>)
+
+/**
+ * 待补登记的文件候选（P2-1）：冷启扫描 _pb_files / 默认下载目录时携带元数据，
+ * 由 [LibraryIndexStore.recoverCandidates] 在锁内一次写盘。
+ */
+internal data class LibraryFileCandidate(
+    val file: File,
+    val title: String? = null,
+    val author: String? = null,
+    val tags: List<String> = emptyList(),
+    val addedAt: String? = null,
+)
 
 // -------------------------------------------------------------------- 索引持久化
 
@@ -462,6 +636,19 @@ internal class LibraryIndexStore(
     @Volatile
     private var committedVersion = 0L
 
+    /** 本次 load 的索引是否来自「缺失/损坏后的重建」（供 LibraryStore 决定是否扫下载目录）。 */
+    @Volatile
+    var lastLoadWasRebuilt: Boolean = false
+        private set
+
+    /**
+     * 索引不仅被重建，而且没有从 .bad/.bak 恢复出任何条目（等同于索引丢了）。
+     * 只有这种情况才扫默认下载目录补登记：索引完好/可恢复时不扫，避免删过的书被复活。
+     */
+    @Volatile
+    var lastLoadLostIndex: Boolean = false
+        private set
+
     /** 最新已提交列表（与最后一次成功落盘的内容一致）。 */
     val books: List<Book>
         get() = committed
@@ -497,6 +684,8 @@ internal class LibraryIndexStore(
             }
             val version = commitLocked(merged)
             loadedOnce = true
+            lastLoadWasRebuilt = read.rebuilt
+            lastLoadLostIndex = read.rebuilt && read.books.isEmpty()
             Committed(merged, merged, version)
         }
         dispatchCommitted(outcome.books, outcome.version)
@@ -514,9 +703,18 @@ internal class LibraryIndexStore(
         return try {
             val outcome = mutex.withLock {
                 ensureLoadedLocked()
-                val targetPath = pathKey(file.absolutePath)
-                committed.firstOrNull { pathKey(it.filePath) == targetPath }?.let {
-                    return@withLock Committed(it, committed, committedVersion)
+                // 幂等命中：同路径优先；否则按 zlib:<bookId>（SAF 复制路径不同 / 冷启恢复过也认得出，P2-3）。
+                val existing = findIdempotentBook(committed, file.absolutePath, tags)
+                if (existing != null) {
+                    // 文件回来了：清掉 missing 标记并回写；否则原样返回已有条目。
+                    val healed = clearMissingTag(existing)
+                    if (healed != existing) {
+                        val next = committed.map { if (it.id == existing.id) healed else it }
+                        writeIndexLocked(next)
+                        val version = commitLocked(next)
+                        return@withLock Committed(healed, next, version)
+                    }
+                    return@withLock Committed(existing, committed, committedVersion)
                 }
                 val book = Book(
                     id = freshBookId(committed.mapTo(HashSet(committed.size)) { it.id }),
@@ -568,7 +766,15 @@ internal class LibraryIndexStore(
     suspend fun recoverFiles(
         candidates: List<File>,
         tags: List<String> = emptyList(),
-    ): LibraryRecoveryResult {
+    ): LibraryRecoveryResult = recoverCandidates(
+        candidates.map { LibraryFileCandidate(file = it, tags = tags) },
+    )
+
+    /**
+     * 批量补登记文件候选（P2-1）：可在候选里带 title/author/tags/addedAt（下载历史回填），
+     * 锁内按最新 committed 去重，一次写盘；返回本次真正新增的条目。
+     */
+    suspend fun recoverCandidates(candidates: List<LibraryFileCandidate>): LibraryRecoveryResult {
         val outcome = mutex.withLock {
             ensureLoadedLocked()
             if (candidates.isEmpty()) {
@@ -577,21 +783,21 @@ internal class LibraryIndexStore(
             val knownPaths = committed.mapTo(HashSet(committed.size)) { pathKey(it.filePath) }
             val usedIds = committed.mapTo(HashSet(committed.size)) { it.id }
             val adopted = ArrayList<Book>(candidates.size)
-            candidates.forEach { file ->
-                // 双重过滤：调用方（LibraryStore 冷启扫描）已经筛过一遍，这里再兜一层——
-                // recoverFiles 本身也不接受目录、.tmp 半成品和非 epub/pdf 文件。
+            candidates.forEach { candidate ->
+                val file = candidate.file
+                // 双重过滤：调用方已经筛过一遍，这里再兜一层——不接受目录、.tmp 半成品和非 epub/pdf 文件。
                 if (!isRecoverableLibraryFile(file)) return@forEach
                 if (!knownPaths.add(pathKey(file.absolutePath))) return@forEach
                 val format = sniffBookFormat(file) ?: return@forEach
                 adopted += Book(
                     id = freshBookId(usedIds),
-                    title = recoveredBookTitle(file),
-                    author = null,
+                    title = candidate.title?.takeIf { it.isNotBlank() } ?: recoveredBookTitle(file),
+                    author = candidate.author?.takeIf { it.isNotBlank() },
                     format = format,
                     filePath = file.absolutePath,
                     fileSize = file.length(),
-                    addedAt = isoUtcTimestamp(file.lastModified()),
-                    tags = tags,
+                    addedAt = candidate.addedAt ?: isoUtcTimestamp(file.lastModified()),
+                    tags = candidate.tags,
                 )
             }
             if (adopted.isEmpty()) {
@@ -604,6 +810,15 @@ internal class LibraryIndexStore(
         }
         dispatchCommitted(outcome.books, outcome.version)
         return outcome.value
+    }
+
+    /** P2-3：按 zlib tag 查已有书架条目（下载记录重复导入前先认领，不再复制文件）。 */
+    suspend fun findByTag(tag: String): Book? {
+        if (tag.isBlank()) return null
+        return mutex.withLock {
+            ensureLoadedLocked()
+            findBookByZlibTag(committed, tag)
+        }
     }
 
     /**
@@ -663,18 +878,19 @@ internal class LibraryIndexStore(
         val corrupted: Boolean,
         /** 损坏但连 .bad 备份都没能落下：调用方必须停止重建，避免覆盖原文件。 */
         val quarantineFailed: Boolean = false,
+        /** 索引来自重建（文件缺失/损坏），不是一次正常读取。 */
+        val rebuilt: Boolean = false,
     )
 
     private fun readIndexLocked(): ReadResult {
         val file = indexFile()
         if (!file.exists()) {
-            // 上次损坏隔离后没来得及重建（或重建写盘失败）：先试历史 .bad 备份自愈。
-            val recovered = recoverFromBadLocked()
+            // 上次损坏隔离后没来得及重建（或重建写盘失败）：先试 .bad/.bak 备份自愈。
+            val recovered = recoverFromBackupsLocked()
             return if (recovered == null) {
-                ReadResult(emptyList(), corrupted = false)
+                ReadResult(emptyList(), corrupted = false, rebuilt = true)
             } else {
-                log("index missing, recovered from .bad entries=" + recovered.size, null)
-                ReadResult(recovered, corrupted = true)
+                ReadResult(recovered, corrupted = true, rebuilt = true)
             }
         }
         val text = try {
@@ -699,14 +915,13 @@ internal class LibraryIndexStore(
      */
     private fun corruptedReadResultLocked(quarantined: Boolean): ReadResult {
         if (!quarantined) {
-            return ReadResult(emptyList(), corrupted = true, quarantineFailed = true)
+            return ReadResult(emptyList(), corrupted = true, quarantineFailed = true, rebuilt = true)
         }
-        val recovered = recoverFromBadLocked()
+        val recovered = recoverFromBackupsLocked()
         if (recovered != null) {
-            log("index recovered from .bad backup entries=" + recovered.size, null)
-            return ReadResult(recovered, corrupted = true)
+            return ReadResult(recovered, corrupted = true, rebuilt = true)
         }
-        return ReadResult(emptyList(), corrupted = true)
+        return ReadResult(emptyList(), corrupted = true, rebuilt = true)
     }
 
     /**
@@ -722,6 +937,26 @@ internal class LibraryIndexStore(
         for (backup in backups) {
             val decoded = runCatching { codec.decode(backup.readText()) }.getOrNull()
             if (!decoded.isNullOrEmpty()) return decoded
+        }
+        return null
+    }
+
+    /**
+     * 备份恢复顺序：先尝试损坏现场 .bad（readText 失败类损坏的原内容可能仍可解析），
+     * 再按 A/B 轮换备份 books.json.bak1（最近一次成功提交）→ bak2（上一次）。
+     * 只读，不移动/删除备份；.bad 只接受非空，.bak 允许空（用户确实删光了书，不能拿旧快照复活）。
+     */
+    private fun recoverFromBackupsLocked(): List<Book>? {
+        recoverFromBadLocked()?.let { recovered ->
+            log("index recovered from .bad backup entries=" + recovered.size, null)
+            return recovered
+        }
+        for (name in listOf(BAK1_NAME, BAK2_NAME)) {
+            val backup = File(dir, name)
+            if (!backup.isFile) continue
+            val decoded = runCatching { codec.decode(backup.readText()) }.getOrNull() ?: continue
+            log("index recovered from " + name + " backup entries=" + decoded.size, null)
+            return decoded
         }
         return null
     }
@@ -766,16 +1001,22 @@ internal class LibraryIndexStore(
 
     private fun writeIndexLocked(books: List<Book>) {
         dir.mkdirs()
-        val target = indexFile()
-        val tmp = File(dir, INDEX_FILE_NAME + "." + UUID.randomUUID() + TMP_SUFFIX)
+        val payload = codec.encode(books)
+        writePayloadLocked(indexFile(), payload)
+        // P2-1：A/B 轮换备份 = 本次成功提交（bak1）与上一次（bak2）。
+        // 主索引被删除/损坏时优先恢复备份，避免「索引没了 = 默认下载目录的书永久丢条目」。
+        writeLastGoodBackupLocked(payload)
+    }
+
+    /** 唯一临时名 + fsync + rename：同目录 rename 原子，读者只会看到旧/新的完整文件。 */
+    private fun writePayloadLocked(target: File, payload: String) {
+        val tmp = File(dir, target.name + "." + UUID.randomUUID() + TMP_SUFFIX)
         try {
-            val payload = codec.encode(books)
             FileOutputStream(tmp).use { output ->
                 output.write(payload.toByteArray(Charsets.UTF_8))
                 output.flush()
                 output.fd.sync()
             }
-            // 唯一临时名 + rename：同目录 rename 在 Android/Linux 上原子，读者只会看到旧或新的完整文件。
             if (!tmp.renameTo(target)) {
                 target.delete()
                 if (!tmp.renameTo(target)) {
@@ -788,6 +1029,22 @@ internal class LibraryIndexStore(
             runCatching { tmp.delete() }
             throw throwable
         }
+    }
+
+    /** 备份是 best-effort：主索引已写成功，备份失败只记日志，不能让写 API 误报失败。 */
+    private fun writeLastGoodBackupLocked(payload: String) {
+        runCatching {
+            val bak1 = File(dir, BAK1_NAME)
+            val bak2 = File(dir, BAK2_NAME)
+            if (bak1.isFile) {
+                bak2.delete()
+                if (!bak1.renameTo(bak2)) {
+                    bak1.copyTo(bak2, overwrite = true)
+                    bak1.delete()
+                }
+            }
+            writePayloadLocked(bak1, payload)
+        }.onFailure { log("write index backup failed", it) }
     }
 
     /** 上次进程被杀留下的唯一临时文件：加载时（锁内）清掉，避免越积越多。 */
@@ -839,3 +1096,7 @@ private const val LIBRARY_DIR_NAME = "_pb_files"
 private const val DOWNLOAD_TAG = "zlib-download"
 private const val RECOVERED_TAG = "recovered"
 private const val BAD_SUFFIX = ".bad"
+private const val BAK1_NAME = "books.json.bak1"
+private const val BAK2_NAME = "books.json.bak2"
+private const val MISSING_TAG = "missing"
+private const val DOWNLOAD_HISTORY_FILE_NAME = "zlib_downloads.json"

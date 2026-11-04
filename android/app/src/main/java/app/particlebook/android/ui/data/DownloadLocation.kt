@@ -40,13 +40,27 @@ object DownloadLocation {
         return fallback
     }
 
-    /** 已持久化的 SAF 目录；未选择时为 null（即使用默认目录）。 */
-    fun treeUri(context: Context): Uri? =
-        prefs(context).getString(KEY_TREE, null)
-            ?.takeIf { it.isNotBlank() }
-            ?.let { raw -> runCatching { Uri.parse(raw) }.getOrNull() }
+    /** 已持久化且授权仍有效的 SAF 目录；未选择/授权失效时为 null（即使用默认目录）。 */
+    fun treeUri(context: Context): Uri? {
+        val stored = storedTreeUri(context) ?: return null
+        if (!hasPersistedWritePermission(context, stored)) {
+            Log.w(TAG, "saf tree permission lost, fallback to default: " + stored)
+            return null
+        }
+        return stored
+    }
 
     fun isCustom(context: Context): Boolean = treeUri(context) != null
+
+    /** P2-2：设置页启动校验：持久授权失效时清掉失效配置并回默认目录，返回是否发生了回退。 */
+    fun validateStoredTree(context: Context): Boolean {
+        val stored = storedTreeUri(context) ?: return false
+        if (hasPersistedWritePermission(context, stored)) return false
+        releaseTreePermission(context, stored)
+        prefs(context).edit().remove(KEY_TREE).remove(KEY_LABEL).apply()
+        Log.w(TAG, "saf tree permission lost, reset download dir: " + stored)
+        return true
+    }
 
     /** 设置页展示文案：自定义显示 SAF 相对路径，否则显示默认绝对路径。 */
     fun summary(context: Context): String {
@@ -56,47 +70,37 @@ object DownloadLocation {
         return "自定义：" + (stored ?: labelFor(uri))
     }
 
-    /** 保存用户选择的 SAF 目录；返回是否拿到可写的持久化授权。 */
+    /**
+     * 保存用户选择的 SAF 目录；只有「拿到持久写授权」且「目录确实支持创建文件」才保存并启用。
+     * P2-2：之前授权失败也写 prefs——用户看到「无法使用」，但下载实际切到了只读目录；
+     * 现在失败一律保持原目录（返回 false），由设置页提示，不再出现 UI 与真实状态不一致。
+     */
     fun setTree(context: Context, uri: Uri): Boolean {
-        val resolver = context.contentResolver
-        val readWrite = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+        val writable = isTreeWritable(context, uri)
         val persisted = runCatching {
-            resolver.takePersistableUriPermission(uri, readWrite)
+            context.contentResolver.takePersistableUriPermission(
+                uri,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
+            )
             true
         }.getOrDefault(false)
-        if (!persisted) {
-            // 个别 provider 只给只读授权：退一步持久化读权限并照常记录，写入会在下载时给出明确失败提示。
-            runCatching {
-                resolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            }
-        }
-        val canWrite = runCatching {
-            val parent = treeDocumentUri(uri) ?: return@runCatching false
-            resolver.query(
-                parent,
-                arrayOf(DocumentsContract.Document.COLUMN_FLAGS),
-                null,
-                null,
-                null,
-            )?.use { cursor ->
-                cursor.moveToFirst() &&
-                    (cursor.getInt(0) and DocumentsContract.Document.FLAG_DIR_SUPPORTS_CREATE) != 0
-            } ?: false
-        }.getOrDefault(true)
-        if (!canWrite) {
-            Log.w(TAG, "selected SAF tree is not writable: " + uri)
+        if (!safTreeAcceptable(persisted = persisted, writable = writable)) {
+            Log.w(TAG, "reject saf tree persisted=" + persisted + " writable=" + writable + " uri=" + uri)
             return false
         }
+        val previous = storedTreeUri(context)
+        if (previous != null && previous != uri) releaseTreePermission(context, previous)
         prefs(context).edit()
             .putString(KEY_TREE, uri.toString())
             .putString(KEY_LABEL, labelFor(uri))
             .apply()
         Log.i(TAG, "download dir -> saf " + uri)
-        return persisted
+        return true
     }
 
-    /** 恢复默认目录（不清除已下载文件，只改后续下载目标）。 */
+    /** 恢复默认目录（不清除已下载文件，只改后续下载目标）；顺手释放旧 SAF 持久授权。 */
     fun reset(context: Context) {
+        storedTreeUri(context)?.let { releaseTreePermission(context, it) }
         prefs(context).edit().remove(KEY_TREE).remove(KEY_LABEL).apply()
         Log.i(TAG, "download dir -> default")
     }
@@ -268,6 +272,44 @@ object DownloadLocation {
     private fun prefs(context: Context) =
         context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
+    /** prefs 里保存的原始 tree（不校验授权）；[treeUri] 才是「当前真正可用」的目录。 */
+    private fun storedTreeUri(context: Context): Uri? =
+        prefs(context).getString(KEY_TREE, null)
+            ?.takeIf { it.isNotBlank() }
+            ?.let { raw -> runCatching { Uri.parse(raw) }.getOrNull() }
+
+    /** 持久授权是否仍在（P2-2：下载要写文件，读+写都必须在）。 */
+    private fun hasPersistedWritePermission(context: Context, uri: Uri): Boolean =
+        context.contentResolver.persistedUriPermissions.any {
+            it.uri == uri && it.isReadPermission && it.isWritePermission
+        }
+
+    /** 释放 tree 的持久授权；provider 可能只认读写组合或只读组合，两种都试且吞异常。 */
+    private fun releaseTreePermission(context: Context, uri: Uri) {
+        val modes = listOf(
+            Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
+            Intent.FLAG_GRANT_READ_URI_PERMISSION,
+        )
+        modes.forEach { mode ->
+            runCatching { context.contentResolver.releasePersistableUriPermission(uri, mode) }
+        }
+    }
+
+    /** 目录 flag 是否真的支持创建文件；查询失败按不可写处理（不能默认 true 放行）。 */
+    private fun isTreeWritable(context: Context, uri: Uri): Boolean = runCatching {
+        val parent = treeDocumentUri(uri) ?: return@runCatching false
+        context.contentResolver.query(
+            parent,
+            arrayOf(DocumentsContract.Document.COLUMN_FLAGS),
+            null,
+            null,
+            null,
+        )?.use { cursor ->
+            cursor.moveToFirst() &&
+                (cursor.getInt(0) and DocumentsContract.Document.FLAG_DIR_SUPPORTS_CREATE) != 0
+        } ?: false
+    }.getOrDefault(false)
+
     private fun treeDocumentUri(tree: Uri): Uri? = runCatching {
         val documentId = DocumentsContract.getTreeDocumentId(tree)
         DocumentsContract.buildDocumentUriUsingTree(tree, documentId)
@@ -296,6 +338,9 @@ object DownloadLocation {
     }.onFailure { Log.w(TAG, "open folder intent failed: " + intent.action) }
         .getOrDefault(false)
 }
+
+/** P2-2：只有持久写授权 + 目录可创建文件才允许保存并启用 SAF 下载目录（纯函数，单测用）。 */
+internal fun safTreeAcceptable(persisted: Boolean, writable: Boolean): Boolean = persisted && writable
 
 /** D1 的失败文案（纯函数，JVM 单测可直接断言）。 */
 internal fun folderOpenFailureText(location: String): String =
