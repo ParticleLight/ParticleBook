@@ -1095,8 +1095,8 @@ private fun SearchError(
             textAlign = TextAlign.Center,
         )
         // spec §11.6：副行不能暴露英文枚举；未知类型直接隐藏。
-        // i18n Phase 1a：ZlibUiError 仍返回中文标签，UI 层用资源 ID 映射；
-        // 错误正文 message 与 ZlibUiError 自身留 Phase 1b（任务写作用域外）。
+        // 注意：ZlibSearchState.Error.kindLabel 保存的是 ZlibException.Kind.name（如 NO_MIRROR），
+        // 不是 ZlibUiError.kindLabel 的中文展示标签；UI 层按枚举名映射到资源。
         val kindRes = zlibKindLabelRes(kindLabel)
         if (kindRes != null) {
             Spacer(Modifier.height(Spacing.xs))
@@ -1208,20 +1208,23 @@ internal fun zlibSortOrderLabelRes(order: ZlibSortOrder): Int = when (order) {
 }
 
 /**
- * ZlibUiError.kindLabel 的中文标签 → 资源 ID。
- * Phase 1a 不改 ZlibUiError（不在写作用域，且其单测锁中文）；UI 层在这里做展示映射，
- * 未知/空标签继续隐藏，避免把英文枚举暴露给用户。错误正文与其它调用方留 Phase 1b。
+ * ZlibException.Kind 枚举名（如 NO_MIRROR）→ 资源 ID。
+ *
+ * 输入域是 [ZlibSearchState.Error.kindLabel] / [ZlibSearchState.Success.loadMoreKindLabel]
+ * 里保存的原始枚举名（ZlibSearchViewModel.kindLabel() = throwable.kind.name），
+ * 不是 ZlibUiError.kindLabel 的中文展示标签。Phase 1a 不改 ZlibUiError（不在写作用域，
+ * 且其单测锁中文），UI 层在这里做展示映射；未知/空值隐藏副行，避免把英文枚举暴露给用户。
  */
-internal fun zlibKindLabelRes(kindLabel: String?): Int? = when (kindLabel) {
-    "镜像不可达" -> R.string.find_error_kind_mirror
-    "安全校验未通过" -> R.string.find_error_kind_security
-    "服务器错误" -> R.string.find_error_kind_server
-    "页面解析失败" -> R.string.find_error_kind_parse
-    "网络异常" -> R.string.find_error_kind_network
-    "下载额度已用尽" -> R.string.find_error_kind_quota
-    "需要登录" -> R.string.find_error_kind_login
-    "下载失败" -> R.string.find_error_kind_download
-    "已取消" -> R.string.find_error_kind_cancelled
+internal fun zlibKindLabelRes(kindName: String?): Int? = when (kindName) {
+    "NO_MIRROR" -> R.string.find_error_kind_mirror
+    "CHALLENGE_FAILED" -> R.string.find_error_kind_security
+    "HTTP" -> R.string.find_error_kind_server
+    "PARSE" -> R.string.find_error_kind_parse
+    "NETWORK" -> R.string.find_error_kind_network
+    "DAILY_LIMIT" -> R.string.find_error_kind_quota
+    "LOGIN_REQUIRED" -> R.string.find_error_kind_login
+    "DOWNLOAD" -> R.string.find_error_kind_download
+    "CANCELLED" -> R.string.find_error_kind_cancelled
     else -> null
 }
 
