@@ -39,10 +39,20 @@ object BookCoverLoader {
         File(context.filesDir, "covers").apply { if (!exists()) mkdirs() }
 
     private fun cacheFile(context: Context, bookId: Long): File =
-        File(coversDir(context), bookId.toString() + ".png")
+        coverCacheFile(coversDir(context), bookId)
 
     /** 内存里已有的封面（首帧直接画出来，避免闪一下生成封面）。 */
     fun fromMemory(bookId: Long): Bitmap? = memory.get(bookId)
+
+    /**
+     * P3-4：删书后清掉内存 + 磁盘封面缓存（否则磁盘残留，重导入的新 id 也用不上旧封面）。
+     * 返回删掉的磁盘文件数；失败不抛（删书流程不能被缓存清理打断）。
+     */
+    fun evict(context: Context, bookIds: Collection<Long>): Int {
+        if (bookIds.isEmpty()) return 0
+        bookIds.forEach { bookId -> memory.remove(bookId) }
+        return runCatching { evictCoverFiles(coversDir(context), bookIds) }.getOrDefault(0)
+    }
 
     /** 加载封面；主线程调用安全（内部切 IO）。 */
     suspend fun load(context: Context, book: Book): Bitmap? = withContext(Dispatchers.IO) {
@@ -255,3 +265,13 @@ object BookCoverLoader {
         }
     }
 }
+
+/** 一本书的磁盘封面缓存路径（纯函数，单测用）。 */
+internal fun coverCacheFile(coversDir: File, bookId: Long): File =
+    File(coversDir, bookId.toString() + ".png")
+
+/** 删除这些 id 的磁盘封面缓存，返回实际删除个数（纯文件逻辑，单测用）。 */
+internal fun evictCoverFiles(coversDir: File, bookIds: Collection<Long>): Int =
+    bookIds.count { bookId ->
+        coverCacheFile(coversDir, bookId).let { file -> file.isFile && file.delete() }
+    }

@@ -224,6 +224,18 @@ class LibraryStore(
                         runCatching { file.delete() }
                     }
                 }
+                // P3-4：删书级联清进度/封面。清理失败只记日志，不能把「书已删除」误报成失败。
+                if (removed.isNotEmpty()) {
+                    val removedIds = removed.mapTo(ArrayList(removed.size)) { it.id }
+                    runCatching { ReadingProgress.clear(context, removedIds) }
+                        .onFailure { Log.w(TAG, "clear reading progress failed ids=" + removedIds, it) }
+                    runCatching { BookCoverLoader.evict(context, removedIds) }
+                        .onFailure { Log.w(TAG, "evict cover cache failed ids=" + removedIds, it) }
+                    markDeletedSeeds(removed)
+                    // 下载记录按 filePath/zlib tag 关联清理（RECORD_ONLY）；data 层不反向依赖下载管理器。
+                    runCatching { LibraryRemovalBus.notifyRemoved(removed) }
+                        .onFailure { Log.w(TAG, "notify removed books failed", it) }
+                }
                 Result.success(removed.size)
             } catch (cancellation: CancellationException) {
                 throw cancellation
@@ -234,15 +246,31 @@ class LibraryStore(
         }
     }
 
+    /** P3-5：删掉内置样书时记下文件名，之后启动不再复制、fixtures 也不再合并回书架。 */
+    private fun markDeletedSeeds(removed: List<Book>) {
+        runCatching {
+            val seedNames = Assets.seedNames(context)
+            if (seedNames.isEmpty()) return
+            val deleted = removed.mapNotNull { book ->
+                val file = File(book.filePath)
+                file.name.takeIf { it in seedNames && file.parentFile?.name == LIBRARY_DIR_NAME }
+            }.toSet()
+            Assets.markSeedDeleted(context, deleted)
+        }.onFailure { Log.w(TAG, "mark deleted seed failed", it) }
+    }
+
     private fun libraryDir(): File = File(context.filesDir, LIBRARY_DIR_NAME).apply { mkdirs() }
 
     private suspend fun loadFromDisk(): List<Book> {
         val dir = libraryDir()
         Assets.seed(context, dir)
-        val fixtures = parseBooks(Assets.readText(context, "fixtures.json"))
-            .map { resolveLocal(it, dir) }
+        val deletedSeeds = Assets.deletedSeedNames(context)
+        val fixtures = filterDeletedSeedBooks(
+            parseBooks(Assets.readText(context, "fixtures.json")),
+            deletedSeeds,
+        ).map { resolveLocal(it, dir) }
         val loaded = indexStore.load { persisted -> mergePersisted(fixtures, persisted, dir) }
-        val recovered = recoverOrphanLibraryFiles(dir, loaded)
+        val recovered = recoverOrphanLibraryFiles(dir, loaded, deletedSeeds)
         // P2-1：这一次索引是被重建出来的（文件缺失/损坏，且没有 .bad/.bak 可恢复出条目）时，
         // 默认下载目录（File 模式）里的书在索引里也不存在；用下载历史回填书名/作者/zlib tag
         // 后补登记。正常启动不扫下载目录，避免用户从书架删掉、但文件与下载记录仍在的书被「复活」。
@@ -276,10 +304,16 @@ class LibraryStore(
      * 把索引里没有的、文件头确实像 EPUB/PDF 的文件补登记回来，避免「索引没了 = 书架清空、
      * 文件白占空间且再也打不开」。已知路径（fixtures/索引内条目）跳过；重复调用幂等。
      */
-    private suspend fun recoverOrphanLibraryFiles(dir: File, loaded: List<Book>): List<Book> {
+    private suspend fun recoverOrphanLibraryFiles(
+        dir: File,
+        loaded: List<Book>,
+        deletedSeeds: Set<String>,
+    ): List<Book> {
         val knownPaths = loaded.mapTo(HashSet(loaded.size)) { pathKey(it.filePath) }
         val candidates = dir.listFiles().orEmpty().filter { file ->
-            isRecoverableLibraryFile(file) && pathKey(file.absolutePath) !in knownPaths
+            file.name !in deletedSeeds &&
+                isRecoverableLibraryFile(file) &&
+                pathKey(file.absolutePath) !in knownPaths
         }
         if (candidates.isEmpty()) return loaded
         val recovered = indexStore.recoverFiles(candidates, tags = listOf(RECOVERED_TAG))
@@ -334,6 +368,30 @@ class LibraryStore(
 }
 
 private data class CopiedFile(val file: File, val displayName: String)
+
+/**
+ * P3-5：用户删掉的内置样书不再从 fixtures 合并回书架（纯函数，单测用）。
+ * 只按文件名匹配：fixtures 里的路径是设备绝对路径，样本文件名本身唯一。
+ */
+internal fun filterDeletedSeedBooks(fixtures: List<Book>, deletedSeedNames: Set<String>): List<Book> {
+    if (deletedSeedNames.isEmpty()) return fixtures
+    return fixtures.filterNot { book -> File(book.filePath).name in deletedSeedNames }
+}
+
+/**
+ * P3-4：删书成功事件总线。数据层不能反向依赖 UI 层的 ZlibDownloadManager，
+ * 由下载管理器在 init 时注册监听，把与已删书关联的下载记录按 RECORD_ONLY 语义移除。
+ * 回调在删除的 IO 线程上同步执行，监听方需自行保证线程安全。
+ */
+internal object LibraryRemovalBus {
+    @Volatile
+    var listener: ((List<Book>) -> Unit)? = null
+
+    fun notifyRemoved(books: List<Book>) {
+        if (books.isEmpty()) return
+        listener?.invoke(books)
+    }
+}
 
 /**
  * P2-1：fixtures + 持久化索引的合并规则（纯函数，可单测）。

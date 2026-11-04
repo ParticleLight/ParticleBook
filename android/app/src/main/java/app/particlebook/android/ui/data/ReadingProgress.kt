@@ -45,4 +45,29 @@ object ReadingProgress {
     /** 无障碍用：没有进度时补「未读」（屏幕阅读器感知不到「进度条缺失」）。 */
     fun a11yStatus(context: Context, bookId: Long): String =
         percentLabel(context, bookId) ?: "未读"
+
+    /**
+     * P3-4：删书级联清掉进度（page/pages/last_read）。返回实际删掉的键数。
+     * 清理失败不应让删书失败，调用方负责吞异常/记日志。
+     */
+    fun clear(context: Context, bookIds: Collection<Long>): Int {
+        if (bookIds.isEmpty()) return 0
+        val store = prefs(context)
+        val editor = store.edit()
+        var removed = 0
+        bookIds.forEach { bookId ->
+            progressKeys(bookId).forEach { key ->
+                if (store.contains(key)) {
+                    editor.remove(key)
+                    removed += 1
+                }
+            }
+        }
+        editor.apply()
+        return removed
+    }
 }
+
+/** 一本书在 pb_reading 里的全部键（删书级联清理用；纯函数，单测用）。 */
+internal fun progressKeys(bookId: Long): List<String> =
+    listOf("page_" + bookId, "pages_" + bookId, "last_read_" + bookId)

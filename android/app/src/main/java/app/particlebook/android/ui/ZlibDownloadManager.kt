@@ -8,7 +8,9 @@ import android.provider.DocumentsContract
 import android.util.Log
 import app.particlebook.android.ui.data.Book
 import app.particlebook.android.ui.data.DownloadLocation
+import app.particlebook.android.ui.data.LibraryRemovalBus
 import app.particlebook.android.ui.data.LibraryStore
+import app.particlebook.android.ui.data.zlibBookTag
 import app.particlebook.android.zlib.ZBookDetail
 import app.particlebook.android.zlib.ZlibBookFormat
 import app.particlebook.android.zlib.ZlibClient
@@ -112,6 +114,20 @@ internal const val ZLIB_MIN_BOOK_BYTES = 1_024L
  */
 internal fun zlibHistoryTotal(hasTotal: Boolean, totalValue: Long, received: Long): Long =
     if (hasTotal) totalValue else received
+
+/**
+ * P3-4：删书时按 filePath / zlib tag 关联出的下载记录（纯函数，JVM 单测用）。
+ * SAF 导入副本的 book.filePath 是 _pb_files 下的副本路径，记录 destPath 是 content://，
+ * 只能靠 zlib:<bookId> tag 关联；默认下载目录原地登记的书则 path 直接相等。
+ */
+internal fun zlibHistoryForRemovedBooks(
+    records: List<ZlibDownloadTask>,
+    removed: List<Book>,
+): List<ZlibDownloadTask> = records.filter { record ->
+    removed.any { book ->
+        record.destPath == book.filePath || book.tags.contains(zlibBookTag(record.bookId))
+    }
+}
 
 /** P2-4：普通 File 目标的完整性判定（纯 JVM，单测直接覆盖）。 */
 internal fun zlibInspectBookFile(
@@ -672,6 +688,9 @@ object ZlibDownloadManager {
      */
     private val pendingRecords = LinkedHashMap<String, ZlibDownloadTask>()
 
+    /** P3-4：下载历史读盘完成前被删掉的书，读完后补做记录级联清理。 */
+    private val removedWhileHistoryLoading = ArrayList<Book>()
+
     /** T15：start() 异步判定窗口内按 bookId 去重（只在主线程读写），防连点开出两个同书任务。 */
     private val startGuards = HashSet<String>()
 
@@ -697,6 +716,8 @@ object ZlibDownloadManager {
             decode = ::decodeHistory,
         )
         historyStore = store
+        // P3-4：书架删书后按 filePath/zlib tag 级联清下载记录（RECORD_ONLY）。
+        LibraryRemovalBus.listener = ::removeDownloadHistoryForBooks
         scope.launch {
             val loaded = withContext(Dispatchers.IO) { store.read() }
             // U10：上次进程被杀时留在磁盘上的非终态记录 → 恢复成可重试的中断失败态。
@@ -710,6 +731,11 @@ object ZlibDownloadManager {
                 }
             }
             _historyLoaded.value = true
+            // P3-4：读盘完成前发生的删书，补做下载记录级联清理。
+            val pendingRemoved = synchronized(removedWhileHistoryLoading) {
+                removedWhileHistoryLoading.toList().also { removedWhileHistoryLoading.clear() }
+            }
+            if (pendingRemoved.isNotEmpty()) removeDownloadHistoryForBooks(pendingRemoved)
             // 规范化结果写回磁盘；读盘完成前被 gate 的写盘请求在这里补一次（合并后的快照）。
             val needsWrite = historyWritePending || recovered != loaded
             historyWritePending = false
@@ -1135,11 +1161,36 @@ object ZlibDownloadManager {
         return true
     }
 
+    /**
+     * P3-4：书架删书后的下载记录级联清理。
+     * - 按 destPath == book.filePath 或 book.tags 含 zlib:<record.bookId> 关联（SAF 副本只能靠 tag）；
+     * - deleteFile = false：文件归 LibraryStore/用户所有，这里只删记录（RECORD_ONLY），
+     *   未完成记录的 .part/SAF 临时文件由 removeHistory 的 RECORD_ONLY 分支顺手清理。
+     * - 历史尚未读盘完成时先排队，读完后补做，避免冷启删书后记录又冒出来。
+     */
+    private fun removeDownloadHistoryForBooks(books: List<Book>) {
+        if (books.isEmpty()) return
+        if (!_historyLoaded.value) {
+            synchronized(removedWhileHistoryLoading) { removedWhileHistoryLoading += books }
+            return
+        }
+        val records = zlibHistoryForRemovedBooks(_history.value, books)
+        if (records.isEmpty()) return
+        records.forEach { record ->
+            removeHistory(record.bookId, deleteFile = false)
+            Log.i(TAG, "cascade removed download history bookId=" + record.bookId)
+        }
+    }
+
     // ------------------------------------------------------------ 内部实现
 
     private fun taskId(bookId: String): String = "zlib:" + bookId
 
-    private fun launchDownload(task: ZlibDownloadTask, store: LibraryStore) {
+    private fun launchDownload(
+        task: ZlibDownloadTask,
+        store: LibraryStore,
+        allowSafTargetReuse: Boolean = false,
+    ) {
         val context = appContext ?: return
         val run = runs.begin(task.id)
         val throttle = ZlibProgressThrottle()
