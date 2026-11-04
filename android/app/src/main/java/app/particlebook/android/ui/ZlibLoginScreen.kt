@@ -3,6 +3,7 @@ package app.particlebook.android.ui
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.util.Log
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -41,6 +42,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -63,8 +65,11 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
+import app.particlebook.android.zlib.ZMirrorItem
 import app.particlebook.android.zlib.ZlibClient
 import java.net.URI
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /**
  * Z-Library 登录页（P1b §4.2，全屏 route zlib/login）。
@@ -87,20 +92,26 @@ fun ZlibLoginScreen(
     val busy = viewModel.busy
     val error = viewModel.error
     val canSubmit = email.isNotBlank() && password.isNotEmpty() && !busy
+    // P2-4：openInBrowser 失败（无浏览器 / 系统拒绝）时在入口下方给出可操作提示，不再静默。
+    var browserOpenFailed by remember { mutableStateOf(false) }
     // B12 修正（realnet T26，2026-11-04）：站点已无找回密码页（全部线路软 404），
     // 因此不再生成「忘记密码」链接（不做死链），只保留实测 200 的注册外链。
-    // B12/T52 修正（realnet，2026-11-04）：注册外链不能再用「当前线路」直接拼。网关线路
+    // B12/T52/T57 修正（realnet，2026-11-04）：注册外链不能再用「当前线路」直接拼。网关线路
     // zlib.ch / zlib.re 会把 /registration 301 到 z-lib.by 首页（实测），用户点「注册」会落到
     // 首页而不是注册页；改为从镜像注册表取官方线路（official，registry 排序 APP/未降权优先），
-    // 跳过已知网关，官方线路全不可用时回退实测 200 的 z-lib.by。
+    // 跳过已知网关。P2-2：没有任何可用官方线路时返回 null，注册入口隐藏（恢复 B12 原语义）。
+    // P2-1：mirrorRows() 首次加载会读注册表文件，不能在 Compose 组合（主线程）里同步调用，
+    // 与 ZlibMirrorSheet 一致放到 IO 线程，加载完成前不渲染入口。
     val context = LocalContext.current
-    val registrationBase = remember(context) {
-        val officialMirrors = ZlibClient.get(context).mirrorRows()
-            .filter { it.tier == "official" }
-            .map { it.url }
-        zlibRegistrationBase(officialMirrors)
+    val registrationState = produceState<String?>(initialValue = null, context) {
+        value = withContext(Dispatchers.IO) {
+            val officialMirrors = zlibRegistrationCandidates(
+                ZlibClient.get(context).mirrorRows(),
+            )
+            zlibRegistrationLink(officialMirrors)
+        }
     }
-    val registrationUrl = zlibAccountHelpUrl(registrationBase, "registration")
+    val registrationUrl = registrationState.value
 
     fun submit() {
         if (!canSubmit) return
@@ -269,20 +280,30 @@ fun ZlibLoginScreen(
                 Spacer(Modifier.height(Spacing.xs))
                 Row(horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
                     TextButton(
-                        onClick = { openInBrowser(context, registrationUrl) },
+                        onClick = {
+                            browserOpenFailed = !openInBrowser(context, registrationUrl)
+                        },
                         modifier = Modifier.heightIn(min = 48.dp),
                     ) {
                         Text("注册")
                     }
+                }
+                if (browserOpenFailed) {
+                    Spacer(Modifier.height(Spacing.xs))
+                    Text(
+                        text = zlibBrowserErrorMessage(registrationUrl),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .semantics { liveRegion = LiveRegionMode.Polite },
+                    )
                 }
             }
             Spacer(Modifier.height(Spacing.xxl))
         }
     }
 }
-
-/** B12/T52：注册外链兜底 base。z-lib.by 是站点自声明首选域名，2026-11-04 实测 /registration 200/21,790B。 */
-internal const val ZLIB_REGISTRATION_FALLBACK_BASE: String = "https://z-lib.by"
 
 /**
  * B12/T52：已知网关线路（2026-11-04 实测：任意路径都 301 → https://z-lib.by/ 首页）。
@@ -291,24 +312,58 @@ internal const val ZLIB_REGISTRATION_FALLBACK_BASE: String = "https://z-lib.by"
 private val ZLIB_GATEWAY_HOSTS: Set<String> = setOf("zlib.ch", "zlib.re")
 
 /**
- * B12/T52：从镜像注册表的官方线路里挑注册外链 base。
+ * B12/T52/T57：从镜像注册表的官方线路里挑注册外链 base。
  *
  * 官方线路按 registry 顺序传入（APP/未降权/低延迟优先，见 ZlibMirrorRegistry），这里只做两件事：
  * 1. 归一成 scheme://host[:port]（注册页在站点根路径，丢掉线路自带的 path/query）；
- * 2. 跳过 [ZLIB_GATEWAY_HOSTS]；全部不可用时回退 [ZLIB_REGISTRATION_FALLBACK_BASE]。
+ * 2. 跳过 [ZLIB_GATEWAY_HOSTS]。
+ *
+ * P2-2：没有任何可用官方非网关线路时返回 null；登录页据此隐藏注册入口，恢复 B12
+ * 「无线路时不渲染」的语义，避免离线/只有网关时给用户一个点开就失败的假入口。
+ * z-lib.by 本身就是 OFFICIAL_SEEDS 第一项，正常 registry 下仍会选中它。
  *
  * 不在 UI 里联网做 HEAD 校验：注册页 URL 固定为 /registration，z-lib.by 已实测 200 且带真表单；
  * 网关线路靠静态 host 名单排除，无需额外网络等待。
  */
-internal fun zlibRegistrationBase(officialMirrors: List<String>): String {
+internal fun zlibRegistrationBase(officialMirrors: List<String>): String? =
     officialMirrors.asSequence()
         .mapNotNull(::zlibMirrorOrigin)
         .distinct()
         .filterNot { zlibIsGatewayHost(zlibOriginHost(it)) }
         .firstOrNull()
-        ?.let { return it }
-    return ZLIB_REGISTRATION_FALLBACK_BASE
-}
+
+/** B12/T57：注册入口的最终 URL；null 表示 registry 无可用官方线路，入口应隐藏。 */
+internal fun zlibRegistrationLink(officialMirrors: List<String>): String? =
+    zlibAccountHelpUrl(zlibRegistrationBase(officialMirrors), "registration")
+
+// ZMirrorItem.rank 取值（对齐 ZlibMirrorRegistry.Rank）：0 APP / 1 UNKNOWN / 2 PAGE / 3 OTHER / 4 FAIL。
+private const val ZLIB_MIRROR_RANK_PAGE = 2
+private const val ZLIB_MIRROR_RANK_OTHER = 3
+private const val ZLIB_MIRROR_RANK_FAIL = 4
+
+/**
+ * B12/T57（P2-3）：从 registry 单快照挑注册页候选 URL。
+ *
+ * 只保留 official、未降权、且探测 rank 不是「推广页 / 其它 / 不通」的线路；当前线路排最前，
+ * 其余保持 registry 顺序。这样不会把 nav 页/推广页当注册页，也不会优先选一条正在降权的线路。
+ * rank=UNKNOWN（未探测）仍保留：新装/离线时还没探测，不能因此把所有官方 seed 都排除。
+ */
+internal fun zlibRegistrationCandidates(rows: List<ZMirrorItem>): List<String> =
+    rows.asSequence()
+        .filter { it.tier == "official" }
+        .filterNot {
+            it.demoted ||
+                it.rank == ZLIB_MIRROR_RANK_PAGE ||
+                it.rank == ZLIB_MIRROR_RANK_OTHER ||
+                it.rank == ZLIB_MIRROR_RANK_FAIL
+        }
+        .sortedByDescending { it.current }
+        .map { it.url }
+        .toList()
+
+/** P2-4：外链打开失败时的内联提示（无浏览器/Intent 被系统拒绝）。 */
+internal fun zlibBrowserErrorMessage(url: String): String =
+    "无法打开浏览器，请手动在浏览器访问：" + url
 
 /** 线路 URL 归一成 origin（小写 scheme/host、保留端口、去掉 path/query/fragment）；无效返回 null。 */
 internal fun zlibMirrorOrigin(raw: String?): String? {
@@ -345,9 +400,11 @@ internal fun zlibAccountHelpUrl(mirrorBase: String?, path: String): String? {
     return base + "/" + suffix
 }
 
-/** B12：用系统浏览器打开当前线路的账号辅助页面；设备没有可用浏览器时静默忽略。 */
-private fun openInBrowser(context: Context, url: String) {
+/** B12/T57：用系统浏览器打开注册页；返回 false 表示设备无浏览器或 Intent 被系统拒绝（调用方提示用户）。 */
+private fun openInBrowser(context: Context, url: String): Boolean {
     val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-    runCatching { context.startActivity(intent) }
+    return runCatching { context.startActivity(intent) }
+        .onFailure { e -> Log.w("ZlibLogin", "open browser failed: " + url, e) }
+        .isSuccess
 }
