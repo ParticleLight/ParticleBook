@@ -637,9 +637,25 @@ private fun NoMirrorBanner(onRetry: () -> Unit, onSwitchLines: () -> Unit) {
     }
 }
 
+/** 发现入口排布：<1.5 横排三列；>=1.5（200% 字号）纵排三行。 */
+internal enum class DiscoverEntryLayout { ROW, COLUMN }
+
+/** 纯函数（阈值 1.5，p15 §V9）；抽出来便于 JVM 单测，不依赖 Compose。 */
+internal fun discoverEntryLayoutFor(fontScale: Float): DiscoverEntryLayout =
+    if (fontScale >= 1.5f) DiscoverEntryLayout.COLUMN else DiscoverEntryLayout.ROW
+
+/** 发现入口三张卡的静态内容；横排/纵排共用同一份点击动作。 */
+private data class DiscoverEntry(
+    val title: String,
+    val subtitle: String,
+    val icon: ImageVector,
+    val onClick: () -> Unit,
+)
+
 /**
- * 发现入口（P1.5 §7.1）：三张等宽卡，图标 + 标题 + 一行说明。
- * 用 IntrinsicSize.Min 让三张卡在 200% 字号下等高撑开，不写死高度。
+ * 发现入口（P1.5 §7.1）：三张卡，图标 + 标题 + 说明。
+ * V9：fontScale >= 1.5（200% 字号）时改为纵向三行——每卡整宽、高度随内容撑开、
+ * 说明文字不截断、整卡可点且最小高度 48dp；100% 字号保持横排等高（IntrinsicSize.Min）。
  */
 @Composable
 private fun DiscoverEntryRow(
@@ -647,46 +663,66 @@ private fun DiscoverEntryRow(
     onPopularClick: () -> Unit,
     onCategoriesClick: () -> Unit,
 ) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(IntrinsicSize.Min),
-        horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
-    ) {
-        DiscoverEntryCard(
+    val entries = listOf(
+        DiscoverEntry(
             title = "书单",
             subtitle = "编辑精选 / 用户书单",
             icon = Icons.AutoMirrored.Outlined.MenuBook,
             onClick = onBooklistsClick,
-            modifier = Modifier.weight(1f).fillMaxHeight(),
-        )
-        DiscoverEntryCard(
+        ),
+        DiscoverEntry(
             title = "榜单",
             subtitle = "Most Popular 100",
             icon = Icons.Outlined.Leaderboard,
             onClick = onPopularClick,
-            modifier = Modifier.weight(1f).fillMaxHeight(),
-        )
-        DiscoverEntryCard(
+        ),
+        DiscoverEntry(
             title = "分类",
             subtitle = "39 大类 / 802 子类",
             icon = Icons.Outlined.Category,
             onClick = onCategoriesClick,
-            modifier = Modifier.weight(1f).fillMaxHeight(),
-        )
+        ),
+    )
+    when (discoverEntryLayoutFor(LocalDensity.current.fontScale)) {
+        DiscoverEntryLayout.ROW -> Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(IntrinsicSize.Min),
+            horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
+        ) {
+            entries.forEach { entry ->
+                DiscoverEntryCard(
+                    entry = entry,
+                    subtitleMaxLines = 2,
+                    modifier = Modifier.weight(1f).fillMaxHeight(),
+                )
+            }
+        }
+        DiscoverEntryLayout.COLUMN -> Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(Spacing.xs),
+        ) {
+            entries.forEach { entry ->
+                DiscoverEntryCard(
+                    entry = entry,
+                    subtitleMaxLines = Int.MAX_VALUE,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 48.dp),
+                )
+            }
+        }
     }
 }
 
 @Composable
 private fun DiscoverEntryCard(
-    title: String,
-    subtitle: String,
-    icon: ImageVector,
-    onClick: () -> Unit,
+    entry: DiscoverEntry,
+    subtitleMaxLines: Int,
     modifier: Modifier = Modifier,
 ) {
     Surface(
-        onClick = onClick,
+        onClick = entry.onClick,
         modifier = modifier,
         shape = RoundedCornerShape(Radius.card),
         color = MaterialTheme.colorScheme.surfaceContainerLow,
@@ -694,24 +730,24 @@ private fun DiscoverEntryCard(
     ) {
         Column(Modifier.padding(Spacing.sm)) {
             Icon(
-                imageVector = icon,
+                imageVector = entry.icon,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.size(22.dp),
             )
             Spacer(Modifier.height(Spacing.xs))
             Text(
-                text = title,
+                text = entry.title,
                 style = MaterialTheme.typography.titleSmall,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
             Spacer(Modifier.height(2.dp))
             Text(
-                text = subtitle,
+                text = entry.subtitle,
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 2,
+                maxLines = subtitleMaxLines,
                 overflow = TextOverflow.Ellipsis,
             )
         }
@@ -902,12 +938,16 @@ private fun SearchError(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,
         )
-        Spacer(Modifier.height(Spacing.xs))
-        Text(
-            text = "错误类型：" + kindLabel,
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.outline,
-        )
+        // spec §11.6：副行不能暴露英文枚举；未知类型直接隐藏。
+        val kindText = ZlibUiError.kindLabel(kindLabel)
+        if (kindText != null) {
+            Spacer(Modifier.height(Spacing.xs))
+            Text(
+                text = kindText,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.outline,
+            )
+        }
         Spacer(Modifier.height(Spacing.sm))
         FilledTonalButton(onClick = onRetry) { Text("重试") }
     }

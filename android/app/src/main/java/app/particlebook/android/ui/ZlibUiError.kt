@@ -35,6 +35,23 @@ object ZlibUiError {
     }
 
     /**
+     * 错误类型副行的中文标签（spec §11.6：不向用户暴露英文枚举）。
+     * 未知/未映射类型返回 null，调用方直接隐藏副行。
+     */
+    fun kindLabel(kindName: String?): String? = when (kindName) {
+        "NO_MIRROR" -> "镜像不可达"
+        "CHALLENGE_FAILED" -> "安全校验未通过"
+        "HTTP" -> "服务器错误"
+        "PARSE" -> "页面解析失败"
+        "NETWORK" -> "网络异常"
+        "DAILY_LIMIT" -> "下载额度已用尽"
+        "LOGIN_REQUIRED" -> "需要登录"
+        "DOWNLOAD" -> "下载失败"
+        "CANCELLED" -> "已取消"
+        else -> null
+    }
+
+    /**
      * D12：HTTP 失败文案。有真实状态码时给「服务器返回错误 N」；无码时按 message 细分重定向类；
      * 两者都没有时保持原文案（向后兼容）。[rawMessage] 是网络层异常 message（英文诊断）。
      */

@@ -59,6 +59,7 @@ import app.particlebook.android.ui.Motion
 import app.particlebook.android.ui.Radius
 import app.particlebook.android.ui.Spacing
 import app.particlebook.android.ui.ZlibCoverCache
+import app.particlebook.android.ui.ZlibUiError
 import app.particlebook.android.ui.bottomBarPadding
 import kotlinx.coroutines.flow.collect
 
@@ -175,10 +176,12 @@ internal fun DiscoverErrorState(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,
         )
-        if (kindLabel != null) {
+        // spec §11.6：副行不能暴露英文枚举；未知类型直接隐藏。
+        val kindText = ZlibUiError.kindLabel(kindLabel)
+        if (kindText != null) {
             Spacer(Modifier.height(Spacing.xs))
             Text(
-                text = "错误类型：" + kindLabel,
+                text = kindText,
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.outline,
             )

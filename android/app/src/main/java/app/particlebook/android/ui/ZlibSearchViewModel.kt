@@ -351,7 +351,7 @@ class ZlibSearchViewModel internal constructor(
                 // D12：有真实状态码/重定向细分时统一由 ZlibErrorMessages 给文案（与详情页一致）。
                 ZlibException.Kind.HTTP -> ZlibErrorMessages.from(throwable)
                 ZlibException.Kind.PARSE -> "页面解析失败：镜像可能已改版。"
-                ZlibException.Kind.NETWORK -> "网络连接失败，请检查网络后重试。"
+                ZlibException.Kind.NETWORK -> "网络连接异常，请检查网络后重试。"
                 ZlibException.Kind.DAILY_LIMIT -> ZlibErrorMessages.DAILY_LIMIT
                 ZlibException.Kind.LOGIN_REQUIRED -> ZlibErrorMessages.LOGIN_REQUIRED
                 ZlibException.Kind.DOWNLOAD -> ZlibErrorMessages.DOWNLOAD

@@ -140,7 +140,7 @@ private fun messageFor(e: ZlibException): String = when {
         // D12：有真实状态码/重定向细分时统一由 ZlibErrorMessages 给文案（与详情页一致）。
         ZlibException.Kind.HTTP -> ZlibErrorMessages.from(e)
         ZlibException.Kind.PARSE -> "页面解析失败，请稍后重试"
-        ZlibException.Kind.NETWORK -> "网络连接失败，请检查网络后重试"
+        ZlibException.Kind.NETWORK -> "网络连接异常，请检查网络后重试"
         ZlibException.Kind.DAILY_LIMIT -> "今天的下载额度已用尽"
         ZlibException.Kind.LOGIN_REQUIRED -> "需要登录后才能操作"
         ZlibException.Kind.DOWNLOAD -> e.message ?: "下载失败"
