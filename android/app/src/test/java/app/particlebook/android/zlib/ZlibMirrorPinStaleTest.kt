@@ -44,6 +44,7 @@ class ZlibMirrorPinStaleTest {
     ) : Closeable {
         private val server = ServerSocket(0)
         val baseUrl: String = "http://127.0.0.1:" + server.localPort
+        val hits = AtomicInteger(0)
         private val thread = Thread {
             try {
                 server.soTimeout = 5_000
@@ -53,6 +54,7 @@ class ZlibMirrorPinStaleTest {
                     } catch (t: Throwable) {
                         break
                     }
+                    hits.incrementAndGet()
                     socket.use {
                         val reader = it.getInputStream().bufferedReader(Charsets.UTF_8)
                         while (true) {
@@ -376,6 +378,15 @@ class ZlibMirrorPinStaleTest {
                 assertTrue("mirrorInfo 应把 finalRoot 标成 current: " + info, info.index > 0)
                 assertEquals(home.baseUrl, info.mirrors[info.index - 1].trimEnd('/'))
 
+                // task-84 P2-1：弹层 rows 必须与 mirrorInfo 同序同长，最后一行能标出当前直连线路。
+                val rows = client.mirrorRows()
+                assertEquals("弹层行必须与 mirrorInfo 名单同序同长: " + rows, info.mirrors, rows.map { it.url })
+                val currentRows = rows.filter { it.current }
+                assertEquals("弹层当前线路只能有一行: " + rows, 1, currentRows.size)
+                assertEquals(home.baseUrl, currentRows.single().url.trimEnd('/'))
+                assertEquals("合成行按兜底展示", "fallback", currentRows.single().tier)
+                assertTrue("合成行切换应按 URL 成功", client.switchMirror(currentRows.single().url))
+
                 // pin 到 finalRoot 后新客户端冷启应优先直接用它，不因不在注册表而失效。
                 val coldClient = newClient(store)
                 assertEquals("pin finalRoot 应可作为优选线路", home.baseUrl, coldClient.probeMirrors())
@@ -422,6 +433,49 @@ class ZlibMirrorPinStaleTest {
                     "应记录 adopt=final: " + logs,
                     logs.any { it.startsWith("mirror_pick") && it.contains("adopt=final") },
                 )
+            }
+        }
+    }
+
+    /** task-84 P2-2：stale retry 必须吃剩余预算，不能再无 deadline 阻塞十几秒。 */
+    @Test
+    fun staleRetrySkipsWhenBudgetExhausted() {
+        GatedHttpServer("boom", status = 500).use { a ->
+            StubHttpServer(emptySearchBody).use { b ->
+                freshRegistry(listOf(a.baseUrl), listOf(b.baseUrl))
+                val store = MemoryPinStore()
+                val client = newClient(store)
+                // 预算要大于一次最小请求（否则连首包都不发），又要在闸门等待期间耗尽。
+                client.searchFailoverBudgetMs = 1_500L
+                client.mirror = a.baseUrl
+
+                var failure: Throwable? = null
+                val searchThread = Thread {
+                    try {
+                        client.search("android")
+                    } catch (t: Throwable) {
+                        failure = t
+                    }
+                }
+                searchThread.isDaemon = true
+                searchThread.start()
+                assertTrue("搜索请求未发出", a.awaitAccepted())
+                assertTrue("切到 B 应成功", client.switchMirror(b.baseUrl))
+                Thread.sleep(1_700L)
+                a.release()
+                searchThread.join(10_000L)
+
+                // 显式 as? 快照：避免对捕获闭包里赋值的局部变量做智能转换（IDE/编译器版本差异）。
+                val kind = (failure as? ZlibException)?.kind
+                assertTrue(
+                    "预算耗尽后 stale retry 应跳过并抛 NO_MIRROR: " + failure,
+                    kind == ZlibException.Kind.NO_MIRROR,
+                )
+                assertTrue(
+                    "应记录预算不足跳过: " + logs,
+                    logs.any { it.startsWith("search_stale_skip") && it.contains("reason=budget") },
+                )
+                assertEquals("预算不足时不得再请求用户新选的线路", 0, b.hits.get())
             }
         }
     }

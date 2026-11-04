@@ -154,6 +154,13 @@ class ZlibClient(
     var probeBudgetMs: Long = PROBE_BUDGET_MS
 
     /**
+     * B3 首包换线整轮兜底预算（默认 [SEARCH_FAILOVER_BUDGET_MS]=20s，测试可调）。
+     * 运行时低于 [MIN_REQUEST_MS] 会被夹到下限，避免一次换线都不试。
+     */
+    @Volatile
+    var searchFailoverBudgetMs: Long = SEARCH_FAILOVER_BUDGET_MS
+
+    /**
      * DEBUG 兜底代理（`host:port` 或 `http://host:port`）；仅在应用 debuggable 时生效，release 忽略。
      * 为空时默认尝试 `127.0.0.1:7897`（见 [LOCAL_PROXY]）。
      */
@@ -386,7 +393,8 @@ class ZlibClient(
         val file = registryFile()
         ZlibMirrorRegistry.ensureLoaded(file, now)
         val budget = maxOf(1, ZlibMirrorRegistry.orderedUrls(now).size)
-        val deadlineNanos = startedAt + SEARCH_FAILOVER_BUDGET_MS * 1_000_000L
+        val budgetMs = searchFailoverBudgetMs.coerceAtLeast(MIN_REQUEST_MS)
+        val deadlineNanos = startedAt + budgetMs * 1_000_000L
         val tried = LinkedHashSet<String>()
         var base: String? = firstBase
         var attempts = 0
@@ -397,7 +405,8 @@ class ZlibClient(
             attempts++
             try {
                 val result = runSearchOnce(base, query, 1, deadlineNanos, filters)
-                markSearchSuccess(base, now, opEpoch)
+                // P2-2：成功时间用真实收包时刻（now 是本轮开始的旧快照，会让「上次成功」偏旧）。
+                markSearchSuccess(base, System.currentTimeMillis(), opEpoch)
                 return result
             } catch (e: ZlibException) {
                 lastFailure = e
@@ -430,12 +439,21 @@ class ZlibClient(
         // 有当前线路就在新线路上再试一次，结果/异常都反映用户当前选择，不抛 stale NO_MIRROR banner。
         if (currentMirrorEpoch() != opEpoch) {
             val current = mirror ?: pinned()
-            if (current != null) {
+            val remaining = remainingMs(deadlineNanos)
+            if (current != null && remaining >= MIN_REQUEST_MS) {
                 debugLog("search_stale_retry current=" + hostOf(current) + " tried=" + tried.size)
                 val retryEpoch = currentMirrorEpoch()
-                val result = runSearchOnce(current, query, 1, null, filters)
-                markSearchSuccess(current, now, retryEpoch)
+                // P2-2：stale retry 也必须吃剩余预算，否则无 deadline 时会再阻塞 connect 7s/read 15s，
+                // 甚至遍历 proxy 候选，用户切完线路仍卡十几秒。
+                val result = runSearchOnce(current, query, 1, deadlineNanos, filters)
+                markSearchSuccess(current, System.currentTimeMillis(), retryEpoch)
                 return result
+            }
+            if (current != null) {
+                debugLog(
+                    "search_stale_skip current=" + hostOf(current) + " tried=" + tried.size +
+                        " reason=budget remaining_ms=" + remaining,
+                )
             }
         }
         ZlibMirrorRegistry.save(file)
@@ -818,7 +836,17 @@ class ZlibClient(
                         return ProbeOutcome(evidenceReason = "probe_gateway")
                     }
                     val kind = if (res.challenged) "pow" else "http"
-                    val rank = probeRankOf(res)
+                    // task-84 P1-1：确定性软页证据（登录/错误/限额）必须先于 APP 标记判定——
+                    // 真实登录/错误页也带页脚 z-access 等常见串，先判 APP 会把坏线路 adopt 成正式站。
+                    val limitPage = isDailyLimitPage(res.body)
+                    val evidence = if (limitPage) null else softPageEvidence(res.body)
+                    val markerRank = probeRankOf(res)
+                    val softPage = limitPage || evidence != null
+                    val rank = if (softPage && markerRank == ZlibMirrorRegistry.Rank.APP) {
+                        ZlibMirrorRegistry.Rank.PAGE
+                    } else {
+                        markerRank
+                    }
                     val finalRoot = mirrorRootOf(res.uri)
                     val redirected = finalRoot != null && finalRoot != candidate.trimEnd('/')
                     debugLog(
@@ -829,10 +857,9 @@ class ZlibClient(
                         ZlibMirrorRegistry.recordProbeResult(candidate, rank, elapsed, now)
                         // P2-2：软页不再一律当「非正式站」证据——合法空结果页 / SPA 壳 / 维护页是常见
                         // 但可能随时恢复的形态，只有登录页 / 明确错误页才清 pin；其余保留等下次重探。
-                        val evidence = softPageEvidence(res.body)
                         debugLog(
                             "mirror_probe_soft host=" + host + " rank=" + rank.label + " ms=" + elapsed +
-                                " unpin=" + (evidence ?: "none"),
+                                " unpin=" + (evidence ?: "none") + (if (limitPage) " limit=1" else ""),
                         )
                         return ProbeOutcome(
                             soft = SoftPick(candidate.trimEnd('/'), tierLabel, source, rank, elapsed),
@@ -976,10 +1003,17 @@ class ZlibClient(
      * Cloudflare 的 "just a moment" 拦截页属于临时反爬，不计入错误页证据。
      */
     private fun softPageEvidence(body: String): String? {
+        // task-84 P1-1：限额页含 "sign in to"，必须先排除——站点本身正常，只是账号额度受限，
+        // 既不能当正式站 adopt，也不能作为「线路失效」证据清 pin。
+        if (isDailyLimitPage(body)) return null
         if (LOGIN_PAGE_MARKERS.any { body.contains(it, ignoreCase = true) }) return "probe_login_page"
         if (ERROR_PAGE_MARKERS.any { body.contains(it, ignoreCase = true) }) return "probe_error_page"
         return null
     }
+
+    /** task-84 P1-1：下载限额页（站点正常、账号额度用尽）识别，探到它不得 adopt、也不清 pin。 */
+    private fun isDailyLimitPage(body: String): Boolean =
+        LIMIT_PAGE_MARKERS.any { body.contains(it, ignoreCase = true) }
 
     /** 本轮软候选择优：rank 数值小者优先，同 rank 比延迟。 */
     private fun betterSoftPick(current: SoftPick?, candidate: SoftPick?): SoftPick? {
@@ -1709,9 +1743,10 @@ class ZlibClient(
     fun mirrorRows(): List<ZMirrorItem> {
         val now = System.currentTimeMillis()
         ZlibMirrorRegistry.ensureLoaded(registryFile(), now)
-        val current = normalizeMirror(mirror ?: pinned() ?: prefs?.getString(KEY_MIRROR, null))
+        val rawCurrent = mirror ?: pinned() ?: prefs?.getString(KEY_MIRROR, null)
+        val current = normalizeMirror(rawCurrent)
         val pinned = normalizeMirror(pinned())
-        return ZlibMirrorRegistry.orderedEntries(now).map { entry ->
+        val rows = ZlibMirrorRegistry.orderedEntries(now).map { entry ->
             val url = normalizeMirror(entry.url)
             ZMirrorItem(
                 url = entry.url,
@@ -1727,6 +1762,24 @@ class ZlibClient(
                 demoted = entry.isDemoted(now),
             )
         }
+        // task-84 P2-1：[mergedMirrors] 会把「不在注册表里的当前直连线路」追加到名单末尾（跨 host adopt
+        // 的 finalRoot / 冷启 pin），弹层必须用同一规则补一行；否则 list 比 mirrorInfo 少一条、current
+        // 行找不到、弹层「线路未知」且下标与设置页不一致。合成行如实标未探测/兜底，不伪造 rank。
+        if (current.isEmpty() || rows.any { normalizeMirror(it.url) == current }) return rows
+        val direct = rawCurrent?.trim()?.trimEnd('/').orEmpty()
+        if (direct.isEmpty()) return rows
+        return rows + ZMirrorItem(
+            url = direct,
+            host = hostOf(direct),
+            tier = "fallback",
+            rank = ZlibMirrorRegistry.Rank.UNKNOWN.value,
+            latencyMs = -1L,
+            lastOkAt = 0L,
+            successFresh = false,
+            current = true,
+            pinned = pinned.isNotEmpty() && normalizeMirror(direct) == pinned,
+            demoted = false,
+        )
     }
 
     /** 兼容旧名：与 [mirrorRows] 同一实现（弹层渲染请直接用 mirrorRows）。 */
@@ -3242,11 +3295,11 @@ class ZlibClient(
         /** B1 rank 分类标记（对齐桌面 LooksLikeZlibApp / LooksLikeZlibContent）。 */
         // T10 P1-4：去掉 z-lib.fm/singlelogin/z-lib.io——这些串在推广/导航页上很常见，用来判 APP
         // 会把软页误认成正式站；只留正式站页面组件/文案特征。
+        // task-84 P1-1：z-access（页脚链接）与 z-recommend（CSS 前缀，真实页面 <style> 里都有）不是
+        // 页面内容证据——所有 200 页面（含登录/错误/限额页）都带，必须去掉；只留真正的组件标签。
         private val APP_MARKERS = listOf(
             "<z-bookcard",
-            "z-access",
-            "z-recommend",
-            "z-library since 2009",
+            "<z-recommend",
         )
         private val PAGE_MARKERS = listOf(
             "z-lib",
@@ -3269,6 +3322,13 @@ class ZlibClient(
             "page not found",
             "access denied",
             "403 forbidden",
+        )
+
+        /** task-84 P1-1：下载限额页是站点正常但账号额度用尽，不算线路失效。 */
+        private val LIMIT_PAGE_MARKERS = listOf(
+            "daily limit reached",
+            "download-limits-error",
+            "about daily limit",
         )
 
         /** 官方站挑战重试：含首次最多 [MAX_MIRROR_ATTEMPTS] 次。 */
