@@ -7,7 +7,10 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** A13：详情页「在线阅读」按钮的可用性/文案（纯函数，不依赖 Compose/设备）。 */
+/**
+ * A13：详情页「在线阅读」按钮的可用性/文案（纯函数，不依赖 Compose/设备）。
+ * task-77：p15 真机实测匿名也可读，按钮不再按登录态禁用；页面无入口时才在错误文案里引导登录。
+ */
 class ZlibReaderActionTest {
 
     private val ready = ZlibReaderLaunchState.Ready(
@@ -15,44 +18,30 @@ class ZlibReaderActionTest {
     )
 
     @Test
-    fun actionIsDisabledWhenLoggedOutOrResolving() {
-        assertFalse(zlibReaderActionEnabled(loggedIn = false, state = ZlibReaderLaunchState.Idle))
-        assertTrue(zlibReaderActionEnabled(loggedIn = true, state = ZlibReaderLaunchState.Idle))
-        assertFalse(zlibReaderActionEnabled(loggedIn = true, state = ZlibReaderLaunchState.Loading))
-        assertTrue(zlibReaderActionEnabled(loggedIn = true, state = ready))
-        assertTrue(
-            zlibReaderActionEnabled(
-                loggedIn = true,
-                state = ZlibReaderLaunchState.Error("没有在线阅读链接"),
-            ),
-        )
+    fun actionIsDisabledOnlyWhileResolving() {
+        // 未登录也必须可点（匿名详情页自带 limited 票据）。
+        assertTrue(zlibReaderActionEnabled(ZlibReaderLaunchState.Idle))
+        assertTrue(zlibReaderActionEnabled(ready))
+        assertTrue(zlibReaderActionEnabled(ZlibReaderLaunchState.Error("没有在线阅读链接")))
+        assertFalse(zlibReaderActionEnabled(ZlibReaderLaunchState.Loading))
     }
 
     @Test
-    fun hintPrioritizesLaunchFailureThenResolveErrorThenLogin() {
+    fun hintPrioritizesLaunchFailureThenResolveErrorThenBrowserExplanation() {
         val missing = ZlibReaderLaunchState.Error(ZLIB_READER_MISSING_LINK_MESSAGE)
 
         assertEquals(
             ZLIB_READER_NO_BROWSER_MESSAGE,
-            zlibReaderActionHint(true, ready, ZLIB_READER_NO_BROWSER_MESSAGE),
+            zlibReaderActionHint(ready, ZLIB_READER_NO_BROWSER_MESSAGE),
         )
-        assertEquals(ZLIB_READER_MISSING_LINK_MESSAGE, zlibReaderActionHint(true, missing))
-        assertEquals(
-            ZLIB_READER_LOGIN_REQUIRED_MESSAGE,
-            zlibReaderActionHint(false, ZlibReaderLaunchState.Idle),
-        )
-        assertEquals(
-            ZLIB_READER_BROWSER_HINT,
-            zlibReaderActionHint(true, ZlibReaderLaunchState.Idle),
-        )
-        // realnet task-33：点击前的副文案和未登录提示都必须带「当前受限」主提示。
+        assertEquals(ZLIB_READER_MISSING_LINK_MESSAGE, zlibReaderActionHint(missing))
+        assertEquals(ZLIB_READER_BROWSER_HINT, zlibReaderActionHint(ZlibReaderLaunchState.Idle))
+        // task-77：点击前只说明「用浏览器打开 + 无权限时下载」，不再出现未登录/受限式劝退。
+        assertTrue(ZLIB_READER_BROWSER_HINT, ZLIB_READER_BROWSER_HINT.contains("浏览器"))
+        assertFalse(ZLIB_READER_BROWSER_HINT, ZLIB_READER_BROWSER_HINT.contains("未登录"))
         assertTrue(
-            zlibReaderActionHint(true, ZlibReaderLaunchState.Idle)
-                .contains(ZLIB_READER_LIMITED_MESSAGE),
-        )
-        assertTrue(
-            zlibReaderActionHint(false, ZlibReaderLaunchState.Idle)
-                .contains(ZLIB_READER_LIMITED_MESSAGE),
+            "只有页面确实没有入口的错误文案才提示登录",
+            zlibReaderActionHint(missing).contains("未提供在线阅读入口"),
         )
     }
 
@@ -61,7 +50,6 @@ class ZlibReaderActionTest {
         assertEquals(
             ZLIB_READER_OPENED_MESSAGE,
             zlibReaderActionHint(
-                loggedIn = true,
                 state = ZlibReaderLaunchState.Idle,
                 opened = true,
             ),
@@ -70,7 +58,6 @@ class ZlibReaderActionTest {
         assertEquals(
             ZLIB_READER_NO_BROWSER_MESSAGE,
             zlibReaderActionHint(
-                loggedIn = true,
                 state = ZlibReaderLaunchState.Idle,
                 launchError = ZLIB_READER_NO_BROWSER_MESSAGE,
                 opened = true,

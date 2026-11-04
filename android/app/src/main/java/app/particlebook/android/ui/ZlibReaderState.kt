@@ -3,10 +3,10 @@ package app.particlebook.android.ui
 /**
  * A13：详情页「在线阅读」按钮的链接解析状态（详情页 → reader 链接 → 外部浏览器）。
  *
- * realnet task-33：reader.z-lib.by 的内容接口对登录/匿名、移动/桌面 UA 都不可读
- * （fetch-config 401/422/204、fetch-sections 403），外部浏览器同样受限。
- * 所以不在 App 内嵌 WebView，也不向用户承诺可读；只把带票据的 reader URL 交给系统浏览器，
- * 并在按钮下方常驻「当前受限、建议下载」提示。
+ * task-77（p15 task-69/76 真机实测）：匿名详情页 HTML 本身就带 reader-link（access_level=limited），
+ * 点击后在系统浏览器/LITERA Reader 能读到正文 —— 在线阅读不需要登录，因此不再按登录态禁用按钮。
+ * 仍不在 App 内嵌 WebView，只把带票据的 reader URL 交给系统浏览器；按钮下方说明打开方式与
+ * 无权限时的下载兜底。
  */
 internal sealed interface ZlibReaderLaunchState {
     /** 尚未请求（按钮初始态，不显示加载）。 */
@@ -41,13 +41,16 @@ internal const val ZLIB_READER_SESSION_EXPIRED_MESSAGE =
 internal const val ZLIB_READER_CHALLENGE_PAGE_MESSAGE =
     "站点要求人机验证，请稍后重试；仍失败可重新登录。$ZLIB_READER_LIMITED_MESSAGE"
 
-/** 未登录时按钮禁用，并在按钮下方说明原因（不承诺登录后可读）。 */
+/**
+ * task-77：匿名详情页没有 reader-link 时的提示 —— 门控从「全局未登录禁用」改成「按书判定」，
+ * 不能断言登录后一定可读；给登录重试与下载两条路。
+ */
 internal const val ZLIB_READER_LOGIN_REQUIRED_MESSAGE =
-    "未登录：可先登录后重试，但在线阅读当前受限，建议下载到书架。"
+    "此书可能需要登录后阅读：可登录后重试，也可下载到书架阅读。"
 
-/** 已登录时的按钮说明：站点阅读器受限，App 不承诺一定能读。 */
+/** task-77：点击前的按钮说明 —— 匿名也可用；浏览器打开 + 按书判定的登录/无权限兜底。 */
 internal const val ZLIB_READER_BROWSER_HINT =
-    "在线阅读当前受限，建议下载到书架。若浏览器提示无权限，请下载后本地阅读。"
+    "将在浏览器打开；公共书籍无需登录，部分书籍可能需要登录后阅读，若提示无权限请下载到书架。"
 
 /** 有阅读链接但系统没有可用浏览器。 */
 internal const val ZLIB_READER_NO_BROWSER_MESSAGE =
@@ -72,19 +75,18 @@ internal fun zlibReaderUrlFailureMessage(reason: ZlibReaderUrl.Failure): String 
         "在线阅读链接缺少访问票据，请稍后重试。$ZLIB_READER_LIMITED_MESSAGE"
 }
 
-/** 按钮可用性：未登录或正在解析时禁用（避免重复请求）。 */
+/** task-77：按钮可用性只取决于是否正在解析（避免重复请求），不再要求登录。 */
 internal fun zlibReaderActionEnabled(
-    loggedIn: Boolean,
     state: ZlibReaderLaunchState,
-): Boolean = loggedIn && state !is ZlibReaderLaunchState.Loading
+): Boolean = state !is ZlibReaderLaunchState.Loading
 
 /**
- * 按钮下方提示：优先级 打开失败（无浏览器）> 已打开 > 解析错误 > 未登录说明 > 外部浏览器说明。
- * 统一使用「在线阅读当前受限，建议下载到书架」口径，不承诺可读；
+ * 按钮下方提示：优先级 打开失败（无浏览器）> 已打开 > 解析错误 > 外部浏览器说明。
+ * task-77：去掉未登录说明 —— 匿名同样显示入口；页面本身没有 reader-link 时，
+ * 解析错误文案里会带出「需要登录/会话失效」的下一步。
  * 打开成功后（opened=true）改「已在浏览器打开」，不再让用户误以为失败。
  */
 internal fun zlibReaderActionHint(
-    loggedIn: Boolean,
     state: ZlibReaderLaunchState,
     launchError: String? = null,
     opened: Boolean = false,
@@ -92,7 +94,6 @@ internal fun zlibReaderActionHint(
     launchError != null -> launchError
     opened -> ZLIB_READER_OPENED_MESSAGE
     state is ZlibReaderLaunchState.Error -> state.message
-    !loggedIn -> ZLIB_READER_LOGIN_REQUIRED_MESSAGE
     else -> ZLIB_READER_BROWSER_HINT
 }
 

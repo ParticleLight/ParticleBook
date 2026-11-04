@@ -43,6 +43,30 @@ class ZlibDetailLoginStateTest {
         )
     }
 
+    // task-77：p15 实测匿名读者也能读正文 → 详情页阅读按钮不得再按登录态禁用。
+    @Test
+    fun readerButtonDoesNotRequireLoginState() {
+        val source = uiSource("ZlibDetailScreen.kt")
+        assertTrue(
+            "阅读按钮只按解析状态启用",
+            source.contains("zlibReaderActionEnabled(state)"),
+        )
+        assertFalse(
+            "阅读按钮不得再按 loggedIn 禁用",
+            source.contains("zlibReaderActionEnabled(loggedIn"),
+        )
+        assertTrue(
+            "loggedIn 仍要传给 Resolver，用于无入口时区分会话失效/登录提示",
+            source.contains("loggedIn = loggedIn"),
+        )
+        assertTrue(
+            "Reading ViewModel 必须拿到 loggedIn",
+            source.contains(
+                "ZlibReaderViewModel(scope = scope, context = context, loggedIn = loggedIn)",
+            ),
+        )
+    }
+
     @Test
     fun appRootPassesObservableAccountState() {
         val source = uiSource("AppRoot.kt")

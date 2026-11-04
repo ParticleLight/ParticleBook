@@ -11,13 +11,15 @@ import org.junit.Test
 /**
  * A13：详情页 → reader URL 解析器（解析成功后交给外部浏览器，不再内嵌 WebView）。
  *
- * 不改 ZlibDetailParser/ZBookDetail（本任务作用域只新增 ZlibReader*.kt），
- * 所以先 fetchDetail 拿 detailPath，再 fetchBytes 抓原始详情 HTML 抽 reader-link。
+ * task-77：p15 真机实测匿名详情页的 reader-link 也能读到正文，所以
+ *  - reader-link 存在时，登录/匿名都返回 Ready；
+ *  - 页面是匿名详情（CurrentUser == null）却取不到 reader-link 时才按登录态给提示；
+ *  - 最终 503（挑战没过）给 CHALLENGE 文案，而不是「服务器返回错误 503」。
  */
 class ZlibReaderResolverTest {
 
     @Test
-    fun resolvesReaderUrlFromRealDetailPageHtml() = runBlocking {
+    fun resolvesReaderUrlFromRealAnonymousDetailPageHtml() = runBlocking {
         val html = fixture("book-detail.html")
         val resolver = ZlibReaderResolver(
             loadDetail = { hash, slug ->
@@ -31,7 +33,7 @@ class ZlibReaderResolverTest {
             },
         )
 
-        val state = resolver.resolve("6y7KYwknyQ", "android-programming")
+        val state = resolver.resolve("6y7KYwknyQ", "android-programming", loggedIn = false)
 
         assertTrue(state is ZlibReaderLaunchState.Ready)
         val ready = state as ZlibReaderLaunchState.Ready
@@ -39,33 +41,91 @@ class ZlibReaderResolverTest {
         assertTrue(ready.readerUrl, ready.readerUrl.contains("file_access_token="))
     }
 
+    /**
+     * realnet t68 P1-1 的旧口径是「loggedIn + 匿名详情 → SESSION_EXPIRED」；task-77 依据 p15 真机实测
+     * 推翻：匿名 limited 票据能读到正文，所以已登录用户拿到匿名详情也应直接 Ready，而不是误报。
+     */
+    @Test
+    fun loggedInUserStillGetsAnonymousReaderLink() = runBlocking {
+        val resolver = resolverWith(
+            detailPath = "/book/hash/x.html",
+            loadPage = { fixture("book-detail.html") },
+        )
+
+        val state = resolver.resolve("hash", null, loggedIn = true)
+
+        assertTrue(state is ZlibReaderLaunchState.Ready)
+        assertTrue(
+            (state as ZlibReaderLaunchState.Ready).readerUrl.contains("file_access_token="),
+        )
+    }
+
     @Test
     fun missingReaderLinkBecomesActionableError() = runBlocking {
+        // 页面里没有 CurrentUser 片段 → 登录态 Unknown，不是「匿名详情」，保留「未提供入口」。
         val resolver = resolverWith(
             detailPath = "/book/hash/x.html",
             loadPage = { "<html><body>no reader link</body></html>" },
         )
 
-        val state = resolver.resolve("hash", null)
+        val state = resolver.resolve("hash", null, loggedIn = true)
 
         assertEquals(ZlibReaderLaunchState.Error(ZLIB_READER_MISSING_LINK_MESSAGE), state)
+    }
+
+    @Test
+    fun anonymousDetailWithoutReaderLinkIsSessionExpiredForLoggedInUser() = runBlocking {
+        val resolver = resolverWith(
+            detailPath = "/book/hash/x.html",
+            loadPage = { anonymousPage("<div>no reader link</div>") },
+        )
+
+        val state = resolver.resolve("hash", null, loggedIn = true)
+
+        assertEquals(ZlibReaderLaunchState.Error(ZLIB_READER_SESSION_EXPIRED_MESSAGE), state)
+    }
+
+    @Test
+    fun anonymousDetailWithoutReaderLinkAsksAnonymousUserToLogIn() = runBlocking {
+        val resolver = resolverWith(
+            detailPath = "/book/hash/x.html",
+            loadPage = { anonymousPage("<div>no reader link</div>") },
+        )
+
+        val state = resolver.resolve("hash", null, loggedIn = false)
+
+        assertEquals(ZlibReaderLaunchState.Error(ZLIB_READER_LOGIN_REQUIRED_MESSAGE), state)
+        val message = (state as ZlibReaderLaunchState.Error).message
+        assertTrue(message, message.contains("登录后阅读"))
+        assertTrue(message, message.contains("下载到书架"))
     }
 
     // task-58：cookie 失效时 fetchDetail 成功、抓 HTML 却 200 落登录页；不能误报「未提供入口」。
 
     @Test
-    fun loginPageHtmlBecomesSessionExpiredError() = runBlocking {
+    fun loginPageHtmlBecomesSessionExpiredForLoggedInUser() = runBlocking {
         val resolver = resolverWith(
             detailPath = "/book/hash/x.html",
             loadPage = { fixture("login-error.html") },
         )
 
-        val state = resolver.resolve("hash", null)
+        val state = resolver.resolve("hash", null, loggedIn = true)
 
         assertEquals(ZlibReaderLaunchState.Error(ZLIB_READER_SESSION_EXPIRED_MESSAGE), state)
         val message = (state as ZlibReaderLaunchState.Error).message
         assertTrue(message, message.contains("登录可能已失效"))
-        assertTrue(message, message.contains(ZLIB_READER_LIMITED_MESSAGE))
+    }
+
+    @Test
+    fun loginPageHtmlAsksAnonymousUserToLogIn() = runBlocking {
+        val resolver = resolverWith(
+            detailPath = "/book/hash/x.html",
+            loadPage = { fixture("login-error.html") },
+        )
+
+        val state = resolver.resolve("hash", null, loggedIn = false)
+
+        assertEquals(ZlibReaderLaunchState.Error(ZLIB_READER_LOGIN_REQUIRED_MESSAGE), state)
     }
 
     @Test
@@ -75,12 +135,11 @@ class ZlibReaderResolverTest {
             loadPage = { fixture("challenge.html") },
         )
 
-        val state = resolver.resolve("hash", null)
+        val state = resolver.resolve("hash", null, loggedIn = true)
 
         assertEquals(ZlibReaderLaunchState.Error(ZLIB_READER_CHALLENGE_PAGE_MESSAGE), state)
         val message = (state as ZlibReaderLaunchState.Error).message
         assertTrue(message, message.contains("人机验证"))
-        assertTrue(message, message.contains(ZLIB_READER_LIMITED_MESSAGE))
     }
 
     @Test
@@ -88,7 +147,7 @@ class ZlibReaderResolverTest {
         val html = "<a class=\"reader-link\" href=\"http://reader.z-lib.by/read/a/b/c.html?file_access_token=t\">x</a>"
         val resolver = resolverWith(detailPath = "/book/hash/x.html", loadPage = { html })
 
-        val state = resolver.resolve("hash", null)
+        val state = resolver.resolve("hash", null, loggedIn = true)
 
         assertTrue(state is ZlibReaderLaunchState.Error)
         assertTrue((state as ZlibReaderLaunchState.Error).message.contains("HTTPS"))
@@ -115,9 +174,31 @@ class ZlibReaderResolverTest {
             },
         )
 
-        val state = resolver.resolve("hash", null)
+        val state = resolver.resolve("hash", null, loggedIn = false)
 
         assertTrue(state is ZlibReaderLaunchState.Ready)
+        assertEquals(2, detailCalls)
+        assertEquals(2, pageCalls)
+    }
+
+    @Test
+    fun persistent503BecomesChallengeMessageInsteadOfRawHttpError() = runBlocking {
+        var detailCalls = 0
+        var pageCalls = 0
+        val resolver = ZlibReaderResolver(
+            loadDetail = { _, _ ->
+                detailCalls += 1
+                detail("书", "/book/hash/x.html")
+            },
+            loadPage = { path ->
+                pageCalls += 1
+                throw ZlibException("HTTP 503 for " + path, ZlibException.Kind.HTTP, httpCode = 503)
+            },
+        )
+
+        val state = resolver.resolve("hash", null, loggedIn = true)
+
+        assertEquals(ZlibReaderLaunchState.Error(ZLIB_READER_CHALLENGE_PAGE_MESSAGE), state)
         assertEquals(2, detailCalls)
         assertEquals(2, pageCalls)
     }
@@ -130,7 +211,7 @@ class ZlibReaderResolverTest {
         )
 
         try {
-            runBlocking { resolver.resolve("hash", null) }
+            runBlocking { resolver.resolve("hash", null, loggedIn = true) }
             fail("expected ZlibException from loadPage")
         } catch (expected: ZlibException) {
             assertEquals(ZlibException.Kind.HTTP, expected.kind)
@@ -140,7 +221,7 @@ class ZlibReaderResolverTest {
 
     @Test
     fun urlFailuresMapToActionableChineseMessages() {
-        // realnet task-33：所有解析失败都带「当前受限、建议下载」主提示，不承诺可读。
+        // 所有解析失败都带「当前受限、建议下载」主提示，不承诺可读。
         for (reason in ZlibReaderUrl.Failure.values()) {
             val message = zlibReaderUrlFailureMessage(reason)
             assertTrue(
@@ -184,6 +265,11 @@ class ZlibReaderResolverTest {
         detailPath = detailPath,
         downloadPath = "/dl/x",
     )
+
+    /** 真实匿名详情页的最小形态：站点脚本里的 CurrentUser = new User(null)。 */
+    private fun anonymousPage(body: String): String =
+        "<html><head><script>const CurrentUser = new User(null);</script></head>" +
+            "<body>" + body + "</body></html>"
 
     private fun fixture(name: String): String =
         checkNotNull(javaClass.classLoader!!.getResourceAsStream("zlib/" + name)) {

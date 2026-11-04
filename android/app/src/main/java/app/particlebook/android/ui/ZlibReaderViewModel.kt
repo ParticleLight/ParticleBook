@@ -7,6 +7,7 @@ import androidx.compose.runtime.setValue
 import app.particlebook.android.zlib.ZBookDetail
 import app.particlebook.android.zlib.ZlibClient
 import app.particlebook.android.zlib.ZlibException
+import app.particlebook.android.zlib.ZlibLoginParser
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -24,6 +25,9 @@ import kotlinx.coroutines.withContext
  * 直接打开（避免迟到的 Ready 把用户从当前页拉走）；URL 成功交给浏览器后调用 [consumeReady]
  * 复位 Idle，下次点击重新解析，不复用可能过期或属于旧账号的票据。
  *
+ * task-77：p15 真机实测匿名详情页的 reader-link 也能读到正文，在线阅读不再需要登录；
+ * loggedIn 只用于「页面没有 reader-link 时」区分会话失效（已登录却拿到匿名页）与登录提示。
+ *
  * [loadReader] 可注入（JVM 单测用假实现构造慢/快响应）；生产环境 secondary constructor
  * 在 Dispatchers.IO 上用 [ZlibReaderResolver] 走 ZlibClient（复用进程内挑战/cookie 会话）。
  */
@@ -31,7 +35,7 @@ internal class ZlibReaderViewModel(
     private val scope: CoroutineScope,
     private val loadReader: suspend (bookHash: String, bookSlug: String?) -> ZlibReaderLaunchState,
 ) {
-    constructor(scope: CoroutineScope, context: Context) : this(
+    constructor(scope: CoroutineScope, context: Context, loggedIn: Boolean) : this(
         scope = scope,
         loadReader = { hash, slug ->
             withContext(Dispatchers.IO) {
@@ -39,7 +43,7 @@ internal class ZlibReaderViewModel(
                 ZlibReaderResolver(
                     loadDetail = { bookHash, bookSlug -> client.fetchDetail(bookHash, bookSlug) },
                     loadPage = { path -> client.fetchBytes(path).toString(Charsets.UTF_8) },
-                ).resolve(hash, slug)
+                ).resolve(hash, slug, loggedIn)
             }
         },
     )
@@ -133,32 +137,64 @@ internal class ZlibReaderViewModel(
  *
  * 不修改 ZlibDetailParser / ZBookDetail（A13 作用域只新增 ZlibReader*.kt）：先 fetchDetail
  * 拿到 detailPath（顺带解掉站点挑战），再 fetchBytes 取原始详情 HTML 抽 reader-link。
- * 若取 HTML 时挑战恰好过期（HTTP 503），重取一次详情页解挑战后再试一次。
- * task-58：若取回的 HTML 是登录页/人机验证页（cookie 失效或挑战拦截），映射为可操作的
- * 「登录可能已失效」/「站点要求人机验证」文案，而不是误报「未提供入口」。
+ * 若取 HTML 时挑战恰好过期（HTTP 503），重取一次详情页解挑战后再试一次；第二次仍 503 时
+ * 给「站点要求人机验证」文案，而不是让用户看到「服务器返回错误 503」。
+ * task-58：若取回的 HTML 是登录页/人机验证页（cookie 失效或挑战拦截），映射为可操作的文案。
+ * task-77（p15 实测匿名可读）：先找 reader-link —— 匿名详情页带 limited 票据也能打开正文，
+ *   所以 loggedIn=true 却拿到匿名页不再直接判会话失效；只有「匿名页 + 确实没有 reader-link」
+ *   才按登录态区分：已登录 → 会话失效，未登录 → 登录提示。登录页同理。
  */
 internal class ZlibReaderResolver(
     private val loadDetail: suspend (bookHash: String, bookSlug: String?) -> ZBookDetail,
     private val loadPage: suspend (path: String) -> String,
 ) {
 
-    suspend fun resolve(bookHash: String, bookSlug: String?): ZlibReaderLaunchState {
+    suspend fun resolve(
+        bookHash: String,
+        bookSlug: String?,
+        loggedIn: Boolean,
+    ): ZlibReaderLaunchState {
         val detail = loadDetail(bookHash, bookSlug)
-        val html = loadPageWithChallengeRetry(bookHash, bookSlug, detail.detailPath)
-        // task-58：cookie 失效时 200 也可能是登录页/人机验证页，先判中间页再找 reader-link；
-        // 否则会落 NOT_FOUND 只显示「未提供入口」，用户不知道要重新登录或稍后再试。
+        val html = try {
+            loadPageWithChallengeRetry(bookHash, bookSlug, detail.detailPath)
+        } catch (failure: ZlibException) {
+            // fetchBytes 不自己解挑战；重试后仍 503 说明挑战没过，给可操作文案。
+            if (failure.httpCode == 503) {
+                return ZlibReaderLaunchState.Error(ZLIB_READER_CHALLENGE_PAGE_MESSAGE)
+            }
+            throw failure
+        }
+        // 200 登录页/人机验证页：登录页按登录态区分（已登录=会话失效，匿名=去登录）。
         when (ZlibReaderUrl.classifyInterstitial(html)) {
             ZlibReaderUrl.InterstitialPage.LOGIN ->
-                return ZlibReaderLaunchState.Error(ZLIB_READER_SESSION_EXPIRED_MESSAGE)
+                return ZlibReaderLaunchState.Error(
+                    if (loggedIn) {
+                        ZLIB_READER_SESSION_EXPIRED_MESSAGE
+                    } else {
+                        ZLIB_READER_LOGIN_REQUIRED_MESSAGE
+                    },
+                )
             ZlibReaderUrl.InterstitialPage.CHALLENGE ->
                 return ZlibReaderLaunchState.Error(ZLIB_READER_CHALLENGE_PAGE_MESSAGE)
             ZlibReaderUrl.InterstitialPage.NONE -> Unit
         }
+        val anonymousDetail =
+            ZlibLoginParser.accountState(html) == ZlibLoginParser.AccountState.Anonymous
         return when (val parsed = ZlibReaderUrl.extract(html)) {
             is ZlibReaderUrl.ParseResult.Ok ->
                 ZlibReaderLaunchState.Ready(readerUrl = parsed.url)
-            is ZlibReaderUrl.ParseResult.Failed ->
-                ZlibReaderLaunchState.Error(zlibReaderUrlFailureMessage(parsed.reason))
+            is ZlibReaderUrl.ParseResult.Failed -> {
+                val message = when {
+                    // task-77：能读到 reader-link 就走 Ready（上一条分支）；没有入口且页面是匿名时，
+                    // 已登录用户多半是 cookie 失效，匿名用户则提示先登录。
+                    parsed.reason == ZlibReaderUrl.Failure.NOT_FOUND && anonymousDetail && loggedIn ->
+                        ZLIB_READER_SESSION_EXPIRED_MESSAGE
+                    parsed.reason == ZlibReaderUrl.Failure.NOT_FOUND && anonymousDetail ->
+                        ZLIB_READER_LOGIN_REQUIRED_MESSAGE
+                    else -> zlibReaderUrlFailureMessage(parsed.reason)
+                }
+                ZlibReaderLaunchState.Error(message)
+            }
         }
     }
 
