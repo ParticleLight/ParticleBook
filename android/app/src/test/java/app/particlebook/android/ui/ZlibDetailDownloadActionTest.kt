@@ -77,22 +77,17 @@ class ZlibDetailDownloadActionTest {
     }
 
     @Test
-    fun incompleteOrUnknownTargetOffersRedownloadDirectly() {
+    fun incompleteTargetOffersRedownloadDirectly() {
         val book = book()
-        listOf(
-            ZlibDownloadTargetState.INCOMPLETE,
-            ZlibDownloadTargetState.UNKNOWN,
-        ).forEach { state ->
-            assertEquals(
-                "目标不完整/未知时不能先给重新导入再失败，必须直接重新下载",
-                ZlibDetailCompletedAction.REDOWNLOAD,
-                zlibDetailCompletedAction(
-                    completedBook = book,
-                    bookFileExists = false,
-                    targetState = state,
-                ),
-            )
-        }
+        assertEquals(
+            "目标确认不完整时不能先给重新导入再失败，必须直接重新下载",
+            ZlibDetailCompletedAction.REDOWNLOAD,
+            zlibDetailCompletedAction(
+                completedBook = book,
+                bookFileExists = false,
+                targetState = ZlibDownloadTargetState.INCOMPLETE,
+            ),
+        )
         assertEquals(
             "没有书架条目且目标损坏 → 直接重新下载",
             ZlibDetailCompletedAction.REDOWNLOAD,
@@ -100,6 +95,29 @@ class ZlibDetailDownloadActionTest {
                 completedBook = null,
                 bookFileExists = false,
                 targetState = ZlibDownloadTargetState.INCOMPLETE,
+            ),
+        )
+    }
+
+    @Test
+    fun unknownTargetOffersRecheckInsteadOfRedownload() {
+        val book = book()
+        // task-103（P1-2）：provider 临时读失败不等于文件损坏；不能自动 force 重下
+        //（先删历史会丢唯一 COMPLETED 记录，还可能白耗下载额度）。
+        assertEquals(
+            ZlibDetailCompletedAction.RECHECK,
+            zlibDetailCompletedAction(
+                completedBook = book,
+                bookFileExists = false,
+                targetState = ZlibDownloadTargetState.UNKNOWN,
+            ),
+        )
+        assertEquals(
+            ZlibDetailCompletedAction.RECHECK,
+            zlibDetailCompletedAction(
+                completedBook = null,
+                bookFileExists = false,
+                targetState = ZlibDownloadTargetState.UNKNOWN,
             ),
         )
     }

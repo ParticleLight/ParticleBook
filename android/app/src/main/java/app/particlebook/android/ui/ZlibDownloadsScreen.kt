@@ -215,12 +215,15 @@ fun ZlibDownloadsScreen(
                             }
                         }
                     }
+                    // task-103（P2-5）：UNKNOWN 需要重试入口；递增 key 重新跑一次检查。
+                    var targetCheckRetry by remember(record.bookId) { mutableStateOf(0) }
                     // P1 task-93：三态（完整/缺失/损坏）统一走 Manager 的完整性检查；不能只 exists，
                     // 也不能用记录里可能过期的 total 当长度判据。
                     val targetCheck by produceState<ZlibImportTarget?>(
                         initialValue = null,
                         record.destPath,
                         record.total,
+                        targetCheckRetry,
                     ) {
                         value = ZlibDownloadManager.inspectImportTarget(context, record)
                     }
@@ -232,7 +235,18 @@ fun ZlibDownloadsScreen(
                         importing = importingBookId == record.bookId,
                         importEnabled = !libraryLoading,
                         menuExpanded = menuBookId == record.bookId,
-                        onOpen = { imported?.let(onOpenBook) },
+                        // task-103（P1-1）：整行点击与按钮共用完整性判据；坏副本不得打开。
+                        onOpen = {
+                            if (
+                                zlibRecordRowOpenable(
+                                    recordCompleted = record.status == ZlibDownloadStatus.COMPLETED,
+                                    imported = imported,
+                                    importedBookComplete = importedBookComplete,
+                                )
+                            ) {
+                                imported?.let(onOpenBook)
+                            }
+                        },
                         onMenuClick = { menuBookId = record.bookId },
                         onDismissMenu = { if (menuBookId == record.bookId) menuBookId = null },
                         onOpenFolder = openFolder,
@@ -253,10 +267,12 @@ fun ZlibDownloadsScreen(
                             }
                             scope.launch { snackbarHostState.showSnackbar(message) }
                         },
+                        onRetryCheck = { targetCheckRetry++ },
                         onImport = {
                             if (importingBookId != null) return@DownloadRecordRow
                             importingBookId = record.bookId
                             scope.launch {
+                                try {
                                 // P2-3：冷启时书架可能还在读盘，books 为空会让「已导入」判断失真、
                                 // 也可能重复登记；先等书架就绪，仍加载中就禁用式提示，不硬导。
                                 if (store.loading) store.ensureLoaded()
@@ -307,6 +323,10 @@ fun ZlibDownloadsScreen(
                                         snackbarHostState.showSnackbar("导入失败，请检查文件是否仍在")
                                     },
                                 )
+                                } finally {
+                                    // task-103（P2-7）：异常/取消也复位 importing，避免行永久转圈。
+                                    importingBookId = null
+                                }
                             }
                         },
                     )
@@ -454,6 +474,17 @@ private fun LoadingDownloads(modifier: Modifier = Modifier) {
     }
 }
 
+/**
+ * task-103（P1-1）：记录整行只有「记录完成 + 已导入且有对应条目 + 书架副本完整」时才可点开。
+ * 之前只判 recordCompleted && imported != null，书架文件损坏/截断时按钮隐藏了，但点整行仍会
+ * 打开坏书；这里把点击判据收口成纯函数，行 clickable 与 onOpen 共用。
+ */
+internal fun zlibRecordRowOpenable(
+    recordCompleted: Boolean,
+    imported: Book?,
+    importedBookComplete: Boolean?,
+): Boolean = recordCompleted && imported != null && importedBookComplete == true
+
 /** T15/D8：把 removeHistory 的真实删除结果翻成用户文案（文件删除失败不能谎报成功）。 */
 internal fun deleteHistoryMessage(result: ZlibHistoryDeleteResult): String = when (result) {
     ZlibHistoryDeleteResult.NOT_FOUND -> "记录已不存在"
@@ -482,6 +513,8 @@ private fun DownloadRecordRow(
     onDeleteClick: () -> Unit,
     onImport: () -> Unit,
     onResume: () -> Unit,
+    // task-103（P2-5）：UNKNOWN 不判死，提供一个重新检查目标的入口。
+    onRetryCheck: () -> Unit,
 ) {
     // 记录本身是否下载完成（文件是否还在另算）；SAF 目录下原文件可能被系统清理，
     // 但书已导入书架时「打开」仍应可用（task-38③）。
@@ -491,7 +524,12 @@ private fun DownloadRecordRow(
     // D3：进程被杀后恢复出来的中断记录 —— 记录页要有「重试」入口，且 .part 仍保留可续传。
     val recordInterrupted = record.status == ZlibDownloadStatus.FAILED &&
         record.errorKind == ZlibDownloadManager.ZLIB_INTERRUPTED_KIND
-    val clickable = recordCompleted && imported != null
+    // task-103（P1-1）：整行可点与按钮共用同一判据，书架副本损坏时点行也不能打开坏书。
+    val clickable = zlibRecordRowOpenable(
+        recordCompleted = recordCompleted,
+        imported = imported,
+        importedBookComplete = importedBookComplete,
+    )
     // P1-6：200% 字号下三行都只有省略号 → 书名放到 2 行、隐藏文件名行（标题已足够识别）。
     val largeFont = LocalDensity.current.fontScale >= 1.3f
     Row(
@@ -593,6 +631,22 @@ private fun DownloadRecordRow(
                         else -> "导入书架"
                     },
                 )
+            }
+
+            // task-103（P2-5）：UNKNOWN 是「暂时读不到」而非「文件坏了」；给重试检查，
+            // 不把用户引向重新下载（可能白耗额度、覆盖唯一完整记录）。
+            targetCheck.state == ZlibDownloadTargetState.UNKNOWN -> Row(
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = zlibImportStateLabel(ZlibDownloadTargetState.UNKNOWN) ?: "暂时无法确认",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                )
+                TextButton(onClick = onRetryCheck) {
+                    Text("重试检查")
+                }
             }
 
             // task-93：三态文案——目标存在但 0 字节/截断/HTML 不再谎报「可导入」。

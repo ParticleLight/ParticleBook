@@ -90,6 +90,9 @@ internal enum class ZlibDetailCompletedAction {
 
     /** 记录是 COMPLETED、书架没有、目标文件也不在 → 只能重新下载。 */
     REDOWNLOAD,
+
+    /** task-103：provider 临时读失败（UNKNOWN），无法确认目标状态 → 不自动重下，给「重试检查」。 */
+    RECHECK,
 }
 
 /**
@@ -97,9 +100,12 @@ internal enum class ZlibDetailCompletedAction {
  * P1-1 起即使书架条目还在，也要它指向的文件真的存在/完整才允许 OPEN。
  * task-93：下载目标必须「完整」才给重新导入；缺失/0 字节/截断直接给重新下载，
  * 不再先点一次重新导入、失败落 IMPORT_FAILED 后才出现重下入口（两段式）。
+ * task-103（P1-2）：UNKNOWN 只表示「暂时读不到」，不能等同于损坏；直接强制重下会先删掉
+ * 唯一 COMPLETED 记录并白耗下载额度，所以单独给「重试检查」。
  * - 书架条目可打开 → OPEN；
  * - 书架条目缺失/文件损坏，但下载目标完整 → REIMPORT；
- * - 目标缺失/损坏 → REDOWNLOAD。
+ * - 目标缺失/不完整 → REDOWNLOAD；
+ * - 目标状态暂时无法确认 → RECHECK（不自动重下）。
  */
 internal fun zlibDetailCompletedAction(
     completedBook: Book?,
@@ -108,7 +114,9 @@ internal fun zlibDetailCompletedAction(
 ): ZlibDetailCompletedAction = when {
     completedBook != null && bookFileExists -> ZlibDetailCompletedAction.OPEN
     targetState == ZlibDownloadTargetState.COMPLETE -> ZlibDetailCompletedAction.REIMPORT
-    else -> ZlibDetailCompletedAction.REDOWNLOAD
+    targetState == ZlibDownloadTargetState.MISSING ||
+        targetState == ZlibDownloadTargetState.INCOMPLETE -> ZlibDetailCompletedAction.REDOWNLOAD
+    else -> ZlibDetailCompletedAction.RECHECK
 }
 
 /** P1-1 task-73：完成态检查结果；null 表示 IO 还没返回，避免首帧闪出错误按钮。 */
@@ -316,12 +324,15 @@ private fun DetailContent(
     // P1-1 task-73：书架条目命中不代表文件还能打开（文件可能被外部删除/截断）。
     // task-93：目标状态必须做完整性校验（不能只 exists），且用目标实际长度而不是旧 total；
     // 保持 null 初值，避免首帧闪错按钮；SAF 查询必须挪到 IO。
+    // task-103（P1-2）：UNKNOWN 时给「重试检查」入口，递增重试键重新跑一次目标完整性检查。
+    var completedCheckRetry by remember { mutableStateOf(0) }
     val completedCheck by produceState<ZlibDetailCompletedCheck?>(
         initialValue = null,
         completedTask?.id,
         completedTask?.destPath,
         completedTask?.total,
         completedShelfBook?.filePath,
+        completedCheckRetry,
     ) {
         val record = completedTask
         val shelfBook = completedShelfBook
@@ -444,6 +455,8 @@ private fun DetailContent(
                 onOpenBook = onOpenBook,
                 onRequireLogin = onRequireLogin,
                 onAlreadyInLibrary = onAlreadyInLibrary,
+                // task-103（P1-2）：UNKNOWN 时只重跑完整性检查，绝不触发 force 重下。
+                onRetryCheck = { completedCheckRetry++ },
             )
             Spacer(Modifier.height(Spacing.sm))
             // A13 转向：reader.z-lib.by 内容接口对当前账号全部不可读，不做内嵌 WebView，
@@ -613,6 +626,7 @@ private fun DownloadAction(
     onOpenBook: (Book) -> Unit,
     onRequireLogin: () -> Unit,
     onAlreadyInLibrary: (Book) -> Unit,
+    onRetryCheck: () -> Unit,
 ) {
     when {
         activeTask != null -> {
@@ -817,6 +831,9 @@ private fun DownloadAction(
                     } else {
                         Text(
                             text = when {
+                                // task-103（P1-2）：未知 ≠ 损坏；不先删记录、不自动强制重下。
+                                action == ZlibDetailCompletedAction.RECHECK ->
+                                    "暂时无法确认下载文件状态，请稍后重试检查"
                                 action == ZlibDetailCompletedAction.REIMPORT &&
                                     check.shelfBookFound -> "书架里的文件已丢失或损坏，可重新导入"
                                 action == ZlibDetailCompletedAction.REIMPORT ->
@@ -830,30 +847,44 @@ private fun DownloadAction(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         Spacer(Modifier.height(Spacing.xs))
-                        Button(
-                            onClick = {
-                                // 重新导入走普通 start()（内部还会再做完整性校验）；
-                                // 重新下载必须 force，跳过旧 COMPLETED 记录的重新导入早退。
-                                ZlibDownloadManager.start(
-                                    detail = detail,
-                                    store = store,
-                                    onAlreadyInLibrary = onAlreadyInLibrary,
-                                    forceRedownload =
-                                        action == ZlibDetailCompletedAction.REDOWNLOAD,
-                                )
-                            },
-                            shape = RoundedCornerShape(Radius.cover),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .heightIn(min = 48.dp),
-                        ) {
-                            Text(
-                                if (action == ZlibDetailCompletedAction.REIMPORT) {
-                                    "重新导入"
-                                } else {
-                                    "重新下载"
+                        if (action == ZlibDetailCompletedAction.RECHECK) {
+                            // 只重跑检查，不触发下载；避免 provider 临时读失败时清掉唯一完成记录。
+                            OutlinedButton(
+                                onClick = onRetryCheck,
+                                shape = RoundedCornerShape(Radius.cover),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(min = 48.dp),
+                            ) {
+                                Text("重试检查")
+                            }
+                        } else {
+                            Button(
+                                onClick = {
+                                    // 重新导入走普通 start()（内部还会再做完整性校验）；
+                                    // 只有 MISSING/INCOMPLETE 才 force 重下，跳过旧 COMPLETED 记录的
+                                    // 重新导入早退（task-103：UNKNOWN 不会走到这里）。
+                                    ZlibDownloadManager.start(
+                                        detail = detail,
+                                        store = store,
+                                        onAlreadyInLibrary = onAlreadyInLibrary,
+                                        forceRedownload =
+                                            action == ZlibDetailCompletedAction.REDOWNLOAD,
+                                    )
                                 },
-                            )
+                                shape = RoundedCornerShape(Radius.cover),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(min = 48.dp),
+                            ) {
+                                Text(
+                                    if (action == ZlibDetailCompletedAction.REIMPORT) {
+                                        "重新导入"
+                                    } else {
+                                        "重新下载"
+                                    },
+                                )
+                            }
                         }
                     }
                 }

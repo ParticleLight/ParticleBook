@@ -24,7 +24,8 @@ class ZlibTask93ImportGuardTest {
         assertNull("完整目标不显示异常标签", zlibImportStateLabel(ZlibDownloadTargetState.COMPLETE))
         assertEquals("文件缺失", zlibImportStateLabel(ZlibDownloadTargetState.MISSING))
         assertEquals("文件损坏", zlibImportStateLabel(ZlibDownloadTargetState.INCOMPLETE))
-        assertEquals("文件损坏", zlibImportStateLabel(ZlibDownloadTargetState.UNKNOWN))
+        // task-103（P2-5）：UNKNOWN 是 provider 临时读失败，不能对用户说「损坏」。
+        assertEquals("暂时无法确认", zlibImportStateLabel(ZlibDownloadTargetState.UNKNOWN))
     }
 
     @Test

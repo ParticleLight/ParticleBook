@@ -321,9 +321,21 @@ internal data class ZlibImportTarget(
 internal fun zlibImportStateLabel(state: ZlibDownloadTargetState): String? = when (state) {
     ZlibDownloadTargetState.COMPLETE -> null
     ZlibDownloadTargetState.MISSING -> "文件缺失"
-    ZlibDownloadTargetState.INCOMPLETE,
-    ZlibDownloadTargetState.UNKNOWN,
-    -> "文件损坏"
+    ZlibDownloadTargetState.INCOMPLETE -> "文件损坏"
+    // task-103（P2-5）：provider 读失败是「不知道」而不是「文件坏了」，不能误导用户直接重下。
+    ZlibDownloadTargetState.UNKNOWN -> "暂时无法确认"
+}
+
+/**
+ * task-103（P2-1）：冷启读盘完成前删掉的记录，读盘结果里必须再过滤一次，否则
+ * removeHistoryRecord 的 early-return 会让旧 COMPLETED 记录在历史加载完成后复活。
+ */
+internal fun zlibFilterRemovedHistory(
+    records: List<ZlibDownloadTask>,
+    removedBookIds: Set<String>,
+): List<ZlibDownloadTask> {
+    if (removedBookIds.isEmpty()) return records
+    return records.filterNot { it.bookId in removedBookIds }
 }
 
 /**
@@ -897,6 +909,13 @@ object ZlibDownloadManager {
     /** T15：冷启读盘完成前被 gate 掉的写盘请求，读完后补一次合并快照。 */
     private var historyWritePending = false
 
+    /**
+     * task-103（P2-1）：冷启读盘完成前被 removeHistoryRecord 删掉的 bookId。
+     * 此时 _history 还是空列表，直接 early-return 会让旧记录在 read() 返回后复活；
+     * 先排队，init 读盘后过滤并补一次写盘。
+     */
+    private val removedBeforeHistoryLoad = LinkedHashSet<String>()
+
     /** 当前 + 最近完成的任务（卡片展示用）。 */
     val tasks: StateFlow<List<ZlibDownloadTask>> = _tasks.asStateFlow()
 
@@ -926,7 +945,10 @@ object ZlibDownloadManager {
         scope.launch {
             val loaded = withContext(Dispatchers.IO) { store.read() }
             // U10：上次进程被杀时留在磁盘上的非终态记录 → 恢复成可重试的中断失败态。
-            val recovered = zlibRecoverInterrupted(loaded, System.currentTimeMillis())
+            val recovered = zlibFilterRemovedHistory(
+                zlibRecoverInterrupted(loaded, System.currentTimeMillis()),
+                takeRemovedBeforeHistoryLoad(),
+            )
             // 加载期间若已有新终态写入（极端冷启并发），保留内存里的新记录。
             _history.update { current ->
                 if (current.isEmpty()) {
@@ -936,6 +958,13 @@ object ZlibDownloadManager {
                 }
             }
             _historyLoaded.value = true
+            // 读盘期间又进来的删除请求（快照之后、_historyLoaded 置位之前）：再过滤一次。
+            val lateRemoved = takeRemovedBeforeHistoryLoad()
+            if (lateRemoved.isNotEmpty()) {
+                _history.update { list -> zlibFilterRemovedHistory(list, lateRemoved) }
+                historyWritePending = true
+                Log.i(TAG, "zlib_download_history_remove_after_load books=" + lateRemoved.size)
+            }
             // task-79：历史读盘完成后，先按墓碑清掉已删书可能复活的记录，再补做队列里的删书事件。
             purgeTombstonedHistory()
             drainRemovedWhileHistoryLoading()
@@ -1653,11 +1682,15 @@ object ZlibDownloadManager {
         began: Long,
     ): Boolean {
         val raw = task.destPath.takeIf { it.startsWith("content://") } ?: return false
-        val state = inspectSafDownloadTarget(context, task)
-        if (state != ZlibDownloadTargetState.COMPLETE) return false
+        // task-103（P2-2）：这里不能再用记录里可能过期的 total 当 expectedBytes（旧 SAF 记录会
+        // 把完整文档误判成不完整，进而重新下载/新建文档）。inspectImportTarget 用 provider 的
+        // 实际长度，长度未知时退化成结构校验。
+        val check = inspectImportTarget(context, task)
+        if (check.state != ZlibDownloadTargetState.COMPLETE) return false
         if (!runs.isCurrent(run)) return true
         val uri = runCatching { Uri.parse(raw) }.getOrNull() ?: return false
-        val size = withContext(Dispatchers.IO) { safDocumentSize(context, uri) }
+        val size = check.size.takeIf { it > 0L }
+            ?: withContext(Dispatchers.IO) { safDocumentSize(context, uri) }
         val actualName = withContext(Dispatchers.IO) {
             DownloadLocation.displayName(context, uri)
         } ?: task.fileName
@@ -2135,8 +2168,8 @@ object ZlibDownloadManager {
     private suspend fun inspectSafDownloadTarget(
         context: Context,
         record: ZlibDownloadTask,
-        // task-93：重新导入/记录页检查时传目标真实长度或 -1；旧 total 可能来自旧快照，不能当唯一依据。
-        expectedBytes: Long = record.total,
+        // task-93/task-103：默认不做长度断言；调用方必须显式传目标真实长度，旧 total 不能当判据。
+        expectedBytes: Long = -1L,
     ): ZlibDownloadTargetState = withContext(Dispatchers.IO) {
         val raw = record.destPath.takeIf { it.startsWith("content://") }
             ?: return@withContext ZlibDownloadTargetState.INCOMPLETE
@@ -2153,7 +2186,17 @@ object ZlibDownloadManager {
                 val channel = input.channel
                 val size = channel.size()
                 if (zlibSafDescriptorSizeReliable(size)) {
-                    zlibInspectBookChannel(channel, size, expected)
+                    val strict = zlibInspectBookChannel(channel, size, expected)
+                    // task-103（P2-2）：provider 上报的长度可能来自旧元数据；长度不一致只当
+                    // 提示，不能因此把结构完整的书判死，降级为无长度断言的结构校验再试一次。
+                    if (strict == ZlibDownloadTargetState.INCOMPLETE &&
+                        expected > 0L &&
+                        size != expected
+                    ) {
+                        zlibInspectBookChannel(channel, size, -1L)
+                    } else {
+                        strict
+                    }
                 } else {
                     // 长度未知（pipe/云文档）：不能把 0 当成「文件为空」。
                     null
@@ -2187,7 +2230,20 @@ object ZlibDownloadManager {
             return@withContext ZlibDownloadTargetState.UNKNOWN
         }
         return@withContext try {
-            zlibInspectBookFile(temp, expected)
+            val strict = zlibInspectBookFile(temp, expected)
+            if (strict == ZlibDownloadTargetState.INCOMPLETE &&
+                expected > 0L &&
+                temp.length() != expected
+            ) {
+                // task-103（P2-2）：长度元数据不一致时降级为结构校验，避免旧 total 误杀完整书。
+                val relaxed = zlibInspectBookFile(temp, -1L)
+                if (relaxed == ZlibDownloadTargetState.COMPLETE) {
+                    Log.i(TAG, "inspect saf download length mismatch, structure complete uri=" + raw)
+                }
+                relaxed
+            } else {
+                strict
+            }
         } finally {
             temp.delete()
         }
@@ -2323,10 +2379,27 @@ object ZlibDownloadManager {
 
     /** T23：清掉同书旧记录（续传/重试/重下会生成新的终态记录，避免记录页同时出现两条）。 */
     private fun removeHistoryRecord(bookId: String) {
+        // task-103（P2-1）：冷启读盘完成前 _history 还是空的，直接 early-return 会让旧记录
+        // 在 read() 返回后复活；先排队，init 合并读盘结果时统一过滤。
+        if (!_historyLoaded.value) {
+            synchronized(removedBeforeHistoryLoad) { removedBeforeHistoryLoad.add(bookId) }
+            Log.i(TAG, "zlib_download_history_remove_deferred book=" + bookId)
+            return
+        }
         if (_history.value.none { it.bookId == bookId }) return
         _history.update { list -> list.filterNot { it.bookId == bookId } }
         scheduleHistoryWrite()
     }
+
+    /** task-103（P2-1）：读盘完成前删除队列的快照 + 清空，供 init 多次过滤。 */
+    private fun takeRemovedBeforeHistoryLoad(): Set<String> =
+        synchronized(removedBeforeHistoryLoad) {
+            if (removedBeforeHistoryLoad.isEmpty()) {
+                emptySet()
+            } else {
+                removedBeforeHistoryLoad.toSet().also { removedBeforeHistoryLoad.clear() }
+            }
+        }
 
     /** T23：只清半成品（目标完整文件保留）；SAF 还包括 cacheDir 的 temp / temp.part。 */
     private fun cleanupPartial(record: ZlibDownloadTask) {
