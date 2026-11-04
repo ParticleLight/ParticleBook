@@ -167,6 +167,178 @@ class ZlibSearchViewModelRaceTest {
         assertNotNull(state.books)
     }
 
+    @Test
+    fun mirrorSwitchWhileFirstPageFailsReloadsAgainstNewMirror() {
+        val source = FakeSearchSource()
+        source.slowThrows = false
+        source.slowThrowsOnFirst = true
+        val vm = newViewModel(source)
+
+        vm.search(SLOW)
+        assertTrue("slow request did not start", source.slowStarted.await(5, TimeUnit.SECONDS))
+
+        source.mirror = MIRROR_B
+        vm.onMirrorSwitched()
+        source.slowGate.countDown()
+
+        // 第一页失败落 Error 后也必须按切换目标重跑，而不是停在旧线路的错误页。
+        waitUntil("error state did not reload against new mirror") {
+            (vm.state as? ZlibSearchState.Success)
+                ?.books
+                ?.firstOrNull()
+                ?.id == "slow-" + hostOf(MIRROR_B)
+        }
+        assertEquals("切换只应触发一次重跑", 2, source.slowCalls.get())
+    }
+
+    @Test
+    fun mirrorSwitchWhileFirstPageEmptyReloadsAgainstNewMirror() {
+        val source = FakeSearchSource()
+        source.slowThrows = false
+        source.slowEmptyOnFirst = true
+        val vm = newViewModel(source)
+
+        vm.search(SLOW)
+        assertTrue("slow request did not start", source.slowStarted.await(5, TimeUnit.SECONDS))
+
+        source.mirror = MIRROR_B
+        vm.onMirrorSwitched()
+        source.slowGate.countDown()
+
+        // 第一页空结果落 Empty 后同样要重跑；重跑后拿到新线路的真实结果。
+        waitUntil("empty state did not reload against new mirror") {
+            (vm.state as? ZlibSearchState.Success)
+                ?.books
+                ?.firstOrNull()
+                ?.id == "slow-" + hostOf(MIRROR_B)
+        }
+        assertEquals(2, source.slowCalls.get())
+    }
+
+    @Test
+    fun mirrorSwitchWhileCategoryLoadingReloadsAgainstNewMirror() {
+        val source = FakeSearchSource()
+        source.blockCategory = true
+        val vm = newViewModel(source)
+
+        vm.searchCategory(CATEGORY)
+        assertTrue("category request did not start", source.categoryStarted.await(5, TimeUnit.SECONDS))
+
+        source.mirror = MIRROR_B
+        vm.onMirrorSwitched()
+        source.categoryGate.countDown()
+
+        // 分类空页落 Empty 后走 retry 重跑分类；第二次 fetch 使用新线路。
+        waitUntil("category did not reload against new mirror") {
+            val state = vm.state as? ZlibSearchState.Success
+            state != null && state.category == CATEGORY &&
+                state.books.firstOrNull()?.id == "category-" + hostOf(MIRROR_B)
+        }
+        assertEquals(2, source.categoryCalls.get())
+        assertEquals("分类 retry 应重置连接状态", 1, source.resetCalls.get())
+    }
+
+    @Test
+    fun mirrorSwitchWhileFilteredSearchKeepsFilterSnapshot() {
+        val source = FakeSearchSource()
+        source.slowThrows = false
+        val vm = newViewModel(source)
+        val filters = ZlibSearchFilters(languages = listOf("english"), yearFrom = 2000)
+        vm.applyFilters(filters)
+
+        vm.search(SLOW)
+        assertTrue("slow request did not start", source.slowStarted.await(5, TimeUnit.SECONDS))
+
+        source.mirror = MIRROR_B
+        vm.onMirrorSwitched()
+        source.slowGate.countDown()
+
+        waitUntil("filtered search did not reload against new mirror") {
+            (vm.state as? ZlibSearchState.Success)
+                ?.books
+                ?.firstOrNull()
+                ?.id == "slow-" + hostOf(MIRROR_B)
+        }
+        assertEquals(2, source.slowCalls.get())
+        assertEquals("换线重跑必须沿用请求发起时的筛选快照", filters, source.lastSlowFilters)
+    }
+
+    @Test
+    fun multipleMirrorSwitchesWhileLoadingReloadOnlyOnceWithLatestMirror() {
+        val source = FakeSearchSource()
+        source.slowThrows = false
+        val vm = newViewModel(source)
+
+        vm.search(SLOW)
+        assertTrue("slow request did not start", source.slowStarted.await(5, TimeUnit.SECONDS))
+
+        // 连续切 B、C：只保留最后目标，旧请求结束后至多重跑一次。
+        source.mirror = MIRROR_B
+        vm.onMirrorSwitched()
+        source.mirror = MIRROR_C
+        vm.onMirrorSwitched()
+        source.slowGate.countDown()
+
+        waitUntil("latest mirror was not used for reload") {
+            (vm.state as? ZlibSearchState.Success)
+                ?.books
+                ?.firstOrNull()
+                ?.id == "slow-" + hostOf(MIRROR_C)
+        }
+        assertEquals("连续切换不得产生多次重跑", 2, source.slowCalls.get())
+    }
+
+    @Test
+    fun mirrorSnapshotAtSwitchSurvivesMirrorRevertBeforeCompletion() {
+        val source = FakeSearchSource()
+        source.slowThrows = false
+        val vm = newViewModel(source)
+
+        vm.search(SLOW)
+        assertTrue("slow request did not start", source.slowStarted.await(5, TimeUnit.SECONDS))
+
+        // 切换回调时抓目标快照 B；请求结束前全局 mirror 又回到 A（异步/后台写回）。
+        // 若结束时重新读 mirrorBase 会误判为「没换线」而漏重跑；快照比较必须仍重跑。
+        source.mirror = MIRROR_B
+        vm.onMirrorSwitched()
+        source.mirror = MIRROR_A
+        source.slowGate.countDown()
+
+        waitUntil("switch target snapshot was not used") { source.slowCalls.get() >= 2 }
+        assertEquals(2, source.slowCalls.get())
+    }
+
+    @Test
+    fun mirrorSwitchWhileLoadingMoreResetsToFirstPageAndDropsOldPage() {
+        val source = FakeSearchSource()
+        val vm = newViewModel(source)
+
+        vm.search(PAGE2_FAIL)
+        waitUntil("first page did not succeed") { vm.state is ZlibSearchState.Success }
+        source.blockPage2 = true
+        vm.loadNextPage()
+        assertTrue("page 2 did not start", source.page2Started.await(5, TimeUnit.SECONDS))
+
+        // 产品口径：翻页中换线 = 取消下一页、回到第 1 页重搜；旧页结果不得追加。
+        source.mirror = MIRROR_B
+        vm.onMirrorSwitched()
+        waitUntil("page 1 was not restarted after mirror switch") {
+            source.pageOneCalls.get() >= 2 &&
+                (vm.state as? ZlibSearchState.Success)?.page == 1
+        }
+
+        source.page2Gate.countDown()
+        Thread.sleep(100)
+
+        val state = vm.state as ZlibSearchState.Success
+        assertEquals(PAGE2_FAIL, state.query)
+        assertEquals("换线后必须回到第 1 页", 1, state.page)
+        assertEquals(false, state.loadingMore)
+        assertNull("旧第 2 页结果不得污染新列表", state.loadMoreError)
+        assertEquals("首页请求次数 = 初始 1 次 + 换线重跑 1 次", 2, source.pageOneCalls.get())
+        assertEquals("旧第 2 页结果不得追加", 1, state.books.size)
+    }
+
     private fun hostOf(url: String): String = url.substringAfter("://", url).substringBefore('/')
 
     private fun newViewModel(source: ZlibSearchSource): ZlibSearchViewModel =
@@ -201,18 +373,44 @@ class ZlibSearchViewModelRaceTest {
         @Volatile
         var slowThrows: Boolean = true
 
+        /** 仅第 1 次 SLOW 调用抛错/返回空（用于验证 Error/Empty 落定后的换线重跑）。 */
+        @Volatile
+        var slowThrowsOnFirst: Boolean = false
+        @Volatile
+        var slowEmptyOnFirst: Boolean = false
+
+        /** 最近一次 SLOW 搜索收到的筛选快照。 */
+        @Volatile
+        var lastSlowFilters: ZlibSearchFilters? = null
+
+        /** 第 1 页请求次数（含换线后的重跑），用于断言没有重复请求。 */
+        val pageOneCalls = AtomicInteger()
+
         /** true 时第 2 页先阻塞在 page2Gate（用于构造「旧翻页请求迟到」的时序）。 */
         @Volatile
         var blockPage2: Boolean = false
 
+        val categoryStarted = CountDownLatch(1)
+        val categoryGate = CountDownLatch(1)
+        val categoryCalls = AtomicInteger()
+        val resetCalls = AtomicInteger()
+
+        /** true 时第 1 次分类请求阻塞，且该次返回空页（触发 Empty → retry 重跑）。 */
+        @Volatile
+        var blockCategory: Boolean = false
+
         override fun search(query: String, page: Int, filters: ZlibSearchFilters?): ZSearchPage {
+            if (page == 1) pageOneCalls.incrementAndGet()
             when {
                 query == SLOW -> {
                     val startedOn = mirror
-                    slowCalls.incrementAndGet()
+                    val call = slowCalls.incrementAndGet()
+                    lastSlowFilters = filters
                     slowStarted.countDown()
                     check(slowGate.await(10, TimeUnit.SECONDS)) { "slow gate timeout" }
+                    if (call == 1 && slowThrowsOnFirst) throw IOException("first page failure")
                     if (slowThrows) throw IOException("stale network failure")
+                    if (call == 1 && slowEmptyOnFirst) return page(query, page, emptyList())
                     // 结果带发起时线路，测试可断言最终展示的是新线路的重跑结果。
                     val host = startedOn.substringAfter("://", startedOn).substringBefore('/')
                     return page(query, page, listOf(book("slow-" + host, "Slow")))
@@ -229,9 +427,24 @@ class ZlibSearchViewModelRaceTest {
             }
         }
 
-        override fun fetchCategory(path: String): List<ZBook> = emptyList()
+        override fun fetchCategory(path: String): List<ZBook> {
+            val call = categoryCalls.incrementAndGet()
+            val startedOn = mirror
+            if (blockCategory && call == 1) {
+                categoryStarted.countDown()
+                check(categoryGate.await(10, TimeUnit.SECONDS)) { "category gate timeout" }
+            }
+            return if (call == 1) {
+                emptyList()
+            } else {
+                val host = startedOn.substringAfter("://", startedOn).substringBefore('/')
+                listOf(book("category-" + host, "Category"))
+            }
+        }
 
-        override fun resetConnectionState() = Unit
+        override fun resetConnectionState() {
+            resetCalls.incrementAndGet()
+        }
 
         override fun mirrorUrl(): String? = mirror
 
@@ -257,9 +470,11 @@ class ZlibSearchViewModelRaceTest {
     private companion object {
         const val MIRROR_A = "https://mirror-a.example.com"
         const val MIRROR_B = "https://mirror-b.example.com"
+        const val MIRROR_C = "https://mirror-c.example.com"
         const val SLOW = "slow"
         const val FAST = "fast"
         const val NO_MIRROR = "nomirror"
         const val PAGE2_FAIL = "page2fail"
+        const val CATEGORY = "Android"
     }
 }

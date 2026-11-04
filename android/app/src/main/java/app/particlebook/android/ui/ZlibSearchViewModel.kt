@@ -115,11 +115,18 @@ class ZlibSearchViewModel internal constructor(
     private var firstPageJob: Job? = null
     private var nextPageJob: Job? = null
 
-    /** Loading 中切线路：等当前请求结束、且线路确实变了再重跑（见 [onMirrorSwitched]）。 */
-    private var pendingReloadForMirror = false
+    /**
+     * A5-P2-3：Loading 中切线路时暂存「切换目标线路」快照，等当前请求结束后再重跑。
+     * 不在请求结束时重新读取全局 [mirrorBase]：mirror 的异步更新/短暂 null 会让比较漏判或多判。
+     * null 表示没有待重跑的切换。
+     */
+    private var pendingMirrorReload: PendingMirrorReload? = null
 
-    /** 当前首屏请求开始时的线路；请求结束时与 [mirrorBase] 对比判断是否换过线。 */
-    private var requestMirrorBase: String? = null
+    /** 首屏请求令牌 + 发起时的线路快照；请求结束用携带的快照与切换目标比较。 */
+    private data class FirstPageRequest(val id: Int, val mirrorBase: String?)
+
+    /** 用户切线路回调时抓取的目标快照；targetBase 为 null 表示切换瞬间线路未知，按需保守重跑。 */
+    private data class PendingMirrorReload(val targetBase: String?)
 
     /** 请求令牌：只在主线程自增；写状态前比对，旧请求的迟到结果直接丢弃。 */
     @Volatile
@@ -308,6 +315,8 @@ class ZlibSearchViewModel internal constructor(
         requestId += 1
         currentQuery = ""
         currentCategory = null
+        // A5-P3-1：reset 后不能再留下上一请求的切换待办，否则状态不变量不完整。
+        pendingMirrorReload = null
         state = ZlibSearchState.Idle
     }
 
@@ -338,12 +347,18 @@ class ZlibSearchViewModel internal constructor(
 
     /**
      * 用户切换线路后调用（FindScreen 的 onSwitched）：
-     * - Loading：请求已用旧线路发出，记 pendingReload，等请求结束且线路确实变了再自动重跑；
+     * - Loading：请求已用旧线路发出，抓取切换目标快照并记 pending，等请求结束后与请求携带的
+     *   发起快照比较；确实换了线才重跑。连续切换只保留最后一次目标，至多重跑一次。
      * - 其他状态：立即重跑已提交的查询/分类（Idle/无已提交请求时 no-op）。
+     *
+     * A5-P2-2：翻页中（Success.loadingMore=true）不是 Loading——按产品口径立即取消下一页并
+     * 回到第 1 页重搜。beginRequest 会取消 nextPageJob 并推进 requestId，旧第 2 页结果
+     * 不会追加到新列表；不保留页码是已知且接受的行为。
      */
     fun onMirrorSwitched() {
         if (state is ZlibSearchState.Loading) {
-            pendingReloadForMirror = true
+            // onSwitched 在 switchMirror 成功返回后调用，此时 source 的 mirror 已是目标线路。
+            pendingMirrorReload = PendingMirrorReload(mirrorBase)
         } else {
             reloadCurrentRequest()
         }
@@ -354,34 +369,40 @@ class ZlibSearchViewModel internal constructor(
         applyFilters(ZlibSearchFilters())
     }
 
-    /** 开始新请求：作废旧令牌 + 取消旧 Job；返回本次令牌。 */
-    private fun beginRequest(query: String, category: String?, requestFilters: ZlibSearchFilters): Int {
+    /** 开始新请求：作废旧令牌 + 取消旧 Job；返回携带发起线路快照的请求令牌。 */
+    private fun beginRequest(
+        query: String,
+        category: String?,
+        requestFilters: ZlibSearchFilters,
+    ): FirstPageRequest {
         currentQuery = query
         currentCategory = category
         activeFilters = requestFilters
-        pendingReloadForMirror = false
-        requestMirrorBase = mirrorBase
+        pendingMirrorReload = null
         firstPageJob?.cancel()
         nextPageJob?.cancel()
         firstPageJob = null
         nextPageJob = null
         requestId += 1
-        return requestId
+        return FirstPageRequest(requestId, mirrorBase)
     }
 
     /**
-     * 首屏请求落定后检查：Loading 期间用户切过线路，且实际生效的 mirror 已变 → 用当前查询/分类重跑。
-     * 线路没变（切到同一线路/切换未生效）则清掉 pending，避免无意义重复请求。
+     * 首屏请求落定后检查：Loading 期间用户切过线路，且切换目标快照与请求携带的发起快照不同
+     * → 用当前查询/分类重跑。比较只使用两份快照，不再依赖请求结束时的全局 mirrorBase。
+     * 目标快照为 null（切换瞬间线路未知）时保守重跑；两份快照相同（切换未真正生效）则不重复请求。
      */
-    private fun reloadAfterMirrorSwitch(request: Int) {
+    private fun reloadAfterMirrorSwitch(request: FirstPageRequest) {
         if (!isCurrent(request)) return
-        if (!pendingReloadForMirror) return
-        pendingReloadForMirror = false
-        if (mirrorBase == requestMirrorBase) return
+        val pending = pendingMirrorReload ?: return
+        pendingMirrorReload = null
+        if (pending.targetBase != null && pending.targetBase == request.mirrorBase) return
         reloadCurrentRequest()
     }
 
     private fun isCurrent(request: Int): Boolean = request == requestId
+
+    private fun isCurrent(request: FirstPageRequest): Boolean = request.id == requestId
 
     private fun toErrorState(throwable: Throwable): ZlibSearchState.Error {
         recordError(throwable)
