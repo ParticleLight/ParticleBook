@@ -103,10 +103,35 @@ data class ZlibDownloadTask(
  * SAF 模式下完整文档已经复制进用户目录。恢复时若只看记录状态就会重下/截断，白耗额度并可能
  * 破坏唯一完整副本；所以先按文件头 + 长度（expectedBytes 来自记录里的 total）+ 结构校验判断。
  */
-internal enum class ZlibDownloadTargetState { MISSING, INCOMPLETE, COMPLETE }
+internal enum class ZlibDownloadTargetState { MISSING, UNKNOWN, INCOMPLETE, COMPLETE }
 
 /** 与 ZlibClient 的 MIN_DOWNLOAD_BYTES 对齐：小于 1KB 的「书」一定不完整。 */
 internal const val ZLIB_MIN_BOOK_BYTES = 1_024L
+
+/**
+ * P0 task-62：SAF provider 返回的 fd 不一定能报告真实长度（pipe/云文档常为 0）。
+ * 只有 >0 的 channel.size() 才可以作为完整性判据；0/负数表示「未知」，必须整份复制到
+ * cacheDir 后再校验，绝不能据此判定 INCOMPLETE 并在下载时截断唯一完整副本。
+ */
+internal fun zlibSafDescriptorSizeReliable(size: Long): Boolean = size > 0L
+
+/**
+ * P0 task-62：SAF 目标文档允许被截断重写的唯一情形。
+ * - 本次运行新建的文档：当然可以写；
+ * - 用户明确取消（CANCELLED）后复用原目标续传：取消是显式终态，记录可信。
+ * 其余情况（尤其是 FAILED(INTERRUPTED)）一律新建文档、保留旧文档——旧文档可能完整，
+ * 只是 provider 不报长度/随机读失败导致完整性检查返回 UNKNOWN。
+ */
+internal enum class ZlibSafTruncateDecision { ALLOW, CREATE_NEW }
+
+internal fun zlibSafTruncateDecision(
+    recordStatus: ZlibDownloadStatus?,
+    createdThisRun: Boolean = false,
+): ZlibSafTruncateDecision = when {
+    createdThisRun -> ZlibSafTruncateDecision.ALLOW
+    recordStatus == ZlibDownloadStatus.CANCELLED -> ZlibSafTruncateDecision.ALLOW
+    else -> ZlibSafTruncateDecision.CREATE_NEW
+}
 
 /**
  * P2-4：旧历史（HISTORY_VERSION=1，没有 total 字段）回退为 received，新记录保留真实总长。
@@ -141,6 +166,16 @@ internal fun zlibInspectBookFile(
         }
     }.getOrDefault(ZlibDownloadTargetState.INCOMPLETE)
 }
+
+/**
+ * P1-2 task-62：书架命中只认「文件确实完整」的条目。
+ * 旧逻辑只判 File.isFile，0 字节/HTML 错误页/截断的 EPUB 会被补成 COMPLETED 记录，
+ * 详情页显示「已下载 · 打开」但打开失败；这里复用同一套 PDF/EPUB 结构校验。
+ */
+internal fun zlibCompleteLibraryBook(books: List<Book>): Book? =
+    books.firstOrNull {
+        zlibInspectBookFile(File(it.filePath)) == ZlibDownloadTargetState.COMPLETE
+    }
 
 /**
  * P2-4：FileChannel 版本（SAF 文档也可能通过 provider 的 fd 随机读取）。
@@ -786,8 +821,16 @@ object ZlibDownloadManager {
                 // P2-5：冷启时书架可能还在加载，必须等 ensureLoaded 完成再按标签查，否则会误判「没有」。
                 store.ensureLoaded()
                 val taggedBooks = store.books.filter { bookTag(detail.bookId) in it.tags }
+                // P1-2 task-62：只认文件确实完整的书架条目，避免 0 字节/HTML/截断文件被补成「已下载」。
                 val libraryBook = withContext(Dispatchers.IO) {
-                    taggedBooks.firstOrNull { File(it.filePath).isFile }
+                    zlibCompleteLibraryBook(taggedBooks)
+                }
+                if (libraryBook == null && taggedBooks.isNotEmpty()) {
+                    Log.w(
+                        TAG,
+                        "zlib_download_library_target_incomplete book=" + detail.bookId +
+                            " candidates=" + taggedBooks.size,
+                    )
                 }
                 if (libraryBook != null) {
                     val size = withContext(Dispatchers.IO) {
@@ -808,6 +851,8 @@ object ZlibDownloadManager {
                 val cancelledRecord = done?.takeIf { it.status == ZlibDownloadStatus.CANCELLED }
                 // P2-4：进程在「文件已下完、COMPLETED 写盘之前」被杀 → 恢复成 INTERRUPTED。
                 // 两种存储都先看目标是否已经完整：完整就只重新导入，绝不重新下载/截断唯一完整副本。
+                // P0 task-62：完整性检查返回 UNKNOWN（provider 不报长度/读失败）时按「不完整」走，
+                // 但下面只允许新建 SAF 文档，旧文档必须原样保留。
                 val interruptedRecord = done?.takeIf {
                     it.status == ZlibDownloadStatus.FAILED &&
                         it.errorKind == ZLIB_INTERRUPTED_KIND
@@ -855,10 +900,7 @@ object ZlibDownloadManager {
                 val needsFileCheck = done != null && (
                     done.status == ZlibDownloadStatus.COMPLETED ||
                         (done.status == ZlibDownloadStatus.FAILED &&
-                            done.errorKind == ZLIB_IMPORT_FAILED_KIND) ||
-                        (saf && done.status == ZlibDownloadStatus.FAILED &&
-                            done.errorKind == ZLIB_INTERRUPTED_KIND &&
-                            done.destPath.startsWith("content://"))
+                            done.errorKind == ZLIB_IMPORT_FAILED_KIND)
                     )
                 val fileExists = done != null && needsFileCheck &&
                     withContext(Dispatchers.IO) { DownloadLocation.exists(context, done.destPath) }
@@ -893,24 +935,20 @@ object ZlibDownloadManager {
                     return@launch
                 }
                 // P1c：自定义 SAF 目录 → 下载完成后 createDocument；默认仍是 File 路径（行为不变）。
-                // U10：上次进程被杀前已经创建好的 SAF 文档 → 复用（下载时截断重写），不在用户目录留孤儿文件。
-                val reusedSafDoc = done?.takeIf {
-                    saf &&
-                        fileExists &&
-                        it.status == ZlibDownloadStatus.FAILED &&
-                        it.errorKind == ZLIB_INTERRUPTED_KIND &&
-                        it.destPath.startsWith("content://")
+                // P0 task-62：只有用户明确取消（CANCELLED）的记录才允许复用旧 SAF 文档并截断重写。
+                // INTERRUPTED 的目标可能是完整书，只是 provider 不报长度/随机读失败被判成 UNKNOWN；
+                // 此时 destPath 留空，下载阶段新建文档，旧文档原样保留（宁可多一个文件也不毁唯一副本）。
+                val cancelledSafTarget = cancelledRecord?.takeIf {
+                    saf && it.destPath.startsWith("content://")
                 }
                 val fileName: String
                 val destPath: String
                 if (saf) {
-                    fileName = reusedSafDoc?.fileName?.takeIf { it.isNotBlank() }
+                    fileName = cancelledSafTarget?.fileName?.takeIf { it.isNotBlank() }
                         ?: cancelledRecord?.fileName?.takeIf { it.isNotBlank() }
                         ?: suggestedFileName(detail)
-                    // 目标 uri 在真正下载时创建，完成后再回填；可复用时直接用旧 uri。
-                    // T23：取消记录的 uri 也复用（半截文档由 openOutputStream 截断重写，不留孤儿）。
-                    destPath = reusedSafDoc?.destPath.orEmpty()
-                        .ifEmpty { cancelledRecord?.destPath?.takeIf { it.startsWith("content://") }.orEmpty() }
+                    // 目标 uri 在真正下载时创建，完成后再回填；取消记录可复用旧 uri（截断重写半截文档）。
+                    destPath = cancelledSafTarget?.destPath.orEmpty()
                 } else {
                     val target = withContext(Dispatchers.IO) {
                         // T23：取消过的同一本书复用原目标路径 —— .part 就在同名旁边，续传才能接上。
@@ -951,7 +989,13 @@ object ZlibDownloadManager {
                 }
                 _tasks.update { list -> list.filterNot { it.id == task.id } + task }
                 persistActive(task)
-                launchDownload(task, store)
+                launchDownload(
+                    task = task,
+                    store = store,
+                    allowSafTargetReuse =
+                        zlibSafTruncateDecision(cancelledRecord?.status) ==
+                            ZlibSafTruncateDecision.ALLOW,
+                )
             } catch (cancellation: CancellationException) {
                 throw cancellation
             } catch (throwable: Throwable) {
@@ -1003,6 +1047,9 @@ object ZlibDownloadManager {
         if (runs.current(id) != null) return
         // T23：CANCELLED 也会落历史；续传会生成新终态，先清掉旧记录。
         removeHistoryRecord(current.bookId)
+        // P0 task-62：只有 CANCELLED 的 SAF 目标允许截断复用；FAILED(INTERRUPTED) 一律新建文档。
+        val allowSafTargetReuse =
+            zlibSafTruncateDecision(current.status) == ZlibSafTruncateDecision.ALLOW
         val task = current.copy(
             received = 0L,
             total = -1L,
@@ -1015,7 +1062,7 @@ object ZlibDownloadManager {
         )
         _tasks.update { list -> list.map { if (it.id == id) task else it } }
         persistActive(task)
-        launchDownload(task, store)
+        launchDownload(task, store, allowSafTargetReuse)
     }
 
     /**
@@ -1040,7 +1087,13 @@ object ZlibDownloadManager {
         val task = zlibResumeTaskFromRecord(record)
         _tasks.update { list -> list.filterNot { it.id == task.id } + task }
         persistActive(task)
-        launchDownload(task, store)
+        // P0 task-62：INTERRUPTED 记录的目标文档可能完整但检查结果 UNKNOWN → 只能新建文档，不能截断旧文档。
+        launchDownload(
+            task = task,
+            store = store,
+            allowSafTargetReuse =
+                zlibSafTruncateDecision(record.status) == ZlibSafTruncateDecision.ALLOW,
+        )
         Log.i(
             TAG,
             "zlib_download_resume book=" + bookId + " source=" + source.name +
@@ -1222,7 +1275,16 @@ object ZlibDownloadManager {
                     }
                 }
                 if (task.saf || task.destPath.startsWith("content://")) {
-                    downloadToSaf(context, client, task, store, onProgress, began, run)
+                    downloadToSaf(
+                        context = context,
+                        client = client,
+                        task = task,
+                        store = store,
+                        onProgress = onProgress,
+                        began = began,
+                        run = run,
+                        allowSafTargetReuse = allowSafTargetReuse,
+                    )
                 } else {
                     downloadToFile(client, task, store, onProgress, began, run)
                 }
@@ -1404,6 +1466,7 @@ object ZlibDownloadManager {
         onProgress: (Long, Long) -> Unit,
         began: Long,
         run: ZlibDownloadRun,
+        allowSafTargetReuse: Boolean,
     ) {
         // P2-4：目标 SAF 文档若已完整（上次进程在导入窗口被杀），不要再截断重写，直接导入。
         if (tryImportCompleteSafTarget(context, task, store, run, began)) return
@@ -1417,9 +1480,14 @@ object ZlibDownloadManager {
             // T15：同 downloadToFile——网络阶段结束后立即封口，SAF 拷贝/查询期间不再接受取消。
             updateTask(task.id) { it.copy(importing = true, cancelling = false) } ?: return
             val bytes = withContext(Dispatchers.IO) { file.length() }
-            // 失败重试时若已创建过文档则复用（openOutputStream 截断重写），避免重复文件。
-            val reused = task.destPath.takeIf { it.startsWith("content://") }
+            // P0 task-62：只有 CANCELLED 记录（或本次运行新建的文档）才允许复用并截断重写。
+            // INTERRUPTED/UNKNOWN 的旧文档原样保留，这里改为新建文档，避免把唯一完整副本截断。
+            val reused = task.destPath
+                .takeIf { allowSafTargetReuse && it.startsWith("content://") }
                 ?.let { raw -> runCatching { Uri.parse(raw) }.getOrNull() }
+            if (reused == null && task.destPath.startsWith("content://")) {
+                Log.i(TAG, "zlib_download_saf_target_preserved task=" + task.id + " uri=" + task.destPath)
+            }
             val target = reused ?: DownloadLocation.createDocument(
                 context = context,
                 displayName = task.fileName,
@@ -1661,8 +1729,13 @@ object ZlibDownloadManager {
     }
 
     /**
-     * P2-4：SAF 目标文档完整性。provider 的 fd 可随机读时直接按 FileChannel 校验；
-     * 只支持顺序流的 provider 则先复制到 cacheDir 再按同一套规则检查（仅恢复路径会走）。
+     * P2-4/T62(P0)：SAF 目标文档完整性。
+     *
+     * provider 的 fd 只有能报告 >0 长度时才可随机读校验；pipe/云文档的 channel.size()==0
+     * 表示长度未知，必须整份复制到 cacheDir 再校验，否则会把完整书误判为 INCOMPLETE，
+     * 后续下载再用 openOutputStream("w") 截断唯一完整副本。
+     * fd 随机读结果不是 COMPLETE（也可能是读失败）时同样复制一份复核；复制也失败则返回
+     * UNKNOWN，调用方必须按「不可信」处理（不允许复用/截断旧文档）。
      */
     private suspend fun inspectSafDownloadTarget(
         context: Context,
@@ -1681,22 +1754,36 @@ object ZlibDownloadManager {
                 ?: return@runCatching null
             ParcelFileDescriptor.AutoCloseInputStream(pfd).use { input ->
                 val channel = input.channel
-                zlibInspectBookChannel(channel, channel.size(), expected)
+                val size = channel.size()
+                if (zlibSafDescriptorSizeReliable(size)) {
+                    zlibInspectBookChannel(channel, size, expected)
+                } else {
+                    // 长度未知（pipe/云文档）：不能把 0 当成「文件为空」。
+                    null
+                }
             }
         }.getOrNull()
-        if (viaDescriptor != null) return@withContext viaDescriptor
+        if (viaDescriptor == ZlibDownloadTargetState.COMPLETE) {
+            return@withContext ZlibDownloadTargetState.COMPLETE
+        }
         val temp = File(
             context.cacheDir,
-            "zlib-inspect-" + record.id.replace(':', '_') + ".tmp",
+            "zlib-inspect-" + record.id.replace(':', '_') + "-" + UUID.randomUUID() + ".tmp",
         )
-        try {
+        val copied = runCatching {
             context.contentResolver.openInputStream(uri)?.use { input ->
                 temp.outputStream().use { output -> input.copyTo(output) }
-            } ?: return@withContext ZlibDownloadTargetState.INCOMPLETE
+            } ?: return@runCatching false
+            true
+        }.onFailure {
+            Log.w(TAG, "inspect saf download copy failed uri=" + raw, it)
+        }.getOrDefault(false)
+        if (!copied) {
+            Log.w(TAG, "inspect saf download unknown uri=" + raw)
+            return@withContext ZlibDownloadTargetState.UNKNOWN
+        }
+        return@withContext try {
             zlibInspectBookFile(temp, expected)
-        } catch (throwable: Throwable) {
-            Log.w(TAG, "inspect saf download failed uri=" + raw, throwable)
-            ZlibDownloadTargetState.INCOMPLETE
         } finally {
             temp.delete()
         }
