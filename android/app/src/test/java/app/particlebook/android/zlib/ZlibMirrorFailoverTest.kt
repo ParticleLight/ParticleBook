@@ -133,26 +133,54 @@ class ZlibMirrorFailoverTest {
     }
 
     @Test
-    fun parseErrorDoesNotFailOver() {
-        // 200 但既无结果卡也无空态标记 => PARSE；这是页面结构问题，换线救不了，不走 B3 换线。
+    fun parseErrorFailsOverAndKeepsPin() {
+        // T24②：PARSE（200 但结构不对，软 404/SPA 壳）也换线——下一条往往可用；换线不 adopt 坏页、不清用户 pin。
         StubHttpServer("<html><body>unexpected page</body></html>").use { broken ->
             StubHttpServer(emptySearchBody).use { alive ->
                 freshRegistry(listOf(broken.baseUrl, alive.baseUrl))
-                // 该线已被探测确认为正式站（rank=APP）：PARSE 视为页面结构问题，不换线（T10 P1-2 的例外）。
+                // 坏线已被探测确认为正式站（rank=APP），旧语义会因此拒绝换线（T10 P1-2 的例外）。
                 ZlibMirrorRegistry.recordSuccess(
                     broken.baseUrl, null, 10L, now, ZlibMirrorRegistry.Rank.APP,
                 )
                 val client = newClient()
-                client.mirror = broken.baseUrl
+                assertTrue("先手动固定坏线，验证换线后 pin 仍在", client.switchMirror(broken.baseUrl))
 
-                try {
-                    client.search("android")
-                    throw AssertionError("结构不对必须抛 PARSE")
-                } catch (e: ZlibException) {
-                    assertEquals(ZlibException.Kind.PARSE, e.kind)
-                }
-                assertEquals("PARSE 不换线", 0, alive.hits.get())
-                assertEquals(broken.baseUrl, client.mirror)
+                val page = client.search("android")
+
+                assertEquals(0, page.books.size)
+                assertEquals("PARSE 必须换到可用线路", alive.baseUrl, client.mirror)
+                assertEquals(1, alive.hits.get())
+                assertTrue(logs.toString(), logs.any {
+                    it.startsWith("mirror_advance") && it.contains("reason=parse") && it.contains("kind=PARSE")
+                })
+                assertTrue("PARSE 换线不得清 pin", client.mirrorItems().any { it.url == broken.baseUrl && it.pinned })
+                // rank=APP 的 PARSE 走 T17「未探明不丢记忆」分支（不记录 unpin）；keep_pin 日志只属于非正式站分支，见下一个用例。
+                assertTrue(logs.toString(), logs.none { it.startsWith("mirror_unpin") })
+            }
+        }
+    }
+
+    @Test
+    fun parseOnNonAppLineKeepsPinWhileDroppingBadMirror() {
+        // T24②：坏线有明确非正式站证据（PAGE）时，PARSE 换线要清记忆但保留用户 pin。
+        StubHttpServer("<html><body>unexpected page</body></html>").use { broken ->
+            StubHttpServer(emptySearchBody).use { alive ->
+                freshRegistry(listOf(broken.baseUrl, alive.baseUrl))
+                ZlibMirrorRegistry.recordProbeResult(
+                    broken.baseUrl, ZlibMirrorRegistry.Rank.PAGE, 12L, now,
+                )
+                val client = newClient()
+                assertTrue(client.switchMirror(broken.baseUrl))
+
+                val page = client.search("android")
+
+                assertEquals(0, page.books.size)
+                assertEquals("PARSE 必须换到可用线路", alive.baseUrl, client.mirror)
+                assertTrue("非正式站的 PARSE 换线也不清 pin", client.mirrorItems().any { it.url == broken.baseUrl && it.pinned })
+                assertTrue(logs.toString(), logs.any {
+                    it.startsWith("mirror_keep_pin") && it.contains("reason=parse")
+                })
+                assertTrue(logs.toString(), logs.none { it.startsWith("mirror_unpin") })
             }
         }
     }
@@ -308,7 +336,7 @@ class ZlibMirrorFailoverTest {
                 assertEquals("软页只被搜一次", 1, soft.hits.get())
                 assertEquals("失败线不能留在 mirror", null, client.mirror)
                 assertTrue(logs.toString(), logs.any {
-                    it.startsWith("mirror_advance") && it.contains("reason=parse_non_app")
+                    it.startsWith("mirror_advance") && it.contains("reason=parse")
                 })
             }
         }
@@ -332,7 +360,7 @@ class ZlibMirrorFailoverTest {
 
             assertEquals("非正式站的镜像记忆必须清掉", null, client.mirror)
             assertTrue(logs.toString(), logs.any {
-                it.startsWith("mirror_release") && it.contains("reason=parse_non_app")
+                it.startsWith("mirror_release") && it.contains("reason=parse")
             })
         }
     }

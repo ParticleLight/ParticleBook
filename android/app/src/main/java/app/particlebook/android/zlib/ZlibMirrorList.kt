@@ -29,6 +29,7 @@ internal object ZlibMirrorList {
     private val ANCHOR = Regex("""<a\s[^>]*href\s*=\s*["']([^"']+)["']""", RegexOption.IGNORE_CASE)
     private val BARE_URL = Regex("""https?://[A-Za-z0-9.-]+\.[a-z]{2,}/?""", RegexOption.IGNORE_CASE)
     private val TAG_RE = Regex("<[^>]+>")
+    private val ENTRIES_ID_RE = Regex("""id\s*=\s*["']entries["']""", RegexOption.IGNORE_CASE)
 
     /** 镜像真实用法：zh.z-lib.gd / zh.z-library.sk / zlib.re / zh.zlib0.ru / zh.1lib.sk。 */
     private val PREFIX_TOKENS = listOf("z-lib", "z-library", "zlibrary", "zlib", "1lib")
@@ -72,6 +73,16 @@ internal object ZlibMirrorList {
         val dynamic: List<String>,
         val skipped: Int,
     )
+
+    /**
+     * T24④：导航源判活。只认真正的新版式导航页（section#entries + 镜像入口/官网地址面板标题），
+     * 避免软 404 / 广告落地页 / 站点改版后的 200 HTML 被旧 fallback 解析器当成动态线路来源。
+     */
+    fun isNavPage(html: String): Boolean {
+        if (html.isBlank()) return false
+        if (!ENTRIES_ID_RE.containsMatchIn(html)) return false
+        return html.contains("镜像入口") || html.contains("官网地址")
+    }
 
     /**
      * 解析 wwwnav 导航页（2026-11-03 版式）：section#entries > div.panels > div.panel，

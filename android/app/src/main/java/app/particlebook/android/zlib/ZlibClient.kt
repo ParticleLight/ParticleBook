@@ -72,11 +72,53 @@ class ZlibClient(
     var mirror: String? = null
 
     /**
-     * B7：用户手动切换（[switchMirror]）固定的线路；仅内存态，重启后由 prefs / 注册表 last-working 接管。
-     * 探测第 0 阶段优先探它；该线探测/搜索失败时立即清除（桌面 AdvanceMirrorOnFailure 语义）。
+     * B7：用户手动切换（[switchMirror]）固定的线路；T24 起持久化到 prefs 独立 key（[ZlibPrefsMirrorPinStore]），
+     * 进程重启后仍保留。探测第 0 阶段优先探它；该线探测/网络失败时清除（桌面 AdvanceMirrorOnFailure 语义），
+     * 但 PARSE（页面结构异常，不是「线路坏了」的证据）换线时保留 pin。
      */
     @Volatile
     private var pinnedMirror: String? = null
+
+    /** T24：pin 持久化出口；JVM 单测注入内存实现（生产为 SharedPreferences 独立 key）。 */
+    internal var pinStoreForTest: ZlibMirrorPinStore? = null
+
+    private val pinStore: ZlibMirrorPinStore by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        pinStoreForTest ?: ZlibPrefsMirrorPinStore(prefs)
+    }
+
+    @Volatile
+    private var pinLoaded: Boolean = false
+
+    /** 懒加载磁盘 pin（冷启/首次展示弹层时才读一次 prefs；空值也算已加载）。 */
+    private fun ensurePinLoaded() {
+        if (pinLoaded) return
+        synchronized(this) {
+            if (pinLoaded) return
+            pinnedMirror = normalizeMirror(pinStore.readPin()).takeIf { it.isNotEmpty() }
+            pinLoaded = true
+        }
+    }
+
+    /** 当前 pin（含冷启后从 prefs 恢复的值）。 */
+    private fun pinned(): String? {
+        ensurePinLoaded()
+        return pinnedMirror
+    }
+
+    /** 统一写入口：内存 + 持久化同步更新（null = 取消 pin）。 */
+    private fun setPinnedMirror(url: String?) {
+        ensurePinLoaded()
+        val normalized = normalizeMirror(url).takeIf { it.isNotEmpty() }
+        pinnedMirror = normalized
+        pinStore.writePin(normalized)
+    }
+
+    /**
+     * T24③：探测整轮硬上限（默认 [PROBE_BUDGET_MS]=12s，测试/诊断可调）。
+     * 运行时低于 [MIN_REQUEST_MS] 会被夹到下限，避免一次请求都不发。
+     */
+    @Volatile
+    var probeBudgetMs: Long = PROBE_BUDGET_MS
 
     /**
      * DEBUG 兜底代理（`host:port` 或 `http://host:port`）；仅在应用 debuggable 时生效，release 忽略。
@@ -311,7 +353,7 @@ class ZlibClient(
                 return result
             } catch (e: ZlibException) {
                 lastFailure = e
-                if (!isFailoverWorthy(e, base, now)) {
+                if (!isFailoverWorthy(e)) {
                     debugLog("mirror_advance_skip host=${hostOf(base)} kind=${e.kind} reason=not_transient")
                     throw e
                 }
@@ -323,7 +365,7 @@ class ZlibClient(
                     "mirror_advance from=${hostOf(base)} reason=$reason kind=${e.kind}" +
                         " tried=${tried.size}/$budget demote_until=${entry?.demoteUntil ?: 0L}",
                 )
-                releaseFailedMirror(base, failedRank)
+                releaseFailedMirror(base, failedRank, keepPin = e.kind == ZlibException.Kind.PARSE)
                 if (remainingMs(deadlineNanos) < MIN_REQUEST_MS) {
                     debugLog("mirror_advance_abort reason=budget remaining_ms=${remainingMs(deadlineNanos)}")
                     break
@@ -357,7 +399,11 @@ class ZlibClient(
      * 失败线退出记忆（T17）：只有明确「非正式站」证据（PAGE/OTHER/FAIL）才清 pin / 内存 mirror / prefs；
      * UNKNOWN/null 只说明这条线还没被探测定性，单次失败不足以丢用户选择，保留记忆交给换线处理。
      */
-    private fun releaseFailedMirror(failed: String, rank: ZlibMirrorRegistry.Rank?) {
+    private fun releaseFailedMirror(
+        failed: String,
+        rank: ZlibMirrorRegistry.Rank?,
+        keepPin: Boolean = false,
+    ) {
         val target = normalizeMirror(failed)
         if (target.isEmpty()) return
         if (!isNonAppRank(rank)) {
@@ -367,9 +413,14 @@ class ZlibClient(
             )
             return
         }
-        if (normalizeMirror(pinnedMirror) == target) {
-            pinnedMirror = null
-            debugLog("mirror_unpin reason=search_fail host=${hostOf(failed)}")
+        if (normalizeMirror(pinned()) == target) {
+            if (keepPin) {
+                // T24②：PARSE 只说明这条线返回的页面结构不对，不等于用户选择的线路已失效 → 不清 pin。
+                debugLog("mirror_keep_pin reason=parse host=${hostOf(failed)}")
+            } else {
+                setPinnedMirror(null)
+                debugLog("mirror_unpin reason=search_fail host=${hostOf(failed)}")
+            }
         }
         if (normalizeMirror(mirror) == target) mirror = null
         if (normalizeMirror(prefs?.getString(KEY_MIRROR, null)) == target) {
@@ -399,22 +450,23 @@ class ZlibClient(
     }
 
     /**
-     * B3/B1：是否值得换线。PARSE 默认不换（页面到了但结构不对，换线救不了）；
-     * 但当前线路本身就不是正式站（推广/导航/未探明页返回 200 SPA 壳）时，PARSE 正是「这条线是坏站」
-     * 的证据——换线继续，全滤掉后由 NO_MIRROR 走 banner（T10 P1-2）。
+     * B3/B1：是否值得换线。
+     * T24②：PARSE 也一律换线——页面到了但结构不对（软 404/SPA 壳/模板改版）时，下一条线路往往可用；
+     * 换线过程不 adopt 失败页（不写 mirror/prefs/lastOk），按残留 rank 决定是否清 pin（PARSE 保留 pin）。
+     * 全滤掉后由 NO_MIRROR 走 banner。
      */
-    private fun isFailoverWorthy(e: ZlibException, base: String, now: Long): Boolean = when (e.kind) {
+    private fun isFailoverWorthy(e: ZlibException): Boolean = when (e.kind) {
         ZlibException.Kind.NETWORK,
         ZlibException.Kind.HTTP,
-        ZlibException.Kind.CHALLENGE_FAILED -> true
-        ZlibException.Kind.PARSE -> mirrorRankOf(base, now) != ZlibMirrorRegistry.Rank.APP
+        ZlibException.Kind.CHALLENGE_FAILED,
+        ZlibException.Kind.PARSE -> true
         else -> false
     }
 
     private fun failoverReasonOf(e: ZlibException): String = when (e.kind) {
         ZlibException.Kind.HTTP -> e.httpCode?.toString() ?: "http"
         ZlibException.Kind.CHALLENGE_FAILED -> "challenge_fail"
-        ZlibException.Kind.PARSE -> "parse_non_app"
+        ZlibException.Kind.PARSE -> "parse"
         else -> "network"
     }
 
@@ -436,8 +488,9 @@ class ZlibClient(
         val current = mirror ?: prefs?.getString(KEY_MIRROR, null) ?: return
         val rank = mirrorRankOf(current, System.currentTimeMillis())
         if (isNonAppRank(rank)) {
-            releaseFailedMirror(current, rank)
-            debugLog("mirror_release reason=parse_non_app rank=" + (rank?.label ?: "none") + " host=" + hostOf(current))
+            // T24②：PARSE 不 adopt 失败页、也不清用户 pin（换线语义只作用于 mirror/prefs 记忆）。
+            releaseFailedMirror(current, rank, keepPin = true)
+            debugLog("mirror_release reason=parse rank=" + (rank?.label ?: "none") + " host=" + hostOf(current))
         } else {
             debugLog(
                 "mirror_release_skip reason=parse_unproven rank=" + (rank?.label ?: "none") +
@@ -460,7 +513,9 @@ class ZlibClient(
     fun probeMirrors(): String {
         ensureInitialized()
         val startedAt = System.nanoTime()
-        val globalDeadline = startedAt + PROBE_BUDGET_MS * 1_000_000L
+        // T24③：整轮硬上限可配置，默认 12s 不变；不低于一次最小请求预算。
+        val probeBudget = probeBudgetMs.coerceAtLeast(MIN_REQUEST_MS)
+        val globalDeadline = startedAt + probeBudget * 1_000_000L
         val now = System.currentTimeMillis()
         val file = registryFile()
         ZlibMirrorRegistry.ensureLoaded(file, now)
@@ -473,7 +528,7 @@ class ZlibClient(
             "mirror_tier official=" + ZlibMirrorRegistry.orderedOfficial(now).size +
                 " dynamic=" + ZlibMirrorRegistry.dynamicCandidates(now).size +
                 " fallback=" + ZlibMirrorRegistry.fallbackCandidates(now).size +
-                " budget_ms=" + PROBE_BUDGET_MS +
+                " budget_ms=" + probeBudget +
                 " official_budget_ms=" + OFFICIAL_PHASE_BUDGET_MS,
         )
 
@@ -495,8 +550,8 @@ class ZlibClient(
             }
             softPick = betterSoftPick(softPick, outcome.soft)
             lastError = "preferred=" + hostOf(preferredUrl) + " failed"
-            if (normalizeMirror(pinnedMirror) == normalizeMirror(preferredUrl)) {
-                pinnedMirror = null
+            if (normalizeMirror(pinned()) == normalizeMirror(preferredUrl)) {
+                setPinnedMirror(null)
                 debugLog("mirror_unpin reason=probe_fail host=" + hostOf(preferredUrl))
             }
         }
@@ -564,7 +619,7 @@ class ZlibClient(
         }
 
         val totalMs = (System.nanoTime() - startedAt) / 1_000_000L
-        debugLog("mirror_probe_abort budget_ms=" + PROBE_BUDGET_MS + " picked=none tried=" + tried.size)
+        debugLog("mirror_probe_abort budget_ms=" + probeBudget + " picked=none tried=" + tried.size)
         debugLog("probe_result fail_all tried=" + tried.size + " elapsed_ms=" + totalMs + " last=" + (lastError ?: "none"))
         ZlibMirrorRegistry.save(file)
         debugLog("reset_state reason=probe_failure")
@@ -742,7 +797,7 @@ class ZlibClient(
             if (url.isEmpty() || !seen.add(url)) return
             if (out.size < PREFERRED_MAX_MIRRORS) out.add(url to source)
         }
-        add(pinnedMirror, "pin")
+        add(pinned(), "pin")
         // T10 P2-5：lastWorking 不看 rank，推广/导航页可能因旧 lastOkAt 排到真站前；客户端只认 APP。
         add(
             ZlibMirrorRegistry.lastWorking(now)
@@ -787,6 +842,16 @@ class ZlibClient(
             ZlibMirrorRegistry.recordNavFailure(now, ZlibMirrorList.NAV_URL, lastError ?: "empty")
             debugLog(
                 "mirror_nav_fail url=" + ZlibMirrorList.NAV_URL + " reason=fetch ms=" + elapsed +
+                    " reused=" + ZlibMirrorRegistry.dynamicCandidates(now).size,
+            )
+            return
+        }
+        // T24④：2xx 不代表是导航页（软 404/广告页/改版）；判活失败按抓取失败退避，继续复用旧缓存。
+        if (!ZlibMirrorList.isNavPage(html)) {
+            ZlibMirrorRegistry.recordNavFailure(now, ZlibMirrorList.NAV_URL, "not_nav")
+            debugLog(
+                "mirror_nav_fail url=" + ZlibMirrorList.NAV_URL + " reason=not_nav ms=" + elapsed +
+                    " nav_len=" + html.length +
                     " reused=" + ZlibMirrorRegistry.dynamicCandidates(now).size,
             )
             return
@@ -1343,7 +1408,7 @@ class ZlibClient(
     fun mirrorInfo(): ZMirrorInfo {
         // 只读内存缓存（零网络）：UI 线程可安全调用；动态名单由 probeMirrors() 在 IO 线程刷新。
         val available = mergedMirrors()
-        val current = normalizeMirror(mirror ?: prefs?.getString(KEY_MIRROR, null))
+        val current = normalizeMirror(mirror ?: pinned() ?: prefs?.getString(KEY_MIRROR, null))
         val index = available.indexOfFirst { normalizeMirror(it) == current } + 1
         return ZMirrorInfo(
             index = if (current.isNotEmpty() && index > 0) index else 0,
@@ -1361,8 +1426,8 @@ class ZlibClient(
     fun mirrorRows(): List<ZMirrorItem> {
         val now = System.currentTimeMillis()
         ZlibMirrorRegistry.ensureLoaded(registryFile(), now)
-        val current = normalizeMirror(mirror ?: prefs?.getString(KEY_MIRROR, null))
-        val pinned = normalizeMirror(pinnedMirror)
+        val current = normalizeMirror(mirror ?: pinned() ?: prefs?.getString(KEY_MIRROR, null))
+        val pinned = normalizeMirror(pinned())
         return ZlibMirrorRegistry.orderedEntries(now).map { entry ->
             val url = normalizeMirror(entry.url)
             ZMirrorItem(
@@ -1406,7 +1471,7 @@ class ZlibClient(
     /** 越界/URL 不存在时调用方已返回 false；此处只做写入 + 清状态。 */
     private fun applyMirrorSwitch(target: String, source: String): Boolean {
         mirror = target
-        pinnedMirror = target
+        setPinnedMirror(target)
         prefs?.edit()?.putString(KEY_MIRROR, target)?.apply()
         resetStateLocked()
         debugLog("switch_mirror $source mirror=" + hostOf(target) + " pinned=1")
@@ -1421,7 +1486,7 @@ class ZlibClient(
      */
     fun clearCachedMirror() {
         mirror = null
-        pinnedMirror = null
+        setPinnedMirror(null)
         prefs?.edit()?.remove(KEY_MIRROR)?.apply()
         debugLog("clear_mirror prefs=removed memory=null pin=null")
     }
@@ -1454,6 +1519,12 @@ class ZlibClient(
                 if (html.isNullOrBlank()) {
                     ZlibMirrorRegistry.recordNavFailure(nowMs, ZlibMirrorList.NAV_URL, "empty")
                     debugLog("mirror_list nav_len=0 discovered=0 refresh=nok")
+                } else if (!ZlibMirrorList.isNavPage(html)) {
+                    ZlibMirrorRegistry.recordNavFailure(nowMs, ZlibMirrorList.NAV_URL, "not_nav")
+                    debugLog(
+                        "mirror_nav_fail url=" + ZlibMirrorList.NAV_URL + " reason=not_nav" +
+                            " nav_len=" + html.length + " refresh=nok",
+                    )
                 } else {
                     val parsed = ZlibMirrorList.parseNav(html)
                     if (parsed.official.isEmpty() && parsed.dynamic.isEmpty()) {

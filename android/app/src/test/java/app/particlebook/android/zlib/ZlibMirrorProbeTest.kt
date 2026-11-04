@@ -3,6 +3,7 @@ package app.particlebook.android.zlib
 import java.io.Closeable
 import java.net.ServerSocket
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -98,6 +99,36 @@ class ZlibMirrorProbeTest {
             assertTrue(logs.toString(), logs.any { it.startsWith("mirror_demote") && it.contains("reason=network") })
             assertTrue(logs.toString(), logs.any { it.startsWith("mirror_pick") && it.contains("tier=fallback") })
         }
+    }
+
+    @Test
+    fun soft404NavPageIsRejected() {
+        // T24④：导航源返回 200 但内容不是导航页（软 404/SPA 壳）时不能当成功、不能把垃圾链接写进动态名单。
+        val now = 0L
+        freshRegistry(now, listOf("http://127.0.0.1:1"), emptyList())
+        // 旧导航缓存已过期；旧动态名单为空（确保后续不会访问真实镜像）。
+        ZlibMirrorRegistry.recordNavSuccess(
+            now - ZlibMirrorRegistry.NAV_TTL_MS - 1_000L,
+            ZlibMirrorList.NAV_URL,
+            emptyList(),
+            emptyList(),
+        )
+        val client = newClient()
+        client.navFetcherForTest = { "<html><body><h1>404 Not Found</h1></body></html>" }
+
+        try {
+            client.probeMirrors()
+            throw AssertionError("没有可用镜像必须抛 NO_MIRROR")
+        } catch (e: ZlibException) {
+            assertEquals(ZlibException.Kind.NO_MIRROR, e.kind)
+        }
+
+        val nav = ZlibMirrorRegistry.snapshot().nav
+        assertFalse("软 404 不能记为导航页抓取成功", nav.ok)
+        assertEquals("not_nav", nav.error)
+        assertTrue(logs.toString(), logs.any {
+            it.startsWith("mirror_nav_fail") && it.contains("reason=not_nav")
+        })
     }
 
     @Test

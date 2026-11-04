@@ -38,4 +38,24 @@ class ZlibMirrorNavParseTest {
         assertEquals(listOf("https://z-lib.by/"), result.dynamic)
         assertEquals(0, result.skipped)
     }
+    @Test
+    fun detectsRealNavPageButRejectsSoft404() {
+        // T24④：只有「entries + 镜像入口/官网地址」才算导航页；软 404/广告页/SPA 壳不能当成功缓存。
+        assertTrue(ZlibMirrorList.isNavPage(fixture("wwwnav.html")))
+        assertFalse(ZlibMirrorList.isNavPage(fixture("mirror-nav.html")))
+        assertFalse(ZlibMirrorList.isNavPage(fixture("page-not-found.html")))
+        assertFalse(ZlibMirrorList.isNavPage(""))
+        assertFalse(ZlibMirrorList.isNavPage("<html><body>404 not found</body></html>"))
+        assertFalse(
+            "只有 entries 没有面板标题（裸 JSON/广告注入）不算导航页",
+            ZlibMirrorList.isNavPage("<html><div id=\"entries\"><a href=\"https://evil.example/\">x</a></div></html>"),
+        )
+    }
+
+    @Test
+    fun navCacheTtlStaysInSixToTwelveHours() {
+        val sixHours = 6L * 60L * 60L * 1_000L
+        val twelveHours = 12L * 60L * 60L * 1_000L
+        assertTrue("NAV_TTL_MS 应落在 6–12h 区间，实际 " + ZlibMirrorRegistry.NAV_TTL_MS, ZlibMirrorRegistry.NAV_TTL_MS in sixHours..twelveHours)
+    }
 }
