@@ -130,4 +130,60 @@ class ZlibMirrorRankTest {
         assertEquals(6L * 60L * 60L * 1000L, ZlibMirrorRegistry.NAV_TTL_MS)
         assertFalse(ZlibMirrorList.NAV_URL.contains("ggonav"))
     }
+
+    @Test
+    fun probeResultClearsStaleSuccessAndStopsFreshOk() {
+        fresh(1_000L, official = listOf("https://a.app"))
+        ZlibMirrorRegistry.recordSuccess("https://a.app", null, 80L, 1_000L)
+        assertEquals("https://a.app", ZlibMirrorRegistry.lastWorking(1_000L)!!.url)
+
+        // 曾成功、后来探测成推广页：旧 lastOkAt 必须清零，不能继续算 freshOk。
+        val soft = ZlibMirrorRegistry.recordProbeResult(
+            "https://a.app", ZlibMirrorRegistry.Rank.PAGE, 80L, 2_000L,
+        )!!
+
+        assertEquals(0L, soft.lastOkAt)
+        assertFalse(soft.isFreshOk(2_000L))
+        assertNull(ZlibMirrorRegistry.lastWorking(2_000L))
+    }
+
+    @Test
+    fun softPageDoesNotOutrankUnprobedLine() {
+        fresh(10_000L, official = listOf("https://soft.page", "https://fresh.unknown"))
+        // 模拟旧版本遗留：rank 已判 PAGE，但 12h 内仍带着 lastOkAt。
+        ZlibMirrorRegistry.recordSuccess(
+            "https://soft.page", null, 50L, 9_500L, ZlibMirrorRegistry.Rank.PAGE,
+        )
+
+        // freshOk 只认 rank==APP：软页不能越过没探过的线路。
+        assertEquals(
+            listOf("https://fresh.unknown", "https://soft.page"),
+            ZlibMirrorRegistry.orderedOfficial(10_000L).map { it.url },
+        )
+    }
+
+    @Test
+    fun stalePageCacheDoesNotOutrankUnprobedLine() {
+        val file = tempRegistryFile()
+        file.writeText(
+            """
+            {"version":1,"entries":[
+              {"url":"https://soft.page","tier":"official","priority":0,"last_ok_at":9500,"rank":"page"},
+              {"url":"https://fresh.unknown","tier":"official","priority":1}
+            ]}
+            """.trimIndent(),
+            Charsets.UTF_8,
+        )
+        ZlibMirrorRegistry.resetForTest(
+            official = listOf("https://soft.page", "https://fresh.unknown"),
+            fallback = emptyList(),
+        )
+        ZlibMirrorRegistry.ensureLoaded(file, 10_000L)
+
+        // 旧缓存里 page + 新鲜 last_ok_at 的组合按新比较器也不得排到未探测线路之前。
+        assertEquals(
+            listOf("https://fresh.unknown", "https://soft.page"),
+            ZlibMirrorRegistry.orderedOfficial(10_000L).map { it.url },
+        )
+    }
 }

@@ -12,7 +12,7 @@ import java.util.Locale
  * - T1 动态导航源：zlib.wwwnav.com 解析出的镜像入口/官网地址（[recordNavSuccess]）；
  * - T2 内置兜底：旧静态名单去掉 DiamWall 项（[FALLBACK_SEEDS]），前两层都不可用时继续探。
  *
- * 排序（对齐 spec §2 / 桌面 SortMirrorsLocked）：未降权在前 -> 12h 内成功过的在前 ->
+ * 排序（对齐 spec §2 / 桌面 SortMirrorsLocked）：未降权在前 -> 12h 内成功过的正式站（rank==APP）在前 ->
  * rank（正式站 < 未探测 < 推广页 < 其它 < 不通）-> latency -> priority -> fail_count；
  * 降权条目按 demote_until 升序排在同层末尾。DiamWall 站（需执行 JS，原生不可用）不进候选，
  * 只有探测命中时才 demote（[recordFailure]）。
@@ -257,7 +257,8 @@ internal object ZlibMirrorRegistry {
             .sortedWith(
                 compareBy<Entry> { if (it.isDemoted(now)) 1 else 0 }
                     .thenBy { if (it.isDemoted(now)) it.demoteUntil else 0L }
-                    .thenBy { if (it.isFreshOk(now)) 0 else 1 }
+                    // freshOk 只对正式站生效：软页/推广页的旧成功时间不得压过未探测线路（T16）。
+                    .thenBy { if (it.rank == Rank.APP && it.isFreshOk(now)) 0 else 1 }
                     .thenBy { it.sortRank(now) }
                     .thenBy { if (it.latencyMs >= 0L) it.latencyMs else Long.MAX_VALUE }
                     .thenBy { it.priority }
@@ -323,8 +324,9 @@ internal object ZlibMirrorRegistry {
 
     /**
      * 探测到「能访问但不是正式站」的结果（推广页/导航页/其它 200 页，B1）：
-     * 只记录 rank 与延迟，不算成功也不算失败——不写 lastOkAt、不动 demote，
-     * 避免把推广页当成可用线路，同时让排序把它排到未探测线路之后。
+     * 只记录 rank 与延迟，不算成功也不算失败——清零旧 lastOkAt、不动 demote，
+     * 避免「曾成功、后来变成推广页」的线路继续被当成可用线路（isFreshOk/lastWorking），
+     * 同时让排序把它排到未探测线路之后。
      */
     @Synchronized
     fun recordProbeResult(url: String, rank: Rank, latencyMs: Long, now: Long): Entry? {
@@ -333,6 +335,8 @@ internal object ZlibMirrorRegistry {
         val base = entries()
         val old = base.firstOrNull { it.url == target }
         val updated = (old ?: newEntry(target)).copy(
+            // 旧的成功时间必须清掉：否则 rank 已是软页但 12h 内仍算 freshOk（T16）。
+            lastOkAt = 0L,
             lastProbeAt = now,
             latencyMs = if (latencyMs >= 0L) latencyMs else (old?.latencyMs ?: -1L),
             rank = rank,

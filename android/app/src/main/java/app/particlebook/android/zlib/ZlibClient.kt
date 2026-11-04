@@ -42,8 +42,9 @@ import java.util.concurrent.atomic.AtomicLong
  */
 
 /**
- * 线路弹层展示项（B6）：在 [ZMirrorInfo] 的纯 URL 列表上补元数据。
- * 顺序与 [ZlibClient.mirrorInfo] 的 mirrors 完全一致，可直接复用 [ZlibClient.switchMirror] 的下标。
+ * 线路弹层展示项（B6/T10）：在 [ZMirrorInfo] 的纯 URL 列表上补元数据。
+ * [ZlibClient.mirrorRows] 单次快照生成，host/meta/current 同源；切换请按 [url] 调
+ * [ZlibClient.switchMirror]，不要用下标（后台刷新可能重排）。
  */
 data class ZMirrorItem(
     val url: String,
@@ -207,7 +208,7 @@ class ZlibClient(
         val challenged: Boolean = false,
     )
 
-    /** B1：可访问但非正式站的最佳候选（本轮探测的最后兜底）。 */
+    /** B1：可访问但非正式站的最佳候选（只记 rank / 打日志，不采用）。 */
     private data class SoftPick(
         val url: String,
         val tierLabel: String,
@@ -216,7 +217,7 @@ class ZlibClient(
         val latencyMs: Long,
     )
 
-    /** 单候选探测结果：[picked] 可用线路；[soft] 能访问但非正式站（留给本轮末尾兜底）。 */
+    /** 单候选探测结果：[picked] 可用线路；[soft] 能访问但非正式站（不采用，只记 rank）。 */
     private data class ProbeOutcome(
         val picked: String? = null,
         val soft: SoftPick? = null,
@@ -245,6 +246,9 @@ class ZlibClient(
             if (page > 1) return runSearchOnce(base, q, page)
             return searchWithFailover(base, q, startedAt)
         } catch (e: ZlibException) {
+            // B1/T10 P1-3/T17：PARSE 可能是推广/导航等非正式站返回的 200 HTML；
+            // 只有明确非正式站证据（PAGE/OTHER/FAIL）才清镜像记忆，未探明线路保留 pin/prefs 交给重探。
+            if (e.kind == ZlibException.Kind.PARSE) releaseMirrorIfNotApp()
             // 失败后清一次性状态：网络恢复后（进程不重启）下一次 search() 自动重新解析代理并重探镜像。
             debugLog("reset_state reason=search_failure kind=${e.kind}")
             resetStateLocked()
@@ -275,7 +279,7 @@ class ZlibClient(
     /**
      * B3 首包换线：当前线路失败后按 [ZlibMirrorRegistry.orderedEntries] 排序取下一条，
      * 跳过降权未到期项；额度=线路数、[SEARCH_FAILOVER_BUDGET_MS] 兜底。
-     * 只有网络/HTTP/挑战失败换线，PARSE 不换（页面到了但结构不对，换线也救不了）。
+     * 网络/HTTP/挑战失败换线；PARSE 仅在当前线路不是明确正式站（rank != APP）时换线（T10 P1-2）。
      */
     private fun searchWithFailover(firstBase: String, query: String, startedAt: Long): ZSearchPage {
         val now = System.currentTimeMillis()
@@ -297,17 +301,19 @@ class ZlibClient(
                 return result
             } catch (e: ZlibException) {
                 lastFailure = e
-                if (!isFailoverWorthy(e)) {
+                if (!isFailoverWorthy(e, base, now)) {
                     debugLog("mirror_advance_skip host=${hostOf(base)} kind=${e.kind} reason=not_transient")
                     throw e
                 }
                 val reason = failoverReasonOf(e)
+                // T17：先取失败前的 rank 再 recordFailure（后者会把 rank 改成 FAIL，丢掉「未探明」证据）。
+                val failedRank = mirrorRankOf(base, now)
                 val entry = ZlibMirrorRegistry.recordFailure(base, reason, now)
                 debugLog(
                     "mirror_advance from=${hostOf(base)} reason=$reason kind=${e.kind}" +
                         " tried=${tried.size}/$budget demote_until=${entry?.demoteUntil ?: 0L}",
                 )
-                releaseFailedMirror(base)
+                releaseFailedMirror(base, failedRank)
                 if (remainingMs(deadlineNanos) < MIN_REQUEST_MS) {
                     debugLog("mirror_advance_abort reason=budget remaining_ms=${remainingMs(deadlineNanos)}")
                     break
@@ -330,16 +336,27 @@ class ZlibClient(
         val chosen = base.trimEnd('/')
         mirror = chosen
         prefs?.edit()?.putString(KEY_MIRROR, chosen)?.apply()
-        ZlibMirrorRegistry.recordSuccess(chosen, null, -1L, now)
+        // T17：搜索解析成功就是「正式站」证据；记 APP，避免后续 PARSE 时被当成未探明软页误清。
+        ZlibMirrorRegistry.recordSuccess(chosen, null, -1L, now, ZlibMirrorRegistry.Rank.APP)
         ZlibMirrorRegistry.save(registryFile())
         debugLog("mirror_working host=${hostOf(chosen)} stage=search")
         maybeRefreshMirrorListInBackground()
     }
 
-    /** 失败线退出记忆：清 pin / 内存 mirror / prefs 缓存（只清指向该失败的线路的）。 */
-    private fun releaseFailedMirror(failed: String) {
+    /**
+     * 失败线退出记忆（T17）：只有明确「非正式站」证据（PAGE/OTHER/FAIL）才清 pin / 内存 mirror / prefs；
+     * UNKNOWN/null 只说明这条线还没被探测定性，单次失败不足以丢用户选择，保留记忆交给换线处理。
+     */
+    private fun releaseFailedMirror(failed: String, rank: ZlibMirrorRegistry.Rank?) {
         val target = normalizeMirror(failed)
         if (target.isEmpty()) return
+        if (!isNonAppRank(rank)) {
+            debugLog(
+                "mirror_release_skip reason=rank_unproven rank=" + (rank?.label ?: "none") +
+                    " host=" + hostOf(failed),
+            )
+            return
+        }
         if (normalizeMirror(pinnedMirror) == target) {
             pinnedMirror = null
             debugLog("mirror_unpin reason=search_fail host=${hostOf(failed)}")
@@ -350,25 +367,73 @@ class ZlibClient(
         }
     }
 
-    /** 下一条候选：按注册表排序，优先未降权项；全降权时退回全量（最后一搏）。 */
+    /** 明确的「非正式站/坏站」rank（T17）：只有这些证据才清镜像记忆。 */
+    private fun isNonAppRank(rank: ZlibMirrorRegistry.Rank?): Boolean =
+        rank == ZlibMirrorRegistry.Rank.PAGE ||
+            rank == ZlibMirrorRegistry.Rank.OTHER ||
+            rank == ZlibMirrorRegistry.Rank.FAIL
+
+    /**
+     * 下一条候选：按注册表排序，优先未降权项；全降权时退回全量（最后一搏）。
+     * T10 P1-2：过滤 rank >= PAGE（推广/导航/其它页不配当搜索线路，省得换了线还是 200 垃圾 HTML）；
+     * 全被过滤（或已试完）→ null，由调用方抛 NO_MIRROR 走 banner。
+     */
     private fun nextMirrorCandidate(tried: Set<String>, now: Long): String? {
         val entries = ZlibMirrorRegistry.orderedEntries(now)
         val usable = entries.filterNot { it.isDemoted(now) }
         val pool = if (usable.isEmpty()) entries else usable
-        return pool.firstOrNull { !tried.contains(normalizeMirror(it.url)) }?.url
+        return pool
+            .filter { it.sortRank(now) < ZlibMirrorRegistry.Rank.PAGE.value }
+            .firstOrNull { !tried.contains(normalizeMirror(it.url)) }
+            ?.url
     }
 
-    private fun isFailoverWorthy(e: ZlibException): Boolean = when (e.kind) {
+    /**
+     * B3/B1：是否值得换线。PARSE 默认不换（页面到了但结构不对，换线救不了）；
+     * 但当前线路本身就不是正式站（推广/导航/未探明页返回 200 SPA 壳）时，PARSE 正是「这条线是坏站」
+     * 的证据——换线继续，全滤掉后由 NO_MIRROR 走 banner（T10 P1-2）。
+     */
+    private fun isFailoverWorthy(e: ZlibException, base: String, now: Long): Boolean = when (e.kind) {
         ZlibException.Kind.NETWORK,
         ZlibException.Kind.HTTP,
         ZlibException.Kind.CHALLENGE_FAILED -> true
+        ZlibException.Kind.PARSE -> mirrorRankOf(base, now) != ZlibMirrorRegistry.Rank.APP
         else -> false
     }
 
     private fun failoverReasonOf(e: ZlibException): String = when (e.kind) {
         ZlibException.Kind.HTTP -> e.httpCode?.toString() ?: "http"
         ZlibException.Kind.CHALLENGE_FAILED -> "challenge_fail"
+        ZlibException.Kind.PARSE -> "parse_non_app"
         else -> "network"
+    }
+
+    /** 当前线路的探测 rank；不在注册表里返回 null（未探明，T17 起不据此清镜像记忆）。 */
+    private fun mirrorRankOf(url: String?, now: Long): ZlibMirrorRegistry.Rank? {
+        val target = normalizeMirror(url)
+        if (target.isEmpty()) return null
+        ZlibMirrorRegistry.ensureLoaded(registryFile(), now)
+        return ZlibMirrorRegistry.orderedEntries(now)
+            .firstOrNull { normalizeMirror(it.url) == target }
+            ?.rank
+    }
+
+    /**
+     * T10 P1-3 / T17：PARSE 且当前线路有明确非正式站证据（PAGE/OTHER/FAIL）→ 清镜像/pin/prefs；
+     * UNKNOWN/null（旧缓存、手动固定但还没探测）只当本次失败，保留记忆交给换线/重探。
+     */
+    private fun releaseMirrorIfNotApp() {
+        val current = mirror ?: prefs?.getString(KEY_MIRROR, null) ?: return
+        val rank = mirrorRankOf(current, System.currentTimeMillis())
+        if (isNonAppRank(rank)) {
+            releaseFailedMirror(current, rank)
+            debugLog("mirror_release reason=parse_non_app rank=" + (rank?.label ?: "none") + " host=" + hostOf(current))
+        } else {
+            debugLog(
+                "mirror_release_skip reason=parse_unproven rank=" + (rank?.label ?: "none") +
+                    " host=" + hostOf(current),
+            )
+        }
     }
 
     /**
@@ -391,7 +456,7 @@ class ZlibClient(
         ZlibMirrorRegistry.ensureLoaded(file, now)
         val tried = LinkedHashSet<String>()
         var lastError: String? = null
-        // B1：本轮「可访问但非正式站」的最佳候选（rank 优先、同 rank 比延迟），最后兜底采用。
+        // B1：本轮「可访问但非正式站」的最佳候选（rank 优先、同 rank 比延迟），仅用于日志。
         var softPick: SoftPick? = null
 
         debugLog(
@@ -478,18 +543,14 @@ class ZlibClient(
             lastError = lastProbeError ?: lastError
         }
 
-        // 4) B1 最后兜底：整轮没有正式站，但存在可访问的推广页/其它页（如回环桩、临时维护页）——
-        //    记 rank 后采用，避免「能连上却报 NO_MIRROR」；UI/弹层会显示其真实 rank。
+        // 4) B1/T10 P1-1：可访问但非正式站（推广/导航/停用站）不采用——只记 rank/延迟（probeCandidate
+        //    已写 recordProbeResult），不写 mirror/prefs、不写 lastOkAt。整轮无正式站 → NO_MIRROR，
+        //    由 UI 弹 banner 让用户手动切线路（比把推广页当搜索线路安全）。
         softPick?.let { soft ->
-            ZlibMirrorRegistry.recordSuccess(soft.url, null, soft.latencyMs, now, soft.rank)
             debugLog(
-                "mirror_pick host=" + hostOf(soft.url) + " tier=" + soft.tierLabel + " source=" + soft.source +
-                    " ms=" + soft.latencyMs + " latency_ms=" + soft.latencyMs +
-                    " rank=" + soft.rank.label + " soft=1",
+                "mirror_probe_soft host=" + hostOf(soft.url) + " rank=" + soft.rank.label +
+                    " soft_only=1 tried=" + tried.size,
             )
-            ZlibMirrorRegistry.save(file)
-            debugLog("probe_result soft=" + hostOf(soft.url) + " rank=" + soft.rank.label + " tried=" + tried.size)
-            return adoptMirror(soft.url)
         }
 
         val totalMs = (System.nanoTime() - startedAt) / 1_000_000L
@@ -509,7 +570,7 @@ class ZlibClient(
      *
      * B1：200 响应先分类 rank——挑战已解或正文含正式站标记 = APP，才直接采用并记成功；
      * 只提到 Z-Library 的推广/导航页 = PAGE、其它 200 页 = OTHER，只记 rank/延迟并继续探，
-     * 作为本轮末尾的最后兜底（避免「能连上却报 NO_MIRROR」）。
+     * 不采用（避免把推广页当搜索线路；整轮无正式站时由 UI 走 NO_MIRROR banner）。
      */
     private fun probeCandidate(
         candidate: String,
@@ -672,7 +733,13 @@ class ZlibClient(
             if (out.size < PREFERRED_MAX_MIRRORS) out.add(url to source)
         }
         add(pinnedMirror, "pin")
-        add(ZlibMirrorRegistry.lastWorking(now)?.url, "last_working")
+        // T10 P2-5：lastWorking 不看 rank，推广/导航页可能因旧 lastOkAt 排到真站前；客户端只认 APP。
+        add(
+            ZlibMirrorRegistry.lastWorking(now)
+                ?.takeIf { it.rank == ZlibMirrorRegistry.Rank.APP }
+                ?.url,
+            "last_working",
+        )
         add(mirror ?: prefs?.getString(KEY_MIRROR, null), "cached")
         return out
     }
@@ -1276,10 +1343,12 @@ class ZlibClient(
     }
 
     /**
-     * 线路弹层展示项（B6）：与 [mirrorInfo] 的 mirrors 同序，额外带分层/rank/延迟/上次成功/当前/降权。
+     * 线路弹层单快照（B6/T10 P2-6）：一次 [ZlibMirrorRegistry.orderedEntries] 同时拿到行序、host、
+     * meta、current/pinned；弹层渲染和切换都用同一行的 [ZMirrorItem.url]，避免 mirrorInfo/mirrorItems
+     * 两次快照之间被后台导航刷新/探测写入改序导致「点 A 切 B」。
      * 只读内存（注册表首次加载可能读一次文件），零网络；UI 线程可安全调用。
      */
-    fun mirrorItems(): List<ZMirrorItem> {
+    fun mirrorRows(): List<ZMirrorItem> {
         val now = System.currentTimeMillis()
         ZlibMirrorRegistry.ensureLoaded(registryFile(), now)
         val current = normalizeMirror(mirror ?: prefs?.getString(KEY_MIRROR, null))
@@ -1293,7 +1362,8 @@ class ZlibClient(
                 rank = entry.rank.value,
                 latencyMs = entry.latencyMs,
                 lastOkAt = entry.lastOkAt,
-                successFresh = entry.isFreshOk(now),
+                // T10 P2-5：展示层「上次成功」只认正式站，软页的 stale lastOkAt 不算。
+                successFresh = entry.rank == ZlibMirrorRegistry.Rank.APP && entry.isFreshOk(now),
                 current = current.isNotEmpty() && url == current,
                 pinned = pinned.isNotEmpty() && url == pinned,
                 demoted = entry.isDemoted(now),
@@ -1301,19 +1371,35 @@ class ZlibClient(
         }
     }
 
+    /** 兼容旧名：与 [mirrorRows] 同一实现（弹层渲染请直接用 mirrorRows）。 */
+    fun mirrorItems(): List<ZMirrorItem> = mirrorRows()
+
     /**
-     * 切换线路（P1b 4.7 / B7）：越界 false；写 prefs mirror、记为 pin 并清探测/代理临时态。
-     * pin 让下一次探测优先重探这条线（用户明确选择优先于自动排序）。
+     * 切换线路（P1b 4.7 / B7，T10 P2-6）：按 URL 切（弹层用这个）。URL 不在当前名单里返回 false；
+     * 写 prefs mirror、记为 pin 并清探测/代理临时态。按 URL 而不是下标，后台刷新重排也不会切错线。
      */
+    fun switchMirror(url: String): Boolean {
+        val target = normalizeMirror(url)
+        if (target.isEmpty()) return false
+        val available = mergedMirrors()
+        val resolved = available.firstOrNull { normalizeMirror(it) == target } ?: return false
+        return applyMirrorSwitch(resolved, "source=url")
+    }
+
+    /** 兼容旧调用：按下标切换（同一次快照内取 URL；新代码请用 [switchMirror] 的 URL 重载）。 */
     fun switchMirror(index: Int): Boolean {
         val available = mergedMirrors()
         if (index !in available.indices) return false
-        val target = available[index]
+        return applyMirrorSwitch(available[index], "index=" + (index + 1))
+    }
+
+    /** 越界/URL 不存在时调用方已返回 false；此处只做写入 + 清状态。 */
+    private fun applyMirrorSwitch(target: String, source: String): Boolean {
         mirror = target
         pinnedMirror = target
         prefs?.edit()?.putString(KEY_MIRROR, target)?.apply()
         resetStateLocked()
-        debugLog("switch_mirror index=" + (index + 1) + " mirror=" + hostOf(target) + " pinned=1")
+        debugLog("switch_mirror $source mirror=" + hostOf(target) + " pinned=1")
         return true
     }
 
@@ -2757,13 +2843,12 @@ class ZlibClient(
         private const val SEARCH_FAILOVER_BUDGET_MS = 20_000L
 
         /** B1 rank 分类标记（对齐桌面 LooksLikeZlibApp / LooksLikeZlibContent）。 */
+        // T10 P1-4：去掉 z-lib.fm/singlelogin/z-lib.io——这些串在推广/导航页上很常见，用来判 APP
+        // 会把软页误认成正式站；只留正式站页面组件/文案特征。
         private val APP_MARKERS = listOf(
             "<z-bookcard",
-            "z-lib.fm",
             "z-access",
             "z-recommend",
-            "singlelogin",
-            "z-lib.io",
             "z-library since 2009",
         )
         private val PAGE_MARKERS = listOf(

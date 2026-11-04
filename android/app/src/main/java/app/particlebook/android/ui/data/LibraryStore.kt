@@ -18,6 +18,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
+import java.io.IOException
 import java.util.UUID
 
 /**
@@ -180,10 +181,14 @@ class LibraryStore(private val context: Context) {
         )
     }
 
-    /** 删除选中的书：串行重写索引（成功后再删 _pb_files 里的文件）。 */
-    suspend fun removeBooks(ids: Set<Long>) {
-        if (ids.isEmpty()) return
-        withContext(Dispatchers.IO) {
+    /**
+     * 删除选中的书：串行重写索引（成功后再删 _pb_files 里的文件）。
+     * 返回 [Result]：成功携带真正移除的条数；写索引失败时返回 failure，内存与磁盘都不变，
+     * 由 UI 提示「删除失败，请重试」，不能无条件提示删除成功。
+     */
+    suspend fun removeBooks(ids: Set<Long>): Result<Int> {
+        if (ids.isEmpty()) return Result.success(0)
+        return withContext(Dispatchers.IO) {
             try {
                 // 写失败会抛异常：内存与索引都不变，避免「UI 删了但文件索引还在」或反过来的半状态。
                 val removed = indexStore.remove(ids)
@@ -193,9 +198,12 @@ class LibraryStore(private val context: Context) {
                         runCatching { file.delete() }
                     }
                 }
+                Result.success(removed.size)
+            } catch (cancellation: CancellationException) {
+                throw cancellation
             } catch (throwable: Throwable) {
-                if (throwable is CancellationException) throw throwable
                 Log.e(TAG, "remove books failed ids=" + ids, throwable)
+                Result.failure(throwable)
             }
         }
     }
@@ -346,8 +354,11 @@ internal class JsonLibraryIndexCodec : LibraryIndexCodec {
  * 1. 所有写路径共用同一把 [Mutex]，锁内基于 [committed]（最新已提交列表）合并，
  *    不再使用 suspend 进入 IO 前的快照，并发 adopt 不会互相覆盖；
  * 2. 每次写用唯一临时名 books.json.<uuid>.tmp，fsync 后原子 rename，并发写不共用一个 tmp；
- * 3. 解析失败时先把原文件留成 books.json.bad 再重建，日志走注入的 [log]；
- * 4. 写失败不提交内存（[committed]/[onCommitted]），避免内存与磁盘不一致。
+ * 3. 解析失败时先把原文件留成 .bad 备份再重建（旧 .bad 用时间戳保留），日志走注入的 [log]；
+ *    备份失败则停止重建并抛错，绝不覆盖唯一一份数据；
+ * 4. 写失败不提交内存（[committed]/[onCommitted]），避免内存与磁盘不一致；
+ * 5. 写 API 自带「先读」保护：首次 registerFile/remove 前在锁内读入磁盘索引（[loadedOnce]），
+ *    即使调用方没先 load，也不会把已有的书覆盖成「空索引 + 新书」。
  */
 internal class LibraryIndexStore(
     private val dir: File,
@@ -355,6 +366,9 @@ internal class LibraryIndexStore(
     private val log: (message: String, throwable: Throwable?) -> Unit = { _, _ -> },
 ) {
     private val mutex = Mutex()
+
+    /** 是否已在锁内读入过磁盘索引；写 API 据此做「先读后写」保护。只在锁内读写。 */
+    private var loadedOnce = false
 
     @Volatile
     private var committed: List<Book> = emptyList()
@@ -375,12 +389,15 @@ internal class LibraryIndexStore(
     suspend fun load(merge: (persisted: List<Book>) -> List<Book>): List<Book> = mutex.withLock {
         cleanupStaleTmpLocked()
         val read = readIndexLocked()
+        throwIfQuarantineFailedLocked(read)
         val merged = merge(read.books)
         if (read.corrupted || merged != read.books) {
-            runCatching { writeIndexLocked(merged) }
-                .onFailure { log("rewrite index on load failed", it) }
+            // 回写失败直接抛（与写路径一致）：不提交内存，由调用方提示错误并允许重试；
+            // 否则会出现「内存有书、磁盘还是旧/损坏内容」的不一致。
+            writeIndexLocked(merged)
         }
         commitLocked(merged)
+        loadedOnce = true
         merged
     }
 
@@ -394,6 +411,7 @@ internal class LibraryIndexStore(
         if (!file.isFile) return Result.failure(IllegalArgumentException("文件不存在或不可读"))
         return try {
             val book = mutex.withLock {
+                ensureLoadedLocked()
                 val targetPath = pathKey(file.absolutePath)
                 committed.firstOrNull { pathKey(it.filePath) == targetPath }?.let { return@withLock it }
                 val book = Book(
@@ -423,6 +441,7 @@ internal class LibraryIndexStore(
     /** 按 id 删除并回写索引，返回真正被移除的条目（供调用方删文件）。 */
     suspend fun remove(ids: Set<Long>): List<Book> = mutex.withLock {
         if (ids.isEmpty()) return@withLock emptyList()
+        ensureLoadedLocked()
         val removed = committed.filter { it.id in ids }
         if (removed.isEmpty()) return@withLock emptyList()
         val next = committed.filterNot { it.id in ids }
@@ -431,14 +450,50 @@ internal class LibraryIndexStore(
         removed
     }
 
+    /**
+     * 写 API 的「先读」保护：还没 load 时先在锁内读入磁盘索引。
+     * 否则 committed 初始为空，第一次 registerFile/remove 会把 books.json 重写成
+     * 「空 + 新书」，已导入的其它书从索引消失（文件成孤儿）。
+     * 这里只同步磁盘上的原始索引；fixtures 合并仍由 [load] 的 merge 全量负责。
+     */
+    private fun ensureLoadedLocked() {
+        if (loadedOnce) return
+        cleanupStaleTmpLocked()
+        val read = readIndexLocked()
+        throwIfQuarantineFailedLocked(read)
+        commitLocked(read.books)
+        loadedOnce = true
+    }
+
+    /** 损坏索引连备份都没留下时，宁可报错也绝不回写覆盖唯一一份原文件。 */
+    private fun throwIfQuarantineFailedLocked(read: ReadResult) {
+        if (read.quarantineFailed) {
+            throw IOException("索引损坏且无法备份原文件，已停止重建（原文件未覆盖）")
+        }
+    }
+
+    /**
+     * 提交内存态并回调 UI。此时落盘已成功：回调异常不能让写 API 误判为失败
+     * （否则调用方会回滚删文件、索引悬空），因此吞掉异常并记日志。
+     * onCommitted 约定：不得重入本索引的写 API（会死锁），不得依赖异常传播。
+     */
     private fun commitLocked(books: List<Book>) {
         committed = books
-        onCommitted?.invoke(books)
+        try {
+            onCommitted?.invoke(books)
+        } catch (throwable: Throwable) {
+            log("onCommitted callback failed (ignored after commit)", throwable)
+        }
     }
 
     // ------------------------------------------------------------ 文件读写（锁内调用）
 
-    private data class ReadResult(val books: List<Book>, val corrupted: Boolean)
+    private data class ReadResult(
+        val books: List<Book>,
+        val corrupted: Boolean,
+        /** 损坏但连 .bad 备份都没能落下：调用方必须停止重建，避免覆盖原文件。 */
+        val quarantineFailed: Boolean = false,
+    )
 
     private fun readIndexLocked(): ReadResult {
         val file = indexFile()
@@ -448,28 +503,54 @@ internal class LibraryIndexStore(
         } catch (throwable: Throwable) {
             // 读失败也按损坏处理：绝不把「读不出来」的索引直接当成空索引覆盖掉（用户的书不能丢）。
             log("read index failed path=" + file.absolutePath + ", keep .bad and rebuild", throwable)
-            quarantineCorruptLocked(file)
-            return ReadResult(emptyList(), corrupted = true)
+            val quarantined = quarantineCorruptLocked(file)
+            return ReadResult(emptyList(), corrupted = true, quarantineFailed = !quarantined)
         }
         return try {
             ReadResult(codec.decode(text), corrupted = false)
         } catch (throwable: Throwable) {
             log("index parse failed path=" + file.absolutePath + ", keep .bad and rebuild", throwable)
-            quarantineCorruptLocked(file)
-            ReadResult(emptyList(), corrupted = true)
+            val quarantined = quarantineCorruptLocked(file)
+            ReadResult(emptyList(), corrupted = true, quarantineFailed = !quarantined)
         }
     }
 
-    /** 损坏索引留 .bad 备份后再重建；改名失败时退回复制，绝不静默覆盖用户原文件。 */
-    private fun quarantineCorruptLocked(file: File) {
-        val backup = File(dir, INDEX_FILE_NAME + ".bad")
-        runCatching {
-            backup.delete()
-            if (!file.renameTo(backup)) {
-                file.copyTo(backup, overwrite = true)
+    /**
+     * 损坏索引留 .bad 备份后再重建，返回是否已安全备份。
+     * - 旧 .bad 不再删除，默认名被占用时改用带时间戳的新备份名，保留全部损坏现场；
+     * - 改名失败才退回复制，且只有备份长度与原文件一致后才删原文件；
+     * - 返回 false 表示备份没成功，调用方据此停止重建（原文件保持不动）。
+     */
+    private fun quarantineCorruptLocked(file: File): Boolean {
+        val backup = nextBadFileLocked()
+        if (runCatching { file.renameTo(backup) }.getOrDefault(false)) return true
+        return runCatching {
+            file.copyTo(backup, overwrite = false)
+            if (backup.length() == file.length()) {
                 file.delete()
+                true
+            } else {
+                runCatching { backup.delete() }
+                false
             }
-        }.onFailure { log("quarantine corrupt index failed path=" + file.absolutePath, it) }
+        }.onFailure {
+            runCatching { backup.delete() }
+            log("quarantine corrupt index failed path=" + file.absolutePath, it)
+        }.getOrDefault(false)
+    }
+
+    /** 旧 .bad 保留：默认名被占用时用时间戳（同一毫秒再加序号）。 */
+    private fun nextBadFileLocked(): File {
+        val plain = File(dir, INDEX_FILE_NAME + ".bad")
+        if (!plain.exists()) return plain
+        val stamp = System.currentTimeMillis().toString()
+        var candidate = File(dir, INDEX_FILE_NAME + "." + stamp + ".bad")
+        var suffix = 2
+        while (candidate.exists()) {
+            candidate = File(dir, INDEX_FILE_NAME + "." + stamp + "-" + suffix + ".bad")
+            suffix += 1
+        }
+        return candidate
     }
 
     private fun writeIndexLocked(books: List<Book>) {

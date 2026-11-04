@@ -132,17 +132,22 @@ fun DiscoverScreen(
         }
     }
 
-    // 滚到底自动翻页：只有还有下一页、且没在加载 / 没失败时才触发（失败由尾部重试行接管）。
-    LaunchedEffect(listState, state) {
-        val success = state as? ZlibSearchState.Success ?: return@LaunchedEffect
-        if (success.page >= success.totalPages) return@LaunchedEffect
+    // 滚到底自动翻页：effect 只在搜索词/分类变化时重启（翻页本身只改 page，不重启避免 layoutInfo 首帧读到旧值多发一页）。
+    val autoPageQuery = (state as? ZlibSearchState.Success)?.query
+    val autoPageCategory = (state as? ZlibSearchState.Success)?.category
+    LaunchedEffect(listState, autoPageQuery, autoPageCategory) {
+        if (autoPageQuery == null && autoPageCategory == null) return@LaunchedEffect
         snapshotFlow {
             listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index to
                 listState.layoutInfo.totalItemsCount
         }.collect { (lastVisible, total) ->
-            if (lastVisible != null && total > 0 && lastVisible >= total - 3) {
-                viewModel.loadNextPage()
-            }
+            if (lastVisible == null || total <= 0) return@collect
+            val latest = viewModel.state as? ZlibSearchState.Success ?: return@collect
+            if (latest.query != autoPageQuery || latest.category != autoPageCategory) return@collect
+            // 列表 = 顶部说明项 + 书 + 尾部状态项；对不上说明是上一帧旧布局（刚翻页/刚换搜索词），跳过等下一帧。
+            if (total != latest.books.size + 2) return@collect
+            if (latest.page >= latest.totalPages) return@collect
+            if (lastVisible >= total - 3) viewModel.loadNextPage()
         }
     }
 
@@ -405,8 +410,11 @@ fun DiscoverScreen(
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         textAlign = TextAlign.Center,
                                     )
-                                    TextButton(onClick = { viewModel.retryLoadNextPage() }) {
-                                        Text("重试")
+                                    // NO_MIRROR 的失败在顶部 banner 已给「切换线路」入口，尾部不重复放重试按钮。
+                                    if (current.loadMoreKindLabel != "NO_MIRROR") {
+                                        TextButton(onClick = { viewModel.retryLoadNextPage() }) {
+                                            Text("重试")
+                                        }
                                     }
                                 }
     
@@ -442,6 +450,9 @@ fun DiscoverScreen(
                         )
                 ) {
                     viewModel.search(term)
+                } else if (term.isEmpty() && (state as? ZlibSearchState.Success)?.category != null) {
+                    // 分类模式没有搜索词（query 为空）：切线路后重跑当前分类第一页，避免继续展示旧线路结果/旧封面基址。
+                    viewModel.retry()
                 }
             },
         )

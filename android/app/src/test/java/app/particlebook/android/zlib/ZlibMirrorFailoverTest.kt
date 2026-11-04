@@ -101,6 +101,9 @@ class ZlibMirrorFailoverTest {
 
                 assertEquals(0, page.books.size)
                 assertEquals("成功后当前线路切到 B", alive.baseUrl, client.mirror)
+                // T17：搜索解析成功要记 rank=APP（后续 PARSE 时不再被当成未探明软页误清）。
+                val aliveEntry = ZlibMirrorRegistry.snapshot().entries.first { it.url == alive.baseUrl }
+                assertEquals(ZlibMirrorRegistry.Rank.APP, aliveEntry.rank)
                 assertTrue(logs.toString(), logs.any { it.startsWith("mirror_advance") && it.contains("from=" + "127.0.0.1") })
                 assertTrue(logs.toString(), logs.any { it.startsWith("mirror_advance") && it.contains("tried=1/2") })
                 assertTrue(logs.toString(), logs.any { it.startsWith("mirror_working") })
@@ -135,6 +138,10 @@ class ZlibMirrorFailoverTest {
         StubHttpServer("<html><body>unexpected page</body></html>").use { broken ->
             StubHttpServer(emptySearchBody).use { alive ->
                 freshRegistry(listOf(broken.baseUrl, alive.baseUrl))
+                // 该线已被探测确认为正式站（rank=APP）：PARSE 视为页面结构问题，不换线（T10 P1-2 的例外）。
+                ZlibMirrorRegistry.recordSuccess(
+                    broken.baseUrl, null, 10L, now, ZlibMirrorRegistry.Rank.APP,
+                )
                 val client = newClient()
                 client.mirror = broken.baseUrl
 
@@ -198,8 +205,10 @@ class ZlibMirrorFailoverTest {
         StubHttpServer("boom", 500).use { dead ->
             StubHttpServer(emptySearchBody).use { alive ->
                 freshRegistry(listOf(dead.baseUrl, alive.baseUrl))
+                // T17：清 pin 只对「明确非正式站」生效；这里给 dead 一个 OTHER 证据，保留清 pin 路径。
+                ZlibMirrorRegistry.recordProbeResult(dead.baseUrl, ZlibMirrorRegistry.Rank.OTHER, 5L, now)
                 val client = newClient()
-                assertTrue(client.switchMirror(0))
+                assertTrue(client.switchMirror(dead.baseUrl))
                 assertEquals(dead.baseUrl, client.mirror)
                 assertTrue(client.mirrorItems().any { it.pinned })
 
@@ -250,23 +259,147 @@ class ZlibMirrorFailoverTest {
     }
 
     @Test
-    fun nonAppPageIsAdoptedAsSoftFallbackWithRank() {
-        StubHttpServer("<html><body>Z-Library mirrors guide</body></html>").use { promo ->
+    fun nonAppPageIsNotAdoptedAndRaisesNoMirror() {
+        // T10 P1-1：200 推广/导航页只记 rank，不 adopt、不写 lastOkAt；整轮无正式站 → NO_MIRROR。
+        // 正文刻意带 z-lib.fm / singlelogin（旧 APP_MARKERS 会误判成正式站）。
+        StubHttpServer(
+            "<html><body>Welcome! Visit z-lib.fm or singlelogin.re - Z-Library mirrors guide</body></html>",
+        ).use { promo ->
             freshRegistry(listOf(promo.baseUrl))
             val client = newClient()
 
-            val picked = client.probeMirrors()
+            try {
+                client.probeMirrors()
+                throw AssertionError("只有软页时必须 NO_MIRROR")
+            } catch (e: ZlibException) {
+                assertEquals(ZlibException.Kind.NO_MIRROR, e.kind)
+            }
 
-            assertEquals(promo.baseUrl, picked)
-            assertTrue(logs.toString(), logs.any {
-                it.startsWith("mirror_probe_soft") && it.contains("rank=page")
-            })
-            assertTrue(logs.toString(), logs.any {
-                it.startsWith("mirror_pick") && it.contains("rank=page") && it.contains("soft=1")
-            })
+            assertEquals("软页不得被 adopt", null, client.mirror)
+            assertTrue(logs.toString(), logs.any { it.startsWith("mirror_probe_soft") && it.contains("rank=page") })
+            assertTrue(logs.toString(), logs.any { it.startsWith("mirror_probe_soft") && it.contains("soft_only=1") })
+            assertFalse(logs.toString(), logs.any { it.startsWith("mirror_pick") })
             val entry = ZlibMirrorRegistry.snapshot().entries.first { it.url == promo.baseUrl }
             assertEquals(ZlibMirrorRegistry.Rank.PAGE, entry.rank)
-            assertTrue("软兜底也记成功 TTL", entry.lastOkAt > 0L)
+            assertEquals("软页不得写 lastOkAt", 0L, entry.lastOkAt)
+            assertFalse(client.mirrorRows().first { it.url == promo.baseUrl }.successFresh)
+        }
+    }
+
+    @Test
+    fun softLineGarbageSearchFailsOverThenNoMirror() {
+        // T10 P1-2：已判推广页的线路搜索返回 200 SPA 壳 → PARSE 按 transient 换线；
+        // 下一条 500 也失败 → NO_MIRROR。软页（PAGE）清记忆；UNKNOWN 死线只换线，不清记忆（T17）。
+        StubHttpServer("<html><body>just a SPA shell</body></html>").use { soft ->
+            StubHttpServer("boom", 500).use { dead ->
+                freshRegistry(listOf(soft.baseUrl, dead.baseUrl))
+                ZlibMirrorRegistry.recordProbeResult(soft.baseUrl, ZlibMirrorRegistry.Rank.PAGE, 120L, now)
+                val client = newClient()
+                client.mirror = soft.baseUrl
+
+                try {
+                    client.search("android")
+                    throw AssertionError("软页+死线必须抛 NO_MIRROR")
+                } catch (e: ZlibException) {
+                    assertEquals(ZlibException.Kind.NO_MIRROR, e.kind)
+                }
+
+                assertEquals("必须换到下一条候选", 1, dead.hits.get())
+                assertEquals("软页只被搜一次", 1, soft.hits.get())
+                assertEquals("失败线不能留在 mirror", null, client.mirror)
+                assertTrue(logs.toString(), logs.any {
+                    it.startsWith("mirror_advance") && it.contains("reason=parse_non_app")
+                })
+            }
+        }
+    }
+
+    @Test
+    fun secondPageParseOnNonAppLineReleasesMirror() {
+        // T10 P1-3：翻页不换线，但 PARSE 且当前线不是正式站 → 清 mirror/pin/prefs，下次重探。
+        StubHttpServer("<html><body>SPA shell</body></html>").use { soft ->
+            freshRegistry(listOf(soft.baseUrl))
+            ZlibMirrorRegistry.recordProbeResult(soft.baseUrl, ZlibMirrorRegistry.Rank.PAGE, 10L, now)
+            val client = newClient()
+            client.mirror = soft.baseUrl
+
+            try {
+                client.search("android", page = 2)
+                throw AssertionError("翻页 PARSE 必须抛出")
+            } catch (e: ZlibException) {
+                assertEquals(ZlibException.Kind.PARSE, e.kind)
+            }
+
+            assertEquals("非正式站的镜像记忆必须清掉", null, client.mirror)
+            assertTrue(logs.toString(), logs.any {
+                it.startsWith("mirror_release") && it.contains("reason=parse_non_app")
+            })
+        }
+    }
+
+    @Test
+    fun probeDoesNotPreferNonAppLastWorking() {
+        // T10 P2-5（客户端侧）：lastWorking 只取 rank==APP；软页的旧 lastOkAt 不得走 last_working 优先通道。
+        StubHttpServer(appBody).use { app ->
+            StubHttpServer("<html><body>Z-Library mirrors guide</body></html>").use { soft ->
+                freshRegistry(listOf(soft.baseUrl, app.baseUrl))
+                ZlibMirrorRegistry.recordSuccess(
+                    soft.baseUrl, null, 50L, now - 1_000L, ZlibMirrorRegistry.Rank.APP,
+                )
+                ZlibMirrorRegistry.recordProbeResult(soft.baseUrl, ZlibMirrorRegistry.Rank.PAGE, 50L, now)
+                val client = newClient()
+
+                val picked = client.probeMirrors()
+
+                assertEquals("最终必须选正式站", app.baseUrl, picked)
+                assertFalse(logs.toString(), logs.any { it.contains("source=last_working") })
+            }
+        }
+    }
+
+    @Test
+    fun unknownLineParseKeepsMirrorAndPin() {
+        // T17 P2：UNKNOWN 线路 PARSE 不能当成「非正式站」证据；pin/mirror 必须保留，交给换线/重探。
+        StubHttpServer("<html><body>unexpected page</body></html>").use { unknown ->
+            freshRegistry(listOf(unknown.baseUrl))
+            val client = newClient()
+            assertTrue(client.switchMirror(unknown.baseUrl))
+
+            try {
+                client.search("android")
+                throw AssertionError("PARSE 且无其它线路必须 NO_MIRROR")
+            } catch (e: ZlibException) {
+                assertEquals(ZlibException.Kind.NO_MIRROR, e.kind)
+            }
+
+            assertEquals("UNKNOWN 线路 PARSE 不得清 mirror", unknown.baseUrl, client.mirror)
+            assertTrue("UNKNOWN 线路 PARSE 不得清 pin", client.mirrorItems().any { it.pinned })
+            assertTrue(logs.toString(), logs.any {
+                it.startsWith("mirror_release_skip") && it.contains("reason=rank_unproven") && it.contains("rank=unknown")
+            })
+        }
+    }
+
+    @Test
+    fun unknownSecondPageParseKeepsMirrorAndPin() {
+        // T17 P2：翻页 PARSE 走 releaseMirrorIfNotApp，UNKNOWN 同样只算本次失败，不清 pin/mirror。
+        StubHttpServer("<html><body>SPA shell</body></html>").use { unknown ->
+            freshRegistry(listOf(unknown.baseUrl))
+            val client = newClient()
+            assertTrue(client.switchMirror(unknown.baseUrl))
+
+            try {
+                client.search("android", page = 2)
+                throw AssertionError("翻页 PARSE 必须抛出")
+            } catch (e: ZlibException) {
+                assertEquals(ZlibException.Kind.PARSE, e.kind)
+            }
+
+            assertEquals(unknown.baseUrl, client.mirror)
+            assertTrue("UNKNOWN 线路翻页 PARSE 不得清 pin", client.mirrorItems().any { it.pinned })
+            assertTrue(logs.toString(), logs.any {
+                it.startsWith("mirror_release_skip") && it.contains("reason=parse_unproven")
+            })
         }
     }
 }

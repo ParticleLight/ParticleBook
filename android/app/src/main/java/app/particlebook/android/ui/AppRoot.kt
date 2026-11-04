@@ -276,8 +276,14 @@ fun ParticleBookApp() {
         deleteDialogOpen = false
         scope.launch {
             store.removeBooks(ids)
-            exitSelection()
-            snackbarHostState.showSnackbar("已删除 " + ids.size + " 本书")
+                .onSuccess { removedCount ->
+                    exitSelection()
+                    snackbarHostState.showSnackbar("已删除 " + removedCount + " 本书")
+                }
+                .onFailure {
+                    // 写索引失败：内存/磁盘都没变，保留选中态让用户可以直接重试。
+                    snackbarHostState.showSnackbar("删除失败，请重试")
+                }
         }
     }
 

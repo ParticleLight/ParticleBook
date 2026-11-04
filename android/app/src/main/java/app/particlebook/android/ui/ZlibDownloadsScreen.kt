@@ -78,6 +78,8 @@ fun ZlibDownloadsScreen(
     modifier: Modifier = Modifier,
 ) {
     val records by ZlibDownloadManager.history.collectAsState()
+    // T15：历史是异步读盘的，冷启时 records 为空不代表「没有记录」——先给加载占位，别闪假空态。
+    val historyLoaded by ZlibDownloadManager.historyLoaded.collectAsState()
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -85,6 +87,15 @@ fun ZlibDownloadsScreen(
     // D8：行的「更多」菜单与「删除记录」二次确认（只删记录 / 连文件一起删）。
     var menuBookId by remember { mutableStateOf<String?>(null) }
     var deleteTarget by remember { mutableStateOf<ZlibDownloadTask?>(null) }
+    // D8①：默认下载目录导入走 adoptLocalFile 原地登记（book.filePath == 记录 destPath），
+    // 「连文件一起删」会把书架里的书本体删掉、下次启动该书被静默丢弃（LibraryStore.mergePersisted），
+    // 所以文件被书架引用时只允许删记录。SAF 记录的书架副本在 _pb_files，路径不同 → 可安全删原文件。
+    val deleteTargetInLibrary = deleteTarget?.let { target ->
+        bookReferencesDownloadFile(store.books, target.destPath)
+    } ?: false
+    // 书架还在读盘时 books 为空，无法判断文件是否被引用——此时也只允许删记录，宁可少删不可删错。
+    val libraryLoading = store.loading
+    val deleteTargetRecordOnly = deleteTargetInLibrary || libraryLoading
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -132,7 +143,14 @@ fun ZlibDownloadsScreen(
             )
         },
     ) { innerPadding ->
-        if (records.isEmpty()) {
+        if (!historyLoaded) {
+            LoadingDownloads(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding)
+                    .bottomBarPadding(),
+            )
+        } else if (records.isEmpty()) {
             EmptyDownloads(
                 modifier = Modifier
                     .fillMaxSize()
@@ -230,51 +248,77 @@ fun ZlibDownloadsScreen(
     }
 
     // D8：删除记录二次确认 —— 「只删记录」保留磁盘文件；「连文件一起删」同时清理下载的文件。
+    // 文件被书架引用时（默认下载目录原地登记）只提供「删除记录」，避免删掉书架书本体。
     deleteTarget?.let { target ->
         AlertDialog(
             onDismissRequest = { deleteTarget = null },
             title = { Text("删除下载记录") },
             text = {
                 Text(
-                    "「只删记录」只从列表移除，下载的文件保留在下载目录；" +
-                        "「连文件一起删」会同时删除已下载的文件（已导入书架的副本不受影响）。",
+                    if (libraryLoading) {
+                        "书架数据还在加载，为避免误删书架里的书，只能删除下载记录，文件保留在下载目录。"
+                    } else if (deleteTargetInLibrary) {
+                        "这本书的下载文件已被书架引用（书架里的书就指向这个文件）。" +
+                            "删除文件会让书架里的书失效，因此只能删除下载记录，文件保留在下载目录。"
+                    } else {
+                        "「只删记录」只从列表移除，下载的文件保留在下载目录；" +
+                            "「连文件一起删」会同时删除已下载的文件。"
+                    },
                 )
             },
             confirmButton = {
-                TextButton(
-                    onClick = {
-                        deleteTarget = null
-                        val removed = ZlibDownloadManager.removeHistory(
-                            target.bookId,
-                            deleteFile = true,
-                        )
-                        scope.launch {
-                            snackbarHostState.showSnackbar(
-                                if (removed) "已删除记录与文件" else "记录已不存在",
-                            )
-                        }
-                    },
-                ) {
-                    Text("连文件一起删", color = MaterialTheme.colorScheme.error)
+                if (deleteTargetRecordOnly) {
+                    TextButton(
+                        onClick = {
+                            deleteTarget = null
+                            ZlibDownloadManager.removeHistory(
+                                target.bookId,
+                                deleteFile = false,
+                            ) { result ->
+                                // 书架引用/加载中导致只删记录时说明原因；其余结果用统一文案。
+                                val message = if (result == ZlibHistoryDeleteResult.RECORD_ONLY) {
+                                    if (libraryLoading) "书架加载中，仅删除记录" else "文件被书架引用，仅删除记录"
+                                } else {
+                                    deleteHistoryMessage(result)
+                                }
+                                scope.launch { snackbarHostState.showSnackbar(message) }
+                            }
+                        },
+                    ) {
+                        Text("删除记录")
+                    }
+                } else {
+                    TextButton(
+                        onClick = {
+                            deleteTarget = null
+                            ZlibDownloadManager.removeHistory(
+                                target.bookId,
+                                deleteFile = true,
+                            ) { result ->
+                                scope.launch { snackbarHostState.showSnackbar(deleteHistoryMessage(result)) }
+                            }
+                        },
+                    ) {
+                        Text("连文件一起删", color = MaterialTheme.colorScheme.error)
+                    }
                 }
             },
             dismissButton = {
                 Row {
-                    TextButton(
-                        onClick = {
-                            deleteTarget = null
-                            val removed = ZlibDownloadManager.removeHistory(
-                                target.bookId,
-                                deleteFile = false,
-                            )
-                            scope.launch {
-                                snackbarHostState.showSnackbar(
-                                    if (removed) "已删除记录" else "记录已不存在",
-                                )
-                            }
-                        },
-                    ) {
-                        Text("只删记录")
+                    if (!deleteTargetRecordOnly) {
+                        TextButton(
+                            onClick = {
+                                deleteTarget = null
+                                ZlibDownloadManager.removeHistory(
+                                    target.bookId,
+                                    deleteFile = false,
+                                ) { result ->
+                                    scope.launch { snackbarHostState.showSnackbar(deleteHistoryMessage(result)) }
+                                }
+                            },
+                        ) {
+                            Text("只删记录")
+                        }
                     }
                     TextButton(onClick = { deleteTarget = null }) {
                         Text("取消")
@@ -311,6 +355,36 @@ private fun EmptyDownloads(modifier: Modifier = Modifier) {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
+}
+
+/** 冷启读盘中的占位：历史还没加载完时不要显示「还没有下载记录」（会让人以为记录丢了）。 */
+@Composable
+private fun LoadingDownloads(modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier.padding(horizontal = Spacing.xl),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        CircularProgressIndicator(
+            modifier = Modifier.size(32.dp),
+            strokeWidth = 3.dp,
+        )
+        Spacer(Modifier.height(Spacing.md))
+        Text(
+            text = "正在加载下载记录…",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+/** T15/D8：把 removeHistory 的真实删除结果翻成用户文案（文件删除失败不能谎报成功）。 */
+internal fun deleteHistoryMessage(result: ZlibHistoryDeleteResult): String = when (result) {
+    ZlibHistoryDeleteResult.NOT_FOUND -> "记录已不存在"
+    ZlibHistoryDeleteResult.RECORD_ONLY -> "已删除记录"
+    ZlibHistoryDeleteResult.RECORD_AND_FILE -> "已删除记录与文件"
+    ZlibHistoryDeleteResult.FILE_DELETE_FAILED -> "记录已删除，文件删除失败"
+    ZlibHistoryDeleteResult.FILE_IN_USE_RECORD_ONLY -> "该书的下载仍在进行，仅删除记录"
 }
 
 @Composable
@@ -445,6 +519,18 @@ private fun DownloadRecordRow(
 
 /** 下载完成后给书架书籍打的标记（SAF 目录会复制成本地文件，filePath 无法与记录直接对齐）。 */
 private fun zlibBookTag(bookId: String): String = "zlib:" + bookId
+
+/**
+ * D8①：下载记录的文件是否就是书架里某本书的本体。
+ *
+ * 默认下载目录导入走 [LibraryStore.adoptLocalFile] 原地登记（不复制），book.filePath 与记录
+ * destPath 相同 —— 删掉这个文件等于删掉书架里的书（下次启动 mergePersisted 会静默丢弃该书）。
+ * SAF 目录走 adoptDocument：书架副本在 filesDir/_pb_files，路径不同，删原文件安全。
+ */
+internal fun bookReferencesDownloadFile(books: List<Book>, destPath: String): Boolean {
+    if (destPath.isBlank()) return false
+    return books.any { it.filePath == destPath }
+}
 
 private fun recordMetaLine(record: ZlibDownloadTask, completed: Boolean): String {
     val size = formatDownloadBytes(if (record.received > 0) record.received else record.total)

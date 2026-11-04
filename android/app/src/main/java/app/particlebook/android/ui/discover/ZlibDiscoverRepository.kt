@@ -6,6 +6,7 @@ import app.particlebook.android.zlib.ZBooklist
 import app.particlebook.android.zlib.ZCategory
 import app.particlebook.android.zlib.ZCategoryGroup
 import app.particlebook.android.zlib.ZlibClient
+import app.particlebook.android.zlib.ZlibErrorMessages
 import app.particlebook.android.zlib.ZlibException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -136,7 +137,8 @@ private fun messageFor(e: ZlibException): String = when {
     else -> when (e.kind) {
         ZlibException.Kind.NO_MIRROR -> "连接不到 Z-Library 镜像，请检查网络后重试"
         ZlibException.Kind.CHALLENGE_FAILED -> "站点校验未通过，请稍后重试"
-        ZlibException.Kind.HTTP -> "服务器返回了错误状态，请稍后重试"
+        // D12：有真实状态码/重定向细分时统一由 ZlibErrorMessages 给文案（与详情页一致）。
+        ZlibException.Kind.HTTP -> ZlibErrorMessages.from(e)
         ZlibException.Kind.PARSE -> "页面解析失败，请稍后重试"
         ZlibException.Kind.NETWORK -> "网络连接失败，请检查网络后重试"
         ZlibException.Kind.DAILY_LIMIT -> "今天的下载额度已用尽"

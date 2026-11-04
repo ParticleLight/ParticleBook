@@ -141,6 +141,7 @@ internal fun bookMetaLine(
 
 /**
  * 副元信息（A3）：★评分 · 出版社。缺省字段跳过；评分只接受正数（站点 0 / 空 = 未评分）。
+ * 出版社占位值（站点缺元数据时返回 UNKNOWN / 未知 / 空白）不显示，避免把假值当出版社（T13）。
  * 行宽由调用方 Text(maxLines = 1, ellipsis) 截断，评分放最前保证不被截掉。
  */
 internal fun bookSecondaryMetaLine(rating: String, publisher: String): String {
@@ -148,8 +149,18 @@ internal fun bookSecondaryMetaLine(rating: String, publisher: String): String {
     rating.trim().toDoubleOrNull()?.takeIf { it > 0.0 }?.let {
         parts += "★" + String.format(Locale.US, "%.1f", it)
     }
-    publisher.trim().takeIf { it.isNotEmpty() }?.let { parts += it }
+    sanitizePublisher(publisher)?.let { parts += it }
     return parts.joinToString(" · ")
+}
+
+/** 出版社占位值过滤：站点用 UNKNOWN / 未知 / 未知出版社 / N/A / - 表示缺失，均视为无出版社。 */
+internal fun sanitizePublisher(publisher: String): String? {
+    val value = publisher.trim()
+    if (value.isEmpty()) return null
+    return when (value.lowercase(Locale.US)) {
+        "unknown", "未知", "未知出版社", "n/a", "-", "—" -> null
+        else -> value
+    }
 }
 
 /**

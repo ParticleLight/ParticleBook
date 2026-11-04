@@ -277,7 +277,162 @@ class LibraryIndexStoreTest {
         assertNoTempFilesLeft(dir)
     }
 
+    // ---------------------------------------------------------------- P1：写前 load 保护
+    // 回归：AppRoot 的 ensureLoaded 是独立 LaunchedEffect；下载完成/导入可能先于它执行。
+    // 若写 API 不先读索引，committed 的初始空列表会把 books.json 重写成「空 + 新书」。
+
+    @Test
+    fun registerFileBeforeLoadKeepsExistingIndexEntries() = runBlocking {
+        val dir = newTempDir("write-before-load")
+        val seedStore = LibraryIndexStore(dir, TestIndexCodec())
+        seedStore.load { it }
+        seedStore.registerFile(bookFile(dir, "old-a.epub"), "old-a", null, emptyList()).getOrThrow()
+        seedStore.registerFile(bookFile(dir, "old-b.epub"), "old-b", null, emptyList()).getOrThrow()
+        assertEquals(2, indexEntries(dir).size)
+
+        // 新实例故意不 load：模拟索引还没加载完就发生 adopt。
+        val store = LibraryIndexStore(dir, TestIndexCodec())
+        val added = store.registerFile(bookFile(dir, "new.epub"), "new", null, listOf(DOWNLOAD_TAG))
+
+        assertTrue("先写后 load 的 adopt 应成功: " + added, added.isSuccess)
+        assertEquals(
+            "旧索引条目不得被覆盖",
+            setOf("old-a.epub", "old-b.epub", "new.epub"),
+            indexEntries(dir).map { File(it["filePath"] as String).name }.toSet(),
+        )
+        assertEquals("内存应含旧书 + 新书", 3, store.books.size)
+        assertEquals(3, decodeIndex(dir).size)
+        assertNoTempFilesLeft(dir)
+    }
+
+    @Test
+    fun concurrentWritesBeforeLoadDoNotLoseExistingIndex() = runBlocking {
+        val dir = newTempDir("write-before-load-concurrent")
+        val seedStore = LibraryIndexStore(dir, TestIndexCodec())
+        seedStore.load { it }
+        seedStore.registerFile(bookFile(dir, "seed-a.epub"), "seed-a", null, emptyList()).getOrThrow()
+        seedStore.registerFile(bookFile(dir, "seed-b.epub"), "seed-b", null, emptyList()).getOrThrow()
+
+        val fresh = LibraryIndexStore(dir, TestIndexCodec())
+        val barrier = CyclicBarrier(2)
+        val results = listOf("new-1", "new-2").map { name ->
+            async(Dispatchers.IO) {
+                barrier.await(30, TimeUnit.SECONDS)
+                fresh.registerFile(bookFile(dir, name + ".epub"), name, null, emptyList())
+            }
+        }.awaitAll()
+
+        assertTrue("并发先写后 load 失败: " + results, results.all { it.isSuccess })
+        assertEquals(
+            "并发首写也不得丢掉旧索引",
+            setOf("seed-a.epub", "seed-b.epub", "new-1.epub", "new-2.epub"),
+            indexEntries(dir).map { File(it["filePath"] as String).name }.toSet(),
+        )
+        assertEquals(4, indexEntries(dir).size)
+        assertEquals(4, decodeIndex(dir).size)
+        assertNoTempFilesLeft(dir)
+    }
+
+    @Test
+    fun removeBeforeLoadKeepsOtherBooks() = runBlocking {
+        val dir = newTempDir("remove-before-load")
+        val seedStore = LibraryIndexStore(dir, TestIndexCodec())
+        seedStore.load { it }
+        seedStore.registerFile(bookFile(dir, "keep-a.epub"), "keep-a", null, emptyList()).getOrThrow()
+        val removedBook = seedStore
+            .registerFile(bookFile(dir, "removed.epub"), "removed", null, emptyList()).getOrThrow()
+        seedStore.registerFile(bookFile(dir, "keep-b.epub"), "keep-b", null, emptyList()).getOrThrow()
+
+        val store = LibraryIndexStore(dir, TestIndexCodec())
+        val removed = store.remove(setOf(removedBook.id))
+
+        assertEquals("应只删目标书", listOf(removedBook), removed)
+        assertEquals(
+            "其余书不得被删前写覆盖",
+            setOf("keep-a.epub", "keep-b.epub"),
+            indexEntries(dir).map { File(it["filePath"] as String).name }.toSet(),
+        )
+        assertEquals(2, store.books.size)
+        assertNoTempFilesLeft(dir)
+    }
+
+    // ---------------------------------------------------------------- P3：失败路径不提交/不覆盖
+
+    @Test
+    fun rewriteFailureOnLoadKeepsPreviousCommittedState() = runBlocking {
+        val dir = newTempDir("load-rewrite-failure")
+        val codec = FailingEncodeCodec()
+        val store = LibraryIndexStore(dir, codec)
+        store.load { it }
+        val book = store.registerFile(bookFile(dir, "kept.epub"), "kept", null, emptyList()).getOrThrow()
+        val corrupt = """{"version":1,"books":[{"id":1,"title":"未闭合"""
+        File(dir, "books.json").writeText(corrupt)
+        codec.failWrites = true
+
+        val thrown = runCatching { store.load { it } }.exceptionOrNull()
+
+        assertTrue("回写失败应抛给调用方（UI 据此提示错误）", thrown != null)
+        assertEquals("回写失败不得提交内存", listOf(book), store.books)
+        assertEquals("损坏原文应保留为 .bad", corrupt, File(dir, "books.json.bad").readText())
+        assertTrue("回写失败不得留下新的 books.json", !File(dir, "books.json").exists())
+        assertNoTempFilesLeft(dir)
+    }
+
+    @Test
+    fun oldBadBackupIsKeptWithTimestampedName() = runBlocking {
+        val dir = newTempDir("keep-old-bad")
+        val seed = LibraryIndexStore(dir, TestIndexCodec())
+        seed.load { it }
+        seed.registerFile(bookFile(dir, "seed.epub"), "seed", null, emptyList()).getOrThrow()
+
+        File(dir, "books.json").writeText("corrupt-first")
+        assertTrue(LibraryIndexStore(dir, TestIndexCodec()).load { it }.isEmpty())
+        assertEquals("corrupt-first", File(dir, "books.json.bad").readText())
+
+        File(dir, "books.json").writeText("corrupt-second")
+        assertTrue(LibraryIndexStore(dir, TestIndexCodec()).load { it }.isEmpty())
+
+        assertEquals("旧 .bad 不得被新损坏覆盖", "corrupt-first", File(dir, "books.json.bad").readText())
+        val timestamped = dir.listFiles().orEmpty().filter {
+            it.name != "books.json.bad" &&
+                it.name.startsWith("books.json.") &&
+                it.name.endsWith(".bad")
+        }
+        assertEquals("应新增一个带时间戳的 .bad: " + timestamped, 1, timestamped.size)
+        assertEquals("新 .bad 应保留本次损坏原文", "corrupt-second", timestamped.single().readText())
+    }
+
+    @Test
+    fun onCommittedCallbackFailureDoesNotFailSuccessfulWrite() = runBlocking {
+        val dir = newTempDir("callback-throw")
+        val logs = Collections.synchronizedList(mutableListOf<String>())
+        val store = LibraryIndexStore(dir, TestIndexCodec(), log = { message, _ -> logs += message })
+        store.onCommitted = { throw IllegalStateException("simulated UI callback crash") }
+
+        val result = store.registerFile(bookFile(dir, "ok.epub"), "ok", null, emptyList())
+
+        assertTrue("落盘已成功，回调异常不得让写 API 返回失败: " + result, result.isSuccess)
+        assertEquals("内存应已提交", 1, store.books.size)
+        assertEquals("磁盘应已提交", 1, indexEntries(dir).size)
+        assertTrue("应记录回调异常日志: " + logs, logs.any { it.contains("onCommitted") })
+        assertNoTempFilesLeft(dir)
+    }
+
     // ---------------------------------------------------------------- helpers
+
+    /** 可切换写失败的最小代理编解码，用于验证「回写失败不提交内存」。 */
+    private class FailingEncodeCodec(
+        private val delegate: LibraryIndexCodec = TestIndexCodec(),
+    ) : LibraryIndexCodec {
+        var failWrites = false
+
+        override fun encode(books: List<Book>): String {
+            if (failWrites) throw IllegalStateException("simulated index write failure")
+            return delegate.encode(books)
+        }
+
+        override fun decode(json: String): List<Book> = delegate.decode(json)
+    }
 
     private fun newTempDir(name: String): File = File(root, name).apply { mkdirs() }
 

@@ -348,7 +348,8 @@ class ZlibSearchViewModel internal constructor(
             return when (kind) {
                 ZlibException.Kind.NO_MIRROR -> "无法连接 Z-Library：所有镜像都不可用，请检查网络后重试。"
                 ZlibException.Kind.CHALLENGE_FAILED -> "反爬验证未通过，请稍后重试。"
-                ZlibException.Kind.HTTP -> "服务器返回错误，请稍后重试。"
+                // D12：有真实状态码/重定向细分时统一由 ZlibErrorMessages 给文案（与详情页一致）。
+                ZlibException.Kind.HTTP -> ZlibErrorMessages.from(throwable)
                 ZlibException.Kind.PARSE -> "页面解析失败：镜像可能已改版。"
                 ZlibException.Kind.NETWORK -> "网络连接失败，请检查网络后重试。"
                 ZlibException.Kind.DAILY_LIMIT -> ZlibErrorMessages.DAILY_LIMIT

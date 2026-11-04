@@ -14,6 +14,9 @@ class ZlibMirrorProbeTest {
 
     private val logs = ArrayList<String>()
 
+    /** 正式站特征：T10 P1-1 起非 APP 页不再软兜底，桩必须返回带 z-bookcard 的正式站页面。 */
+    private val appBody = "<html><title>Z-Library</title><z-bookcard id=\"1\"></z-bookcard></html>"
+
     /** 一次性回环 HTTP 桩：只应答一个 GET，返回 200 + 固定 body。 */
     private class OneShotHttpServer(private val body: String) : Closeable {
         private val server = ServerSocket(0)
@@ -68,7 +71,7 @@ class ZlibMirrorProbeTest {
 
     @Test
     fun officialWinsWhenReachable() {
-        OneShotHttpServer("ok").use { server ->
+        OneShotHttpServer(appBody).use { server ->
             freshRegistry(0L, listOf(server.baseUrl), listOf("http://127.0.0.1:1"))
             val picked = newClient().probeMirrors()
 
@@ -82,7 +85,7 @@ class ZlibMirrorProbeTest {
     @Test
     fun officialUnreachableDegradesToFallback() {
         val closedPort = ServerSocket(0).use { it.localPort }
-        OneShotHttpServer("ok").use { server ->
+        OneShotHttpServer(appBody).use { server ->
             freshRegistry(
                 0L,
                 listOf("http://127.0.0.1:" + closedPort),
