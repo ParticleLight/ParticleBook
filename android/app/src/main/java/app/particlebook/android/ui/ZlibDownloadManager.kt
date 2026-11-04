@@ -379,6 +379,69 @@ internal fun zlibCompletedHistoryRecord(
     destPath: String? = null,
 ): ZlibDownloadTask = ZlibDownloadCompletion.imported(task, size, fileName, destPath)
 
+/**
+ * T23：用户点「取消」时的处理结论。
+ *
+ * 字节已下完（total 已知且 received >= total）说明网络阶段事实上结束：此时取消没有意义，
+ * 再翻 CANCELLED 会让用户以为下载停了，实际文件已完整（可能正在复制/导入）；
+ * 导入中（importing）同理——IO 已不可中断。两种都忽略取消，避免产生「取消后的半成品」。
+ */
+internal enum class ZlibCancelDisposition { CANCEL, IGNORE_IMPORTING, IGNORE_COMPLETE }
+
+internal fun zlibCancelDisposition(
+    received: Long,
+    total: Long,
+    importing: Boolean,
+): ZlibCancelDisposition = when {
+    importing -> ZlibCancelDisposition.IGNORE_IMPORTING
+    total > 0L && received >= total -> ZlibCancelDisposition.IGNORE_COMPLETE
+    else -> ZlibCancelDisposition.CANCEL
+}
+
+/**
+ * T23：用户取消也要写进下载历史（进程被杀后记录页仍显示「已取消」，可续传/删除）。
+ * 只把状态封成 CANCELLED，保留 received/total/destPath/fileName——续传要靠它们接上 .part。
+ */
+internal fun zlibCancelledHistoryRecord(
+    task: ZlibDownloadTask,
+    finishedAt: Long,
+): ZlibDownloadTask = task.copy(
+    status = ZlibDownloadStatus.CANCELLED,
+    errorKind = null,
+    errorMessage = null,
+    importing = false,
+    cancelling = false,
+    finishedAt = finishedAt,
+)
+
+/** T23：续传时半成品是否还在（决定提示「续传」还是「临时文件已被清理，将从头下载」）。 */
+enum class ZlibResumeSource { PARTIAL, RESTART, UNAVAILABLE }
+
+internal fun zlibResumeSourceFor(
+    record: ZlibDownloadTask,
+    partialBytes: Long,
+): ZlibResumeSource = when {
+    record.status != ZlibDownloadStatus.CANCELLED -> ZlibResumeSource.UNAVAILABLE
+    partialBytes > 0L -> ZlibResumeSource.PARTIAL
+    else -> ZlibResumeSource.RESTART
+}
+
+/** T23：「只删记录」时是否要清半成品：完整文件保留，未完成记录的 .part 不可用、清掉防孤儿。 */
+internal fun zlibShouldCleanPartialOnRecordOnly(status: ZlibDownloadStatus): Boolean =
+    status != ZlibDownloadStatus.COMPLETED
+
+/** T23：把 CANCELLED 记录还原成一次新下载——目标路径保持不变，客户端才能凭同名 .part 续传。 */
+internal fun zlibResumeTaskFromRecord(record: ZlibDownloadTask): ZlibDownloadTask = record.copy(
+    received = 0L,
+    total = -1L,
+    status = ZlibDownloadStatus.PREPARING,
+    errorKind = null,
+    errorMessage = null,
+    importing = false,
+    cancelling = false,
+    finishedAt = 0L,
+)
+
 /** U3：.part 文件语义——取消保留（可续传），只有「删除」才清理。 */
 internal object ZlibDownloadFiles {
     fun partFileOf(target: File): File =
@@ -475,9 +538,14 @@ object ZlibDownloadManager {
             val needsWrite = historyWritePending || recovered != loaded
             historyWritePending = false
             if (needsWrite) scheduleHistoryWrite()
-            // U10：清掉上次进程被杀留下的 cacheDir 半成品（本地临时文件无法跨进程续传）。
+            // U10/T23：清掉上次进程被杀留下的 cacheDir 半成品；但 CANCELLED 的 SAF 记录还要续传，
+            // 对应半成品按 task id 前缀保留（其余判为孤儿，含审计 B2 指出的 .part.part 泄漏）。
             withContext(Dispatchers.IO) {
-                zlibCleanTempDownloads(File(app.cacheDir, SAF_TEMP_DIR))
+                val keepPrefixes = _history.value
+                    .filter { it.status == ZlibDownloadStatus.CANCELLED && it.saf }
+                    .map { safTempPrefix(it.id) }
+                    .toSet()
+                zlibCleanTempDownloads(File(app.cacheDir, SAF_TEMP_DIR), keepPrefixes)
             }
         }
     }
@@ -505,6 +573,8 @@ object ZlibDownloadManager {
                 val saf = withContext(Dispatchers.IO) { DownloadLocation.isCustom(context) }
                 // 判定期间历史可能刚加载完（冷启）→ 在 IO hop 之后再读一次，避免重复下载已完成的书。
                 val done = historyForBook(detail.bookId)
+                // T23：上次取消留下的记录 —— 复用原目标文件，客户端凭旁边的 .part 续传，不再新建目标。
+                val cancelledRecord = done?.takeIf { it.status == ZlibDownloadStatus.CANCELLED }
                 val needsFileCheck = done != null && (
                     done.status == ZlibDownloadStatus.COMPLETED ||
                         (done.status == ZlibDownloadStatus.FAILED &&
@@ -541,14 +611,24 @@ object ZlibDownloadManager {
                 val fileName: String
                 val destPath: String
                 if (saf) {
-                    fileName = reusedSafDoc?.fileName?.takeIf { it.isNotBlank() } ?: suggestedFileName(detail)
+                    fileName = reusedSafDoc?.fileName?.takeIf { it.isNotBlank() }
+                        ?: cancelledRecord?.fileName?.takeIf { it.isNotBlank() }
+                        ?: suggestedFileName(detail)
                     // 目标 uri 在真正下载时创建，完成后再回填；可复用时直接用旧 uri。
+                    // T23：取消记录的 uri 也复用（半截文档由 openOutputStream 截断重写，不留孤儿）。
                     destPath = reusedSafDoc?.destPath.orEmpty()
+                        .ifEmpty { cancelledRecord?.destPath?.takeIf { it.startsWith("content://") }.orEmpty() }
                 } else {
                     val target = withContext(Dispatchers.IO) {
-                        val dir = downloadDir(context)
-                        val name = uniqueFileName(dir, detail)
-                        name to File(dir, name).absolutePath
+                        // T23：取消过的同一本书复用原目标路径 —— .part 就在同名旁边，续传才能接上。
+                        val reusePath = cancelledRecord?.destPath?.takeIf { it.isNotBlank() }
+                        if (reusePath != null) {
+                            File(reusePath).name to reusePath
+                        } else {
+                            val dir = downloadDir(context)
+                            val name = uniqueFileName(dir, detail)
+                            name to File(dir, name).absolutePath
+                        }
                     }
                     fileName = target.first
                     destPath = target.second
@@ -567,6 +647,8 @@ object ZlibDownloadManager {
                     saf = saf,
                     status = ZlibDownloadStatus.PREPARING,
                 )
+                // T23：续传/重下会生成新的终态记录，先清掉同书旧的「已取消」记录，记录页不出现两条。
+                if (cancelledRecord != null) removeHistoryRecord(detail.bookId)
                 _tasks.update { list -> list.filterNot { it.id == task.id } + task }
                 persistActive(task)
                 launchDownload(task, store)
@@ -581,20 +663,35 @@ object ZlibDownloadManager {
     }
 
     /**
-     * U3：取消一次进行中的下载。
+     * U3/T23：取消一次进行中的下载。
      * - 立即置 cancelFlag → ZlibClient 在下一个检查点停下（最多一个 8KB/请求周期）；
-     * - **保留 .part**（可续传），不落失败历史；
+     * - **保留 .part**（可续传），并把 CANCELLED 写进下载历史（跨进程仍可续传/删除）；
      * - 卡片先显示「正在取消…」，等协程收尾后才翻成 CANCELLED（避免旧协程还持有 .part 时
-     *   用户点续传造成两个协程写同一文件）。
+     *   用户点续传造成两个协程写同一文件）；
+     * - 字节已下完或正在导入时取消无效（见 [zlibCancelDisposition]），不产生半成品、不误删。
      */
     fun cancel(id: String) {
         val task = _tasks.value.firstOrNull { it.id == id } ?: return
         if (!task.isActive || task.cancelling || task.importing) return
-        // 字节已下完（正在复制进 SAF 目录 / 即将进入导入阶段）时取消没有意义：
-        // 此时 IO 已不可中断，再翻 CANCELLED 会让用户以为下载停了，实际会继续完成导入。
-        if (task.total > 0L && task.received >= task.total) return
+        when (zlibCancelDisposition(task.received, task.total, task.importing)) {
+            ZlibCancelDisposition.IGNORE_IMPORTING -> {
+                Log.i(TAG, "zlib_download_cancel_ignored reason=importing task=" + id)
+                return
+            }
+
+            ZlibCancelDisposition.IGNORE_COMPLETE -> {
+                // 字节已齐：网络阶段已结束，取消只会让 UI 与真实文件状态不一致。
+                Log.i(TAG, "zlib_download_cancel_ignored reason=complete task=" + id)
+                return
+            }
+
+            ZlibCancelDisposition.CANCEL -> Unit
+        }
         if (!runs.cancel(id, ZlibCancelReason.USER)) return
-        updateTask(id) { it.copy(cancelling = true) }
+        val cancelling = updateTask(id) { it.copy(cancelling = true) } ?: return
+        // T23：取消请求立即写一条 CANCELLED 历史（pending 快照退场）——进程在收尾窗口被杀时，
+        // 记录页仍显示「已取消」而不是恢复成 INTERRUPTED；后续 COMPLETED/FAILED 会按同 bookId 覆盖。
+        addCancelledHistory(zlibCancelledHistoryRecord(cancelling, System.currentTimeMillis()))
         Log.i(TAG, "zlib_download_cancel task=" + id)
     }
 
@@ -604,6 +701,8 @@ object ZlibDownloadManager {
         if (current.isActive) return
         // 上一轮取消还在收尾（.part 仍被写）：等协程退出后再允许续传。
         if (runs.current(id) != null) return
+        // T23：CANCELLED 也会落历史；续传会生成新终态，先清掉旧记录。
+        removeHistoryRecord(current.bookId)
         val task = current.copy(
             received = 0L,
             total = -1L,
@@ -617,6 +716,38 @@ object ZlibDownloadManager {
         _tasks.update { list -> list.map { if (it.id == id) task else it } }
         persistActive(task)
         launchDownload(task, store)
+    }
+
+    /**
+     * T23：从下载历史续传一条 CANCELLED 记录（进程重启后也可用）。
+     *
+     * 目标路径沿用记录里的值：普通路径的 .part 就在目标文件旁边；SAF 的 cacheDir 半成品按
+     * task id 命名（init 清理时已按 CANCELLED 记录保留）。旧记录会先移除，续传结果以新终态覆盖。
+     *
+     * @return 续传来源（[ZlibResumeSource.PARTIAL] 可接上半成品 / [ZlibResumeSource.RESTART]
+     *   半成品已被清理、将从头下载）；null = 无法续传（记录不是 CANCELLED、已有活动任务或未初始化）。
+     */
+    fun resumeCancelled(bookId: String, store: LibraryStore): ZlibResumeSource? {
+        val context = appContext ?: return null
+        val record = historyForBook(bookId)?.takeIf {
+            it.status == ZlibDownloadStatus.CANCELLED
+        } ?: return null
+        if (_tasks.value.any { it.bookId == bookId && it.isActive }) return null
+        if (runs.current(record.id) != null) return null
+        // 半成品大小只做一次 stat（cacheDir/外部目录的小文件），用于提示「续传」还是「从头下载」。
+        val partialBytes = partialBytesOf(context, record)
+        val source = zlibResumeSourceFor(record, partialBytes)
+        removeHistoryRecord(bookId)
+        val task = zlibResumeTaskFromRecord(record)
+        _tasks.update { list -> list.filterNot { it.id == task.id } + task }
+        persistActive(task)
+        launchDownload(task, store)
+        Log.i(
+            TAG,
+            "zlib_download_resume book=" + bookId + " source=" + source.name +
+                " partial=" + partialBytes,
+        )
+        return source
     }
 
     /**
@@ -648,6 +779,11 @@ object ZlibDownloadManager {
         if (task.isActive) return
         _tasks.update { list -> list.filterNot { it.id == id } }
         clearActive(task.bookId)
+        // T23：CANCELLED 已落历史；「删除」要把记录页里的那条也清掉（否则删完卡片还留着记录）。
+        if (_history.value.any { it.bookId == task.bookId && it.status == ZlibDownloadStatus.CANCELLED }) {
+            _history.update { list -> list.filterNot { it.bookId == task.bookId } }
+            scheduleHistoryWrite()
+        }
         val context = appContext ?: return
         scope.launch(Dispatchers.IO) {
             if (task.saf || task.destPath.startsWith("content://")) {
@@ -699,6 +835,11 @@ object ZlibDownloadManager {
         // 同一本书的终态卡片一并移除，避免记录页删了而书架还挂着卡片。
         _tasks.update { list -> list.filterNot { it.bookId == bookId && !it.isActive } }
         if (!deleteFile) {
+            // T23：只删记录时完整文件要保留，但未完成记录旁的 .part / SAF cacheDir 临时文件不可用，
+            // 记录没了就再也没法续传，一并清掉避免孤儿占空间（正在下载的同书任务绝不能动，inUse 守卫）。
+            if (!inUse && zlibShouldCleanPartialOnRecordOnly(removed.status)) {
+                cleanupPartial(removed)
+            }
             onResult?.invoke(ZlibHistoryDeleteResult.RECORD_ONLY)
             return true
         }
@@ -910,7 +1051,7 @@ object ZlibDownloadManager {
         }
     }
 
-    /** 下载失败/取消收尾：CANCELLED 区分用户取消（不写历史）与看门狗停滞（network_error + 历史）。 */
+    /** 下载失败/取消收尾：用户取消写 CANCELLED 历史（可续传），看门狗停滞写 network_error 历史。 */
     private fun handleDownloadFailure(
         run: ZlibDownloadRun,
         task: ZlibDownloadTask,
@@ -943,19 +1084,12 @@ object ZlibDownloadManager {
                 }
 
                 else -> {
-                    // U3：用户取消 —— 保留 .part，不落失败历史，卡片给「续传/删除」。
-                    updateTask(task.id) {
-                        it.copy(
-                            status = ZlibDownloadStatus.CANCELLED,
-                            importing = false,
-                            cancelling = false,
-                            errorKind = null,
-                            errorMessage = null,
-                            finishedAt = System.currentTimeMillis(),
-                        )
-                    }
-                    // U10：用户取消是终态，删掉非终态快照（半成品文件按 U3 保留，卡片上可续传/删除）。
-                    clearActive(task.bookId)
+                    // U3/T23：用户取消 —— 保留 .part，并把 CANCELLED 落历史（跨进程可续传/删除）。
+                    val cancelled = updateTask(task.id) {
+                        zlibCancelledHistoryRecord(it, System.currentTimeMillis())
+                    } ?: task
+                    // 非终态快照退场；半成品文件按 U3 保留，记录里的 destPath/total 供续传。
+                    addCancelledHistory(cancelled)
                     Log.i(
                         PERF_TAG,
                         "zlib_download|ms=" + (SystemClock.elapsedRealtime() - began) +
@@ -1070,9 +1204,24 @@ object ZlibDownloadManager {
         )
     }
 
+    /** SAF 临时文件名（cacheDir/zlib-downloads/<id>.part）；init 清理按同一前缀保留。 */
     private fun safTempFile(context: Context, id: String): File {
         val dir = File(context.cacheDir, SAF_TEMP_DIR).apply { mkdirs() }
-        return File(dir, id.replace(':', '_') + ".part")
+        return File(dir, safTempPrefix(id))
+    }
+
+    private fun safTempPrefix(id: String): String = id.replace(':', '_') + ".part"
+
+    /** T23：取消记录还剩多少可续传字节（SAF 看 cacheDir 的 temp.part，普通路径看目标旁的 .part）。 */
+    private fun partialBytesOf(context: Context, record: ZlibDownloadTask): Long {
+        val partial = if (record.saf || record.destPath.startsWith("content://")) {
+            ZlibDownloadFiles.partFileOf(safTempFile(context, record.id))
+        } else if (record.destPath.isNotBlank()) {
+            ZlibDownloadFiles.partFileOf(File(record.destPath))
+        } else {
+            return 0L
+        }
+        return runCatching { partial.length() }.getOrDefault(0L).coerceAtLeast(0L)
     }
 
     private fun bookTag(bookId: String): String = "zlib:" + bookId
@@ -1108,6 +1257,39 @@ object ZlibDownloadManager {
         )
         _history.update { list -> listOf(record) + list.filterNot { it.bookId == record.bookId } }
         scheduleHistoryWrite()
+    }
+
+    /**
+     * T23：写 CANCELLED 历史。不能复用 [addHistory]——那里会把 total 改写成实际下到的字节数，
+     * 取消记录会变成「100% · 1MB/1MB」的假完成态；取消必须保留原 total 表示「没下完」。
+     */
+    private fun addCancelledHistory(record: ZlibDownloadTask) {
+        pendingRecords.remove(record.bookId)
+        _history.update { list -> listOf(record) + list.filterNot { it.bookId == record.bookId } }
+        scheduleHistoryWrite()
+    }
+
+    /** T23：清掉同书旧记录（续传/重试/重下会生成新的终态记录，避免记录页同时出现两条）。 */
+    private fun removeHistoryRecord(bookId: String) {
+        if (_history.value.none { it.bookId == bookId }) return
+        _history.update { list -> list.filterNot { it.bookId == bookId } }
+        scheduleHistoryWrite()
+    }
+
+    /** T23：只清半成品（目标完整文件保留）；SAF 还包括 cacheDir 的 temp / temp.part。 */
+    private fun cleanupPartial(record: ZlibDownloadTask) {
+        val context = appContext
+        scope.launch(Dispatchers.IO) {
+            if (record.saf || record.destPath.startsWith("content://")) {
+                if (context != null) {
+                    val temp = safTempFile(context, record.id)
+                    runCatching { temp.delete() }
+                    runCatching { ZlibDownloadFiles.deletePartial(temp) }
+                }
+            } else if (record.destPath.isNotBlank()) {
+                ZlibDownloadFiles.deletePartial(File(record.destPath))
+            }
+        }
     }
 
     /** 单写者队列：只有 submit 返回 true 的调用者启动排空循环（写盘前重取最新快照）。 */
@@ -1149,7 +1331,18 @@ object ZlibDownloadManager {
      * @return true = 文件确实不存在了（已删或本来就不存在）；false = 删除失败（T15：记录页要提示）。
      */
     private fun deleteDownloadedFile(context: Context?, record: ZlibDownloadTask): Boolean {
-        if (record.destPath.startsWith("content://")) {
+        if (record.saf || record.destPath.startsWith("content://")) {
+            // T23：SAF 取消/中断会在 cacheDir 留 temp 与 temp.part（网络层再拼 .part 即 .part.part，
+            // 审计 B2）。删记录时一并清理，避免「删了记录还占空间」或残片被误当可续传。
+            if (context != null) {
+                val temp = safTempFile(context, record.id)
+                runCatching { temp.delete() }
+                runCatching { ZlibDownloadFiles.deletePartial(temp) }
+            }
+            if (!record.destPath.startsWith("content://")) {
+                // 目标文档还没创建（取消发生在创建前）：cacheDir 清干净就算删完。
+                return true
+            }
             val resolver = context?.contentResolver ?: return false
             val deleted = runCatching {
                 DocumentsContract.deleteDocument(resolver, Uri.parse(record.destPath))
@@ -1208,8 +1401,11 @@ object ZlibDownloadManager {
             val rawStatus = item.optString("status")
             val pending = rawStatus == ZlibDownloadStatus.PREPARING.name ||
                 rawStatus == ZlibDownloadStatus.DOWNLOADING.name
+            // T23：CANCELLED 可能发生在 SAF 目标文档创建之前（destPath 为空），但 cacheDir 半成品
+            // 仍可续传，不能按脏数据丢弃。
+            val cancelled = rawStatus == ZlibDownloadStatus.CANCELLED.name
             if (bookId.isBlank()) continue
-            if (destPath.isBlank() && !pending) continue
+            if (destPath.isBlank() && !pending && !cancelled) continue
             out += ZlibDownloadTask(
                 id = taskId(bookId),
                 bookId = bookId,
@@ -1298,16 +1494,25 @@ internal fun zlibRecoverInterrupted(
 }
 
 /**
- * U10：清 cacheDir/zlib-downloads 下进程被杀留下的半成品（.part / .part.meta）。
- * 这些临时文件跨进程无法可靠续传，留着只会占空间；返回删除的文件数。
+ * U10/T23：清 cacheDir/zlib-downloads 下的孤儿半成品（.part / .part.part / .part.meta）。
+ *
+ * 有 CANCELLED SAF 记录时，对应 task id 前缀的文件要保留——用户/系统清缓存前它们仍可续传；
+ * 其余文件视为孤儿删除。没有保留文件时连目录一起删，避免空目录常驻。
+ * 返回删除的文件数（保留的不计）。
  */
-internal fun zlibCleanTempDownloads(dir: File): Int {
+internal fun zlibCleanTempDownloads(dir: File, keepPrefixes: Set<String> = emptySet()): Int {
     if (!dir.isDirectory) return 0
     var removed = 0
+    var kept = 0
     dir.walkBottomUp().forEach { file ->
         if (file == dir) return@forEach
-        if (file.isFile && file.delete()) removed++
+        if (!file.isFile) return@forEach
+        if (keepPrefixes.any { prefix -> file.name.startsWith(prefix) }) {
+            kept++
+        } else if (file.delete()) {
+            removed++
+        }
     }
-    dir.delete()
+    if (kept == 0) dir.delete()
     return removed
 }

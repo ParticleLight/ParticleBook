@@ -21,6 +21,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.outlined.Cancel
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.ErrorOutline
@@ -201,6 +202,16 @@ fun ZlibDownloadsScreen(
                             }
                         },
                         onDeleteClick = { deleteTarget = record },
+                        // T23：CANCELLED 记录（含进程重启后）给「续传」；半成品被系统清掉时如实提示从头下载。
+                        onResume = {
+                            val source = ZlibDownloadManager.resumeCancelled(record.bookId, store)
+                            val message = when (source) {
+                                ZlibResumeSource.PARTIAL -> "已从上次进度续传"
+                                ZlibResumeSource.RESTART -> "临时文件已被清理，将从头重新下载"
+                                ZlibResumeSource.UNAVAILABLE, null -> "无法续传，请稍后重试"
+                            }
+                            scope.launch { snackbarHostState.showSnackbar(message) }
+                        },
                         onImport = {
                             if (importingBookId != null) return@DownloadRecordRow
                             importingBookId = record.bookId
@@ -401,10 +412,13 @@ private fun DownloadRecordRow(
     onOpenFolder: () -> Unit,
     onDeleteClick: () -> Unit,
     onImport: () -> Unit,
+    onResume: () -> Unit,
 ) {
     // 记录本身是否下载完成（文件是否还在另算）；SAF 目录下原文件可能被系统清理，
     // 但书已导入书架时「打开」仍应可用（task-38③）。
     val recordCompleted = record.status == ZlibDownloadStatus.COMPLETED
+    // T23：用户取消的半成品保留在磁盘上（可续传），记录页要显示「已取消」而不是「未完成/失败」。
+    val recordCancelled = record.status == ZlibDownloadStatus.CANCELLED
     val clickable = recordCompleted && imported != null
     // P1-6：200% 字号下三行都只有省略号 → 书名放到 2 行、隐藏文件名行（标题已足够识别）。
     val largeFont = LocalDensity.current.fontScale >= 1.3f
@@ -417,13 +431,21 @@ private fun DownloadRecordRow(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(
-            imageVector = if (recordCompleted) Icons.Outlined.CheckCircle else Icons.Outlined.ErrorOutline,
-            contentDescription = if (recordCompleted) "下载完成" else "下载失败",
+            imageVector = when {
+                recordCompleted -> Icons.Outlined.CheckCircle
+                recordCancelled -> Icons.Outlined.Cancel
+                else -> Icons.Outlined.ErrorOutline
+            },
+            contentDescription = when {
+                recordCompleted -> "下载完成"
+                recordCancelled -> "已取消"
+                else -> "下载失败"
+            },
             modifier = Modifier.size(24.dp),
-            tint = if (recordCompleted) {
-                MaterialTheme.colorScheme.tertiary
-            } else {
-                MaterialTheme.colorScheme.error
+            tint = when {
+                recordCompleted -> MaterialTheme.colorScheme.tertiary
+                recordCancelled -> MaterialTheme.colorScheme.onSurfaceVariant
+                else -> MaterialTheme.colorScheme.error
             },
         )
         Spacer(Modifier.width(Spacing.sm))
@@ -461,6 +483,11 @@ private fun DownloadRecordRow(
                     .size(20.dp),
                 strokeWidth = 2.dp,
             )
+
+            // T23：取消态（含进程重启后）给「续传」；半成品若被清掉，resumeCancelled 会提示从头下载。
+            recordCancelled -> TextButton(onClick = onResume) {
+                Text("续传")
+            }
 
             !recordCompleted -> Text(
                 text = "未完成",
@@ -543,6 +570,7 @@ private fun recordMetaLine(record: ZlibDownloadTask, completed: Boolean): String
     } ?: "未知时间"
     val status = when {
         completed -> "已完成"
+        record.status == ZlibDownloadStatus.CANCELLED -> "已取消"
         record.status == ZlibDownloadStatus.FAILED -> "失败"
         else -> "未完成"
     }
