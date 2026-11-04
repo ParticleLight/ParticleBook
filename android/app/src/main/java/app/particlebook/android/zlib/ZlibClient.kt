@@ -69,6 +69,7 @@ class ZlibClient(
 ) {
 
     /** 最近一次可用的镜像（如 `https://z-lib.by`）；未探测前为 null。可被外部覆盖用于固定镜像。 */
+    @Volatile
     var mirror: String? = null
 
     /**
@@ -655,6 +656,23 @@ class ZlibClient(
                 val res = getWithChallenge(URI(candidate + "/s/test"), deadlineNanos = deadlineNanos)
                 val elapsed = (System.nanoTime() - started) / 1_000_000L
                 if (res.status == 200 && !looksLikeChallenge(res.body)) {
+                    // T37/task-33：zlib.ch / zlib.re 对任意深链 301 到 z-lib.by 首页（path 被丢弃），
+                    // 首页也可能含 z-bookcard 等标记，只看最终 200 会把它们误判为健康线路。
+                    // 探测 URL 是 /s/test，最终却落在站点根路径 → 判定为首页网关：记失败并降权。
+                    val finalPath = res.uri.path.orEmpty()
+                    if (finalPath.isEmpty() || finalPath == "/") {
+                        lastProbeError = host + " -> redirect home"
+                        val entry = ZlibMirrorRegistry.recordFailure(candidate, "redirect_home", now)
+                        debugLog(
+                            "mirror_probe host=" + host + " kind=gateway code=200 rank=home final=/" +
+                                " ms=" + elapsed,
+                        )
+                        debugLog(
+                            "mirror_demote host=" + host + " tier=" + tierLabel + " reason=redirect_home until=" +
+                                (entry?.demoteUntil ?: 0L) + " fail_count=" + (entry?.failCount ?: 1),
+                        )
+                        return ProbeOutcome()
+                    }
                     val kind = if (res.challenged) "pow" else "http"
                     val rank = probeRankOf(res)
                     val finalRoot = mirrorRootOf(res.uri)
@@ -967,65 +985,117 @@ class ZlibClient(
     /** 本地账号缓存（同步、无网络）；未登录返回 null。 */
     fun cachedAccount(context: Context): ZAccount? = readAccount(prefsOf(context))
 
-    /** 书籍详情（P1b 1.3）：先 /book/hash，再带 slug；仍失败时跟 canonical 链接补一次。 */
+    /**
+     * 书籍详情（P1b 1.3）：先 /book/hash，再带 slug；仍失败时跟 canonical 链接补一次。
+     *
+     * T37/task-33：204 是书籍级确定性不可用（35 本抽样 4 本 204，跨 7h、同 hash 换 slug 仍 204），
+     * 不是网络错误——先换一条镜像重试一次；仍 204 则明确提示「该书当前不可用（可能已下架）」。
+     */
     fun fetchDetail(hash: String, slug: String? = null): ZBookDetail {
         val cleanHash = hash.trim().trim('/')
         require(cleanHash.isNotEmpty()) { "hash must not be blank" }
         ensureInitialized()
-        val base = mirror ?: probeMirrors()
-        val candidates = ArrayList<String>()
-        candidates.add(base + "/book/" + cleanHash)
-        if (!slug.isNullOrBlank()) {
-            candidates.add(base + "/book/" + cleanHash + "/" + normalizeSlug(slug))
-        }
+        var currentBase = mirror ?: probeMirrors()
         var lastStatus = 0
         var lastBody: String? = null
         val tried = ArrayList<String>()
-        for (url in candidates) {
-            tried.add(url)
-            val res = getWithChallenge(URI(url))
-            lastStatus = res.status
-            lastBody = res.body
-            if (res.status == 200 && looksLikeDetailPage(res.body)) {
-                return ZlibDetailParser.parse(res.body, res.uri.toString(), cleanHash)
-            }
-            val canonical = canonicalBookUrl(res.body)
-            if (canonical != null) {
-                val canonicalUrl = absoluteSiteUrl(base, canonical)
-                if (canonicalUrl !in tried) {
-                    tried.add(canonicalUrl)
-                    val follow = getWithChallenge(URI(canonicalUrl))
-                    // T31：canonical 跟随后也要更新「最后一次响应」，否则 204/空 body 的诊断会误报前一次的 200。
-                    lastStatus = follow.status
-                    lastBody = follow.body
-                    if (follow.status == 200 && looksLikeDetailPage(follow.body)) {
-                        return ZlibDetailParser.parse(follow.body, follow.uri.toString(), cleanHash)
+        var retriedOnOtherMirror = false
+        while (true) {
+            val retryAttempt = retriedOnOtherMirror
+            try {
+                val candidates = ArrayList<String>()
+                candidates.add(currentBase + "/book/" + cleanHash)
+                if (!slug.isNullOrBlank()) {
+                    candidates.add(currentBase + "/book/" + cleanHash + "/" + normalizeSlug(slug))
+                }
+                for (url in candidates) {
+                    tried.add(url)
+                    val res = getWithChallenge(URI(url))
+                    lastStatus = res.status
+                    lastBody = res.body
+                    if (res.status == 200 && looksLikeDetailPage(res.body)) {
+                        return ZlibDetailParser.parse(res.body, res.uri.toString(), cleanHash)
+                    }
+                    val canonical = canonicalBookUrl(res.body)
+                    if (canonical != null) {
+                        val canonicalUrl = absoluteSiteUrl(currentBase, canonical)
+                        if (canonicalUrl !in tried) {
+                            tried.add(canonicalUrl)
+                            val follow = getWithChallenge(URI(canonicalUrl))
+                            // T31：canonical 跟随后也要更新「最后一次响应」，否则 204/空 body 的诊断会误报前一次的 200。
+                            lastStatus = follow.status
+                            lastBody = follow.body
+                            if (follow.status == 200 && looksLikeDetailPage(follow.body)) {
+                                return ZlibDetailParser.parse(follow.body, follow.uri.toString(), cleanHash)
+                            }
+                        }
                     }
                 }
+            } catch (e: ZlibException) {
+                // 204 后的换线重试如果自己失败（网络/HTTP），保留原 204 的「书籍不可用」语义，不再上抛。
+                if (!retryAttempt) throw e
+                debugLog("detail_204_retry_fail host=" + hostOf(currentBase) + " err=" + e.kind.name)
+            } catch (e: Exception) {
+                if (!retryAttempt) throw e
+                debugLog("detail_204_retry_fail host=" + hostOf(currentBase) + " err=" + e.javaClass.simpleName)
             }
+            // T37/task-33：204 先换一条镜像重试一次（同 hash 换 slug 仍 204，说明是书的问题不是线路问题）。
+            if (lastStatus == 204 && !retriedOnOtherMirror) {
+                val alt = alternateMirrorForDetail(currentBase)
+                if (alt != null && normalizeMirror(alt) != normalizeMirror(currentBase)) {
+                    retriedOnOtherMirror = true
+                    debugLog(
+                        "detail_204_retry from=" + hostOf(currentBase) + " to=" + hostOf(alt) +
+                            " hash=" + cleanHash,
+                    )
+                    currentBase = alt
+                    continue
+                }
+            }
+            break
         }
-        // T31（realnet task-26）：真实站点部分 /book/<hash> 返回 204 空响应，必须归为明确错误，
-        // 不能让 UI 落到「泛解析失败」或渲染空白详情。204 归 HTTP（带状态码，UI 展示「服务器返回错误 204」），
-        // 2xx 但 body 为空归 PARSE；文案直接给中文，未知 kind 回退时也能读。
-        val emptyResponse = lastStatus == 204 || (lastStatus in 200..299 && lastBody.isNullOrBlank())
-        if (emptyResponse) {
+        // T31（realnet task-26）+ T37（realnet task-33）：204 是书籍级确定性不可用（已下架/无文件），
+        // UI 应给可读提示，不按网络错误重试；2xx 但 body 为空仍归 PARSE。
+        val unavailable = lastStatus == 204
+        val emptyResponse = lastStatus in 200..299 && lastBody.isNullOrBlank()
+        if (unavailable) {
+            debugLog("detail_unavailable hash=" + cleanHash + " status=204 tried=" + tried.size)
+        } else if (emptyResponse) {
             debugLog("detail_empty hash=" + cleanHash + " status=" + lastStatus + " body_len=0")
         } else {
             debugLog("detail_fail hash=" + cleanHash + " status=" + lastStatus + " body_len=" + (lastBody?.length ?: 0))
         }
         throw ZlibException(
-            if (emptyResponse) {
-                "详情页返回空响应（HTTP " + lastStatus + "），请切换线路或稍后重试"
-            } else {
-                "detail page unavailable (hash=" + cleanHash + ", status=" + lastStatus + ", tried=" + tried.size + ")"
+            when {
+                unavailable -> ZlibErrorMessages.BOOK_UNAVAILABLE
+                emptyResponse -> "详情页返回空响应（HTTP " + lastStatus + "），请切换线路或稍后重试"
+                else -> "detail page unavailable (hash=" + cleanHash + ", status=" + lastStatus + ", tried=" + tried.size + ")"
             },
             when {
-                lastStatus == 204 -> ZlibException.Kind.HTTP
-                lastStatus in 400..499 -> ZlibException.Kind.HTTP
+                // T37：4xx/5xx 都是服务端明确返回的 HTTP 错误 → 统一 HTTP kind + 真实状态码；
+                // 不要归 NETWORK（UI 会显示「网络连接失败」）或 PARSE（会显示「页面格式无法识别」）。
+                lastStatus == 204 || lastStatus in 400..599 -> ZlibException.Kind.HTTP
                 else -> ZlibException.Kind.PARSE
             },
             httpCode = lastStatus.takeIf { it > 0 },
         )
+    }
+
+    /**
+     * T37/task-33：204 后换线重试的候选（排除当前线路）。生产从注册表候选里取第一条；
+     * 无注册表（JVM 单测/appContext 未初始化）返回 null，避免测试联网。
+     */
+    private fun alternateMirrorForDetail(exclude: String): String? {
+        detailRetryMirrorForTest?.let { provider -> return provider() }
+        val file = registryFile() ?: return null
+        val now = System.currentTimeMillis()
+        ZlibMirrorRegistry.ensureLoaded(file, now)
+        val excluded = setOf(normalizeMirror(exclude))
+        val candidates = ArrayList<ZlibMirrorRegistry.Entry>()
+        candidates.addAll(ZlibMirrorRegistry.orderedOfficial(now, excluded))
+        candidates.addAll(ZlibMirrorRegistry.dynamicCandidates(now, excluded))
+        candidates.addAll(ZlibMirrorRegistry.fallbackCandidates(now, excluded))
+        return candidates.firstOrNull { normalizeMirror(it.url).isNotEmpty() }?.url
     }
 
     /**
@@ -1048,7 +1118,8 @@ class ZlibClient(
             debugLog("category_fail path=" + sitePath + " status=" + res.status + " body_len=" + res.body.length)
             throw ZlibException(
                 "category page unavailable (path=" + sitePath + ", status=" + res.status + ")",
-                if (res.status in 400..499) ZlibException.Kind.HTTP else ZlibException.Kind.PARSE,
+                // T37：4xx/5xx 统一 HTTP kind，带真实状态码；只有 3xx/1xx 等异常状态才归 PARSE。
+                if (res.status in 400..599) ZlibException.Kind.HTTP else ZlibException.Kind.PARSE,
                 httpCode = res.status,
             )
         }
@@ -1146,7 +1217,9 @@ class ZlibClient(
             debugLog(what + "_fail path=" + sitePathOf(path) + " status=" + res.status + " body_len=" + res.body.length)
             throw ZlibException(
                 what + " page unavailable (status=" + res.status + ")",
-                if (res.status in 400..499) ZlibException.Kind.HTTP else ZlibException.Kind.NETWORK,
+                // T37：4xx/5xx 统一 HTTP kind，带真实状态码；只有 3xx/1xx 等异常状态才归 PARSE。
+                // 之前 5xx 归 NETWORK，真机 500 会显示「网络连接失败…错误类型：NETWORK」。
+                if (res.status in 400..599) ZlibException.Kind.HTTP else ZlibException.Kind.PARSE,
                 httpCode = res.status,
             )
         }
@@ -2032,6 +2105,9 @@ class ZlibClient(
     /** 单测 seam：返回导航页 HTML（null = 模拟抓取失败/超时）；仅测试设置。 */
     internal var navFetcherForTest: (() -> String?)? = null
 
+    /** T37 单测 seam：详情 204 后换线重试的候选镜像；null = 走注册表（JVM 单测无注册表时为 null）。 */
+    internal var detailRetryMirrorForTest: (() -> String?)? = null
+
     /** 最近一次探测失败的描述（NO_MIRROR 消息用）。 */
     @Volatile
     private var lastProbeError: String? = null
@@ -2868,7 +2944,10 @@ class ZlibClient(
     // ---------------------------------------------------------------- challenge detection
 
     private fun isChallengeResponse(res: HttpResult): Boolean =
-        res.status == 503 || looksLikeChallenge(res.body)
+        looksLikeChallenge(res.body) ||
+            // T37：只有「确实可解」的 503 才算挑战页。之前把任意 503 都当挑战，
+            // 服务端真实故障 503（空 body / 普通错误页）会变成 CHALLENGE_FAILED，UI 误报「安全校验失败」。
+            (res.status == 503 && ZlibChallenge.extractConstant(res.body) != null)
 
     private fun looksLikeChallenge(body: String): Boolean {
         if (body.contains("Checking your browser", ignoreCase = true)) return true

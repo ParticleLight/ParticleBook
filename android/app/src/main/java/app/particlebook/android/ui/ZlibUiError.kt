@@ -56,6 +56,8 @@ object ZlibUiError {
      * 两者都没有时保持原文案（向后兼容）。[rawMessage] 是网络层异常 message（英文诊断）。
      */
     fun httpMessage(httpCode: Int?, rawMessage: String?): String = when {
+        // T37/task-33：204 是书籍级确定性不可用（已下架/无文件），不是网络/服务器故障。
+        httpCode == 204 -> "该书当前不可用（可能已下架）"
         httpCode != null -> "服务器返回错误 " + httpCode
         rawMessage == null -> HTTP
         rawMessage.contains("too many redirect", ignoreCase = true) ||

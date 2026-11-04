@@ -2,7 +2,9 @@ package app.particlebook.android.zlib
 
 import java.io.Closeable
 import java.net.ServerSocket
+import app.particlebook.android.ui.ZlibUiError
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -83,8 +85,8 @@ class ZlibDetailResponseTest {
             } catch (e: ZlibException) {
                 assertEquals("204 是 HTTP 层明确错误", ZlibException.Kind.HTTP, e.kind)
                 assertEquals(204, e.httpCode)
-                assertTrue("文案应带状态码: " + e.message, e.message!!.contains("204"))
-                assertTrue("文案应为中文且点明空响应: " + e.message, e.message!!.contains("空响应"))
+                assertEquals("204 是书籍级确定性不可用，必须给可读文案", ZlibErrorMessages.BOOK_UNAVAILABLE, e.message)
+                assertEquals(ZlibErrorMessages.BOOK_UNAVAILABLE, ZlibErrorMessages.from(e))
             }
         }
     }
@@ -99,6 +101,66 @@ class ZlibDetailResponseTest {
                 assertEquals("空 body 属页面结构问题", ZlibException.Kind.PARSE, e.kind)
                 assertTrue("文案应点明空响应: " + e.message, e.message!!.contains("空响应"))
                 assertTrue("文案应为中文: " + e.message, e.message!!.contains("请切换线路"))
+            }
+        }
+    }
+
+    /** 详情正文桩：looksLikeDetailPage 需要 details-book + book-title。 */
+    private val detailBody = """
+        <html><body><div class="details-book cardBooks" data-book_id="42">
+        <h1 class="book-title">Retry OK</h1>
+        <a class="btn btn-default dlButton addDownloadedBook" href="/dl/OK">pdf, 1 MB</a>
+        </div></body></html>
+    """.trimIndent()
+
+    /** T37/task-33：首镜像 204 → 换一条镜像重试一次；第二条成功就正常返回详情。 */
+    @Test
+    fun detail204RetriesAlternateMirrorThenSucceeds() {
+        StubHttpServer(204, "").use { first ->
+            StubHttpServer(200, detailBody).use { second ->
+                val client = clientFor(first.baseUrl)
+                client.detailRetryMirrorForTest = { second.baseUrl }
+
+                val detail = client.fetchDetail("d5eARxJrQ5")
+
+                assertEquals("Retry OK", detail.title)
+                assertEquals("/dl/OK", detail.downloadPath)
+            }
+        }
+    }
+
+    /**
+     * T37/task-33：两条镜像都 204 → 书籍级确定性不可用，文案可读、不按网络错误。
+     * 同时断言网络层与 UI 层共用同一文案，且确实发生了换线重试。
+     */
+    @Test
+    fun detail204OnBothMirrorsIsReadableUnavailable() {
+        StubHttpServer(204, "").use { first ->
+            StubHttpServer(204, "").use { second ->
+                val logs = ArrayList<String>()
+                val client = ZlibClient().also {
+                    it.mirror = first.baseUrl
+                    it.testLogger = { line -> logs.add(line) }
+                    it.navFetcherForTest = { null }
+                    it.detailRetryMirrorForTest = { second.baseUrl }
+                }
+                try {
+                    client.fetchDetail("d5eARxJrQ5")
+                    throw AssertionError("两条镜像都 204 必须抛错，不能返回空白详情")
+                } catch (e: ZlibException) {
+                    assertEquals(ZlibException.Kind.HTTP, e.kind)
+                    assertEquals(204, e.httpCode)
+                    assertEquals(ZlibErrorMessages.BOOK_UNAVAILABLE, e.message)
+                    val networkText = ZlibErrorMessages.from(e)
+                    assertEquals(ZlibErrorMessages.BOOK_UNAVAILABLE, networkText)
+                    assertFalse("不能显示网络错误文案: " + networkText, networkText.contains("网络"))
+                    assertEquals(
+                        "UI 文案必须与网络层一致",
+                        ZlibErrorMessages.BOOK_UNAVAILABLE,
+                        ZlibUiError.message(e),
+                    )
+                }
+                assertTrue("必须换线重试一次: " + logs, logs.any { it.startsWith("detail_204_retry") })
             }
         }
     }
