@@ -382,22 +382,11 @@ class LibraryStore(
             try {
                 // 写失败会抛异常：内存与索引都不变，避免「UI 删了但文件索引还在」或反过来的半状态。
                 val removed = indexStore.remove(ids)
-                removed.forEach { book ->
-                    val file = File(book.filePath)
-                    if (file.parentFile?.name == LIBRARY_DIR_NAME) {
-                        runCatching { file.delete() }
-                    }
-                }
-                rememberDeletedFileTombstones(removed)
-                // P3-4：删书级联清进度/封面。清理失败只记日志，不能把「书已删除」误报成失败。
                 if (removed.isNotEmpty()) {
-                    val removedIds = removed.mapTo(ArrayList(removed.size)) { it.id }
-                    runCatching { ReadingProgress.clear(context, removedIds) }
-                        .onFailure { Log.w(TAG, "clear reading progress failed ids=" + removedIds, it) }
-                    runCatching { BookCoverLoader.evict(context, removedIds) }
-                        .onFailure { Log.w(TAG, "evict cover cache failed ids=" + removedIds, it) }
-                    markDeletedSeeds(removed)
                     if (notifyRemovalBus) {
+                        // task-98 P1-2：bus 必须早于删文件/指纹哈希。下载管理器的 bookId 墓碑是在 bus
+                        // 回调里写的；若先做最多 8MiB×N 的 SHA-256，窗口内完成回调 adopt 的新条目会躲过
+                        // 墓碑，且在 adopt 成功时把刚写的 LibraryStore 指纹墓碑 forget 掉。
                         // 下载记录按 filePath/zlib tag 关联清理（RECORD_ONLY）；data 层不反向依赖下载管理器。
                         // NonCancellable：索引已经删了，不能因为调用方协程在这一步被取消而漏发级联事件。
                         withContext(NonCancellable) {
@@ -407,6 +396,25 @@ class LibraryStore(
                             }
                         }
                     }
+                    removed.forEach { book ->
+                        val file = File(book.filePath)
+                        if (file.parentFile?.name == LIBRARY_DIR_NAME) {
+                            runCatching { file.delete() }
+                        }
+                    }
+                    rememberDeletedFileTombstones(removed)
+                    if (notifyRemovalBus) {
+                        // bus 已让管理器写墓碑；这里再兜一层：把 bus 前后竞态窗口里已经 adopt 成功的
+                        // 同 zlib tag 新条目（新 id）静默回收，避免删完书架又冒出一本。
+                        reclaimAdoptedDuringRemoval(removed)
+                    }
+                    // P3-4：删书级联清进度/封面。清理失败只记日志，不能把「书已删除」误报成失败。
+                    val removedIds = removed.mapTo(ArrayList(removed.size)) { it.id }
+                    runCatching { ReadingProgress.clear(context, removedIds) }
+                        .onFailure { Log.w(TAG, "clear reading progress failed ids=" + removedIds, it) }
+                    runCatching { BookCoverLoader.evict(context, removedIds) }
+                        .onFailure { Log.w(TAG, "evict cover cache failed ids=" + removedIds, it) }
+                    markDeletedSeeds(removed)
                 }
                 Result.success(removed.size)
             } catch (cancellation: CancellationException) {
@@ -428,6 +436,37 @@ class LibraryStore(
             runCatching { addDeletedFileTombstones(context.filesDir, files) }
                 .onFailure { Log.w(TAG, "remember deleted file tombstones failed", it) }
         }
+    }
+
+    /**
+     * task-98 P1-2：删书与在途下载完成的竞态兜底。
+     *
+     * bus 已经前移到哈希之前，管理器墓碑会在本方法之前写好；但在「索引 remove 已提交、bus 尚未执行」
+     * 的极短窗口里，下载完成回调仍可能 adopt 出同 zlib 书的新 Book.id。这里按本次删书的 zlib tag
+     * 再扫一次索引（锁内原子删除），把这类新条目连同文件/进度/封面/墓碑一起静默回收，不再发 bus。
+     */
+    private suspend fun reclaimAdoptedDuringRemoval(removed: List<Book>) {
+        val tags = zlibRemovalTags(removed)
+        if (tags.isEmpty()) return
+        val removedIds = removed.mapTo(HashSet(removed.size)) { it.id }
+        val reclaimed = runCatching { indexStore.removeBooksByTags(tags, removedIds) }
+            .onFailure { Log.w(TAG, "reclaim adopted books after removal failed", it) }
+            .getOrDefault(emptyList())
+        if (reclaimed.isEmpty()) return
+        reclaimed.forEach { book ->
+            val file = File(book.filePath)
+            if (file.parentFile?.name == LIBRARY_DIR_NAME) {
+                runCatching { file.delete() }
+            }
+        }
+        rememberDeletedFileTombstones(reclaimed)
+        val reclaimedIds = reclaimed.mapTo(ArrayList(reclaimed.size)) { it.id }
+        runCatching { ReadingProgress.clear(context, reclaimedIds) }
+            .onFailure { Log.w(TAG, "clear reclaimed reading progress failed ids=" + reclaimedIds, it) }
+        runCatching { BookCoverLoader.evict(context, reclaimedIds) }
+            .onFailure { Log.w(TAG, "evict reclaimed cover cache failed ids=" + reclaimedIds, it) }
+        markDeletedSeeds(reclaimed)
+        Log.i(TAG, "reclaimed books adopted during removal count=" + reclaimed.size)
     }
 
     /** P3-5：删掉内置样书时记下文件名，之后启动不再复制、fixtures 也不再合并回书架。 */
@@ -1022,6 +1061,12 @@ internal fun buildDownloadRecoveryCandidates(
 /** 下载记录的 zlib:<bookId> tag（与下载页 UI 的拼法一致）。 */
 internal fun zlibBookTag(bookId: String): String = ZLIB_TAG_PREFIX + bookId
 
+/** task-98：一次删书涉及的书目身份 tag（只取 zlib:<bookId>，不含 SAF URI/内容指纹）。 */
+internal fun zlibRemovalTags(removed: List<Book>): Set<String> =
+    removed.flatMapTo(LinkedHashSet()) { book ->
+        book.tags.filter { tag -> tag.startsWith(ZLIB_TAG_PREFIX) }
+    }
+
 /** 复制进书架的本地文件名：prefix-时间戳-uuid 前 8 位.扩展名（uuid 保证并发唯一）。 */
 internal fun libraryCopyFileName(prefix: String, extension: String, millis: Long, uuid: String): String =
     prefix + "-" + millis + "-" + uuid.lowercase(Locale.US).take(8) + "." + extension
@@ -1507,6 +1552,31 @@ internal class LibraryIndexStore(
         }
     }
 
+    /**
+     * task-98 P1-2：删书竞态回收——一次锁内删除所有带指定 tag、且不在 [excludeIds] 里的条目。
+     * 用于删书已经提交、但下载完成回调在这之后才 adopt 出一本同 zlib 书的新条目（新 id）。
+     * 只删本次删书的书目身份 tag，不能误删用户新导入的其它书。
+     */
+    suspend fun removeBooksByTags(tags: Set<String>, excludeIds: Set<Long> = emptySet()): List<Book> {
+        if (tags.isEmpty()) return emptyList()
+        val outcome = mutex.withLock {
+            ensureLoadedLocked()
+            val removed = committed.filter { book ->
+                book.id !in excludeIds && book.tags.any { it in tags }
+            }
+            if (removed.isEmpty()) {
+                return@withLock Committed(emptyList<Book>(), committed, committedVersion)
+            }
+            val removedIds = removed.mapTo(HashSet(removed.size)) { it.id }
+            val next = committed.filterNot { it.id in removedIds }
+            writeIndexLocked(next) // 写失败直接抛：内存/磁盘都不动，调用方下一轮/下次冷启还能补救。
+            val version = commitLocked(next)
+            Committed(removed, next, version)
+        }
+        dispatchCommitted(outcome.books, outcome.version)
+        return outcome.value
+    }
+
     /** 按 id 删除并回写索引，返回真正被移除的条目（供调用方删文件）。 */
     suspend fun remove(ids: Set<Long>): List<Book> {
         if (ids.isEmpty()) return emptyList()
@@ -1735,14 +1805,30 @@ internal class LibraryIndexStore(
                     .thenByDescending { it.modified }
                     .thenBy { snapshotPriority(it.file) },
             )
+        val markerTime = readEmptyMarkerTimeLocked()
+        var staleByEmptyMarker = false
         for (candidate in candidates) {
-            if (candidate.books.isEmpty() && !isTrustedEmptySnapshotLocked(candidate, candidates)) {
+            // task-98 P1-1：marker 是最近一次「空书架提交」的证据。比 marker 还旧的非空快照属于删前旧数据，
+            // 即使它是唯一可解析的快照也不能恢复；否则删光书后 main 损坏会把旧书复活。
+            // marker 之后的非空快照（用户删完后又导入/下载的新书）不受影响。
+            if (markerTime != null && candidate.books.isNotEmpty() && markerTime >= candidate.modified) {
+                staleByEmptyMarker = true
+                log("skip snapshot older than empty marker " + candidate.file.name, null)
+                continue
+            }
+            if (candidate.books.isEmpty() && !isTrustedEmptySnapshotLocked(candidate, candidates, markerTime)) {
                 log("skip empty index snapshot " + candidate.file.name + " (no fresh empty marker)", null)
                 continue
             }
             val label = if (candidate.file.name.endsWith(BAD_SUFFIX)) ".bad" else candidate.file.name
             log("index recovered from " + label + " backup entries=" + candidate.books.size, null)
             return SnapshotRecovery(candidate.books, candidate.file.name, candidate.modified)
+        }
+        if (staleByEmptyMarker && markerTime != null) {
+            // 所有可恢复快照都被 marker 判为删前旧数据：空书架就是最新已提交状态。
+            // 用 marker 时间当恢复边界，lastLoadLostIndex 再走「索引真丢」的全量补扫就会复活已删书。
+            log("index recovered from empty marker (all snapshots older than marker)", null)
+            return SnapshotRecovery(emptyList(), EMPTY_MARKER_NAME, markerTime)
         }
         return null
     }
@@ -1776,8 +1862,8 @@ internal class LibraryIndexStore(
     private fun isTrustedEmptySnapshotLocked(
         candidate: SnapshotCandidate,
         all: List<SnapshotCandidate>,
+        markerTime: Long?,
     ): Boolean {
-        val markerTime = readEmptyMarkerTimeLocked()
         if (markerTime != null) {
             if (candidate.modified == Long.MIN_VALUE) return false
             return markerTime >= candidate.modified - EMPTY_MARKER_TOLERANCE_MS
@@ -1831,12 +1917,18 @@ internal class LibraryIndexStore(
     private fun writeIndexLocked(books: List<Book>) {
         dir.mkdirs()
         val payload = codec.encode(books)
+        // task-98 P1-1：空书架提交必须先把 marker 落盘（fsync），再写空 main/备份。
+        // 这样任何「main 空 + bak 仍是删前旧数据」的崩溃窗口里 marker 都已存在，恢复时能据此否决旧快照；
+        // marker 写失败直接抛（写 API 返回失败），宁可不删也不能留下无法证明的空索引。
+        if (books.isEmpty()) {
+            writePayloadLocked(File(dir, EMPTY_MARKER_NAME), now().toString())
+        }
         writePayloadLocked(indexFile(), payload)
         // P2-1：A/B 轮换备份 = 本次成功提交（bak1）与上一次（bak2）。
         // 主索引被删除/损坏时优先恢复备份，避免「索引没了 = 默认下载目录的书永久丢条目」。
         writeLastGoodBackupLocked(payload)
-        // task-81：空书目提交留证据，非空提交清掉证据。
-        syncEmptyMarkerLocked(books.isEmpty())
+        // 非空提交必须删掉空证据；空提交的 marker 已在写 main 之前落盘，不再重写（避免 marker 晚于快照的窗口）。
+        if (books.isNotEmpty()) syncEmptyMarkerLocked(false)
     }
 
     /** task-81：空快照证据。只在本次提交确实是空书架时写；非空提交必须删除。 */
