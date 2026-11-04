@@ -10,6 +10,7 @@ import app.particlebook.android.zlib.ZSearchPage
 import app.particlebook.android.zlib.ZlibClient
 import app.particlebook.android.zlib.ZlibErrorMessages
 import app.particlebook.android.zlib.ZlibException
+import app.particlebook.android.zlib.ZlibSearchFilters
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -49,7 +50,7 @@ sealed interface ZlibSearchState {
 
 /** 搜索 ViewModel 依赖的最小数据源（唯一实现是 ZlibClient 适配器；单测可注入假实现）。 */
 internal interface ZlibSearchSource {
-    fun search(query: String, page: Int): ZSearchPage
+    fun search(query: String, page: Int, filters: ZlibSearchFilters? = null): ZSearchPage
     fun fetchCategory(path: String): List<ZBook>
     fun resetConnectionState()
     fun mirrorUrl(): String?
@@ -57,7 +58,8 @@ internal interface ZlibSearchSource {
 
 /** ZlibClient -> 数据源适配器（保持 ViewModel 不直接依赖具体客户端，便于 JVM 单测）。 */
 internal class ZlibClientSearchSource(private val client: ZlibClient) : ZlibSearchSource {
-    override fun search(query: String, page: Int): ZSearchPage = client.search(query, page)
+    override fun search(query: String, page: Int, filters: ZlibSearchFilters?): ZSearchPage =
+        client.search(query, page, filters)
     override fun fetchCategory(path: String): List<ZBook> = client.fetchCategory(path)
     override fun resetConnectionState() {
         client.resetConnectionState()
@@ -95,6 +97,17 @@ class ZlibSearchViewModel internal constructor(
     val mirrorBase: String?
         get() = runCatching { source.mirrorUrl() }.getOrNull()
 
+    /** A5：当前筛选/排序（UI 直接读；改完要调 [applyFilters] 才会重搜）。 */
+    var filters by mutableStateOf(ZlibSearchFilters())
+        private set
+
+    /** 当前在途请求使用的筛选快照：翻页必须沿用同一份，不能读取可能已被改动的 [filters]。 */
+    private var activeFilters: ZlibSearchFilters = ZlibSearchFilters()
+
+    /** A5：当前是否为分类榜单模式（/s/<分类> 不参与筛选/排序，入口隐藏）。 */
+    val isCategoryMode: Boolean
+        get() = currentCategory != null
+
     private var currentQuery: String = ""
     private var currentCategory: String? = null
     private var firstPageJob: Job? = null
@@ -108,12 +121,13 @@ class ZlibSearchViewModel internal constructor(
     fun search(query: String) {
         val trimmed = query.trim()
         if (trimmed.isEmpty()) return
-        val request = beginRequest(trimmed, null)
+        val requestedFilters = filters
+        val request = beginRequest(trimmed, null, requestedFilters)
         state = ZlibSearchState.Loading
         firstPageJob = scope.launch {
             val began = now()
             try {
-                val result = withContext(Dispatchers.IO) { source.search(trimmed, 1) }
+                val result = withContext(Dispatchers.IO) { source.search(trimmed, 1, requestedFilters) }
                 if (!isCurrent(request)) return@launch
                 logSearch(began, result)
                 // LazyColumn 的 key = book.id：单页内若站方返回重复 id 会直接崩，这里先去重。
@@ -145,7 +159,7 @@ class ZlibSearchViewModel internal constructor(
     fun searchCategory(category: String) {
         val trimmed = category.trim()
         if (trimmed.isEmpty()) return
-        val request = beginRequest("", trimmed)
+        val request = beginRequest("", trimmed, filters)
         state = ZlibSearchState.Loading
         firstPageJob = scope.launch {
             val began = now()
@@ -186,6 +200,7 @@ class ZlibSearchViewModel internal constructor(
         if (current.loadingMore || current.loadMoreError != null) return
         if (current.page >= current.totalPages) return
         val request = requestId
+        val requestFilters = activeFilters
         state = current.copy(loadingMore = true, loadMoreError = null, loadMoreKindLabel = null)
         nextPageJob?.cancel()
         nextPageJob = scope.launch {
@@ -219,7 +234,7 @@ class ZlibSearchViewModel internal constructor(
                     )
                 } else {
                     val next = withContext(Dispatchers.IO) {
-                        source.search(current.query, current.page + 1)
+                        source.search(current.query, current.page + 1, requestFilters)
                     }
                     if (!isCurrent(request)) return@launch
                     logSearch(began, next)
@@ -284,10 +299,25 @@ class ZlibSearchViewModel internal constructor(
         state = ZlibSearchState.Idle
     }
 
+    /** A5：应用筛选/排序（已 sanitized）。关键词结果在页时从第 1 页重搜；分类榜单不受筛选影响。 */
+    fun applyFilters(newFilters: ZlibSearchFilters) {
+        val sanitized = newFilters.sanitized()
+        filters = sanitized
+        if (currentCategory != null) return
+        if (currentQuery.isEmpty()) return
+        search(currentQuery)
+    }
+
+    /** A5：清除所有筛选（等价应用默认值）。 */
+    fun clearFilters() {
+        applyFilters(ZlibSearchFilters())
+    }
+
     /** 开始新请求：作废旧令牌 + 取消旧 Job；返回本次令牌。 */
-    private fun beginRequest(query: String, category: String?): Int {
+    private fun beginRequest(query: String, category: String?, requestFilters: ZlibSearchFilters): Int {
         currentQuery = query
         currentCategory = category
+        activeFilters = requestFilters
         firstPageJob?.cancel()
         nextPageJob?.cancel()
         firstPageJob = null

@@ -42,21 +42,26 @@ import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.SearchOff
+import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -74,6 +79,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -81,6 +87,8 @@ import androidx.compose.ui.unit.dp
 import app.particlebook.android.zlib.ZAccount
 import app.particlebook.android.zlib.ZBook
 import app.particlebook.android.zlib.ZlibClient
+import app.particlebook.android.zlib.ZlibSearchFilters
+import app.particlebook.android.zlib.ZlibSortOrder
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 
@@ -106,6 +114,7 @@ fun DiscoverScreen(
     var query by rememberSaveable { mutableStateOf("") }
     var category by rememberSaveable { mutableStateOf<String?>(null) }
     var mirrorSheetOpen by rememberSaveable { mutableStateOf(false) }
+    var filterSheetOpen by rememberSaveable { mutableStateOf(false) }
     var logoutDialogOpen by rememberSaveable { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -273,6 +282,58 @@ fun DiscoverScreen(
             // 删掉整宽按钮后，搜索框与「热门分类」之间只留这一个自然间距。
             Spacer(Modifier.height(Spacing.sm))
 
+            // A5：筛选/排序入口（分类榜单模式隐藏——/s/<分类> 不参与筛选）。
+            if (!viewModel.isCategoryMode) {
+                val filters = viewModel.filters
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
+                ) {
+                    FilterChip(
+                        selected = filters.isActive,
+                        onClick = { filterSheetOpen = true },
+                        label = {
+                            Text(
+                                text = if (filters.isActive) "筛选 · 已启用" else "筛选",
+                                style = MaterialTheme.typography.labelMedium,
+                                maxLines = 1,
+                            )
+                        },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Outlined.Tune,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp),
+                            )
+                        },
+                        modifier = Modifier.heightIn(min = 32.dp),
+                    )
+                    Text(
+                        text = if (filters.isActive) {
+                            zlibFilterSummary(filters)
+                        } else {
+                            "语言 / 格式 / 年份 / 排序"
+                        },
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                    if (filters.isActive) {
+                        TextButton(
+                            onClick = { viewModel.clearFilters() },
+                            contentPadding = PaddingValues(horizontal = Spacing.xs),
+                            modifier = Modifier.heightIn(min = 32.dp),
+                        ) {
+                            Text("清除", style = MaterialTheme.typography.labelMedium)
+                        }
+                    }
+                }
+                Spacer(Modifier.height(Spacing.xs))
+            }
+
             when (val current = state) {
                 is ZlibSearchState.Idle -> IdleContent(
                     category = category,
@@ -354,6 +415,10 @@ fun DiscoverScreen(
                                     if (current.totalPages >= 1) {
                                         append(" · 第 ").append(current.page)
                                             .append(" / ").append(current.totalPages).append(" 页")
+                                    }
+                                    val activeFilters = viewModel.filters
+                                    if (activeFilters.isActive) {
+                                        append(" · 筛选：").append(zlibFilterSummary(activeFilters))
                                     }
                                 },
                                 style = MaterialTheme.typography.labelMedium,
@@ -454,6 +519,18 @@ fun DiscoverScreen(
                     // 分类模式没有搜索词（query 为空）：切线路后重跑当前分类第一页，避免继续展示旧线路结果/旧封面基址。
                     viewModel.retry()
                 }
+            },
+        )
+    }
+
+    if (filterSheetOpen) {
+        SearchFilterSheet(
+            initial = viewModel.filters,
+            onDismiss = { filterSheetOpen = false },
+            onApply = { filters ->
+                filterSheetOpen = false
+                keyboard?.hide()
+                viewModel.applyFilters(filters)
             },
         )
     }
@@ -964,3 +1041,201 @@ private val HotCategories = listOf(
     "科学",
     "心理学",
 )
+
+// ---- A5 搜索筛选/排序 ----
+
+/** 常用语言：value 必须用站点英文小写名（2026-11-04 实测；本地化显示名不能当请求值）。 */
+private val TopLanguageOptions = listOf(
+    "chinese" to "中文",
+    "english" to "英语",
+    "russian" to "俄语",
+    "japanese" to "日语",
+    "german" to "德语",
+    "french" to "法语",
+    "spanish" to "西班牙语",
+    "italian" to "意大利语",
+    "portuguese" to "葡萄牙语",
+    "korean" to "韩语",
+    "dutch" to "荷兰语",
+    "turkish" to "土耳其语",
+)
+
+/** 常用格式：站点 extensions[] 用大写格式名。 */
+private val FormatOptions = listOf(
+    "PDF", "EPUB", "MOBI", "AZW3", "TXT", "FB2",
+    "DJVU", "DJV", "LIT", "RTF", "AZW", "CBZ",
+)
+
+/** 语言值 → 中文标签（未知值原样显示，便于以后扩展取值清单）。 */
+internal fun zlibLanguageLabel(value: String): String =
+    TopLanguageOptions.firstOrNull { it.first == value }?.second ?: value
+
+/** A5：筛选摘要（如「中文 · PDF · 2020–2024 · 最近添加」）；无筛选返回空串。 */
+internal fun zlibFilterSummary(filters: ZlibSearchFilters): String {
+    val parts = ArrayList<String>()
+    filters.languages.forEach { parts.add(zlibLanguageLabel(it)) }
+    if (filters.extensions.isNotEmpty()) parts.add(filters.extensions.joinToString("/"))
+    val from = filters.yearFrom
+    val to = filters.yearTo
+    when {
+        from != null && to != null -> parts.add("" + from + "–" + to)
+        from != null -> parts.add("" + from + " 年后")
+        to != null -> parts.add("" + to + " 年前")
+    }
+    if (filters.order != ZlibSortOrder.POPULAR) parts.add(filters.order.label)
+    return parts.joinToString(" · ")
+}
+
+/** 多选 chip 组（语言/格式/排序共用）；选中值集合由调用方持有。 */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun FilterChipGroup(
+    options: List<Pair<String, String>>,
+    selected: Set<String>,
+    onToggle: (String) -> Unit,
+) {
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
+        verticalArrangement = Arrangement.spacedBy(Spacing.xs),
+    ) {
+        options.forEach { (value, label) ->
+            FilterChip(
+                selected = value in selected,
+                onClick = { onToggle(value) },
+                label = {
+                    Text(
+                        text = label,
+                        style = MaterialTheme.typography.labelMedium,
+                        maxLines = 1,
+                    )
+                },
+                modifier = Modifier.heightIn(min = 32.dp),
+            )
+        }
+    }
+}
+
+/** A5 筛选/排序弹层：语言、格式、年份区间、排序。应用后由 ViewModel 从第 1 页重搜。 */
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@Composable
+private fun SearchFilterSheet(
+    initial: ZlibSearchFilters,
+    onDismiss: () -> Unit,
+    onApply: (ZlibSearchFilters) -> Unit,
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    var languages by remember(initial) { mutableStateOf(initial.languages.toSet()) }
+    var extensions by remember(initial) { mutableStateOf(initial.extensions.toSet()) }
+    var yearFrom by remember(initial) { mutableStateOf(initial.yearFrom?.toString() ?: "") }
+    var yearTo by remember(initial) { mutableStateOf(initial.yearTo?.toString() ?: "") }
+    var order by remember(initial) { mutableStateOf(initial.order) }
+    val draft = ZlibSearchFilters(
+        languages = languages.toList(),
+        extensions = extensions.toList(),
+        yearFrom = yearFrom.toIntOrNull(),
+        yearTo = yearTo.toIntOrNull(),
+        order = order,
+    ).sanitized()
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = MaterialTheme.colorScheme.surface,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .padding(start = Spacing.md, end = Spacing.md, bottom = Spacing.lg),
+        ) {
+            Text("筛选与排序", style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(2.dp))
+            Text(
+                text = "筛选由 Z-Library 服务端执行；年份留空表示不限。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(Spacing.md))
+
+            Text("语言", style = MaterialTheme.typography.titleSmall)
+            Spacer(Modifier.height(Spacing.xs))
+            FilterChipGroup(
+                options = TopLanguageOptions,
+                selected = languages,
+                onToggle = { value ->
+                    languages = if (value in languages) languages - value else languages + value
+                },
+            )
+            Spacer(Modifier.height(Spacing.md))
+
+            Text("格式", style = MaterialTheme.typography.titleSmall)
+            Spacer(Modifier.height(Spacing.xs))
+            FilterChipGroup(
+                options = FormatOptions.map { it to it },
+                selected = extensions,
+                onToggle = { value ->
+                    extensions = if (value in extensions) extensions - value else extensions + value
+                },
+            )
+            Spacer(Modifier.height(Spacing.md))
+
+            Text("出版年份", style = MaterialTheme.typography.titleSmall)
+            Spacer(Modifier.height(Spacing.xs))
+            Row(horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+                OutlinedTextField(
+                    value = yearFrom,
+                    onValueChange = { value ->
+                        yearFrom = value.filter { it.isDigit() }.take(4)
+                    },
+                    label = { Text("起始年") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    modifier = Modifier.weight(1f),
+                )
+                OutlinedTextField(
+                    value = yearTo,
+                    onValueChange = { value ->
+                        yearTo = value.filter { it.isDigit() }.take(4)
+                    },
+                    label = { Text("截止年") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    modifier = Modifier.weight(1f),
+                )
+            }
+            Spacer(Modifier.height(Spacing.md))
+
+            Text("排序", style = MaterialTheme.typography.titleSmall)
+            Spacer(Modifier.height(Spacing.xs))
+            FilterChipGroup(
+                options = ZlibSortOrder.values().map { it.value to it.label },
+                selected = setOf(order.value),
+                onToggle = { value ->
+                    order = ZlibSortOrder.values().first { it.value == value }
+                },
+            )
+            Spacer(Modifier.height(Spacing.lg))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                TextButton(
+                    onClick = {
+                        languages = emptySet()
+                        extensions = emptySet()
+                        yearFrom = ""
+                        yearTo = ""
+                        order = ZlibSortOrder.POPULAR
+                    },
+                ) {
+                    Text("重置")
+                }
+                Spacer(Modifier.weight(1f))
+                TextButton(onClick = onDismiss) { Text("取消") }
+                Spacer(Modifier.width(Spacing.xs))
+                Button(onClick = { onApply(draft) }) { Text("应用") }
+            }
+        }
+    }
+}

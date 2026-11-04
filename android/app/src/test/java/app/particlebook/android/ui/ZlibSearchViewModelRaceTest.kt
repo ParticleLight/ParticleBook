@@ -2,6 +2,7 @@ package app.particlebook.android.ui
 
 import app.particlebook.android.zlib.ZBook
 import app.particlebook.android.zlib.ZSearchPage
+import app.particlebook.android.zlib.ZlibSearchFilters
 import app.particlebook.android.zlib.ZlibException
 import java.io.IOException
 import java.util.concurrent.CountDownLatch
@@ -150,7 +151,7 @@ class ZlibSearchViewModelRaceTest {
         @Volatile
         var blockPage2: Boolean = false
 
-        override fun search(query: String, page: Int): ZSearchPage {
+        override fun search(query: String, page: Int, filters: ZlibSearchFilters?): ZSearchPage {
             when {
                 query == SLOW -> {
                     slowStarted.countDown()

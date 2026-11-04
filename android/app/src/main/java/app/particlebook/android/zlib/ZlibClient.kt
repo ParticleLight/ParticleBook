@@ -235,7 +235,11 @@ class ZlibClient(
      * @throws ZlibException kind=NO_MIRROR / CHALLENGE_FAILED / HTTP / PARSE / NETWORK
      */
     @Throws(ZlibException::class)
-    fun search(query: String, page: Int = 1): ZSearchPage {
+    fun search(
+        query: String,
+        page: Int = 1,
+        filters: ZlibSearchFilters? = null,
+    ): ZSearchPage {
         val q = query.trim()
         require(q.isNotEmpty()) { "query must not be blank" }
         require(page >= 1) { "page must be >= 1" }
@@ -243,8 +247,8 @@ class ZlibClient(
         val startedAt = System.nanoTime()
         try {
             val base = mirror ?: probeMirrors()
-            if (page > 1) return runSearchOnce(base, q, page)
-            return searchWithFailover(base, q, startedAt)
+            if (page > 1) return runSearchOnce(base, q, page, filters = filters)
+            return searchWithFailover(base, q, startedAt, filters)
         } catch (e: ZlibException) {
             // B1/T10 P1-3/T17：PARSE 可能是推广/导航等非正式站返回的 200 HTML；
             // 只有明确非正式站证据（PAGE/OTHER/FAIL）才清镜像记忆，未探明线路保留 pin/prefs 交给重探。
@@ -262,8 +266,9 @@ class ZlibClient(
         query: String,
         page: Int,
         deadlineNanos: Long? = null,
+        filters: ZlibSearchFilters? = null,
     ): ZSearchPage {
-        val url = searchUrl(base, query, page)
+        val url = zlibSearchUrl(base, query, page, filters)
         val res = getWithChallenge(URI(url), deadlineNanos = deadlineNanos)
         if (res.status != 200) {
             throw ZlibException(
@@ -281,7 +286,12 @@ class ZlibClient(
      * 跳过降权未到期项；额度=线路数、[SEARCH_FAILOVER_BUDGET_MS] 兜底。
      * 网络/HTTP/挑战失败换线；PARSE 仅在当前线路不是明确正式站（rank != APP）时换线（T10 P1-2）。
      */
-    private fun searchWithFailover(firstBase: String, query: String, startedAt: Long): ZSearchPage {
+    private fun searchWithFailover(
+        firstBase: String,
+        query: String,
+        startedAt: Long,
+        filters: ZlibSearchFilters? = null,
+    ): ZSearchPage {
         val now = System.currentTimeMillis()
         val file = registryFile()
         ZlibMirrorRegistry.ensureLoaded(file, now)
@@ -296,7 +306,7 @@ class ZlibClient(
             if (current.isEmpty() || !tried.add(current)) break
             attempts++
             try {
-                val result = runSearchOnce(base, query, 1, deadlineNanos)
+                val result = runSearchOnce(base, query, 1, deadlineNanos, filters)
                 markSearchSuccess(base, now)
                 return result
             } catch (e: ZlibException) {
@@ -1496,11 +1506,7 @@ class ZlibClient(
 
     // ---------------------------------------------------------------- HTTP
 
-    private fun searchUrl(mirrorBase: String, query: String, page: Int): String {
-        val base = mirrorBase.trimEnd('/')
-        val encoded = URLEncoder.encode(query, "UTF-8").replace("+", "%20")
-        return "$base/s/$encoded?page=$page"
-    }
+    // 搜索 URL 由文件末尾的 [zlibSearchUrl] 统一拼装（A5 筛选/排序参数）。
 
     /** 发请求；遇到挑战页则求解并重放（最多 [MAX_CHALLENGE_ROUNDS] 轮）。 */
     private fun getWithChallenge(
@@ -2903,4 +2909,85 @@ class ZlibClient(
             shared ?: ZlibClient(context.applicationContext).also { shared = it }
         }
     }
+}
+
+/** 搜索排序（A5）：值与站点 order 参数一致；顺序即 UI 展示顺序（详见 docs/android-port/a5-search-filters.md）。 */
+enum class ZlibSortOrder(val value: String, val label: String) {
+    POPULAR("popular", "最受欢迎"),
+    BEST_MATCH("bestmatch", "最佳匹配"),
+    NEWEST("date", "最近添加"),
+    TITLE_ASC("titleA", "书名 (A-Z)"),
+    TITLE_DESC("title", "书名 (Z-A)"),
+    YEAR("year", "按年份"),
+    FILESIZE_DESC("filesize", "文件大小 ↓"),
+    FILESIZE_ASC("filesizeA", "文件大小 ↑"),
+}
+
+/**
+ * A5 搜索筛选（站点 /s/<q> 的 query 参数，2026-11-04 实测）。
+ * 默认值 = 无筛选：此时不追加任何参数，URL 与旧行为逐字节一致。
+ * - languages：站点英文小写语言名（chinese / english / ...），不是页面上的本地化显示名。
+ * - extensions：大写格式名（PDF / EPUB / ...）。
+ * - order：默认 POPULAR 时省略参数（等价服务端默认）。
+ */
+data class ZlibSearchFilters(
+    val languages: List<String> = emptyList(),
+    val extensions: List<String> = emptyList(),
+    val yearFrom: Int? = null,
+    val yearTo: Int? = null,
+    val order: ZlibSortOrder = ZlibSortOrder.POPULAR,
+) {
+    /** 是否真的改变默认查询（UI 用：入口显示「已筛选」）。 */
+    val isActive: Boolean
+        get() = languages.isNotEmpty() || extensions.isNotEmpty() ||
+            yearFrom != null || yearTo != null || order != ZlibSortOrder.POPULAR
+
+    /** 规范化：去空白/去空值/去重；yearFrom > yearTo 时交换，非正年份丢弃。 */
+    fun sanitized(): ZlibSearchFilters {
+        var from = yearFrom?.takeIf { it > 0 }
+        var to = yearTo?.takeIf { it > 0 }
+        if (from != null && to != null && from > to) {
+            val swap = from
+            from = to
+            to = swap
+        }
+        return copy(
+            languages = languages.map { it.trim() }.filter { it.isNotEmpty() }.distinct(),
+            extensions = extensions.map { it.trim() }.filter { it.isNotEmpty() }.distinct(),
+            yearFrom = from,
+            yearTo = to,
+        )
+    }
+
+    /** 拼 query 片段（不含 page、不含 ? 与 &）；无筛选返回空串。 */
+    fun toQueryParameters(): String {
+        val parts = ArrayList<String>()
+        languages.forEach { parts.add("languages%5B%5D=" + encode(it)) }
+        extensions.forEach { parts.add("extensions%5B%5D=" + encode(it)) }
+        yearFrom?.let { parts.add("yearFrom=" + it) }
+        yearTo?.let { parts.add("yearTo=" + it) }
+        if (order != ZlibSortOrder.POPULAR) parts.add("order=" + order.value)
+        return parts.joinToString("&")
+    }
+
+    private fun encode(value: String): String =
+        URLEncoder.encode(value, "UTF-8").replace("+", "%20")
+}
+
+/**
+ * 搜索 URL（A5）：无筛选时与旧实现完全一致 /s/<q>?page=N；
+ * 有筛选时 /s/<q>?languages%5B%5D=..&...&page=N（参数顺序固定，page 最后）。
+ * internal 便于 JVM 单测直接断言 URL。
+ */
+internal fun zlibSearchUrl(
+    mirrorBase: String,
+    query: String,
+    page: Int,
+    filters: ZlibSearchFilters? = null,
+): String {
+    val base = mirrorBase.trimEnd('/')
+    val encodedQuery = URLEncoder.encode(query, "UTF-8").replace("+", "%20")
+    val active = filters?.sanitized()?.takeIf { it.isActive }
+    if (active == null) return "$base/s/$encodedQuery?page=$page"
+    return "$base/s/$encodedQuery?" + active.toQueryParameters() + "&page=$page"
 }
