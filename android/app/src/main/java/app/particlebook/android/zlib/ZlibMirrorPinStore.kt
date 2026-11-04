@@ -13,6 +13,14 @@ internal interface ZlibMirrorPinStore {
 
     /** null/空白 = 取消 pin。 */
     fun writePin(url: String?)
+
+    /**
+     * P2-6：用户主动切线路时用同步落盘（生产实现走 commit）；默认退化为 [writePin]，
+     * 纯 JVM 内存实现无需关心。
+     */
+    fun writePinNow(url: String?) {
+        writePin(url)
+    }
 }
 
 /**
@@ -26,13 +34,26 @@ internal class ZlibPrefsMirrorPinStore(
     override fun readPin(): String? = prefs?.getString(KEY_PIN, null)
 
     override fun writePin(url: String?) {
+        write(url, sync = false)
+    }
+
+    /** P2-6：用户主动切换用 commit，切线路后进程立刻被杀也不丢 pin。 */
+    override fun writePinNow(url: String?) {
+        write(url, sync = true)
+    }
+
+    private fun write(url: String?, sync: Boolean) {
         val editor = prefs?.edit() ?: return
         if (url.isNullOrBlank()) {
             editor.remove(KEY_PIN)
         } else {
             editor.putString(KEY_PIN, url)
         }
-        editor.apply()
+        if (sync) {
+            editor.commit()
+        } else {
+            editor.apply()
+        }
     }
 
     companion object {

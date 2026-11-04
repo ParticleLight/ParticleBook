@@ -74,11 +74,23 @@ class ZlibClient(
 
     /**
      * B7：用户手动切换（[switchMirror]）固定的线路；T24 起持久化到 prefs 独立 key（[ZlibPrefsMirrorPinStore]），
-     * 进程重启后仍保留。探测第 0 阶段优先探它；该线探测/网络失败时清除（桌面 AdvanceMirrorOnFailure 语义），
-     * 但 PARSE（页面结构异常，不是「线路坏了」的证据）换线时保留 pin。
+     * 进程重启后仍保留。探测第 0 阶段优先探它。
+     * P2-6：只有明确非正式站证据（200 但 PAGE/OTHER、HTTP 4xx）才清 pin；网络失败/超时/5xx 只记
+     * 失败次数与时间，不再因一次瞬时故障丢掉用户选择（与 T17「未探明不丢记忆」一致）。
      */
     @Volatile
     private var pinnedMirror: String? = null
+
+    /** P2-6：mirror / prefs KEY_MIRROR / [mirrorEpoch] 的写锁（后台结果与用户切换互斥）。 */
+    private val mirrorLock = Any()
+
+    /**
+     * P2-6：用户切换/清缓存的纪元。后台探测/搜索在开始时记下纪元，写回前若纪元变了（用户动过线路）
+     * 就丢弃旧结果，避免「用户刚切到 B，后台把 A 写回缓存」。
+     */
+    private val mirrorEpoch = AtomicLong(0L)
+
+    private fun currentMirrorEpoch(): Long = mirrorEpoch.get()
 
     /** T24：pin 持久化出口；JVM 单测注入内存实现（生产为 SharedPreferences 独立 key）。 */
     internal var pinStoreForTest: ZlibMirrorPinStore? = null
@@ -100,18 +112,38 @@ class ZlibClient(
         }
     }
 
-    /** 当前 pin（含冷启后从 prefs 恢复的值）。 */
+    /** 当前 pin（含冷启后从 prefs 恢复的值）。P2-6：与 [setPinnedMirror] 同锁，读改写不分裂。 */
+    @Synchronized
     private fun pinned(): String? {
         ensurePinLoaded()
         return pinnedMirror
     }
 
-    /** 统一写入口：内存 + 持久化同步更新（null = 取消 pin）。 */
-    private fun setPinnedMirror(url: String?) {
+    /**
+     * 统一写入口：内存 + 持久化同步更新（null = 取消 pin）。
+     * [commit]=true 走同步落盘（用户主动切线路；apply 后立刻杀进程可能丢 pin，P2-6）。
+     */
+    @Synchronized
+    private fun setPinnedMirror(url: String?, commit: Boolean = false) {
         ensurePinLoaded()
         val normalized = normalizeMirror(url).takeIf { it.isNotEmpty() }
         pinnedMirror = normalized
-        pinStore.writePin(normalized)
+        if (commit) pinStore.writePinNow(normalized) else pinStore.writePin(normalized)
+    }
+
+    /**
+     * P2-6：CAS 清 pin——只有当前 pin 仍是 [expected] 时才清。
+     * 防止「判断当前是旧 pin → 用户切换 → 把用户刚选的新 pin 清掉」的 check-then-act。
+     */
+    @Synchronized
+    private fun clearPinIfMatches(expected: String, reason: String): Boolean {
+        ensurePinLoaded()
+        val target = normalizeMirror(expected)
+        if (target.isEmpty() || normalizeMirror(pinnedMirror) != target) return false
+        pinnedMirror = null
+        pinStore.writePin(null)
+        debugLog("mirror_unpin reason=" + reason + " host=" + hostOf(expected))
+        return true
     }
 
     /**
@@ -264,6 +296,11 @@ class ZlibClient(
     private data class ProbeOutcome(
         val picked: String? = null,
         val soft: SoftPick? = null,
+        /**
+         * P2-6：是否拿到「明确非正式站」证据（200 但 rank=PAGE/OTHER，或 HTTP 4xx）。
+         * 网络失败/超时/5xx/挑战/首页网关都不算——瞬时故障不能作为清用户 pin 的依据。
+         */
+        val nonAppEvidence: Boolean = false,
     )
 
     // ---------------------------------------------------------------- public API
@@ -327,7 +364,8 @@ class ZlibClient(
     /**
      * B3 首包换线：当前线路失败后按 [ZlibMirrorRegistry.orderedEntries] 排序取下一条，
      * 跳过降权未到期项；额度=线路数、[SEARCH_FAILOVER_BUDGET_MS] 兜底。
-     * 网络/HTTP/挑战失败换线；PARSE 仅在当前线路不是明确正式站（rank != APP）时换线（T10 P1-2）。
+     * 网络/HTTP/挑战/PARSE 都换线（PARSE 一律换线，T24②）；按残留 rank 决定是否清 pin（PARSE 保留 pin）。
+     * P2-6：本轮开始记录 [currentMirrorEpoch]，成功写回前纪元变了（用户切线路）就丢弃旧结果。
      */
     private fun searchWithFailover(
         firstBase: String,
@@ -336,6 +374,7 @@ class ZlibClient(
         filters: ZlibSearchFilters? = null,
     ): ZSearchPage {
         val now = System.currentTimeMillis()
+        val epoch = currentMirrorEpoch()
         val file = registryFile()
         ZlibMirrorRegistry.ensureLoaded(file, now)
         val budget = maxOf(1, ZlibMirrorRegistry.orderedUrls(now).size)
@@ -350,7 +389,7 @@ class ZlibClient(
             attempts++
             try {
                 val result = runSearchOnce(base, query, 1, deadlineNanos, filters)
-                markSearchSuccess(base, now)
+                markSearchSuccess(base, now, epoch)
                 return result
             } catch (e: ZlibException) {
                 lastFailure = e
@@ -366,7 +405,10 @@ class ZlibClient(
                     "mirror_advance from=${hostOf(base)} reason=$reason kind=${e.kind}" +
                         " tried=${tried.size}/$budget demote_until=${entry?.demoteUntil ?: 0L}",
                 )
-                releaseFailedMirror(base, failedRank, keepPin = e.kind == ZlibException.Kind.PARSE)
+                releaseFailedMirror(
+                    base, failedRank, keepPin = e.kind == ZlibException.Kind.PARSE,
+                    epoch = currentMirrorEpoch(),
+                )
                 if (remainingMs(deadlineNanos) < MIN_REQUEST_MS) {
                     debugLog("mirror_advance_abort reason=budget remaining_ms=${remainingMs(deadlineNanos)}")
                     break
@@ -384,15 +426,27 @@ class ZlibClient(
         )
     }
 
-    /** 搜索成功：记住该线（prefs/内存 + 续 12h 成功 TTL），并触发一次后台名单刷新（单飞）。 */
-    private fun markSearchSuccess(base: String, now: Long) {
+    /**
+     * 搜索成功：记住该线（prefs/内存 + 续 12h 成功 TTL），并触发一次后台名单刷新（单飞）。
+     * P2-6：只有本操作开始后用户没切过线路（[epoch] 未变）才写 mirror/prefs，旧结果不覆盖用户选择；
+     * 注册表成功记录照常写（那是这条线路真实可用的证据）。
+     */
+    private fun markSearchSuccess(base: String, now: Long, epoch: Long) {
         val chosen = base.trimEnd('/')
-        mirror = chosen
-        prefs?.edit()?.putString(KEY_MIRROR, chosen)?.apply()
+        val adopted = synchronized(mirrorLock) {
+            if (epoch != mirrorEpoch.get()) {
+                false
+            } else {
+                mirror = chosen
+                prefs?.edit()?.putString(KEY_MIRROR, chosen)?.apply()
+                true
+            }
+        }
+        if (!adopted) debugLog("mirror_epoch_drop stage=search host=" + hostOf(chosen))
         // T17：搜索解析成功就是「正式站」证据；记 APP，避免后续 PARSE 时被当成未探明软页误清。
         ZlibMirrorRegistry.recordSuccess(chosen, null, -1L, now, ZlibMirrorRegistry.Rank.APP)
         ZlibMirrorRegistry.save(registryFile())
-        debugLog("mirror_working host=${hostOf(chosen)} stage=search")
+        if (adopted) debugLog("mirror_working host=" + hostOf(chosen) + " stage=search")
         maybeRefreshMirrorListInBackground()
     }
 
@@ -404,6 +458,7 @@ class ZlibClient(
         failed: String,
         rank: ZlibMirrorRegistry.Rank?,
         keepPin: Boolean = false,
+        epoch: Long = currentMirrorEpoch(),
     ) {
         val target = normalizeMirror(failed)
         if (target.isEmpty()) return
@@ -414,19 +469,28 @@ class ZlibClient(
             )
             return
         }
-        if (normalizeMirror(pinned()) == target) {
-            if (keepPin) {
+        // P2-6：pin 用 CAS 清（判断与写入同一把锁），不会误清用户刚切换的新 pin。
+        if (keepPin) {
+            if (normalizeMirror(pinned()) == target) {
                 // T24②：PARSE 只说明这条线返回的页面结构不对，不等于用户选择的线路已失效 → 不清 pin。
-                debugLog("mirror_keep_pin reason=parse host=${hostOf(failed)}")
+                debugLog("mirror_keep_pin reason=parse host=" + hostOf(failed))
+            }
+        } else {
+            clearPinIfMatches(failed, "search_fail")
+        }
+        // P2-6：若用户在此期间切换过线路（纪元变化），不要清他刚选中的 mirror/prefs 缓存。
+        val stale = synchronized(mirrorLock) {
+            if (epoch != mirrorEpoch.get()) {
+                true
             } else {
-                setPinnedMirror(null)
-                debugLog("mirror_unpin reason=search_fail host=${hostOf(failed)}")
+                if (normalizeMirror(mirror) == target) mirror = null
+                if (normalizeMirror(prefs?.getString(KEY_MIRROR, null)) == target) {
+                    prefs?.edit()?.remove(KEY_MIRROR)?.apply()
+                }
+                false
             }
         }
-        if (normalizeMirror(mirror) == target) mirror = null
-        if (normalizeMirror(prefs?.getString(KEY_MIRROR, null)) == target) {
-            prefs?.edit()?.remove(KEY_MIRROR)?.apply()
-        }
+        if (stale) debugLog("mirror_release_skip reason=epoch host=" + hostOf(failed))
     }
 
     /** 明确的「非正式站/坏站」rank（T17）：只有这些证据才清镜像记忆。 */
@@ -490,7 +554,7 @@ class ZlibClient(
         val rank = mirrorRankOf(current, System.currentTimeMillis())
         if (isNonAppRank(rank)) {
             // T24②：PARSE 不 adopt 失败页、也不清用户 pin（换线语义只作用于 mirror/prefs 记忆）。
-            releaseFailedMirror(current, rank, keepPin = true)
+            releaseFailedMirror(current, rank, keepPin = true, epoch = currentMirrorEpoch())
             debugLog("mirror_release reason=parse rank=" + (rank?.label ?: "none") + " host=" + hostOf(current))
         } else {
             debugLog(
@@ -522,6 +586,8 @@ class ZlibClient(
         ZlibMirrorRegistry.ensureLoaded(file, now)
         val tried = LinkedHashSet<String>()
         var lastError: String? = null
+        // P2-6：本轮探测的纪元；用户中途切换线路后，旧探测结果不再写回 mirror/prefs。
+        var epoch = currentMirrorEpoch()
         // B1：本轮「可访问但非正式站」的最佳候选（rank 优先、同 rank 比延迟），仅用于日志。
         var softPick: SoftPick? = null
 
@@ -545,15 +611,24 @@ class ZlibClient(
                 preferredUrl, tierLabel, preferredSource, attemptsFor(preferredUrl), hostDeadline, now,
             )
             outcome.picked?.let { picked ->
-                adoptMirror(picked)
-                ZlibMirrorRegistry.save(file)
-                return picked
+                if (adoptMirror(picked, epoch)) {
+                    ZlibMirrorRegistry.save(file)
+                    return picked
+                }
+                // 用户刚切换/清缓存：优先返回用户当前线路，别让旧探测覆盖用户选择。
+                (mirror ?: pinned())?.let { return it }
+                epoch = currentMirrorEpoch()
             }
             softPick = betterSoftPick(softPick, outcome.soft)
             lastError = "preferred=" + hostOf(preferredUrl) + " failed"
+            // P2-6：只有明确非正式站证据才清 pin；网络失败/超时/5xx 只是本次不可达，
+            // 失败次数/时间已由 probeCandidate 写入注册表，pin 保留等下次重探。
             if (normalizeMirror(pinned()) == normalizeMirror(preferredUrl)) {
-                setPinnedMirror(null)
-                debugLog("mirror_unpin reason=probe_fail host=" + hostOf(preferredUrl))
+                if (outcome.nonAppEvidence) {
+                    clearPinIfMatches(preferredUrl, "probe_non_app")
+                } else {
+                    debugLog("mirror_pin_keep reason=transient host=" + hostOf(preferredUrl))
+                }
             }
         }
 
@@ -568,9 +643,13 @@ class ZlibClient(
             val hostDeadline = minOf(System.nanoTime() + PER_MIRROR_BUDGET_MS * 1_000_000L, officialDeadline)
             val outcome = probeCandidate(entry.url, "official", entry.source, attemptsFor(entry.url), hostDeadline, now)
             outcome.picked?.let { picked ->
-                adoptMirror(picked)
-                ZlibMirrorRegistry.save(file)
-                return picked
+                if (adoptMirror(picked, epoch)) {
+                    ZlibMirrorRegistry.save(file)
+                    return picked
+                }
+                // 用户刚切换/清缓存：优先返回用户当前线路，别让旧探测覆盖用户选择。
+                (mirror ?: pinned())?.let { return it }
+                epoch = currentMirrorEpoch()
             }
             softPick = betterSoftPick(softPick, outcome.soft)
             lastError = lastProbeError ?: lastError
@@ -585,9 +664,13 @@ class ZlibClient(
                 val hostDeadline = minOf(System.nanoTime() + PER_MIRROR_BUDGET_MS * 1_000_000L, globalDeadline)
                 val outcome = probeCandidate(entry.url, "dynamic", entry.source, 1, hostDeadline, now)
                 outcome.picked?.let { picked ->
-                    adoptMirror(picked)
-                    ZlibMirrorRegistry.save(file)
-                    return picked
+                    if (adoptMirror(picked, epoch)) {
+                        ZlibMirrorRegistry.save(file)
+                        return picked
+                    }
+                    // 用户刚切换/清缓存：优先返回用户当前线路，别让旧探测覆盖用户选择。
+                    (mirror ?: pinned())?.let { return it }
+                    epoch = currentMirrorEpoch()
                 }
                 softPick = betterSoftPick(softPick, outcome.soft)
                 lastError = lastProbeError ?: lastError
@@ -601,9 +684,13 @@ class ZlibClient(
             val hostDeadline = minOf(System.nanoTime() + PER_MIRROR_BUDGET_MS * 1_000_000L, globalDeadline)
             val outcome = probeCandidate(entry.url, "fallback", entry.source, attemptsFor(entry.url), hostDeadline, now)
             outcome.picked?.let { picked ->
-                adoptMirror(picked)
-                ZlibMirrorRegistry.save(file)
-                return picked
+                if (adoptMirror(picked, epoch)) {
+                    ZlibMirrorRegistry.save(file)
+                    return picked
+                }
+                // 用户刚切换/清缓存：优先返回用户当前线路，别让旧探测覆盖用户选择。
+                (mirror ?: pinned())?.let { return it }
+                epoch = currentMirrorEpoch()
             }
             softPick = betterSoftPick(softPick, outcome.soft)
             lastError = lastProbeError ?: lastError
@@ -686,6 +773,8 @@ class ZlibClient(
                         debugLog("mirror_probe_soft host=" + host + " rank=" + rank.label + " ms=" + elapsed)
                         return ProbeOutcome(
                             soft = SoftPick(candidate.trimEnd('/'), tierLabel, source, rank, elapsed),
+                            // 200 但结构明确不是正式站：与 PARSE 同级的证据，可作为清 pin 依据（P2-6）。
+                            nonAppEvidence = true,
                         )
                     }
                     ZlibMirrorRegistry.recordSuccess(candidate, finalRoot, elapsed, now, rank)
@@ -714,7 +803,8 @@ class ZlibClient(
                     "mirror_demote host=" + host + " tier=" + tierLabel + " reason=" + reason +
                         " until=" + (entry?.demoteUntil ?: 0L) + " fail_count=" + (entry?.failCount ?: 1),
                 )
-                return ProbeOutcome()
+                // P2-6：4xx 是线路对这本书/站点的确定性拒绝（清 pin）；5xx 可能只是服务端抖动（保留 pin）。
+                return ProbeOutcome(nonAppEvidence = res.status in 400..499)
             } catch (e: Exception) {
                 lastThrown = e
                 val root = rootCauseOf(e)
@@ -743,13 +833,28 @@ class ZlibClient(
         return ProbeOutcome()
     }
 
-    private fun adoptMirror(candidate: String): String {
+    /**
+     * P2-6：探测命中后的写回。探测开始时记录了 [epoch]；若期间用户切换/清缓存（纪元变化），
+     * 丢弃旧结果，避免后台探测把用户刚选的线路覆盖掉。返回是否写回成功。
+     */
+    private fun adoptMirror(candidate: String, epoch: Long): Boolean {
         val chosen = candidate.trimEnd('/')
-        mirror = chosen
-        prefs?.edit()?.putString(KEY_MIRROR, chosen)?.apply()
+        val adopted = synchronized(mirrorLock) {
+            if (epoch != mirrorEpoch.get()) {
+                false
+            } else {
+                mirror = chosen
+                prefs?.edit()?.putString(KEY_MIRROR, chosen)?.apply()
+                true
+            }
+        }
+        if (!adopted) {
+            debugLog("mirror_epoch_drop stage=probe host=" + hostOf(chosen))
+            return false
+        }
         debugLog("probe_result ok=" + hostOf(chosen))
         maybeRefreshMirrorListInBackground()
-        return chosen
+        return true
     }
 
     private fun attemptsFor(candidate: String): Int =
@@ -1562,11 +1667,16 @@ class ZlibClient(
 
     /** 越界/URL 不存在时调用方已返回 false；此处只做写入 + 清状态。 */
     private fun applyMirrorSwitch(target: String, source: String): Boolean {
-        mirror = target
-        setPinnedMirror(target)
-        prefs?.edit()?.putString(KEY_MIRROR, target)?.apply()
+        // P2-6：先推进纪元（写锁内），后台探测/搜索的旧结果会据此丢弃；pin 用 commit 同步落盘。
+        val epoch = synchronized(mirrorLock) {
+            val next = mirrorEpoch.incrementAndGet()
+            mirror = target
+            setPinnedMirror(target, commit = true)
+            prefs?.edit()?.putString(KEY_MIRROR, target)?.apply()
+            next
+        }
         resetStateLocked()
-        debugLog("switch_mirror $source mirror=" + hostOf(target) + " pinned=1")
+        debugLog("switch_mirror $source mirror=" + hostOf(target) + " pinned=1 epoch=" + epoch)
         return true
     }
 
@@ -1577,9 +1687,13 @@ class ZlibClient(
      * 后续真实流程仍然打到 mock 或已失效的镜像。不动 cookie / 代理 / 动态名单缓存。
      */
     fun clearCachedMirror() {
-        mirror = null
-        setPinnedMirror(null)
-        prefs?.edit()?.remove(KEY_MIRROR)?.apply()
+        // P2-6：清缓存同样推进纪元，进行中的探测/搜索不得把旧线路写回来。
+        synchronized(mirrorLock) {
+            mirrorEpoch.incrementAndGet()
+            mirror = null
+            setPinnedMirror(null)
+            prefs?.edit()?.remove(KEY_MIRROR)?.apply()
+        }
         debugLog("clear_mirror prefs=removed memory=null pin=null")
     }
 
