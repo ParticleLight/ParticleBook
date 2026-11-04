@@ -3397,13 +3397,17 @@ class ZlibClient(
         /**
          * task-84 P1-1：下载限额页是站点正常但账号额度用尽，不算线路失效。
          * task-95：补中英变体；限额页常同时出现 “sign in to”，所以限额判定必须先于登录证据。
+         * task-109 P1 回归：不能再收裸词 “daily limit” / “download limit” / “限额”——真实正常页
+         * 的额度组件（<span>Daily limit</span>）、Z-Alerts 弹窗（以提高限额）和详情页升级文案
+         * （Increased download limit）都会命中，导致正常 APP 页被降成 PAGE、整轮 NO_MIRROR。
+         * 只保留确定性限额错误容器/短语。
          */
         private val LIMIT_PAGE_MARKERS = listOf(
-            "daily limit",
-            "download limit",
             "download-limits-error",
-            "限额",
-            "下载限额",
+            "daily limit reached",
+            "download limit reached",
+            "今日下载限额已用尽",
+            "已达到每日下载上限",
         )
 
         /** 官方站挑战重试：含首次最多 [MAX_MIRROR_ATTEMPTS] 次。 */

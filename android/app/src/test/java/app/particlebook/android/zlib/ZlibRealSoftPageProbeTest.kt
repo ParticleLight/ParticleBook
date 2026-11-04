@@ -294,6 +294,70 @@ class ZlibRealSoftPageProbeTest {
         }
     }
 
+    /**
+     * task-109 P1 回归：真实登录态搜索页头有 <span>Daily limit</span> 额度组件，它不是错误页；
+     * 旧裸词 daily limit 会把正常 APP 页降成 PAGE（实测整轮 NO_MIRROR）。
+     */
+    @Test
+    fun loginSearchPageWithDailyLimitWidgetIsAdopted() {
+        val body = "<html><title>Z-Library</title><z-bookcard id=\"1\"></z-bookcard>" +
+            "<div class=\"caret-scroll__desc\"><i class=\"zlibicon-download\"></i>" +
+            "<span>Daily limit</span></div>" +
+            "<div class=\"caret-scroll__desc\"><span>daily limit</span></div></html>"
+        assertAdoptedAsApp(body, "登录态搜索页额度组件")
+    }
+
+    /**
+     * task-109 P1 回归：真实匿名 zh.z-lib.gd 的 Z-Alerts 弹窗有“以提高限额”，
+     * 旧裸词“限额”会把正常中文搜索页降成 PAGE。
+     */
+    @Test
+    fun zhSearchPageWithDonationLimitHintIsAdopted() {
+        val body = "<html><title>Z-Library</title><z-bookcard id=\"1\"></z-bookcard>" +
+            "<div class=\"z-modal-content\"><span>请停用部分或" +
+            "<a href=\"/how-to-donate\">进行捐款</a>以提高限额</span></div></html>"
+        assertAdoptedAsApp(body, "中文搜索页 Z-Alerts 限额提示")
+    }
+
+    /**
+     * task-109 P1 回归：真实详情页的升级权益文案 “Increased download limit” 不是限额错误页；
+     * 旧裸词 download limit 会让它带 limit 标记（正常详情页本来也不是 APP 探测目标）。
+     */
+    @Test
+    fun normalDetailUpgradeCopyIsNotLimitPage() {
+        StubHttpServer(fixture("book-detail.html")).use { server ->
+            freshRegistry(listOf(server.baseUrl))
+            val store = MemoryPinStore(server.baseUrl)
+            val client = newClient(store)
+
+            assertNoMirror(probeFailure(client))
+
+            assertEquals("详情页升级文案不代表限额错误，应保留 pin", server.baseUrl, store.stored)
+            assertTrue(
+                "详情页不能被标成限额页: " + logs,
+                logs.none { it.contains("limit=1") },
+            )
+        }
+    }
+
+    private fun assertAdoptedAsApp(body: String, label: String) {
+        StubHttpServer(body).use { server ->
+            freshRegistry(listOf(server.baseUrl))
+            val client = newClient()
+
+            assertEquals(label + " 应判 APP 并采用", server.baseUrl, client.probeMirrors())
+            assertEquals(server.baseUrl, client.mirror)
+            assertTrue(
+                label + " 应采用: " + logs,
+                logs.any { it.startsWith("mirror_pick") && it.contains("rank=app") },
+            )
+            assertTrue(
+                label + " 不应被当成限额页: " + logs,
+                logs.none { it.contains("limit=1") },
+            )
+        }
+    }
+
     /** task-95：限额页的英文/中文变体都必须先于登录证据，且不清 pin。 */
     @Test
     fun limitPageVariantsKeepPinAndDoNotAdopt() {
