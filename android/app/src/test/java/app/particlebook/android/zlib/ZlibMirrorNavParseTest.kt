@@ -40,17 +40,56 @@ class ZlibMirrorNavParseTest {
     }
     @Test
     fun detectsRealNavPageButRejectsSoft404() {
-        // T24④：只有「entries + 镜像入口/官网地址」才算导航页；软 404/广告页/SPA 壳不能当成功缓存。
+        // T24④/T31：entries 是硬前提；标题可选。软 404/广告页/SPA 壳不能当成功缓存。
         assertTrue(ZlibMirrorList.isNavPage(fixture("wwwnav.html")))
         assertFalse(ZlibMirrorList.isNavPage(fixture("mirror-nav.html")))
         assertFalse(ZlibMirrorList.isNavPage(fixture("page-not-found.html")))
         assertFalse(ZlibMirrorList.isNavPage(""))
         assertFalse(ZlibMirrorList.isNavPage("<html><body>404 not found</body></html>"))
         assertFalse(
-            "只有 entries 没有面板标题（裸 JSON/广告注入）不算导航页",
+            "entries 里没有白名单内的有效镜像（广告/第三方链接）不算导航页",
             ZlibMirrorList.isNavPage("<html><div id=\"entries\"><a href=\"https://evil.example/\">x</a></div></html>"),
         )
     }
+
+    @Test
+    fun entriesWithoutPanelTitlesStillCountsAsNavPage() {
+        // T31（realnet task-26）：真实 wwwnav 面板标题解析为空，但 entries 里链接可解析 → 必须判活。
+        assertTrue(
+            ZlibMirrorList.isNavPage(
+                "<html><body><section id=\"entries\"><a class=\"btn\" href=\"https://z-lib.by/\">z-lib.by</a>" +
+                    "</section></body></html>",
+            ),
+        )
+        assertTrue(
+            "单引号 id 也应识别",
+            ZlibMirrorList.isNavPage(
+                "<html><section id='entries'><a href=\"https://zlib.re/\">zlib.re</a></section></html>",
+            ),
+        )
+    }
+
+    @Test
+    fun entriesWithoutValidMirrorOrWithoutEntriesIsNotNavPage() {
+        assertFalse(
+            "entries 存在但没有有效镜像（只有广告/云盘链接）→ 不判活",
+            ZlibMirrorList.isNavPage(
+                "<html><section id=\"entries\"><a href=\"https://pan.quark.cn/s/x\">quark</a></section></html>",
+            ),
+        )
+        assertFalse(
+            "镜像链接在 entries 区块之外不算",
+            ZlibMirrorList.isNavPage(
+                "<html><body><section id=\"entries\"><p>empty</p></section>" +
+                    "<a href=\"https://z-lib.by/\">footer</a></body></html>",
+            ),
+        )
+        assertFalse(
+            "没有 entries id → 不判活（即使页面有镜像链接）",
+            ZlibMirrorList.isNavPage("<html><body><a href=\"https://z-lib.by/\">z-lib.by</a></body></html>"),
+        )
+    }
+
 
     @Test
     fun navCacheTtlStaysInSixToTwelveHours() {

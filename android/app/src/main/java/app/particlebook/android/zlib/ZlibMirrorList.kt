@@ -75,13 +75,18 @@ internal object ZlibMirrorList {
     )
 
     /**
-     * T24④：导航源判活。只认真正的新版式导航页（section#entries + 镜像入口/官网地址面板标题），
-     * 避免软 404 / 广告落地页 / 站点改版后的 200 HTML 被旧 fallback 解析器当成动态线路来源。
+     * T24④/T31：导航源判活。id=entries 是硬前提；面板标题（镜像入口/官网地址）改为可选——
+     * 2026-11-04 真实 wwwnav 面板标题解析为空，但 entries 里仍有可解析的有效镜像。
+     * 判据改为「entries 区块能扫出 >=1 条白名单内的有效镜像」，避免软 404 / 广告落地页 / 改版页被误判为导航页。
      */
     fun isNavPage(html: String): Boolean {
         if (html.isBlank()) return false
-        if (!ENTRIES_ID_RE.containsMatchIn(html)) return false
-        return html.contains("镜像入口") || html.contains("官网地址")
+        // 认单/双引号的 id=entries；找不到直接判死。
+        val start = ENTRIES_ID_RE.find(html)?.range?.first ?: return false
+        // 尽量只看 entries 区块，别把页脚/侧栏的镜像链接算进来；没有闭合标签时退化为到文末。
+        val sectionEnd = html.indexOf("</section>", start)
+        val section = if (sectionEnd > start) html.substring(start, sectionEnd) else html.substring(start)
+        return parse(section).isNotEmpty()
     }
 
     /**

@@ -995,16 +995,35 @@ class ZlibClient(
                 if (canonicalUrl !in tried) {
                     tried.add(canonicalUrl)
                     val follow = getWithChallenge(URI(canonicalUrl))
+                    // T31：canonical 跟随后也要更新「最后一次响应」，否则 204/空 body 的诊断会误报前一次的 200。
+                    lastStatus = follow.status
+                    lastBody = follow.body
                     if (follow.status == 200 && looksLikeDetailPage(follow.body)) {
                         return ZlibDetailParser.parse(follow.body, follow.uri.toString(), cleanHash)
                     }
                 }
             }
         }
-        debugLog("detail_fail hash=" + cleanHash + " status=" + lastStatus + " body_len=" + (lastBody?.length ?: 0))
+        // T31（realnet task-26）：真实站点部分 /book/<hash> 返回 204 空响应，必须归为明确错误，
+        // 不能让 UI 落到「泛解析失败」或渲染空白详情。204 归 HTTP（带状态码，UI 展示「服务器返回错误 204」），
+        // 2xx 但 body 为空归 PARSE；文案直接给中文，未知 kind 回退时也能读。
+        val emptyResponse = lastStatus == 204 || (lastStatus in 200..299 && lastBody.isNullOrBlank())
+        if (emptyResponse) {
+            debugLog("detail_empty hash=" + cleanHash + " status=" + lastStatus + " body_len=0")
+        } else {
+            debugLog("detail_fail hash=" + cleanHash + " status=" + lastStatus + " body_len=" + (lastBody?.length ?: 0))
+        }
         throw ZlibException(
-            "detail page unavailable (hash=" + cleanHash + ", status=" + lastStatus + ", tried=" + tried.size + ")",
-            if (lastStatus in 400..499) ZlibException.Kind.HTTP else ZlibException.Kind.PARSE,
+            if (emptyResponse) {
+                "详情页返回空响应（HTTP " + lastStatus + "），请切换线路或稍后重试"
+            } else {
+                "detail page unavailable (hash=" + cleanHash + ", status=" + lastStatus + ", tried=" + tried.size + ")"
+            },
+            when {
+                lastStatus == 204 -> ZlibException.Kind.HTTP
+                lastStatus in 400..499 -> ZlibException.Kind.HTTP
+                else -> ZlibException.Kind.PARSE
+            },
             httpCode = lastStatus.takeIf { it > 0 },
         )
     }
