@@ -70,7 +70,13 @@ class ZlibReaderResolverTest {
 
         val state = resolver.resolve("hash", null, loggedIn = true)
 
-        assertEquals(ZlibReaderLaunchState.Error(ZLIB_READER_MISSING_LINK_MESSAGE), state)
+        assertEquals(
+            ZlibReaderLaunchState.Error(
+                message = ZLIB_READER_MISSING_LINK_MESSAGE,
+                failure = ZlibReaderFailure.NOT_FOUND,
+            ),
+            state,
+        )
     }
 
     @Test
@@ -82,7 +88,13 @@ class ZlibReaderResolverTest {
 
         val state = resolver.resolve("hash", null, loggedIn = true)
 
-        assertEquals(ZlibReaderLaunchState.Error(ZLIB_READER_SESSION_EXPIRED_MESSAGE), state)
+        assertEquals(
+            ZlibReaderLaunchState.Error(
+                message = ZLIB_READER_SESSION_EXPIRED_MESSAGE,
+                failure = ZlibReaderFailure.NOT_FOUND,
+            ),
+            state,
+        )
     }
 
     @Test
@@ -94,7 +106,13 @@ class ZlibReaderResolverTest {
 
         val state = resolver.resolve("hash", null, loggedIn = false)
 
-        assertEquals(ZlibReaderLaunchState.Error(ZLIB_READER_LOGIN_REQUIRED_MESSAGE), state)
+        assertEquals(
+            ZlibReaderLaunchState.Error(
+                message = ZLIB_READER_LOGIN_REQUIRED_MESSAGE,
+                failure = ZlibReaderFailure.NOT_FOUND,
+            ),
+            state,
+        )
         val message = (state as ZlibReaderLaunchState.Error).message
         assertTrue(message, message.contains("登录后阅读"))
         assertTrue(message, message.contains("下载到书架"))
@@ -111,7 +129,13 @@ class ZlibReaderResolverTest {
 
         val state = resolver.resolve("hash", null, loggedIn = true)
 
-        assertEquals(ZlibReaderLaunchState.Error(ZLIB_READER_SESSION_EXPIRED_MESSAGE), state)
+        assertEquals(
+            ZlibReaderLaunchState.Error(
+                message = ZLIB_READER_SESSION_EXPIRED_MESSAGE,
+                failure = ZlibReaderFailure.LOGIN_PAGE,
+            ),
+            state,
+        )
         val message = (state as ZlibReaderLaunchState.Error).message
         assertTrue(message, message.contains("登录可能已失效"))
     }
@@ -125,7 +149,13 @@ class ZlibReaderResolverTest {
 
         val state = resolver.resolve("hash", null, loggedIn = false)
 
-        assertEquals(ZlibReaderLaunchState.Error(ZLIB_READER_LOGIN_REQUIRED_MESSAGE), state)
+        assertEquals(
+            ZlibReaderLaunchState.Error(
+                message = ZLIB_READER_LOGIN_REQUIRED_MESSAGE,
+                failure = ZlibReaderFailure.LOGIN_PAGE,
+            ),
+            state,
+        )
     }
 
     @Test
@@ -137,7 +167,13 @@ class ZlibReaderResolverTest {
 
         val state = resolver.resolve("hash", null, loggedIn = true)
 
-        assertEquals(ZlibReaderLaunchState.Error(ZLIB_READER_CHALLENGE_PAGE_MESSAGE), state)
+        assertEquals(
+            ZlibReaderLaunchState.Error(
+                message = ZLIB_READER_CHALLENGE_PAGE_MESSAGE,
+                failure = ZlibReaderFailure.CHALLENGE,
+            ),
+            state,
+        )
         val message = (state as ZlibReaderLaunchState.Error).message
         assertTrue(message, message.contains("人机验证"))
     }
@@ -150,7 +186,9 @@ class ZlibReaderResolverTest {
         val state = resolver.resolve("hash", null, loggedIn = true)
 
         assertTrue(state is ZlibReaderLaunchState.Error)
-        assertTrue((state as ZlibReaderLaunchState.Error).message.contains("HTTPS"))
+        val error = state as ZlibReaderLaunchState.Error
+        assertTrue(error.message.contains("HTTPS"))
+        assertEquals(ZlibReaderFailure.OTHER, error.failure)
     }
 
     @Test
@@ -198,7 +236,13 @@ class ZlibReaderResolverTest {
 
         val state = resolver.resolve("hash", null, loggedIn = true)
 
-        assertEquals(ZlibReaderLaunchState.Error(ZLIB_READER_CHALLENGE_PAGE_MESSAGE), state)
+        assertEquals(
+            ZlibReaderLaunchState.Error(
+                message = ZLIB_READER_CHALLENGE_PAGE_MESSAGE,
+                failure = ZlibReaderFailure.CHALLENGE,
+            ),
+            state,
+        )
         assertEquals(2, detailCalls)
         assertEquals(2, pageCalls)
     }

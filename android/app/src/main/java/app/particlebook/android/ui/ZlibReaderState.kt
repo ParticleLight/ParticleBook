@@ -1,5 +1,7 @@
 package app.particlebook.android.ui
 
+import java.util.Base64
+
 /**
  * A13：详情页「在线阅读」按钮的链接解析状态（详情页 → reader 链接 → 外部浏览器）。
  *
@@ -13,7 +15,11 @@ internal sealed interface ZlibReaderLaunchState {
     data object Idle : ZlibReaderLaunchState
     data object Loading : ZlibReaderLaunchState
     data class Ready(val readerUrl: String) : ZlibReaderLaunchState
-    data class Error(val message: String) : ZlibReaderLaunchState
+    data class Error(
+        val message: String,
+        /** task-89：可判定的失败类别，只用于结构化埋点；null 表示旧构造/未分类。 */
+        val failure: ZlibReaderFailure? = null,
+    ) : ZlibReaderLaunchState
 }
 
 /** 站点阅读器对所有账号都受限（realnet task-33）时的统一主提示，不承诺可读。 */
@@ -139,4 +145,146 @@ internal fun zlibReaderActionLabel(state: ZlibReaderLaunchState): String = when 
     is ZlibReaderLaunchState.Loading -> "正在获取链接…"
     is ZlibReaderLaunchState.Error -> "重新尝试在线阅读"
     else -> "在线阅读"
+}
+
+/**
+ * task-89 A13：一次「在线阅读」尝试的最终结果。wire 值固定，供 p15 按行解析
+ * zlib_reader_open ... outcome=<wire>；新增值只能追加，不能改旧值。
+ */
+internal enum class ZlibReaderOpenResult(val wire: String) {
+    READY("ready"),
+    OPEN_FAILED("open_failed"),
+    NO_BROWSER("no_browser"),
+    LOGIN_PAGE("login_page"),
+    CHALLENGE("challenge"),
+    NOT_FOUND("not_found"),
+}
+
+/**
+ * task-89：解析阶段的失败归因（不参与用户文案）。
+ * LOGIN_PAGE 同时覆盖「已登录但会话失效」与「匿名需要登录」两种情况 —— 站点给的都是登录页。
+ */
+internal enum class ZlibReaderFailure {
+    LOGIN_PAGE,
+    CHALLENGE,
+    NOT_FOUND,
+    OTHER,
+}
+
+/** task-89：JWT 里可读出的权限标记；字段缺失/无法解析时记 unknown，不猜测。 */
+internal enum class ZlibReaderAccess(val wire: String) {
+    TRUE("true"),
+    FALSE("false"),
+    UNKNOWN("unknown"),
+}
+
+/** task-89：reader URL 的 JWT 权限信息；读不出时两项都是 unknown。 */
+internal data class ZlibReaderUrlAccess(
+    val isPublic: ZlibReaderAccess = ZlibReaderAccess.UNKNOWN,
+    val limited: ZlibReaderAccess = ZlibReaderAccess.UNKNOWN,
+)
+
+/** task-89：一次打开尝试的埋点事件（已脱敏，只含 book_hash、固定枚举与时长）。 */
+internal data class ZlibReaderOpenEvent(
+    val bookHash: String,
+    val outcome: ZlibReaderOpenResult,
+    val isPublic: ZlibReaderAccess,
+    val limited: ZlibReaderAccess,
+    val elapsedMs: Long,
+)
+
+private const val ZLIB_READER_LOG_BOOK_HASH_MAX = 64
+
+/** 日志字段清洗：只留字母/数字/下划线/连字符，防止换行/空格注入与超长字段；空值记 unknown。 */
+internal fun zlibReaderLogBookHash(bookHash: String): String {
+    val sanitized = bookHash.trim()
+        .filter { it.isLetterOrDigit() || it == '_' || it == '-' }
+        .take(ZLIB_READER_LOG_BOOK_HASH_MAX)
+    return sanitized.ifEmpty { "unknown" }
+}
+
+/**
+ * task-89：纯函数格式化 zlib_reader_open 埋点行。
+ *
+ * 只输出 book_hash/outcome/is_public/limited/elapsed_ms —— 不包含 reader URL、query、票据或
+ * JWT 原文，便于日志脱敏审计与 JVM 单测；elapsed 负数归零。
+ */
+internal fun zlibReaderOpenLogLine(event: ZlibReaderOpenEvent): String =
+    "zlib_reader_open" +
+        " book_hash=" + zlibReaderLogBookHash(event.bookHash) +
+        " outcome=" + event.outcome.wire +
+        " is_public=" + event.isPublic.wire +
+        " limited=" + event.limited.wire +
+        " elapsed_ms=" + event.elapsedMs.coerceAtLeast(0L)
+
+/** 解析失败 → 埋点 outcome；未知/不可归类失败统一落 open_failed。 */
+internal fun zlibReaderFailureOutcome(failure: ZlibReaderFailure?): ZlibReaderOpenResult = when (failure) {
+    ZlibReaderFailure.LOGIN_PAGE -> ZlibReaderOpenResult.LOGIN_PAGE
+    ZlibReaderFailure.CHALLENGE -> ZlibReaderOpenResult.CHALLENGE
+    ZlibReaderFailure.NOT_FOUND -> ZlibReaderOpenResult.NOT_FOUND
+    ZlibReaderFailure.OTHER, null -> ZlibReaderOpenResult.OPEN_FAILED
+    else -> ZlibReaderOpenResult.OPEN_FAILED
+}
+
+/** task-89：系统浏览器拉起结果（供埋点映射；UI 文案仍走 zlibReaderOpenOutcome）。 */
+internal enum class ZlibReaderBrowserLaunch {
+    OPENED,
+    NO_BROWSER,
+    FAILED,
+}
+
+/** 浏览器拉起结果 → 埋点 outcome。 */
+internal fun zlibReaderLaunchOutcome(launch: ZlibReaderBrowserLaunch): ZlibReaderOpenResult = when (launch) {
+    ZlibReaderBrowserLaunch.OPENED -> ZlibReaderOpenResult.READY
+    ZlibReaderBrowserLaunch.NO_BROWSER -> ZlibReaderOpenResult.NO_BROWSER
+    ZlibReaderBrowserLaunch.FAILED -> ZlibReaderOpenResult.OPEN_FAILED
+}
+
+/**
+ * task-89：从 reader URL 的 JWT 读 is_public / limited（access_level）。
+ *
+ * 只解析查询串里的 file_access_token/access_token，手工切 query 而不用 android.net.Uri，
+ * 保证纯 JVM 单测可跑；base64url 用 java.util.Base64（minSdk 26 起可用）。
+ * 任一步失败都返回 unknown/unknown，不影响打开流程。
+ */
+internal fun zlibReaderUrlAccess(readerUrl: String?): ZlibReaderUrlAccess {
+    val token = zlibReaderAccessToken(readerUrl) ?: return ZlibReaderUrlAccess()
+    val payload = zlibReaderJwtPayload(token) ?: return ZlibReaderUrlAccess()
+    val isPublic = ZLIB_READER_JWT_IS_PUBLIC.find(payload)?.groupValues?.getOrNull(1)
+        ?.let { if (it == "true") ZlibReaderAccess.TRUE else ZlibReaderAccess.FALSE }
+        ?: ZlibReaderAccess.UNKNOWN
+    val limited = ZLIB_READER_JWT_ACCESS_LEVEL.find(payload)?.groupValues?.getOrNull(1)
+        ?.let { if (it == "limited") ZlibReaderAccess.TRUE else ZlibReaderAccess.FALSE }
+        ?: ZlibReaderAccess.UNKNOWN
+    return ZlibReaderUrlAccess(isPublic = isPublic, limited = limited)
+}
+
+private val ZLIB_READER_JWT_IS_PUBLIC = Regex(""""is_public"\s*:\s*"?(true|false)"?""")
+private val ZLIB_READER_JWT_ACCESS_LEVEL = Regex(""""access_level"\s*:\s*"?(full|limited)"?""")
+
+private fun zlibReaderAccessToken(readerUrl: String?): String? {
+    val raw = readerUrl?.trim().orEmpty()
+    val queryStart = raw.indexOf('?')
+    if (queryStart < 0 || queryStart == raw.lastIndex) return null
+    for (part in raw.substring(queryStart + 1).split('&')) {
+        val eq = part.indexOf('=')
+        if (eq <= 0) continue
+        val name = part.substring(0, eq)
+        if (name != "file_access_token" && name != "access_token") continue
+        val value = part.substring(eq + 1)
+        if (value.isNotBlank()) return value
+    }
+    return null
+}
+
+private fun zlibReaderJwtPayload(token: String): String? {
+    val segments = token.split('.')
+    if (segments.size < 2) return null
+    return try {
+        val segment = segments[1]
+        val padded = segment + "=".repeat((4 - segment.length % 4) % 4)
+        String(Base64.getUrlDecoder().decode(padded), Charsets.UTF_8)
+    } catch (_: IllegalArgumentException) {
+        null
+    }
 }

@@ -84,7 +84,13 @@ class ZlibReaderViewModelTest {
 
         vm.load("hash-a", null)
 
-        assertEquals(ZlibReaderLaunchState.Error("服务器返回错误 404"), vm.state)
+        assertEquals(
+            ZlibReaderLaunchState.Error(
+                message = "服务器返回错误 404",
+                failure = ZlibReaderFailure.OTHER,
+            ),
+            vm.state,
+        )
     }
 
     @Test
@@ -124,7 +130,13 @@ class ZlibReaderViewModelTest {
 
         val result = vm.loadNow("hash-a", null)
 
-        assertEquals(ZlibReaderLaunchState.Error("服务器返回错误 404"), result)
+        assertEquals(
+            ZlibReaderLaunchState.Error(
+                message = "服务器返回错误 404",
+                failure = ZlibReaderFailure.OTHER,
+            ),
+            result,
+        )
         assertEquals(result, vm.state)
     }
 

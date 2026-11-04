@@ -79,7 +79,10 @@ internal class ZlibReaderViewModel(
             throw cancellation
         } catch (throwable: Throwable) {
             if (!isCurrent(token, key)) return null
-            val error = ZlibReaderLaunchState.Error(ZlibUiError.message(throwable))
+            val error = ZlibReaderLaunchState.Error(
+                message = ZlibUiError.message(throwable),
+                failure = ZlibReaderFailure.OTHER,
+            )
             state = error
             error
         }
@@ -109,7 +112,10 @@ internal class ZlibReaderViewModel(
                 throw cancellation
             } catch (throwable: Throwable) {
                 if (!isCurrent(token, key)) return@launch
-                state = ZlibReaderLaunchState.Error(ZlibUiError.message(throwable))
+                state = ZlibReaderLaunchState.Error(
+                    message = ZlibUiError.message(throwable),
+                    failure = ZlibReaderFailure.OTHER,
+                )
             }
         }
     }
@@ -160,7 +166,10 @@ internal class ZlibReaderResolver(
         } catch (failure: ZlibException) {
             // fetchBytes 不自己解挑战；重试后仍 503 说明挑战没过，给可操作文案。
             if (failure.httpCode == 503) {
-                return ZlibReaderLaunchState.Error(ZLIB_READER_CHALLENGE_PAGE_MESSAGE)
+                return ZlibReaderLaunchState.Error(
+                    message = ZLIB_READER_CHALLENGE_PAGE_MESSAGE,
+                    failure = ZlibReaderFailure.CHALLENGE,
+                )
             }
             throw failure
         }
@@ -168,14 +177,18 @@ internal class ZlibReaderResolver(
         when (ZlibReaderUrl.classifyInterstitial(html)) {
             ZlibReaderUrl.InterstitialPage.LOGIN ->
                 return ZlibReaderLaunchState.Error(
-                    if (loggedIn) {
+                    message = if (loggedIn) {
                         ZLIB_READER_SESSION_EXPIRED_MESSAGE
                     } else {
                         ZLIB_READER_LOGIN_REQUIRED_MESSAGE
                     },
+                    failure = ZlibReaderFailure.LOGIN_PAGE,
                 )
             ZlibReaderUrl.InterstitialPage.CHALLENGE ->
-                return ZlibReaderLaunchState.Error(ZLIB_READER_CHALLENGE_PAGE_MESSAGE)
+                return ZlibReaderLaunchState.Error(
+                    message = ZLIB_READER_CHALLENGE_PAGE_MESSAGE,
+                    failure = ZlibReaderFailure.CHALLENGE,
+                )
             ZlibReaderUrl.InterstitialPage.NONE -> Unit
         }
         val anonymousDetail =
@@ -193,7 +206,14 @@ internal class ZlibReaderResolver(
                         ZLIB_READER_LOGIN_REQUIRED_MESSAGE
                     else -> zlibReaderUrlFailureMessage(parsed.reason)
                 }
-                ZlibReaderLaunchState.Error(message)
+                ZlibReaderLaunchState.Error(
+                    message = message,
+                    failure = if (parsed.reason == ZlibReaderUrl.Failure.NOT_FOUND) {
+                        ZlibReaderFailure.NOT_FOUND
+                    } else {
+                        ZlibReaderFailure.OTHER
+                    },
+                )
             }
         }
     }

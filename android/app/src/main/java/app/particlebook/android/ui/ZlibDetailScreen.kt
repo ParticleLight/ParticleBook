@@ -1,9 +1,11 @@
 package app.particlebook.android.ui
 
+import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.net.Uri
+import android.util.Log
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -907,12 +909,36 @@ private fun ReaderAction(
     // 解析期间本层可能被上层压住；读最新可见性而不是点击那一刻的快照。
     val visibleNow by rememberUpdatedState(layerVisible)
 
-    fun openFromClick(readerUrl: String) {
+    // task-89 A13：结构化埋点 zlib_reader_open（脱敏：只记 book_hash/outcome/权限/耗时）。
+    // 每次点击尝试的最终结果落一行 Log.i，p15 真机可直接按 outcome 判定成功/失败/无浏览器。
+    fun logReaderOpen(
+        outcome: ZlibReaderOpenResult,
+        access: ZlibReaderUrlAccess,
+        startedAtNanos: Long,
+    ) {
+        val elapsedMs = ((System.nanoTime() - startedAtNanos) / 1_000_000L).coerceAtLeast(0L)
+        Log.i(
+            ZLIB_READER_LOG_TAG,
+            zlibReaderOpenLogLine(
+                ZlibReaderOpenEvent(
+                    bookHash = bookHash,
+                    outcome = outcome,
+                    isPublic = access.isPublic,
+                    limited = access.limited,
+                    elapsedMs = elapsedMs,
+                ),
+            ),
+        )
+    }
+
+    fun openFromClick(readerUrl: String, startedAtNanos: Long) {
         // task-58 P2-1：成功和失败都消费 Ready —— 无浏览器时旧 URL 下次点击仍会失败，
         // 且票据可能属于旧会话；下次点击重新解析，不再复用。
-        val outcome = zlibReaderOpenOutcome(openZlibReaderInBrowser(context, readerUrl))
+        val launch = openZlibReaderInBrowser(context, readerUrl)
+        val outcome = zlibReaderOpenOutcome(launch == ZlibReaderBrowserLaunch.OPENED)
         opened = outcome.opened
         launchError = outcome.launchError
+        logReaderOpen(zlibReaderLaunchOutcome(launch), zlibReaderUrlAccess(readerUrl), startedAtNanos)
         if (outcome.consumeReady) viewModel.consumeReady()
     }
 
@@ -925,22 +951,33 @@ private fun ReaderAction(
                 when (val current = viewModel.state) {
                     is ZlibReaderLaunchState.Ready -> {
                         // 旧 URL 只给一次机会：成功打开即消费；无浏览器时保留，下次点击重试同一条。
-                        openFromClick(current.readerUrl)
+                        openFromClick(current.readerUrl, System.nanoTime())
                     }
                     is ZlibReaderLaunchState.Loading -> Unit
                     else -> {
                         opened = false
                         launchError = null
+                        val startedAtNanos = System.nanoTime()
                         scope.launch {
                             val result = viewModel.loadNow(bookHash, null) ?: return@launch
-                            if (result !is ZlibReaderLaunchState.Ready) return@launch
+                            if (result !is ZlibReaderLaunchState.Ready) {
+                                // task-89：解析失败按归因打埋点（登录页/挑战/无入口/其它）。
+                                if (result is ZlibReaderLaunchState.Error) {
+                                    logReaderOpen(
+                                        outcome = zlibReaderFailureOutcome(result.failure),
+                                        access = ZlibReaderUrlAccess(),
+                                        startedAtNanos = startedAtNanos,
+                                    )
+                                }
+                                return@launch
+                            }
                             if (!zlibReaderShouldOpenBrowser(visibleNow, result)) {
                                 // 本层已不可见/离场：丢弃这次 URL，回 Idle；用户回到本层再点会重新解析。
                                 viewModel.consumeReady()
                                 return@launch
                             }
                             ensureActive()
-                            openFromClick(result.readerUrl)
+                            openFromClick(result.readerUrl, startedAtNanos)
                         }
                     }
                 }
@@ -975,13 +1012,21 @@ private fun ReaderAction(
     }
 }
 
+/** task-89 埋点日志 tag（与 zlib 其他日志同 tag，便于 p15 一次 logcat 抓取）。 */
+private const val ZLIB_READER_LOG_TAG = "PBZlib"
+
 /**
- * 交给系统浏览器；无浏览器/系统拒绝（SecurityException 等）时返回 false，不崩溃。
+ * 交给系统浏览器；无浏览器/系统拒绝时返回具体结果供埋点区分，不崩溃。
  * reader URL 已由 [ZlibReaderUrl] 严格校验。
  */
-private fun openZlibReaderInBrowser(context: Context, readerUrl: String): Boolean = try {
+private fun openZlibReaderInBrowser(
+    context: Context,
+    readerUrl: String,
+): ZlibReaderBrowserLaunch = try {
     context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(readerUrl)))
-    true
+    ZlibReaderBrowserLaunch.OPENED
+} catch (_: ActivityNotFoundException) {
+    ZlibReaderBrowserLaunch.NO_BROWSER
 } catch (_: Exception) {
-    false
+    ZlibReaderBrowserLaunch.FAILED
 }
