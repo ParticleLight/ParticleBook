@@ -71,7 +71,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.particlebook.android.ui.data.Book
-import app.particlebook.android.ui.data.DownloadLocation
 import app.particlebook.android.ui.data.LibraryStore
 import app.particlebook.android.zlib.ZBookDetail
 import app.particlebook.android.zlib.ZRecommendation
@@ -96,17 +95,19 @@ internal enum class ZlibDetailCompletedAction {
 /**
  * task-55/task-73：completedBook 为 null 时不能继续显示不可点的「已下载」；
  * P1-1 起即使书架条目还在，也要它指向的文件真的存在/完整才允许 OPEN。
+ * task-93：下载目标必须「完整」才给重新导入；缺失/0 字节/截断直接给重新下载，
+ * 不再先点一次重新导入、失败落 IMPORT_FAILED 后才出现重下入口（两段式）。
  * - 书架条目可打开 → OPEN；
- * - 书架条目缺失/文件损坏，但下载目标还在 → REIMPORT；
- * - 目标也没了 → REDOWNLOAD。
+ * - 书架条目缺失/文件损坏，但下载目标完整 → REIMPORT；
+ * - 目标缺失/损坏 → REDOWNLOAD。
  */
 internal fun zlibDetailCompletedAction(
     completedBook: Book?,
     bookFileExists: Boolean,
-    targetExists: Boolean,
+    targetState: ZlibDownloadTargetState,
 ): ZlibDetailCompletedAction = when {
     completedBook != null && bookFileExists -> ZlibDetailCompletedAction.OPEN
-    targetExists -> ZlibDetailCompletedAction.REIMPORT
+    targetState == ZlibDownloadTargetState.COMPLETE -> ZlibDetailCompletedAction.REIMPORT
     else -> ZlibDetailCompletedAction.REDOWNLOAD
 }
 
@@ -114,7 +115,7 @@ internal fun zlibDetailCompletedAction(
 private data class ZlibDetailCompletedCheck(
     val book: Book?,
     val shelfBookFound: Boolean,
-    val targetExists: Boolean,
+    val targetState: ZlibDownloadTargetState,
 )
 
 /**
@@ -313,12 +314,13 @@ private fun DetailContent(
         }
     }
     // P1-1 task-73：书架条目命中不代表文件还能打开（文件可能被外部删除/截断）。
-    // 同时查「书架副本是否完整」「下载目标是否还存在」，并保持 null 初值，避免首帧闪错按钮；
-    // SAF 查询必须挪到 IO。
+    // task-93：目标状态必须做完整性校验（不能只 exists），且用目标实际长度而不是旧 total；
+    // 保持 null 初值，避免首帧闪错按钮；SAF 查询必须挪到 IO。
     val completedCheck by produceState<ZlibDetailCompletedCheck?>(
         initialValue = null,
         completedTask?.id,
         completedTask?.destPath,
+        completedTask?.total,
         completedShelfBook?.filePath,
     ) {
         val record = completedTask
@@ -329,13 +331,13 @@ private fun DetailContent(
             withContext(Dispatchers.IO) {
                 ZlibDetailCompletedCheck(
                     book = shelfBook?.takeIf {
-                        zlibInspectBookFile(
-                            File(it.filePath),
-                            record.total,
-                        ) == ZlibDownloadTargetState.COMPLETE
+                        zlibInspectBookFile(File(it.filePath)) ==
+                            ZlibDownloadTargetState.COMPLETE
                     },
                     shelfBookFound = shelfBook != null,
-                    targetExists = DownloadLocation.exists(context, record.destPath),
+                    targetState = ZlibDownloadManager
+                        .inspectImportTarget(context, record)
+                        .state,
                 )
             }
         }
@@ -795,7 +797,7 @@ private fun DownloadAction(
                     val action = zlibDetailCompletedAction(
                         completedBook = check.book,
                         bookFileExists = check.book != null,
-                        targetExists = check.targetExists,
+                        targetState = check.targetState,
                     )
                     val book = check.book
                     if (book != null && action == ZlibDetailCompletedAction.OPEN) {
@@ -816,11 +818,13 @@ private fun DownloadAction(
                         Text(
                             text = when {
                                 action == ZlibDetailCompletedAction.REIMPORT &&
-                                    check.shelfBookFound -> "书架里的文件已丢失，可重新导入"
+                                    check.shelfBookFound -> "书架里的文件已丢失或损坏，可重新导入"
                                 action == ZlibDetailCompletedAction.REIMPORT ->
                                     "下载记录还在，但书架里没有这本书"
-                                check.shelfBookFound -> "书架与下载文件都已不存在"
-                                else -> "下载记录还在，但下载文件已不存在"
+                                check.shelfBookFound -> "书架里的文件已丢失或损坏，下载文件也不可用"
+                                check.targetState == ZlibDownloadTargetState.MISSING ->
+                                    "下载记录还在，但下载文件已不存在"
+                                else -> "下载记录还在，但下载文件已损坏"
                             },
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,

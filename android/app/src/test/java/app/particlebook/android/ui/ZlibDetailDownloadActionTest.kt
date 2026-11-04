@@ -27,7 +27,7 @@ class ZlibDetailDownloadActionTest {
             zlibDetailCompletedAction(
                 completedBook = book,
                 bookFileExists = true,
-                targetExists = true,
+                targetState = ZlibDownloadTargetState.COMPLETE,
             ),
         )
         assertEquals(
@@ -36,7 +36,7 @@ class ZlibDetailDownloadActionTest {
             zlibDetailCompletedAction(
                 completedBook = book,
                 bookFileExists = true,
-                targetExists = false,
+                targetState = ZlibDownloadTargetState.MISSING,
             ),
         )
     }
@@ -50,7 +50,7 @@ class ZlibDetailDownloadActionTest {
             zlibDetailCompletedAction(
                 completedBook = book,
                 bookFileExists = false,
-                targetExists = true,
+                targetState = ZlibDownloadTargetState.COMPLETE,
             ),
         )
         assertEquals(
@@ -59,7 +59,7 @@ class ZlibDetailDownloadActionTest {
             zlibDetailCompletedAction(
                 completedBook = book,
                 bookFileExists = false,
-                targetExists = false,
+                targetState = ZlibDownloadTargetState.MISSING,
             ),
         )
     }
@@ -71,7 +71,35 @@ class ZlibDetailDownloadActionTest {
             zlibDetailCompletedAction(
                 completedBook = null,
                 bookFileExists = false,
-                targetExists = true,
+                targetState = ZlibDownloadTargetState.COMPLETE,
+            ),
+        )
+    }
+
+    @Test
+    fun incompleteOrUnknownTargetOffersRedownloadDirectly() {
+        val book = book()
+        listOf(
+            ZlibDownloadTargetState.INCOMPLETE,
+            ZlibDownloadTargetState.UNKNOWN,
+        ).forEach { state ->
+            assertEquals(
+                "目标不完整/未知时不能先给重新导入再失败，必须直接重新下载",
+                ZlibDetailCompletedAction.REDOWNLOAD,
+                zlibDetailCompletedAction(
+                    completedBook = book,
+                    bookFileExists = false,
+                    targetState = state,
+                ),
+            )
+        }
+        assertEquals(
+            "没有书架条目且目标损坏 → 直接重新下载",
+            ZlibDetailCompletedAction.REDOWNLOAD,
+            zlibDetailCompletedAction(
+                completedBook = null,
+                bookFileExists = false,
+                targetState = ZlibDownloadTargetState.INCOMPLETE,
             ),
         )
     }
@@ -83,7 +111,7 @@ class ZlibDetailDownloadActionTest {
             zlibDetailCompletedAction(
                 completedBook = null,
                 bookFileExists = false,
-                targetExists = false,
+                targetState = ZlibDownloadTargetState.MISSING,
             ),
         )
     }

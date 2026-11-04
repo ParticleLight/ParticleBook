@@ -189,20 +189,36 @@ fun ZlibDownloadsScreen(
                         it.filePath == record.destPath ||
                             it.tags.contains(zlibBookTag(record.bookId))
                     }
-                    // U8：exists() 对 SAF/磁盘要真的去查，不能放在组合期同步执行（列表滚动会掉帧、
-                    // 冷启动也会卡）。produceState + Dispatchers.IO 异步查；null = 还在查。
-                    val fileExists by produceState<Boolean?>(
+                    // task-93：记录里「已导入」的条目也可能指向 0 字节/截断文件，不能直接给
+                    // 「打开」；先异步确认书架副本完整。
+                    val importedBookComplete by produceState<Boolean?>(
+                        initialValue = null,
+                        imported?.filePath,
+                    ) {
+                        val book = imported
+                        value = if (book == null) {
+                            false
+                        } else {
+                            withContext(Dispatchers.IO) {
+                                zlibInspectBookFile(File(book.filePath)) ==
+                                    ZlibDownloadTargetState.COMPLETE
+                            }
+                        }
+                    }
+                    // P1 task-93：三态（完整/缺失/损坏）统一走 Manager 的完整性检查；不能只 exists，
+                    // 也不能用记录里可能过期的 total 当长度判据。
+                    val targetCheck by produceState<ZlibImportTarget?>(
                         initialValue = null,
                         record.destPath,
+                        record.total,
                     ) {
-                        value = withContext(Dispatchers.IO) {
-                            DownloadLocation.exists(context, record.destPath)
-                        }
+                        value = ZlibDownloadManager.inspectImportTarget(context, record)
                     }
                     DownloadRecordRow(
                         record = record,
                         imported = imported,
-                        fileExists = fileExists,
+                        importedBookComplete = importedBookComplete,
+                        targetCheck = targetCheck,
                         importing = importingBookId == record.bookId,
                         importEnabled = !libraryLoading,
                         menuExpanded = menuBookId == record.bookId,
@@ -239,20 +255,35 @@ fun ZlibDownloadsScreen(
                                     snackbarHostState.showSnackbar("书架加载中，请稍后再导入")
                                     return@launch
                                 }
-                                val result = if (record.saf || record.destPath.startsWith("content://")) {
+                                // task-93：手工导入前必须重新做完整性校验，不能凭列表里的缓存状态；
+                                // 0 字节/截断/HTML 文件直接拒绝并说明「缺失/不完整」，不再当作成功。
+                                val check = ZlibDownloadManager.inspectImportTarget(context, record)
+                                if (check.state != ZlibDownloadTargetState.COMPLETE) {
+                                    importingBookId = null
+                                    snackbarHostState.showSnackbar(
+                                        zlibReimportFailureMessage(check.state),
+                                    )
+                                    return@launch
+                                }
+                                val validator = zlibExistingFileValidator(check.size)
+                                val result = if (
+                                    record.saf || record.destPath.startsWith("content://")
+                                ) {
                                     store.adoptDocument(
                                         uri = Uri.parse(record.destPath),
                                         displayName = record.fileName,
                                         title = record.title,
                                         author = record.author,
                                         extraTag = zlibBookTag(record.bookId),
+                                        existingFileValidator = validator,
                                     )
                                 } else {
                                     store.adoptLocalFile(
-                                        file = File(record.destPath),
+                                        file = check.file ?: File(record.destPath),
                                         title = record.title,
                                         author = record.author,
                                         extraTag = zlibBookTag(record.bookId),
+                                        existingFileValidator = validator,
                                     )
                                 }
                                 importingBookId = null
@@ -262,6 +293,7 @@ fun ZlibDownloadsScreen(
                                         onOpenBook(book)
                                     },
                                     onFailure = {
+                                        // 目标已完整但登记失败（权限/存储等）→ 不能再说「文件不完整」。
                                         snackbarHostState.showSnackbar("导入失败，请检查文件是否仍在")
                                     },
                                 )
@@ -425,8 +457,10 @@ internal fun deleteHistoryMessage(result: ZlibHistoryDeleteResult): String = whe
 private fun DownloadRecordRow(
     record: ZlibDownloadTask,
     imported: Book?,
-    // U8：null = 仍在异步查询（避免同步 IO，也不要在结果出来前谎报「文件缺失」）。
-    fileExists: Boolean?,
+    // task-93：书架副本是否完整（null = 还在查）；坏了不能给「打开」。
+    importedBookComplete: Boolean?,
+    // task-93：下载目标三态（null = 还在查）；完整才允许「导入书架/重新导入」。
+    targetCheck: ZlibImportTarget?,
     importing: Boolean,
     // P2-3：书架加载完成前禁用导入，避免把书登记两次/误判未导入。
     importEnabled: Boolean,
@@ -528,24 +562,36 @@ private fun DownloadRecordRow(
                 modifier = Modifier.padding(horizontal = Spacing.xs),
             )
 
-            // 已导入书架：无论下载目录里的原文件还在不在，都能直接打开阅读器。
-            imported != null -> TextButton(onClick = onOpen) {
+            // task-93：书架条目必须指向完整文件才给「打开」；条目坏了要让用户重新导入修复。
+            imported != null && importedBookComplete == true -> TextButton(onClick = onOpen) {
                 Text("打开")
             }
 
-            fileExists == true -> TextButton(onClick = onImport, enabled = importEnabled) {
-                Text(if (importEnabled) "导入书架" else "书架加载中")
+            // 书架副本状态还在查：先留空，避免「打开」闪一下又变成「导入书架」。
+            imported != null && importedBookComplete == null -> Unit
+
+            targetCheck == null -> Unit
+
+            targetCheck.state == ZlibDownloadTargetState.COMPLETE -> TextButton(
+                onClick = onImport,
+                enabled = importEnabled,
+            ) {
+                Text(
+                    when {
+                        !importEnabled -> "书架加载中"
+                        imported != null -> "重新导入"
+                        else -> "导入书架"
+                    },
+                )
             }
 
-            fileExists == false -> Text(
-                text = "文件缺失",
+            // task-93：三态文案——目标存在但 0 字节/截断/HTML 不再谎报「可导入」。
+            else -> Text(
+                text = zlibImportStateLabel(targetCheck.state) ?: "文件损坏",
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = Spacing.xs),
             )
-
-            // 仍在异步查询文件是否存在：这一格先留空，避免「文件缺失」闪一下。
-            else -> Unit
         }
         // D8：单行「在文件夹中打开」+「删除记录」。
         Box {
