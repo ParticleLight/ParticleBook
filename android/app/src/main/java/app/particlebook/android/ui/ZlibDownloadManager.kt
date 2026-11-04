@@ -327,6 +327,16 @@ internal fun zlibImportStateLabel(state: ZlibDownloadTargetState): String? = whe
 }
 
 /**
+ * task-112：下载历史里的可空字符串字段（author/format/errorKind/errorMessage）。
+ *
+ * Android 的 JSONObject.optString(key) 对 JSONObject.NULL 返回字符串 "null"，不是空串；
+ * 只靠 takeUnless { isBlank } 会把它当真实值写回 API/UI。这里先按 isNull 判定，同时兼容
+ * 旧版本已经写坏的字符串 "null"。
+ */
+internal fun zlibHistoryOptionalText(isJsonNull: Boolean, raw: String): String? =
+    if (isJsonNull) null else raw.takeUnless { it.isBlank() || it == "null" }
+
+/**
  * task-103（P2-1）：冷启读盘完成前删掉的记录，读盘结果里必须再过滤一次，否则
  * removeHistoryRecord 的 early-return 会让旧 COMPLETED 记录在历史加载完成后复活。
  */
@@ -2549,8 +2559,14 @@ object ZlibDownloadManager {
                 id = taskId(bookId),
                 bookId = bookId,
                 title = item.optString("title").ifBlank { "未命名" },
-                author = item.optString("author").takeUnless { it.isBlank() || it == "null" },
-                format = item.optString("format").takeUnless { it.isBlank() || it == "null" },
+                author = zlibHistoryOptionalText(
+                    isJsonNull = item.isNull("author"),
+                    raw = item.optString("author"),
+                ),
+                format = zlibHistoryOptionalText(
+                    isJsonNull = item.isNull("format"),
+                    raw = item.optString("format"),
+                ),
                 downloadPath = item.optString("downloadPath"),
                 fileName = item.optString("fileName").ifBlank {
                     if (destPath.startsWith("content://")) "下载文件" else File(destPath).name
@@ -2573,8 +2589,15 @@ object ZlibDownloadManager {
                     ZlibDownloadStatus.FAILED.name -> ZlibDownloadStatus.FAILED
                     else -> ZlibDownloadStatus.COMPLETED
                 },
-                errorKind = item.optString("errorKind").takeUnless { it.isBlank() },
-                errorMessage = item.optString("errorMessage").takeUnless { it.isBlank() },
+                // task-112：JSONObject.NULL 的 optString 是 "null"，不能只判 blank。
+                errorKind = zlibHistoryOptionalText(
+                    isJsonNull = item.isNull("errorKind"),
+                    raw = item.optString("errorKind"),
+                ),
+                errorMessage = zlibHistoryOptionalText(
+                    isJsonNull = item.isNull("errorMessage"),
+                    raw = item.optString("errorMessage"),
+                ),
                 finishedAt = item.optLong("finishedAt", 0L),
             )
         }
