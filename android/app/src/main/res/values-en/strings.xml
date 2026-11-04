@@ -1,0 +1,117 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Common actions -->
+    <string name="common_retry">Retry</string>
+    <string name="common_cancel">Cancel</string>
+    <string name="common_clear">Clear</string>
+    <string name="common_more_actions">More actions</string>
+
+    <!-- Search screen -->
+    <string name="find_header_subtitle">Built-in sources · Search · Download</string>
+    <string name="find_search_hint">Title / Author / ISBN</string>
+    <string name="find_search_action">Search</string>
+    <string name="find_filter">Filters</string>
+    <string name="find_filter_active">Filters · On</string>
+    <string name="find_filter_hint">Language / Format / Year / Sort</string>
+    <string name="find_filter_staged">Keyword filters are saved and will apply when you return to keyword search.</string>
+    <string name="find_loading_title">Searching…</string>
+    <string name="find_loading_subtitle">Connecting to a mirror. The first search may take a few seconds…</string>
+    <string name="find_open_detail_error">Cannot open details: malformed link</string>
+    <string name="find_end_of_list">You have reached the end</string>
+    <string name="find_mirror_switched_format">Switched to %1$s</string>
+    <string name="find_no_mirror_message">All Z-Library mirrors are currently unreachable. Please try again later or switch mirrors manually.</string>
+    <string name="find_switch_lines">Switch mirror</string>
+    <string name="find_mirrors">Mirrors</string>
+    <string name="find_downloads">Downloads</string>
+
+    <!-- Empty and error states -->
+    <string name="find_empty">No books found</string>
+    <string name="find_empty_category_format">No results in “%1$s”</string>
+    <string name="find_empty_hint">Try another title or author, or pick a popular category:</string>
+    <string name="find_error_title">Search failed</string>
+    <string name="find_error_kind_mirror">Mirrors unreachable</string>
+    <string name="find_error_kind_security">Security check failed</string>
+    <string name="find_error_kind_server">Server error</string>
+    <string name="find_error_kind_parse">Page parsing failed</string>
+    <string name="find_error_kind_network">Network error</string>
+    <string name="find_error_kind_quota">Download quota used up</string>
+    <string name="find_error_kind_login">Login required</string>
+    <string name="find_error_kind_download">Download failed</string>
+    <string name="find_error_kind_cancelled">Cancelled</string>
+
+    <!-- Account and logout -->
+    <string name="find_login">Log in</string>
+    <string name="find_logout">Log out</string>
+    <string name="find_logout_title">Log out?</string>
+    <string name="find_logout_message">You can log in again anytime. Downloaded books remain in your library.</string>
+    <string name="find_logged_out">Logged out</string>
+
+    <!-- Discover entries -->
+    <string name="discover_title">Discover</string>
+    <string name="discover_booklists_title">Booklists</string>
+    <string name="discover_booklists_subtitle">Editor picks / user booklists</string>
+    <string name="discover_popular_title">Popular</string>
+    <string name="discover_popular_subtitle">Most Popular 100</string>
+    <string name="discover_categories_title">Categories</string>
+    <string name="discover_categories_subtitle">39 categories / 802 subcategories</string>
+
+    <!-- Popular categories (display labels; request values stay Chinese) -->
+    <string name="find_hot_categories">Popular categories</string>
+    <string name="find_hot_category_literature">Literature</string>
+    <string name="find_hot_category_science_fiction">Sci-Fi</string>
+    <string name="find_hot_category_history">History</string>
+    <string name="find_hot_category_computers">Computers</string>
+    <string name="find_hot_category_philosophy">Philosophy</string>
+    <string name="find_hot_category_art">Art</string>
+    <string name="find_hot_category_science">Science</string>
+    <string name="find_hot_category_psychology">Psychology</string>
+    <string name="find_recent_searches">Recent searches</string>
+    <string name="find_recent_searches_empty">No search history yet. Search history will be available in a future version.</string>
+    <string name="find_intro_title">Search and download ready</string>
+    <string name="find_intro_message">Results come from Z-Library mirrors. Downloads are added to your library automatically.</string>
+
+    <!-- Filters and sorting -->
+    <string name="find_filter_sheet_title">Filters and sort</string>
+    <string name="find_filter_sheet_hint">Filters are applied by Z-Library servers. Leave years blank for no limit.</string>
+    <string name="find_filter_language">Language</string>
+    <string name="find_filter_format">Format</string>
+    <string name="find_filter_year">Publication year</string>
+    <string name="find_filter_year_from">From year</string>
+    <string name="find_filter_year_to">To year</string>
+    <string name="find_filter_sort">Sort</string>
+    <string name="find_filter_reset">Reset</string>
+    <string name="find_filter_apply">Apply</string>
+
+    <!-- Language labels -->
+    <string name="find_language_chinese">Chinese</string>
+    <string name="find_language_english">English</string>
+    <string name="find_language_russian">Russian</string>
+    <string name="find_language_japanese">Japanese</string>
+    <string name="find_language_german">German</string>
+    <string name="find_language_french">French</string>
+    <string name="find_language_spanish">Spanish</string>
+    <string name="find_language_italian">Italian</string>
+    <string name="find_language_portuguese">Portuguese</string>
+    <string name="find_language_korean">Korean</string>
+    <string name="find_language_dutch">Dutch</string>
+    <string name="find_language_turkish">Turkish</string>
+
+    <!-- Sort labels -->
+    <string name="find_sort_popular">Most Popular</string>
+    <string name="find_sort_best_match">Best Match</string>
+    <string name="find_sort_newest">Recently Added</string>
+    <string name="find_sort_title_asc">Title (A-Z)</string>
+    <string name="find_sort_title_desc">Title (Z-A)</string>
+    <string name="find_sort_year">By Year</string>
+    <string name="find_sort_filesize_desc">File Size ↓</string>
+    <string name="find_sort_filesize_asc">File Size ↑</string>
+
+    <!-- Dynamic summaries -->
+    <string name="find_year_range_format">%1$d–%2$d</string>
+    <string name="find_year_after_format">After %1$d</string>
+    <string name="find_year_before_format">Before %1$d</string>
+    <string name="find_summary_category_format">Category: %1$s</string>
+    <string name="find_summary_loaded_format">Loaded: %1$d</string>
+    <string name="find_summary_page_format">Page %1$d / %2$d</string>
+    <string name="find_summary_filter_format">Filters: %1$s</string>
+</resources>

@@ -1,5 +1,6 @@
 package app.particlebook.android.ui
 
+import android.content.Context
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -78,12 +79,14 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import app.particlebook.android.R
 import app.particlebook.android.zlib.ZAccount
 import app.particlebook.android.zlib.ZBook
 import app.particlebook.android.zlib.ZlibClient
@@ -119,8 +122,9 @@ fun DiscoverScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val keyboard = LocalSoftwareKeyboardController.current
+    val context = LocalContext.current
     // ZlibClient 单例带 Application Context：镜像缓存（SharedPreferences）与 DEBUG 本地代理兜底才生效。
-    val appContext = LocalContext.current.applicationContext
+    val appContext = context.applicationContext
     val viewModel = remember(scope, appContext) {
         ZlibSearchViewModel(scope, ZlibClient.get(appContext))
     }
@@ -182,7 +186,7 @@ fun DiscoverScreen(
                     Text("Z-Library", style = AppType.pageTitle)
                     Spacer(Modifier.height(2.dp))
                     Text(
-                        text = "内置书源 · 检索 · 下载",
+                        text = stringResource(R.string.find_header_subtitle),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -224,7 +228,7 @@ fun DiscoverScreen(
                 shape = RoundedCornerShape(28.dp),
                 placeholder = {
                     Text(
-                        text = "书名 / 作者 / ISBN",
+                        text = stringResource(R.string.find_search_hint),
                         style = MaterialTheme.typography.bodyMedium,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -240,7 +244,7 @@ fun DiscoverScreen(
                             ) {
                                 Icon(
                                     imageVector = Icons.Filled.Close,
-                                    contentDescription = "清除",
+                                    contentDescription = stringResource(R.string.common_clear),
                                     modifier = Modifier.size(20.dp),
                                 )
                             }
@@ -261,7 +265,7 @@ fun DiscoverScreen(
                             } else {
                                 Icon(
                                     imageVector = Icons.Outlined.Search,
-                                    contentDescription = "搜索",
+                                    contentDescription = stringResource(R.string.find_search_action),
                                     modifier = Modifier.size(24.dp),
                                     tint = if (enabled) {
                                         MaterialTheme.colorScheme.primary
@@ -295,7 +299,11 @@ fun DiscoverScreen(
                         onClick = { filterSheetOpen = true },
                         label = {
                             Text(
-                                text = if (filters.isActive) "筛选 · 已启用" else "筛选",
+                                text = if (filters.isActive) {
+                                    stringResource(R.string.find_filter_active)
+                                } else {
+                                    stringResource(R.string.find_filter)
+                                },
                                 style = MaterialTheme.typography.labelMedium,
                                 maxLines = 1,
                             )
@@ -311,9 +319,9 @@ fun DiscoverScreen(
                     )
                     Text(
                         text = if (filters.isActive) {
-                            zlibFilterSummary(filters)
+                            zlibFilterSummary(context, filters)
                         } else {
-                            "语言 / 格式 / 年份 / 排序"
+                            stringResource(R.string.find_filter_hint)
                         },
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -327,7 +335,10 @@ fun DiscoverScreen(
                             contentPadding = PaddingValues(horizontal = Spacing.xs),
                             modifier = Modifier.heightIn(min = 32.dp),
                         ) {
-                            Text("清除", style = MaterialTheme.typography.labelMedium)
+                            Text(
+                                text = stringResource(R.string.common_clear),
+                                style = MaterialTheme.typography.labelMedium,
+                            )
                         }
                     }
                 }
@@ -340,7 +351,7 @@ fun DiscoverScreen(
                     horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
                 ) {
                     Text(
-                        text = "关键词筛选已暂存，回到关键词搜索时生效",
+                        text = stringResource(R.string.find_filter_staged),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
@@ -352,7 +363,10 @@ fun DiscoverScreen(
                         contentPadding = PaddingValues(horizontal = Spacing.xs),
                         modifier = Modifier.heightIn(min = 32.dp),
                     ) {
-                        Text("清除", style = MaterialTheme.typography.labelMedium)
+                        Text(
+                            text = stringResource(R.string.common_clear),
+                            style = MaterialTheme.typography.labelMedium,
+                        )
                     }
                 }
                 Spacer(Modifier.height(Spacing.xs))
@@ -385,13 +399,13 @@ fun DiscoverScreen(
                         CircularProgressIndicator()
                         Spacer(Modifier.height(Spacing.sm))
                         Text(
-                            text = "正在搜索…",
+                            text = stringResource(R.string.find_loading_title),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         Spacer(Modifier.height(Spacing.xxs))
                         Text(
-                            text = "正在连接镜像，首次可能需要几秒…",
+                            text = stringResource(R.string.find_loading_subtitle),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             textAlign = TextAlign.Center,
@@ -434,17 +448,39 @@ fun DiscoverScreen(
                             Text(
                                 text = buildString {
                                     // task-38：分类搜素表头标明「分类：文学」，与关键词搜索区分。
-                                    current.category?.let { append("分类：").append(it).append(" · ") }
-                                    append("已加载 ").append(current.books.size).append(" 本")
+                                    current.category?.let {
+                                        append(
+                                            context.getString(
+                                                R.string.find_summary_category_format,
+                                                zlibCategoryLabel(context, it),
+                                            ),
+                                        ).append(" · ")
+                                    }
+                                    append(
+                                        context.getString(
+                                            R.string.find_summary_loaded_format,
+                                            current.books.size,
+                                        ),
+                                    )
                                     if (current.totalPages >= 1) {
-                                        append(" · 第 ").append(current.page)
-                                            .append(" / ").append(current.totalPages).append(" 页")
+                                        append(" · ").append(
+                                            context.getString(
+                                                R.string.find_summary_page_format,
+                                                current.page,
+                                                current.totalPages,
+                                            ),
+                                        )
                                     }
                                     // 分类榜单请求不带关键词筛选，表头只在关键词结果里标注。
                                     if (current.category == null) {
                                         val activeFilters = viewModel.filters
                                         if (activeFilters.isActive) {
-                                            append(" · 筛选：").append(zlibFilterSummary(activeFilters))
+                                            append(" · ").append(
+                                                context.getString(
+                                                    R.string.find_summary_filter_format,
+                                                    zlibFilterSummary(context, activeFilters),
+                                                ),
+                                            )
                                         }
                                     }
                                 },
@@ -470,7 +506,9 @@ fun DiscoverScreen(
                                         onOpenDetail(ref.first, ref.second)
                                     } else {
                                         scope.launch {
-                                            snackbarHostState.showSnackbar("无法打开详情：链接格式异常")
+                                            snackbarHostState.showSnackbar(
+                                                context.getString(R.string.find_open_detail_error),
+                                            )
                                         }
                                     }
                                 },
@@ -505,13 +543,13 @@ fun DiscoverScreen(
                                     // NO_MIRROR 的失败在顶部 banner 已给「切换线路」入口，尾部不重复放重试按钮。
                                     if (current.loadMoreKindLabel != "NO_MIRROR") {
                                         TextButton(onClick = { viewModel.retryLoadNextPage() }) {
-                                            Text("重试")
+                                            Text(stringResource(R.string.common_retry))
                                         }
                                     }
                                 }
     
                                 current.page >= current.totalPages -> Text(
-                                    text = "已经到底了",
+                                    text = stringResource(R.string.find_end_of_list),
                                     style = MaterialTheme.typography.labelMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     textAlign = TextAlign.Center,
@@ -533,7 +571,11 @@ fun DiscoverScreen(
             onDismiss = { mirrorSheetOpen = false },
             onSwitched = { host ->
                 mirrorSheetOpen = false
-                scope.launch { snackbarHostState.showSnackbar("已切换到 " + host) }
+                scope.launch {
+                    snackbarHostState.showSnackbar(
+                        context.getString(R.string.find_mirror_switched_format, host),
+                    )
+                }
                 // 用 ViewModel 记录的「上次已提交」查询/分类重搜，不能读输入框草稿：
                 // 用户可能改了搜索词但没提交，切线路不应替他把草稿搜出去。
                 // Loading 时请求已用旧线路发出：ViewModel 记 pendingReload，等它结束再自动重跑；
@@ -559,22 +601,26 @@ fun DiscoverScreen(
     if (logoutDialogOpen) {
         AlertDialog(
             onDismissRequest = { logoutDialogOpen = false },
-            title = { Text("退出登录？") },
-            text = { Text("退出后可以随时重新登录；已下载的书仍保留在书架。") },
+            title = { Text(stringResource(R.string.find_logout_title)) },
+            text = { Text(stringResource(R.string.find_logout_message)) },
             confirmButton = {
                 TextButton(
                     onClick = {
                         logoutDialogOpen = false
                         onLogout()
-                        scope.launch { snackbarHostState.showSnackbar("已退出登录") }
+                        scope.launch {
+                            snackbarHostState.showSnackbar(
+                                context.getString(R.string.find_logged_out),
+                            )
+                        }
                     },
                 ) {
-                    Text("退出登录")
+                    Text(stringResource(R.string.find_logout))
                 }
             },
             dismissButton = {
                 TextButton(onClick = { logoutDialogOpen = false }) {
-                    Text("取消")
+                    Text(stringResource(R.string.common_cancel))
                 }
             },
         )
@@ -594,7 +640,7 @@ private fun AccountArea(
             onClick = onLoginClick,
             modifier = Modifier.heightIn(min = 48.dp),
         ) {
-            Text("登录")
+            Text(stringResource(R.string.find_login))
         }
         return
     }
@@ -631,14 +677,14 @@ private fun AccountArea(
             }
             DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                 DropdownMenuItem(
-                    text = { Text("下载记录") },
+                    text = { Text(stringResource(R.string.find_downloads)) },
                     onClick = {
                         menuOpen = false
                         onDownloadsClick()
                     },
                 )
                 DropdownMenuItem(
-                    text = { Text("退出登录") },
+                    text = { Text(stringResource(R.string.find_logout)) },
                     onClick = {
                         menuOpen = false
                         onLogoutRequest()
@@ -663,20 +709,20 @@ private fun TopOverflowMenu(
         ) {
             Icon(
                 imageVector = Icons.Outlined.MoreVert,
-                contentDescription = "更多操作",
+                contentDescription = stringResource(R.string.common_more_actions),
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
             DropdownMenuItem(
-                text = { Text("线路") },
+                text = { Text(stringResource(R.string.find_mirrors)) },
                 onClick = {
                     open = false
                     onMirrorsClick()
                 },
             )
             DropdownMenuItem(
-                text = { Text("下载记录") },
+                text = { Text(stringResource(R.string.find_downloads)) },
                 onClick = {
                     open = false
                     onDownloadsClick()
@@ -714,7 +760,7 @@ private fun NoMirrorBanner(onRetry: () -> Unit, onSwitchLines: () -> Unit) {
                 )
                 Spacer(Modifier.size(Spacing.xs))
                 Text(
-                    text = "所有 Z-Library 镜像暂时不可达，请稍后重试或手动切换线路",
+                    text = stringResource(R.string.find_no_mirror_message),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onErrorContainer,
                     modifier = Modifier.weight(1f),
@@ -725,10 +771,10 @@ private fun NoMirrorBanner(onRetry: () -> Unit, onSwitchLines: () -> Unit) {
                 horizontalArrangement = Arrangement.End,
             ) {
                 TextButton(onClick = onRetry) {
-                    Text("重试")
+                    Text(stringResource(R.string.common_retry))
                 }
                 TextButton(onClick = onSwitchLines) {
-                    Text("切换线路")
+                    Text(stringResource(R.string.find_switch_lines))
                 }
             }
         }
@@ -744,8 +790,8 @@ internal fun discoverEntryLayoutFor(fontScale: Float): DiscoverEntryLayout =
 
 /** 发现入口三张卡的静态内容；横排/纵排共用同一份点击动作。 */
 private data class DiscoverEntry(
-    val title: String,
-    val subtitle: String,
+    val titleRes: Int,
+    val subtitleRes: Int,
     val icon: ImageVector,
     val onClick: () -> Unit,
 )
@@ -763,20 +809,20 @@ private fun DiscoverEntryRow(
 ) {
     val entries = listOf(
         DiscoverEntry(
-            title = "书单",
-            subtitle = "编辑精选 / 用户书单",
+            titleRes = R.string.discover_booklists_title,
+            subtitleRes = R.string.discover_booklists_subtitle,
             icon = Icons.AutoMirrored.Outlined.MenuBook,
             onClick = onBooklistsClick,
         ),
         DiscoverEntry(
-            title = "榜单",
-            subtitle = "Most Popular 100",
+            titleRes = R.string.discover_popular_title,
+            subtitleRes = R.string.discover_popular_subtitle,
             icon = Icons.Outlined.Leaderboard,
             onClick = onPopularClick,
         ),
         DiscoverEntry(
-            title = "分类",
-            subtitle = "39 大类 / 802 子类",
+            titleRes = R.string.discover_categories_title,
+            subtitleRes = R.string.discover_categories_subtitle,
             icon = Icons.Outlined.Category,
             onClick = onCategoriesClick,
         ),
@@ -835,14 +881,14 @@ private fun DiscoverEntryCard(
             )
             Spacer(Modifier.height(Spacing.xs))
             Text(
-                text = entry.title,
+                text = stringResource(entry.titleRes),
                 style = MaterialTheme.typography.titleSmall,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
             Spacer(Modifier.height(2.dp))
             Text(
-                text = entry.subtitle,
+                text = stringResource(entry.subtitleRes),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = subtitleMaxLines,
@@ -867,7 +913,7 @@ private fun IdleContent(
     Column(modifier = modifier.fillMaxWidth().verticalScroll(rememberScrollState())) {
         // P1.5 §7.1：搜索框下方「发现」入口（书单 / 榜单 / 分类），在热门分类 chips 之上。
         Spacer(Modifier.height(Spacing.md))
-        Text("发现", style = AppType.sectionTitle)
+        Text(stringResource(R.string.discover_title), style = AppType.sectionTitle)
         Spacer(Modifier.height(Spacing.xs))
         DiscoverEntryRow(
             onBooklistsClick = onBooklistsClick,
@@ -875,7 +921,7 @@ private fun IdleContent(
             onCategoriesClick = onCategoriesClick,
         )
         Spacer(Modifier.height(Spacing.xl))
-        Text("热门分类", style = AppType.sectionTitle)
+        Text(stringResource(R.string.find_hot_categories), style = AppType.sectionTitle)
         Spacer(Modifier.height(Spacing.xs))
         FlowRow(
             horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
@@ -883,11 +929,11 @@ private fun IdleContent(
         ) {
             HotCategories.forEach { item ->
                 FilterChip(
-                    selected = category == item,
-                    onClick = { onCategoryClick(item) },
+                    selected = category == item.value,
+                    onClick = { onCategoryClick(item.value) },
                     label = {
                         Text(
-                            text = item,
+                            text = stringResource(item.labelRes),
                             style = MaterialTheme.typography.labelMedium,
                             maxLines = 1,
                         )
@@ -898,10 +944,10 @@ private fun IdleContent(
         }
 
         Spacer(Modifier.height(Spacing.xl))
-        Text("最近搜索", style = AppType.sectionTitle)
+        Text(stringResource(R.string.find_recent_searches), style = AppType.sectionTitle)
         Spacer(Modifier.height(Spacing.xs))
         Text(
-            text = "还没有搜索记录。搜索历史将在后续版本提供。",
+            text = stringResource(R.string.find_recent_searches_empty),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -924,10 +970,13 @@ private fun IdleContent(
                 )
                 Spacer(Modifier.size(Spacing.xs))
                 Column {
-                    Text("检索与下载已接入", style = MaterialTheme.typography.titleSmall)
+                    Text(
+                        stringResource(R.string.find_intro_title),
+                        style = MaterialTheme.typography.titleSmall,
+                    )
                     Spacer(Modifier.height(Spacing.xxs))
                     Text(
-                        text = "搜索结果来自 Z-Library 镜像；下载完成后会自动加入书架。",
+                        text = stringResource(R.string.find_intro_message),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -947,6 +996,15 @@ private fun EmptyResult(
     modifier: Modifier = Modifier,
     categoryHint: String? = null,
 ) {
+    val context = LocalContext.current
+    val emptyTitle = if (categoryHint != null) {
+        stringResource(
+            R.string.find_empty_category_format,
+            zlibCategoryLabel(context, categoryHint),
+        )
+    } else {
+        stringResource(R.string.find_empty)
+    }
     Box(modifier = modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
         Column(
             modifier = Modifier
@@ -963,12 +1021,12 @@ private fun EmptyResult(
             )
             Spacer(Modifier.height(Spacing.sm))
             Text(
-                text = categoryHint?.let { "分类「" + it + "」暂无结果" } ?: "没有找到相关书籍",
+                text = emptyTitle,
                 style = MaterialTheme.typography.titleMedium,
             )
             Spacer(Modifier.height(Spacing.xxs))
             Text(
-                text = "换个书名或作者再试试，也可以直接点热门分类：",
+                text = stringResource(R.string.find_empty_hint),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
@@ -984,13 +1042,13 @@ private fun EmptyResult(
                 ),
                 verticalArrangement = Arrangement.spacedBy(Spacing.xs),
             ) {
-                HotCategories.forEach { category ->
+                HotCategories.forEach { item ->
                     FilterChip(
                         selected = false,
-                        onClick = { onSearchCategory(category) },
+                        onClick = { onSearchCategory(item.value) },
                         label = {
                             Text(
-                                text = category,
+                                text = stringResource(item.labelRes),
                                 style = MaterialTheme.typography.labelMedium,
                                 maxLines = 1,
                             )
@@ -1028,7 +1086,7 @@ private fun SearchError(
             modifier = Modifier.size(48.dp),
         )
         Spacer(Modifier.height(Spacing.sm))
-        Text("搜索失败", style = MaterialTheme.typography.titleMedium)
+        Text(stringResource(R.string.find_error_title), style = MaterialTheme.typography.titleMedium)
         Spacer(Modifier.height(Spacing.xxs))
         Text(
             text = message,
@@ -1037,31 +1095,44 @@ private fun SearchError(
             textAlign = TextAlign.Center,
         )
         // spec §11.6：副行不能暴露英文枚举；未知类型直接隐藏。
-        val kindText = ZlibUiError.kindLabel(kindLabel)
-        if (kindText != null) {
+        // i18n Phase 1a：ZlibUiError 仍返回中文标签，UI 层用资源 ID 映射；
+        // 错误正文 message 与 ZlibUiError 自身留 Phase 1b（任务写作用域外）。
+        val kindRes = zlibKindLabelRes(kindLabel)
+        if (kindRes != null) {
             Spacer(Modifier.height(Spacing.xs))
             Text(
-                text = kindText,
+                text = stringResource(kindRes),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.outline,
             )
         }
         Spacer(Modifier.height(Spacing.sm))
-        FilledTonalButton(onClick = onRetry) { Text("重试") }
+        FilledTonalButton(onClick = onRetry) {
+            Text(stringResource(R.string.common_retry))
+        }
     }
 }
 
-/** 热门分类：静态标签，只做筛选高亮，不发任何请求。 */
+/**
+ * 热门分类：value 是站点 /s/<中文> 的真实请求值，labelRes 仅用于本地化显示。
+ * 分类搜索仍把 value（中文）交给 ViewModel，显示随系统语言切换。
+ */
+private data class HotCategory(val value: String, val labelRes: Int)
+
 private val HotCategories = listOf(
-    "文学",
-    "科幻",
-    "历史",
-    "计算机",
-    "哲学",
-    "艺术",
-    "科学",
-    "心理学",
+    HotCategory("文学", R.string.find_hot_category_literature),
+    HotCategory("科幻", R.string.find_hot_category_science_fiction),
+    HotCategory("历史", R.string.find_hot_category_history),
+    HotCategory("计算机", R.string.find_hot_category_computers),
+    HotCategory("哲学", R.string.find_hot_category_philosophy),
+    HotCategory("艺术", R.string.find_hot_category_art),
+    HotCategory("科学", R.string.find_hot_category_science),
+    HotCategory("心理学", R.string.find_hot_category_psychology),
 )
+
+/** 分类请求值 → 本地化显示名；未知分类（例如站点返回的新分类）原样显示。 */
+private fun zlibCategoryLabel(context: Context, value: String): String =
+    HotCategories.firstOrNull { it.value == value }?.let { context.getString(it.labelRes) } ?: value
 
 // ---- A5 搜索筛选/排序 ----
 
@@ -1107,6 +1178,76 @@ internal fun zlibFilterSummary(filters: ZlibSearchFilters): String {
     return parts.joinToString(" · ")
 }
 
+/** 语言值 → 资源 ID；未知返回 null（UI 用原值兜底，便于以后扩展取值清单）。 */
+internal fun zlibLanguageLabelRes(value: String): Int? = when (value) {
+    "chinese" -> R.string.find_language_chinese
+    "english" -> R.string.find_language_english
+    "russian" -> R.string.find_language_russian
+    "japanese" -> R.string.find_language_japanese
+    "german" -> R.string.find_language_german
+    "french" -> R.string.find_language_french
+    "spanish" -> R.string.find_language_spanish
+    "italian" -> R.string.find_language_italian
+    "portuguese" -> R.string.find_language_portuguese
+    "korean" -> R.string.find_language_korean
+    "dutch" -> R.string.find_language_dutch
+    "turkish" -> R.string.find_language_turkish
+    else -> null
+}
+
+/** 排序枚举 → 资源 ID；枚举的 label 仍由 zlib 层保留给非 UI 场景。 */
+internal fun zlibSortOrderLabelRes(order: ZlibSortOrder): Int = when (order) {
+    ZlibSortOrder.POPULAR -> R.string.find_sort_popular
+    ZlibSortOrder.BEST_MATCH -> R.string.find_sort_best_match
+    ZlibSortOrder.NEWEST -> R.string.find_sort_newest
+    ZlibSortOrder.TITLE_ASC -> R.string.find_sort_title_asc
+    ZlibSortOrder.TITLE_DESC -> R.string.find_sort_title_desc
+    ZlibSortOrder.YEAR -> R.string.find_sort_year
+    ZlibSortOrder.FILESIZE_DESC -> R.string.find_sort_filesize_desc
+    ZlibSortOrder.FILESIZE_ASC -> R.string.find_sort_filesize_asc
+}
+
+/**
+ * ZlibUiError.kindLabel 的中文标签 → 资源 ID。
+ * Phase 1a 不改 ZlibUiError（不在写作用域，且其单测锁中文）；UI 层在这里做展示映射，
+ * 未知/空标签继续隐藏，避免把英文枚举暴露给用户。错误正文与其它调用方留 Phase 1b。
+ */
+internal fun zlibKindLabelRes(kindLabel: String?): Int? = when (kindLabel) {
+    "镜像不可达" -> R.string.find_error_kind_mirror
+    "安全校验未通过" -> R.string.find_error_kind_security
+    "服务器错误" -> R.string.find_error_kind_server
+    "页面解析失败" -> R.string.find_error_kind_parse
+    "网络异常" -> R.string.find_error_kind_network
+    "下载额度已用尽" -> R.string.find_error_kind_quota
+    "需要登录" -> R.string.find_error_kind_login
+    "下载失败" -> R.string.find_error_kind_download
+    "已取消" -> R.string.find_error_kind_cancelled
+    else -> null
+}
+
+/** A5：UI 用的筛选摘要（带 Context，语言/排序走资源；默认中文输出与旧纯函数逐字一致）。 */
+internal fun zlibFilterSummary(context: Context, filters: ZlibSearchFilters): String {
+    val parts = ArrayList<String>()
+    filters.languages.forEach {
+        val res = zlibLanguageLabelRes(it)
+        parts.add(if (res != null) context.getString(res) else zlibLanguageLabel(it))
+    }
+    if (filters.extensions.isNotEmpty()) parts.add(filters.extensions.joinToString("/"))
+    val from = filters.yearFrom
+    val to = filters.yearTo
+    when {
+        from != null && to != null -> parts.add(
+            context.getString(R.string.find_year_range_format, from, to),
+        )
+        from != null -> parts.add(context.getString(R.string.find_year_after_format, from))
+        to != null -> parts.add(context.getString(R.string.find_year_before_format, to))
+    }
+    if (filters.order != ZlibSortOrder.POPULAR) {
+        parts.add(context.getString(zlibSortOrderLabelRes(filters.order)))
+    }
+    return parts.joinToString(" · ")
+}
+
 /** 多选 chip 组（语言/格式/排序共用）；选中值集合由调用方持有。 */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -1145,6 +1286,14 @@ private fun SearchFilterSheet(
     onApply: (ZlibSearchFilters) -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val context = LocalContext.current
+    val languageOptions = TopLanguageOptions.map { (value, chinese) ->
+        val res = zlibLanguageLabelRes(value)
+        value to (if (res != null) context.getString(res) else chinese)
+    }
+    val sortOptions = ZlibSortOrder.values().map {
+        it.value to context.getString(zlibSortOrderLabelRes(it))
+    }
     var languages by remember(initial) { mutableStateOf(initial.languages.toSet()) }
     var extensions by remember(initial) { mutableStateOf(initial.extensions.toSet()) }
     var yearFrom by remember(initial) { mutableStateOf(initial.yearFrom?.toString() ?: "") }
@@ -1169,19 +1318,25 @@ private fun SearchFilterSheet(
                 .verticalScroll(rememberScrollState())
                 .padding(start = Spacing.md, end = Spacing.md, bottom = Spacing.lg),
         ) {
-            Text("筛选与排序", style = MaterialTheme.typography.titleMedium)
+            Text(
+                stringResource(R.string.find_filter_sheet_title),
+                style = MaterialTheme.typography.titleMedium,
+            )
             Spacer(Modifier.height(2.dp))
             Text(
-                text = "筛选由 Z-Library 服务端执行；年份留空表示不限。",
+                text = stringResource(R.string.find_filter_sheet_hint),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Spacer(Modifier.height(Spacing.md))
 
-            Text("语言", style = MaterialTheme.typography.titleSmall)
+            Text(
+                stringResource(R.string.find_filter_language),
+                style = MaterialTheme.typography.titleSmall,
+            )
             Spacer(Modifier.height(Spacing.xs))
             FilterChipGroup(
-                options = TopLanguageOptions,
+                options = languageOptions,
                 selected = languages,
                 onToggle = { value ->
                     languages = if (value in languages) languages - value else languages + value
@@ -1189,7 +1344,10 @@ private fun SearchFilterSheet(
             )
             Spacer(Modifier.height(Spacing.md))
 
-            Text("格式", style = MaterialTheme.typography.titleSmall)
+            Text(
+                stringResource(R.string.find_filter_format),
+                style = MaterialTheme.typography.titleSmall,
+            )
             Spacer(Modifier.height(Spacing.xs))
             FilterChipGroup(
                 options = FormatOptions.map { it to it },
@@ -1200,7 +1358,10 @@ private fun SearchFilterSheet(
             )
             Spacer(Modifier.height(Spacing.md))
 
-            Text("出版年份", style = MaterialTheme.typography.titleSmall)
+            Text(
+                stringResource(R.string.find_filter_year),
+                style = MaterialTheme.typography.titleSmall,
+            )
             Spacer(Modifier.height(Spacing.xs))
             Row(horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
                 OutlinedTextField(
@@ -1208,7 +1369,7 @@ private fun SearchFilterSheet(
                     onValueChange = { value ->
                         yearFrom = value.filter { it.isDigit() }.take(4)
                     },
-                    label = { Text("起始年") },
+                    label = { Text(stringResource(R.string.find_filter_year_from)) },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     modifier = Modifier.weight(1f),
@@ -1218,7 +1379,7 @@ private fun SearchFilterSheet(
                     onValueChange = { value ->
                         yearTo = value.filter { it.isDigit() }.take(4)
                     },
-                    label = { Text("截止年") },
+                    label = { Text(stringResource(R.string.find_filter_year_to)) },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     modifier = Modifier.weight(1f),
@@ -1226,10 +1387,13 @@ private fun SearchFilterSheet(
             }
             Spacer(Modifier.height(Spacing.md))
 
-            Text("排序", style = MaterialTheme.typography.titleSmall)
+            Text(
+                stringResource(R.string.find_filter_sort),
+                style = MaterialTheme.typography.titleSmall,
+            )
             Spacer(Modifier.height(Spacing.xs))
             FilterChipGroup(
-                options = ZlibSortOrder.values().map { it.value to it.label },
+                options = sortOptions,
                 selected = setOf(order.value),
                 onToggle = { value ->
                     order = ZlibSortOrder.values().first { it.value == value }
@@ -1250,12 +1414,16 @@ private fun SearchFilterSheet(
                         order = ZlibSortOrder.POPULAR
                     },
                 ) {
-                    Text("重置")
+                    Text(stringResource(R.string.find_filter_reset))
                 }
                 Spacer(Modifier.weight(1f))
-                TextButton(onClick = onDismiss) { Text("取消") }
+                TextButton(onClick = onDismiss) {
+                    Text(stringResource(R.string.common_cancel))
+                }
                 Spacer(Modifier.width(Spacing.xs))
-                Button(onClick = { onApply(draft) }) { Text("应用") }
+                Button(onClick = { onApply(draft) }) {
+                    Text(stringResource(R.string.find_filter_apply))
+                }
             }
         }
     }

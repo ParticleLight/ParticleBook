@@ -1,0 +1,117 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 公共动作 -->
+    <string name="common_retry">重试</string>
+    <string name="common_cancel">取消</string>
+    <string name="common_clear">清除</string>
+    <string name="common_more_actions">更多操作</string>
+
+    <!-- 搜索页 -->
+    <string name="find_header_subtitle">内置书源 · 检索 · 下载</string>
+    <string name="find_search_hint">书名 / 作者 / ISBN</string>
+    <string name="find_search_action">搜索</string>
+    <string name="find_filter">筛选</string>
+    <string name="find_filter_active">筛选 · 已启用</string>
+    <string name="find_filter_hint">语言 / 格式 / 年份 / 排序</string>
+    <string name="find_filter_staged">关键词筛选已暂存，回到关键词搜索时生效</string>
+    <string name="find_loading_title">正在搜索…</string>
+    <string name="find_loading_subtitle">正在连接镜像，首次可能需要几秒…</string>
+    <string name="find_open_detail_error">无法打开详情：链接格式异常</string>
+    <string name="find_end_of_list">已经到底了</string>
+    <string name="find_mirror_switched_format">已切换到 %1$s</string>
+    <string name="find_no_mirror_message">所有 Z-Library 镜像暂时不可达，请稍后重试或手动切换线路</string>
+    <string name="find_switch_lines">切换线路</string>
+    <string name="find_mirrors">线路</string>
+    <string name="find_downloads">下载记录</string>
+
+    <!-- 空态/错误态 -->
+    <string name="find_empty">没有找到相关书籍</string>
+    <string name="find_empty_category_format">分类「%1$s」暂无结果</string>
+    <string name="find_empty_hint">换个书名或作者再试试，也可以直接点热门分类：</string>
+    <string name="find_error_title">搜索失败</string>
+    <string name="find_error_kind_mirror">镜像不可达</string>
+    <string name="find_error_kind_security">安全校验未通过</string>
+    <string name="find_error_kind_server">服务器错误</string>
+    <string name="find_error_kind_parse">页面解析失败</string>
+    <string name="find_error_kind_network">网络异常</string>
+    <string name="find_error_kind_quota">下载额度已用尽</string>
+    <string name="find_error_kind_login">需要登录</string>
+    <string name="find_error_kind_download">下载失败</string>
+    <string name="find_error_kind_cancelled">已取消</string>
+
+    <!-- 账号/退出 -->
+    <string name="find_login">登录</string>
+    <string name="find_logout">退出登录</string>
+    <string name="find_logout_title">退出登录？</string>
+    <string name="find_logout_message">退出后可以随时重新登录；已下载的书仍保留在书架。</string>
+    <string name="find_logged_out">已退出登录</string>
+
+    <!-- 发现入口 -->
+    <string name="discover_title">发现</string>
+    <string name="discover_booklists_title">书单</string>
+    <string name="discover_booklists_subtitle">编辑精选 / 用户书单</string>
+    <string name="discover_popular_title">榜单</string>
+    <string name="discover_popular_subtitle">Most Popular 100</string>
+    <string name="discover_categories_title">分类</string>
+    <string name="discover_categories_subtitle">39 大类 / 802 子类</string>
+
+    <!-- 热门分类（显示名；请求值仍是中文站内分类名） -->
+    <string name="find_hot_categories">热门分类</string>
+    <string name="find_hot_category_literature">文学</string>
+    <string name="find_hot_category_science_fiction">科幻</string>
+    <string name="find_hot_category_history">历史</string>
+    <string name="find_hot_category_computers">计算机</string>
+    <string name="find_hot_category_philosophy">哲学</string>
+    <string name="find_hot_category_art">艺术</string>
+    <string name="find_hot_category_science">科学</string>
+    <string name="find_hot_category_psychology">心理学</string>
+    <string name="find_recent_searches">最近搜索</string>
+    <string name="find_recent_searches_empty">还没有搜索记录。搜索历史将在后续版本提供。</string>
+    <string name="find_intro_title">检索与下载已接入</string>
+    <string name="find_intro_message">搜索结果来自 Z-Library 镜像；下载完成后会自动加入书架。</string>
+
+    <!-- 筛选/排序 -->
+    <string name="find_filter_sheet_title">筛选与排序</string>
+    <string name="find_filter_sheet_hint">筛选由 Z-Library 服务端执行；年份留空表示不限。</string>
+    <string name="find_filter_language">语言</string>
+    <string name="find_filter_format">格式</string>
+    <string name="find_filter_year">出版年份</string>
+    <string name="find_filter_year_from">起始年</string>
+    <string name="find_filter_year_to">截止年</string>
+    <string name="find_filter_sort">排序</string>
+    <string name="find_filter_reset">重置</string>
+    <string name="find_filter_apply">应用</string>
+
+    <!-- 语言显示名 -->
+    <string name="find_language_chinese">中文</string>
+    <string name="find_language_english">英语</string>
+    <string name="find_language_russian">俄语</string>
+    <string name="find_language_japanese">日语</string>
+    <string name="find_language_german">德语</string>
+    <string name="find_language_french">法语</string>
+    <string name="find_language_spanish">西班牙语</string>
+    <string name="find_language_italian">意大利语</string>
+    <string name="find_language_portuguese">葡萄牙语</string>
+    <string name="find_language_korean">韩语</string>
+    <string name="find_language_dutch">荷兰语</string>
+    <string name="find_language_turkish">土耳其语</string>
+
+    <!-- 排序显示名 -->
+    <string name="find_sort_popular">最受欢迎</string>
+    <string name="find_sort_best_match">最佳匹配</string>
+    <string name="find_sort_newest">最近添加</string>
+    <string name="find_sort_title_asc">书名 (A-Z)</string>
+    <string name="find_sort_title_desc">书名 (Z-A)</string>
+    <string name="find_sort_year">按年份</string>
+    <string name="find_sort_filesize_desc">文件大小 ↓</string>
+    <string name="find_sort_filesize_asc">文件大小 ↑</string>
+
+    <!-- 动态摘要 -->
+    <string name="find_year_range_format">%1$d–%2$d</string>
+    <string name="find_year_after_format">%1$d 年后</string>
+    <string name="find_year_before_format">%1$d 年前</string>
+    <string name="find_summary_category_format">分类：%1$s</string>
+    <string name="find_summary_loaded_format">已加载 %1$d 本</string>
+    <string name="find_summary_page_format">第 %1$d / %2$d 页</string>
+    <string name="find_summary_filter_format">筛选：%1$s</string>
+</resources>
