@@ -1,5 +1,8 @@
 package app.particlebook.android.ui
 
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -34,6 +37,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -46,6 +50,7 @@ import androidx.compose.ui.autofill.ContentType
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.semantics.contentType
@@ -58,6 +63,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
+import app.particlebook.android.zlib.ZlibClient
 
 /**
  * Z-Library 登录页（P1b §4.2，全屏 route zlib/login）。
@@ -80,6 +86,14 @@ fun ZlibLoginScreen(
     val busy = viewModel.busy
     val error = viewModel.error
     val canSubmit = email.isNotBlank() && password.isNotEmpty() && !busy
+    // B12：忘记密码/注册必须落在「当前线路」上（不硬编码域名）；无当前线路时整行隐藏。
+    val context = LocalContext.current
+    val currentMirrorBase = remember(context) {
+        val info = ZlibClient.get(context).mirrorInfo()
+        info.mirrors.getOrNull(info.index - 1)
+    }
+    val forgotPasswordUrl = zlibAccountHelpUrl(currentMirrorBase, "password-recovery")
+    val registrationUrl = zlibAccountHelpUrl(currentMirrorBase, "registration")
 
     fun submit() {
         if (!canSubmit) return
@@ -236,7 +250,42 @@ fun ZlibLoginScreen(
                 // P2-1：与左对齐的字段/错误同一条左缘，不再居中。
                 modifier = Modifier.fillMaxWidth(),
             )
+            if (forgotPasswordUrl != null && registrationUrl != null) {
+                Spacer(Modifier.height(Spacing.xs))
+                Row(horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+                    TextButton(
+                        onClick = { openInBrowser(context, forgotPasswordUrl) },
+                        modifier = Modifier.heightIn(min = 48.dp),
+                    ) {
+                        Text("忘记密码")
+                    }
+                    TextButton(
+                        onClick = { openInBrowser(context, registrationUrl) },
+                        modifier = Modifier.heightIn(min = 48.dp),
+                    ) {
+                        Text("注册")
+                    }
+                }
+            }
             Spacer(Modifier.height(Spacing.xxl))
         }
     }
+}
+
+/**
+ * B12：当前线路下的账号辅助页 URL（忘记密码 / 注册）。没有当前线路时返回 null → UI 隐藏入口。
+ * 用字符串拼接而非 Uri 解析，避免线路 URL 自带的路径/查询参数被丢掉。
+ */
+internal fun zlibAccountHelpUrl(mirrorBase: String?, path: String): String? {
+    val base = mirrorBase?.trim()?.trimEnd('/') ?: return null
+    val suffix = path.trim().trim('/')
+    if (base.isEmpty() || suffix.isEmpty()) return null
+    return base + "/" + suffix
+}
+
+/** B12：用系统浏览器打开当前线路的账号辅助页面；设备没有可用浏览器时静默忽略。 */
+private fun openInBrowser(context: Context, url: String) {
+    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    runCatching { context.startActivity(intent) }
 }

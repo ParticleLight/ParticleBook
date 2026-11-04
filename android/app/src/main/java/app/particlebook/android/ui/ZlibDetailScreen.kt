@@ -2,6 +2,7 @@ package app.particlebook.android.ui
 
 import android.graphics.Bitmap
 import androidx.compose.animation.animateContentSize
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.aspectRatio
@@ -17,6 +18,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
@@ -46,8 +49,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -55,6 +60,7 @@ import androidx.compose.ui.unit.sp
 import app.particlebook.android.ui.data.Book
 import app.particlebook.android.ui.data.LibraryStore
 import app.particlebook.android.zlib.ZBookDetail
+import app.particlebook.android.zlib.ZRecommendation
 import app.particlebook.android.zlib.ZlibClient
 
 /**
@@ -72,6 +78,7 @@ fun ZlibDetailScreen(
     onBack: () -> Unit,
     onOpenBook: (Book) -> Unit,
     onRequireLogin: () -> Unit,
+    onOpenDetail: (String, String?) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val state = viewModel.state
@@ -126,6 +133,7 @@ fun ZlibDetailScreen(
                 store = store,
                 onOpenBook = onOpenBook,
                 onRequireLogin = onRequireLogin,
+                onOpenDetail = onOpenDetail,
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(innerPadding),
@@ -201,6 +209,7 @@ private fun DetailContent(
     store: LibraryStore,
     onOpenBook: (Book) -> Unit,
     onRequireLogin: () -> Unit,
+    onOpenDetail: (String, String?) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -324,6 +333,28 @@ private fun DetailContent(
                 onRequireLogin = onRequireLogin,
             )
         }
+        // A12：站点「You may be interested in」推荐区；无数据时整区不渲染（不造占位）。
+        if (detail.recommendations.isNotEmpty()) {
+            item {
+                Spacer(Modifier.height(Spacing.lg))
+                Text(
+                    text = "你可能也感兴趣",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Spacer(Modifier.height(Spacing.sm))
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(Spacing.md),
+                ) {
+                    items(items = detail.recommendations, key = { it.hash }) { recommendation ->
+                        RecommendationCard(
+                            recommendation = recommendation,
+                            onOpenDetail = onOpenDetail,
+                        )
+                    }
+                }
+            }
+        }
         item {
             Spacer(Modifier.height(Spacing.lg))
             Text(
@@ -390,6 +421,60 @@ private fun PropertyChip(label: String) {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
         )
+    }
+}
+
+/**
+ * A12：单张推荐卡（104dp 宽 3:4 封面 + 最多两行书名 + 一行作者），点击进入对应书籍详情。
+ * 封面走与详情/搜索共用的 ZlibCoverCache；cover-not-exists 等无封面卡自动回退首字占位块。
+ */
+@Composable
+private fun RecommendationCard(
+    recommendation: ZRecommendation,
+    onOpenDetail: (String, String?) -> Unit,
+) {
+    val context = LocalContext.current
+    val density = LocalDensity.current
+    val coverWidthPx = with(density) { 104.dp.roundToPx() }
+    // 推荐卡没有搜索结果那套 id 字段时退回 hash 当缓存 key，保证同一本书多处封面复用。
+    val coverKey = recommendation.bookId.ifBlank { recommendation.hash }
+    val bitmap by produceState<Bitmap?>(
+        initialValue = ZlibCoverCache.peek(coverKey),
+        coverKey,
+        recommendation.coverUrl,
+    ) {
+        value = ZlibCoverCache.load(context, coverKey, recommendation.coverUrl, coverWidthPx)
+    }
+    Column(
+        modifier = Modifier
+            .width(104.dp)
+            .clip(RoundedCornerShape(Radius.cover))
+            .clickable { onOpenDetail(recommendation.hash, recommendation.slug) },
+    ) {
+        ZlibCoverImage(
+            bitmap = bitmap,
+            title = recommendation.title,
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(3f / 4f),
+        )
+        Spacer(Modifier.height(Spacing.xs))
+        Text(
+            text = recommendation.title,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
+        if (recommendation.author.isNotBlank()) {
+            Text(
+                text = recommendation.author,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
     }
 }
 

@@ -451,6 +451,12 @@ fun ParticleBookApp() {
                             onBack = { popRoute() },
                             onOpenBook = { book -> openBookId = book.id },
                             onRequireLogin = { openLogin() },
+                            // A12：推荐卡跳另一本书的详情 —— 复用 Discover 的同一套导航状态。
+                            onOpenDetail = { hash, slug ->
+                                detailHash = hash
+                                detailSlug = slug ?: ""
+                                pushRoute("detail")
+                            },
                         )
 
                         "downloads" -> ZlibDownloadsScreen(

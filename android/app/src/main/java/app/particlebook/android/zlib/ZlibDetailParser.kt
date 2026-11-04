@@ -3,6 +3,20 @@ package app.particlebook.android.zlib
 import java.net.URI
 
 /**
+ * A12：详情页「You may be interested in」推荐卡。
+ * [slug] 已去掉结尾 .html（可直接传给 ZlibClient.fetchDetail）；链接里没有 slug 时为 null。
+ */
+data class ZRecommendation(
+    val hash: String,
+    val slug: String?,
+    val title: String,
+    val author: String,
+    val coverUrl: String?,
+    /** 站点 book id（z-cover id 属性，封面缓存 key 用）；缺失时为空串。 */
+    val bookId: String = "",
+)
+
+/**
  * 书籍详情页解析（P1b 1.3 节，实测 190,845B / 195,979B；站点无 JSON API，只能解析 HTML）。
  *
  * DOM：
@@ -12,6 +26,7 @@ import java.net.URI
  * - 下载锚「a.dlButton.addDownloadedBook href=/dl/...」；
  *   同一主块还有「a.dlButton.reader-link」指向 reader 子域，必须排除；hidden template 锚要剥掉
  * - 属性「div.bookProperty.property_language / property_file」内的 property_value
+ * - A12 推荐区「div.books-mosaic > z-masonry[source=recommend]」内每张卡一个 a 锚 + z-cover
  */
 object ZlibDetailParser {
 
@@ -43,6 +58,14 @@ object ZlibDetailParser {
     )
     private val Z_COVER = Regex("""<z-cover\b([^>]*)>""", RegexOption.IGNORE_CASE)
     private val NO_COVER_SUFFIX = "/img/cover-not-exists.png"
+
+    /** A12：推荐区容器（真实页面 42 张卡，batch=21；无该容器 = 无推荐）。 */
+    private val RECOMMEND_MASONRY = Regex(
+        """<z-masonry\b[^>]*\bsource\s*=\s*["']recommend["'][^>]*>([\s\S]*?)</z-masonry>""",
+        RegexOption.IGNORE_CASE,
+    )
+    private val BOOK_HREF = Regex("""/book/([A-Za-z0-9]+)(?:/([^/?#"'\s]+))?""", RegexOption.IGNORE_CASE)
+    private val IMG_DATA_SRC = Regex("""<img\b[^>]*?\bdata-src\s*=\s*["']([^"']+)["']""", RegexOption.IGNORE_CASE)
 
     /** P1c：简介块（实测在 div.details-book 内的静态 HTML，无 JS/papi；没有简介的书整个 div 不存在）。 */
     private val DESCRIPTION_BOX = Regex(
@@ -107,7 +130,49 @@ object ZlibDetailParser {
             detailPath = detailPath,
             downloadPath = downloadPath,
             description = description(main),
+            recommendations = parseRecommendations(main, baseUrl),
         )
+    }
+
+    /**
+     * A12：解析推荐区卡片。
+     *
+     * 结构：`div.books-mosaic > z-masonry[source=recommend] > a[href^=/book/] > z-cover[title,author] > img[src]`。
+     * 规则：标题缺失/链接不可解析的卡跳过；同 hash 只保留首张；封面 cover-not-exists 视为无封面；
+     * 无推荐容器时返回空列表（UI 整区不显示，不造占位）。
+     */
+    fun parseRecommendations(html: String, baseUrl: String): List<ZRecommendation> {
+        val cleaned = TEMPLATE_BLOCK.replace(html, " ")
+        val block = RECOMMEND_MASONRY.find(cleaned)?.groupValues?.get(1) ?: return emptyList()
+        val result = ArrayList<ZRecommendation>()
+        val seenHashes = HashSet<String>()
+        for (match in ANCHOR.findAll(block)) {
+            val href = parseAttrs(match.groupValues[1])["href"]?.trim().orEmpty()
+            val path = BOOK_HREF.find(href) ?: continue
+            val hash = path.groupValues[1]
+            val card = match.groupValues[2]
+            val coverAttrs = Z_COVER.find(card)?.groupValues?.get(1)
+                ?.let(ZlibHtml::parseAttributes)
+                .orEmpty()
+            val title = coverAttrs["title"]?.trim().orEmpty()
+            if (title.isEmpty()) continue
+            if (!seenHashes.add(hash)) continue
+            val rawCover = IMG_SRC.find(card)?.groupValues?.get(1)?.trim()
+                ?: IMG_DATA_SRC.find(card)?.groupValues?.get(1)?.trim()
+            val coverUrl = rawCover
+                ?.takeUnless { it.endsWith(NO_COVER_SUFFIX, ignoreCase = true) }
+                ?.let { absoluteUrl(baseUrl, it) }
+            val slug = path.groupValues[2].removeSuffix(".html").trim().takeIf { it.isNotEmpty() }
+            result += ZRecommendation(
+                hash = hash,
+                slug = slug,
+                title = title,
+                author = coverAttrs["author"].orEmpty().trim(),
+                coverUrl = coverUrl,
+                bookId = coverAttrs["id"].orEmpty().trim(),
+            )
+        }
+        return result
     }
 
     /**
