@@ -11,6 +11,7 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -418,6 +419,118 @@ class LibraryIndexStoreTest {
         assertNoTempFilesLeft(dir)
     }
 
+    // ---------------------------------------------------------------- 冷启扫描恢复 / .bad 自愈 / 锁外回调
+
+    @Test
+    fun recoverFilesAdoptsOrphanBookFilesOnceAndKeepsIndex() = runBlocking {
+        val dir = newTempDir("recover-orphans")
+        val store = LibraryIndexStore(dir, TestIndexCodec())
+        store.load { it }
+        val known = sniffableBookFile(dir, "known.epub")
+        store.registerFile(known, "known", null, emptyList()).getOrThrow()
+        val orphanEpub = sniffableBookFile(dir, "import-1700000000000-ab12cd34.epub")
+        val orphanPdf = sniffableBookFile(dir, "zlib-1700000000000-deadbeef.pdf")
+
+        val recovered = store.recoverFiles(listOf(known, orphanEpub, orphanPdf), listOf(RECOVERED_TAG))
+
+        assertEquals("已知路径不得重复登记", 2, recovered.adopted.size)
+        assertEquals(3, recovered.all.size)
+        assertEquals(3, indexEntries(dir).size)
+        assertEquals(3, decodeIndex(dir).size)
+        val byName = store.books.associateBy { File(it.filePath).name }
+        assertEquals(BookFormat.Epub, byName.getValue(orphanEpub.name).format)
+        assertEquals(BookFormat.Pdf, byName.getValue(orphanPdf.name).format)
+        assertEquals("恢复的书籍", byName.getValue(orphanEpub.name).title)
+        assertEquals(listOf(RECOVERED_TAG), byName.getValue(orphanEpub.name).tags)
+        assertTrue("恢复条目应有可排序的 addedAt", !byName.getValue(orphanEpub.name).addedAt.isNullOrBlank())
+
+        // 幂等：同一批文件再次扫描不会重复登记，也不产生新的写盘。
+        val again = store.recoverFiles(listOf(orphanEpub, orphanPdf))
+        assertTrue("重复扫描不得重复登记: " + again.adopted, again.adopted.isEmpty())
+        assertEquals(3, indexEntries(dir).size)
+        assertNoTempFilesLeft(dir)
+    }
+
+    @Test
+    fun recoverFilesSkipsNonBookAndMissingFiles() = runBlocking {
+        val dir = newTempDir("recover-skip")
+        val store = LibraryIndexStore(dir, TestIndexCodec())
+        store.load { it }
+        val plain = File(dir, "notes.epub").apply { writeText("not a real epub") }
+        val missing = File(dir, "missing.epub")
+        val folder = File(dir, "folder.pdf").apply { mkdirs() }
+        val temp = File(dir, "import-1-abcd.epub.tmp").apply {
+            writeBytes(byteArrayOf(0x50, 0x4B, 0x03, 0x04))
+        }
+
+        val recovered = store.recoverFiles(listOf(plain, missing, folder, temp))
+
+        assertTrue("非书籍/缺失/临时文件不得登记: " + recovered.adopted, recovered.adopted.isEmpty())
+        assertTrue(store.books.isEmpty())
+        assertFalse("没有可登记条目时不应写索引", File(dir, "books.json").exists())
+        assertNoTempFilesLeft(dir)
+    }
+
+    @Test
+    fun missingIndexIsHealedFromValidBadBackup() = runBlocking {
+        val dir = newTempDir("bad-heal")
+        val seed = LibraryIndexStore(dir, TestIndexCodec())
+        seed.load { it }
+        val book = seed.registerFile(bookFile(dir, "healed.epub"), "healed", null, listOf("t")).getOrThrow()
+        val original = File(dir, "books.json").readText()
+        File(dir, "books.json.bad").writeText(original)
+        File(dir, "books.json").delete()
+
+        val logs = Collections.synchronizedList(mutableListOf<String>())
+        val store = LibraryIndexStore(dir, TestIndexCodec(), log = { message, _ -> logs += message })
+
+        val loaded = store.load { it }
+
+        assertEquals("应从 .bad 备份恢复出原条目", listOf(book), loaded)
+        assertEquals(1, indexEntries(dir).size)
+        assertEquals(1, decodeIndex(dir).size)
+        assertTrue("恢复后 .bad 现场保留", File(dir, "books.json.bad").isFile)
+        assertTrue("应记录 .bad 恢复日志: " + logs, logs.any { it.contains("recovered from .bad") })
+        assertNoTempFilesLeft(dir)
+    }
+
+    @Test
+    fun corruptIndexFallsBackToOlderValidBadBackup() = runBlocking {
+        val dir = newTempDir("bad-heal-older")
+        val seed = LibraryIndexStore(dir, TestIndexCodec())
+        seed.load { it }
+        seed.registerFile(bookFile(dir, "survivor.epub"), "survivor", null, emptyList()).getOrThrow()
+        val valid = File(dir, "books.json").readText()
+        File(dir, "books.json.bad").writeText(valid)
+        val corrupt = """{"version":1,"books":[{"id":1,"title":"未闭合"""
+        File(dir, "books.json").writeText(corrupt)
+
+        val loaded = LibraryIndexStore(dir, TestIndexCodec()).load { it }
+
+        assertEquals("当前索引损坏时应回退到较旧的有效 .bad", 1, loaded.size)
+        assertEquals(1, indexEntries(dir).size)
+        assertEquals("本次损坏原文仍要留档", corrupt, timestampedBadFiles(dir).single().readText())
+        assertNoTempFilesLeft(dir)
+    }
+
+    @Test
+    fun onCommittedCallbackRunsOutsideDataLock() = runBlocking {
+        val dir = newTempDir("callback-lock")
+        val store = LibraryIndexStore(dir, TestIndexCodec())
+        store.load { it }
+        var lockHeldDuringCallback: Boolean? = null
+        var callbackSnapshot: List<Book>? = null
+        store.onCommitted = { books ->
+            lockHeldDuringCallback = store.isDataLockHeldForTest
+            callbackSnapshot = books
+        }
+
+        store.registerFile(bookFile(dir, "cb.epub"), "cb", null, emptyList()).getOrThrow()
+
+        assertEquals("onCommitted 不得在执行时持有数据锁", false, lockHeldDuringCallback)
+        assertEquals(1, callbackSnapshot?.size)
+    }
+
     // ---------------------------------------------------------------- helpers
 
     /** 可切换写失败的最小代理编解码，用于验证「回写失败不提交内存」。 */
@@ -444,6 +557,20 @@ class LibraryIndexStoreTest {
         }
     }
 
+    /** 冷启扫描要求文件头确实像 EPUB（PK）或 PDF（%PDF），与 [bookFile] 的随意内容区分开。 */
+    private fun sniffableBookFile(dir: File, name: String): File = File(dir, name).apply {
+        if (name.endsWith(".pdf", ignoreCase = true)) {
+            writeBytes("%PDF-1.7 recovered content".toByteArray())
+        } else {
+            writeBytes(byteArrayOf(0x50, 0x4B, 0x03, 0x04) + "recovered epub".toByteArray())
+        }
+    }
+
+    private fun timestampedBadFiles(dir: File): List<File> = dir.listFiles().orEmpty().filter {
+        it.isFile && it.name != "books.json.bad" &&
+            it.name.startsWith("books.json.") && it.name.endsWith(".bad")
+    }
+
     private fun indexEntries(dir: File): List<Map<String, Any?>> {
         val parsed = TestJson.asObject(TestJson.parse(File(dir, "books.json").readText()), "books.json")
         return TestJson.asArray(parsed["books"], "books.json.books")
@@ -461,5 +588,6 @@ class LibraryIndexStoreTest {
 
     private companion object {
         const val DOWNLOAD_TAG = "zlib-download"
+        const val RECOVERED_TAG = "recovered"
     }
 }

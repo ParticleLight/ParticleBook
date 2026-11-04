@@ -19,6 +19,10 @@ import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import java.util.TimeZone
 import java.util.UUID
 
 /**
@@ -215,7 +219,26 @@ class LibraryStore(private val context: Context) {
         Assets.seed(context, dir)
         val fixtures = parseBooks(Assets.readText(context, "fixtures.json"))
             .map { resolveLocal(it, dir) }
-        return indexStore.load { persisted -> mergePersisted(fixtures, persisted, dir) }
+        val loaded = indexStore.load { persisted -> mergePersisted(fixtures, persisted, dir) }
+        return recoverOrphanLibraryFiles(dir, loaded)
+    }
+
+    /**
+     * 冷启扫描（数据层兜底）：books.json 丢失/损坏重建后，_pb_files 里仍留着用户的书籍文件。
+     * 把索引里没有的、文件头确实像 EPUB/PDF 的文件补登记回来，避免「索引没了 = 书架清空、
+     * 文件白占空间且再也打不开」。已知路径（fixtures/索引内条目）跳过；重复调用幂等。
+     */
+    private suspend fun recoverOrphanLibraryFiles(dir: File, loaded: List<Book>): List<Book> {
+        val knownPaths = loaded.mapTo(HashSet(loaded.size)) { pathKey(it.filePath) }
+        val candidates = dir.listFiles().orEmpty().filter { file ->
+            isRecoverableLibraryFile(file) && pathKey(file.absolutePath) !in knownPaths
+        }
+        if (candidates.isEmpty()) return loaded
+        val recovered = indexStore.recoverFiles(candidates, tags = listOf(RECOVERED_TAG))
+        if (recovered.adopted.isNotEmpty()) {
+            Log.w(TAG, "recovered orphan library files count=" + recovered.adopted.size)
+        }
+        return recovered.all
     }
 
     /** fixtures 优先，持久化条目按 filePath 去重、缺失文件跳过；id 冲突时重新分配。 */
@@ -261,15 +284,23 @@ class LibraryStore(private val context: Context) {
             extension == "epub" || mimeType == "application/epub+zip" -> BookFormat.Epub
             else -> BookFormat.Epub
         }
-        val safeExtension = extension.ifEmpty { if (format == BookFormat.Pdf) "pdf" else "epub" }
+        val safeExtension = sanitizeCopyExtension(extension, format)
+        // 唯一文件名带 uuid：同一毫秒并发导入/下载也不会互相覆盖。
         val destination = File(
             dir,
-            prefix + "-" + System.currentTimeMillis() + "-" + UUID.randomUUID().toString().take(8) +
-                "." + safeExtension,
+            libraryCopyFileName(prefix, safeExtension, System.currentTimeMillis(), UUID.randomUUID().toString()),
         )
-        val input = context.contentResolver.openInputStream(uri) ?: error("无法读取所选文件")
-        input.use { source ->
-            destination.outputStream().use { sink -> source.copyTo(sink) }
+        // 先写 .tmp 再 rename：复制中途失败（SAF 源被删/进程被杀）不会留下半个「书籍文件」被冷启扫描误登记。
+        val temp = File(dir, destination.name + TMP_SUFFIX)
+        try {
+            val input = context.contentResolver.openInputStream(uri) ?: error("无法读取所选文件")
+            input.use { source ->
+                temp.outputStream().use { sink -> source.copyTo(sink) }
+            }
+            if (!temp.renameTo(destination)) error("保存导入文件失败")
+        } catch (throwable: Throwable) {
+            runCatching { temp.delete() }
+            throw throwable
         }
         return CopiedFile(destination, displayName)
     }
@@ -282,6 +313,54 @@ class LibraryStore(private val context: Context) {
 }
 
 private data class CopiedFile(val file: File, val displayName: String)
+
+/** 复制进书架的本地文件名：prefix-时间戳-uuid 前 8 位.扩展名（uuid 保证并发唯一）。 */
+internal fun libraryCopyFileName(prefix: String, extension: String, millis: Long, uuid: String): String =
+    prefix + "-" + millis + "-" + uuid.lowercase(Locale.US).take(8) + "." + extension
+
+/** 扩展名只保留字母数字并限长，避免异常/恶意的 SAF DISPLAY_NAME 带出路径分隔符。 */
+internal fun sanitizeCopyExtension(rawExtension: String, format: BookFormat): String {
+    val safe = rawExtension.lowercase(Locale.US).filter { it.isLetterOrDigit() }.take(8)
+    return safe.ifEmpty { if (format == BookFormat.Pdf) "pdf" else "epub" }
+}
+
+/** 读文件头判断书籍类型：%PDF → Pdf，PK（ZIP/EPUB）→ Epub；读不到或不像书籍 → null。 */
+internal fun sniffBookFormat(file: File): BookFormat? = runCatching {
+    file.inputStream().use { input ->
+        val header = ByteArray(4)
+        val read = input.read(header)
+        when {
+            read >= 4 &&
+                header[0] == 0x25.toByte() && header[1] == 0x50.toByte() &&
+                header[2] == 0x44.toByte() && header[3] == 0x46.toByte() -> BookFormat.Pdf
+            read >= 2 && header[0] == 0x50.toByte() && header[1] == 0x4B.toByte() -> BookFormat.Epub
+            else -> null
+        }
+    }
+}.getOrNull()
+
+/** 冷启扫描候选：_pb_files 下的普通文件、扩展名是 epub/pdf、且文件头确实像 EPUB/PDF。 */
+internal fun isRecoverableLibraryFile(file: File): Boolean {
+    if (!file.isFile || file.isHidden) return false
+    val name = file.name.lowercase(Locale.US)
+    if (!name.endsWith(".epub") && !name.endsWith(".pdf")) return false
+    return sniffBookFormat(file) != null
+}
+
+/** 冷启恢复条目的标题：复制用的「prefix-时间戳-uuid」没有语义，统一用可读占位。 */
+internal fun recoveredBookTitle(file: File): String {
+    val base = file.nameWithoutExtension
+    val generated = base.matches(Regex("^(import|zlib)-\\d{10,}(-[0-9a-f]{8})?$", RegexOption.IGNORE_CASE))
+    return if (generated || base.isBlank()) "恢复的书籍" else base
+}
+
+/** 文件 lastModified → fixtures/索引同款的 ISO-8601 UTC 字符串（书架按 addedAt 倒序）。 */
+internal fun isoUtcTimestamp(millis: Long): String =
+    SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US)
+        .apply { timeZone = TimeZone.getTimeZone("UTC") }
+        .format(Date(millis))
+
+internal data class LibraryRecoveryResult(val adopted: List<Book>, val all: List<Book>)
 
 // -------------------------------------------------------------------- 索引持久化
 
@@ -358,7 +437,10 @@ internal class JsonLibraryIndexCodec : LibraryIndexCodec {
  *    备份失败则停止重建并抛错，绝不覆盖唯一一份数据；
  * 4. 写失败不提交内存（[committed]/[onCommitted]），避免内存与磁盘不一致；
  * 5. 写 API 自带「先读」保护：首次 registerFile/remove 前在锁内读入磁盘索引（[loadedOnce]），
- *    即使调用方没先 load，也不会把已有的书覆盖成「空索引 + 新书」。
+ *    即使调用方没先 load，也不会把已有的书覆盖成「空索引 + 新书」；
+ * 6. 索引损坏/丢失时先尝试从历史 .bad 备份恢复（读失败类损坏可能原内容仍可解析），恢复不了
+ *    才重建空索引，配合 LibraryStore 的冷启文件扫描把 _pb_files 里的书补回来；
+ * 7. onCommitted 数据锁外串行回调：落盘/内存提交完成后才调用，回调里同步写 API 不再死锁。
  */
 internal class LibraryIndexStore(
     private val dir: File,
@@ -367,38 +449,58 @@ internal class LibraryIndexStore(
 ) {
     private val mutex = Mutex()
 
+    /** 回调串行化锁：只保护 [onCommitted]，与数据锁分开；回调里同步写 API 不会死锁。 */
+    private val callbackLock = Any()
+
     /** 是否已在锁内读入过磁盘索引；写 API 据此做「先读后写」保护。只在锁内读写。 */
     private var loadedOnce = false
 
     @Volatile
     private var committed: List<Book> = emptyList()
 
+    /** 已提交版本号：每次 commitLocked +1；数据锁外据此丢弃「已被更新提交覆盖」的旧回调。 */
+    @Volatile
+    private var committedVersion = 0L
+
     /** 最新已提交列表（与最后一次成功落盘的内容一致）。 */
     val books: List<Book>
         get() = committed
 
-    /** 每次提交成功后、持锁期间回调，供 UI 内存态与落盘顺序对齐。 */
+    /** 每次提交成功后回调（数据锁外，已串行化），供 UI 内存态与落盘顺序对齐。 */
+    @Volatile
     var onCommitted: ((List<Book>) -> Unit)? = null
 
+    /** 仅供单测：回调执行期间数据锁是否仍被持有（回归「锁内回调」）。 */
+    internal val isDataLockHeldForTest: Boolean
+        get() = mutex.isLocked
+
     fun indexFile(): File = File(dir, INDEX_FILE_NAME)
+
+    /** 一次提交（或幂等命中）的结果：value 给调用方，books/version 用于数据锁外回调。 */
+    private data class Committed<T>(val value: T, val books: List<Book>, val version: Long)
 
     /**
      * 读索引并交给 [merge] 整理（启动时的 fixtures 合并由调用方提供）；
      * 索引损坏或整理结果与磁盘不一致时回写。返回最终列表。
+     * 回调在数据锁释放后执行，拿到的快照若已被更新提交覆盖会被丢弃。
      */
-    suspend fun load(merge: (persisted: List<Book>) -> List<Book>): List<Book> = mutex.withLock {
-        cleanupStaleTmpLocked()
-        val read = readIndexLocked()
-        throwIfQuarantineFailedLocked(read)
-        val merged = merge(read.books)
-        if (read.corrupted || merged != read.books) {
-            // 回写失败直接抛（与写路径一致）：不提交内存，由调用方提示错误并允许重试；
-            // 否则会出现「内存有书、磁盘还是旧/损坏内容」的不一致。
-            writeIndexLocked(merged)
+    suspend fun load(merge: (persisted: List<Book>) -> List<Book>): List<Book> {
+        val outcome = mutex.withLock {
+            cleanupStaleTmpLocked()
+            val read = readIndexLocked()
+            throwIfQuarantineFailedLocked(read)
+            val merged = merge(read.books)
+            if (read.corrupted || merged != read.books) {
+                // 回写失败直接抛（与写路径一致）：不提交内存，由调用方提示错误并允许重试；
+                // 否则会出现「内存有书、磁盘还是旧/损坏内容」的不一致。
+                writeIndexLocked(merged)
+            }
+            val version = commitLocked(merged)
+            loadedOnce = true
+            Committed(merged, merged, version)
         }
-        commitLocked(merged)
-        loadedOnce = true
-        merged
+        dispatchCommitted(outcome.books, outcome.version)
+        return outcome.value
     }
 
     /** 登记一个已落盘文件（下载完成 / 导入）：同路径幂等，id 在锁内分配。 */
@@ -410,10 +512,12 @@ internal class LibraryIndexStore(
     ): Result<Book> {
         if (!file.isFile) return Result.failure(IllegalArgumentException("文件不存在或不可读"))
         return try {
-            val book = mutex.withLock {
+            val outcome = mutex.withLock {
                 ensureLoadedLocked()
                 val targetPath = pathKey(file.absolutePath)
-                committed.firstOrNull { pathKey(it.filePath) == targetPath }?.let { return@withLock it }
+                committed.firstOrNull { pathKey(it.filePath) == targetPath }?.let {
+                    return@withLock Committed(it, committed, committedVersion)
+                }
                 val book = Book(
                     id = freshBookId(committed.mapTo(HashSet(committed.size)) { it.id }),
                     title = title?.takeIf { it.isNotBlank() }
@@ -427,10 +531,11 @@ internal class LibraryIndexStore(
                 )
                 val next = committed + book
                 writeIndexLocked(next)
-                commitLocked(next)
-                book
+                val version = commitLocked(next)
+                Committed(book, next, version)
             }
-            Result.success(book)
+            dispatchCommitted(outcome.books, outcome.version)
+            Result.success(outcome.value)
         } catch (cancellation: CancellationException) {
             throw cancellation
         } catch (throwable: Throwable) {
@@ -439,15 +544,66 @@ internal class LibraryIndexStore(
     }
 
     /** 按 id 删除并回写索引，返回真正被移除的条目（供调用方删文件）。 */
-    suspend fun remove(ids: Set<Long>): List<Book> = mutex.withLock {
-        if (ids.isEmpty()) return@withLock emptyList()
-        ensureLoadedLocked()
-        val removed = committed.filter { it.id in ids }
-        if (removed.isEmpty()) return@withLock emptyList()
-        val next = committed.filterNot { it.id in ids }
-        writeIndexLocked(next) // 写失败直接抛给调用方：内存/磁盘都不动。
-        commitLocked(next)
-        removed
+    suspend fun remove(ids: Set<Long>): List<Book> {
+        if (ids.isEmpty()) return emptyList()
+        val outcome = mutex.withLock {
+            ensureLoadedLocked()
+            val removed = committed.filter { it.id in ids }
+            if (removed.isEmpty()) {
+                return@withLock Committed(emptyList<Book>(), committed, committedVersion)
+            }
+            val next = committed.filterNot { it.id in ids }
+            writeIndexLocked(next) // 写失败直接抛给调用方：内存/磁盘都不动。
+            val version = commitLocked(next)
+            Committed(removed, next, version)
+        }
+        dispatchCommitted(outcome.books, outcome.version)
+        return outcome.value
+    }
+
+    /**
+     * 冷启扫描：把 _pb_files 里「文件头像 EPUB/PDF 但索引中没有」的文件批量补登记。
+     * 只在锁内基于最新已提交列表去重（路径幂等），一次写盘而不是每本写一次。
+     */
+    suspend fun recoverFiles(
+        candidates: List<File>,
+        tags: List<String> = emptyList(),
+    ): LibraryRecoveryResult {
+        val outcome = mutex.withLock {
+            ensureLoadedLocked()
+            if (candidates.isEmpty()) {
+                return@withLock Committed(LibraryRecoveryResult(emptyList(), committed), committed, committedVersion)
+            }
+            val knownPaths = committed.mapTo(HashSet(committed.size)) { pathKey(it.filePath) }
+            val usedIds = committed.mapTo(HashSet(committed.size)) { it.id }
+            val adopted = ArrayList<Book>(candidates.size)
+            candidates.forEach { file ->
+                // 双重过滤：调用方（LibraryStore 冷启扫描）已经筛过一遍，这里再兜一层——
+                // recoverFiles 本身也不接受目录、.tmp 半成品和非 epub/pdf 文件。
+                if (!isRecoverableLibraryFile(file)) return@forEach
+                if (!knownPaths.add(pathKey(file.absolutePath))) return@forEach
+                val format = sniffBookFormat(file) ?: return@forEach
+                adopted += Book(
+                    id = freshBookId(usedIds),
+                    title = recoveredBookTitle(file),
+                    author = null,
+                    format = format,
+                    filePath = file.absolutePath,
+                    fileSize = file.length(),
+                    addedAt = isoUtcTimestamp(file.lastModified()),
+                    tags = tags,
+                )
+            }
+            if (adopted.isEmpty()) {
+                return@withLock Committed(LibraryRecoveryResult(emptyList(), committed), committed, committedVersion)
+            }
+            val next = committed + adopted
+            writeIndexLocked(next)
+            val version = commitLocked(next)
+            Committed(LibraryRecoveryResult(adopted, next), next, version)
+        }
+        dispatchCommitted(outcome.books, outcome.version)
+        return outcome.value
     }
 
     /**
@@ -473,16 +629,30 @@ internal class LibraryIndexStore(
     }
 
     /**
-     * 提交内存态并回调 UI。此时落盘已成功：回调异常不能让写 API 误判为失败
-     * （否则调用方会回滚删文件、索引悬空），因此吞掉异常并记日志。
-     * onCommitted 约定：不得重入本索引的写 API（会死锁），不得依赖异常传播。
+     * 提交内存态（锁内调用，只做内存赋值 + 版本号，不做任何外部回调）。
+     * 返回版本号，调用方出锁后用 [dispatchCommitted] 通知 UI。
      */
-    private fun commitLocked(books: List<Book>) {
+    private fun commitLocked(books: List<Book>): Long {
         committed = books
-        try {
-            onCommitted?.invoke(books)
-        } catch (throwable: Throwable) {
-            log("onCommitted callback failed (ignored after commit)", throwable)
+        val version = committedVersion + 1L
+        committedVersion = version
+        return version
+    }
+
+    /**
+     * 数据锁外回调 UI：此时落盘与内存提交都已完成。并发提交时只把最新版本交给回调，
+     * 已被更新提交覆盖的旧版本直接丢弃（否则 UI 可能被旧快照覆盖）；[callbackLock] 串行化
+     * 回调执行，保证最终状态一定是最后提交的列表。回调异常吞掉并记日志，不能让写 API 误判失败。
+     * onCommitted 约定：不得同步重入本索引的写 API（会等待 callbackLock 而死锁）。
+     */
+    private fun dispatchCommitted(books: List<Book>, version: Long) {
+        synchronized(callbackLock) {
+            if (version != committedVersion) return
+            try {
+                onCommitted?.invoke(books)
+            } catch (throwable: Throwable) {
+                log("onCommitted callback failed (ignored after commit)", throwable)
+            }
         }
     }
 
@@ -497,22 +667,63 @@ internal class LibraryIndexStore(
 
     private fun readIndexLocked(): ReadResult {
         val file = indexFile()
-        if (!file.exists()) return ReadResult(emptyList(), corrupted = false)
+        if (!file.exists()) {
+            // 上次损坏隔离后没来得及重建（或重建写盘失败）：先试历史 .bad 备份自愈。
+            val recovered = recoverFromBadLocked()
+            return if (recovered == null) {
+                ReadResult(emptyList(), corrupted = false)
+            } else {
+                log("index missing, recovered from .bad entries=" + recovered.size, null)
+                ReadResult(recovered, corrupted = true)
+            }
+        }
         val text = try {
             file.readText()
         } catch (throwable: Throwable) {
             // 读失败也按损坏处理：绝不把「读不出来」的索引直接当成空索引覆盖掉（用户的书不能丢）。
             log("read index failed path=" + file.absolutePath + ", keep .bad and rebuild", throwable)
-            val quarantined = quarantineCorruptLocked(file)
-            return ReadResult(emptyList(), corrupted = true, quarantineFailed = !quarantined)
+            return corruptedReadResultLocked(quarantineCorruptLocked(file))
         }
         return try {
             ReadResult(codec.decode(text), corrupted = false)
         } catch (throwable: Throwable) {
             log("index parse failed path=" + file.absolutePath + ", keep .bad and rebuild", throwable)
-            val quarantined = quarantineCorruptLocked(file)
-            ReadResult(emptyList(), corrupted = true, quarantineFailed = !quarantined)
+            corruptedReadResultLocked(quarantineCorruptLocked(file))
         }
+    }
+
+    /**
+     * 损坏索引的收尾：隔离失败必须停止重建（原文件还在，不能覆盖唯一一份数据）；
+     * 隔离成功后先尝试从历史 .bad 备份恢复条目（读失败类损坏的原内容可能仍可解析），
+     * 恢复不了才交给空索引重建 + LibraryStore 冷启文件扫描兜底。
+     */
+    private fun corruptedReadResultLocked(quarantined: Boolean): ReadResult {
+        if (!quarantined) {
+            return ReadResult(emptyList(), corrupted = true, quarantineFailed = true)
+        }
+        val recovered = recoverFromBadLocked()
+        if (recovered != null) {
+            log("index recovered from .bad backup entries=" + recovered.size, null)
+            return ReadResult(recovered, corrupted = true)
+        }
+        return ReadResult(emptyList(), corrupted = true)
+    }
+
+    /**
+     * 尝试从 books.json*.bad 备份恢复：按修改时间从新到旧找第一个「可解析且非空」的备份。
+     * 只读，不删除/移动任何 .bad（保留损坏现场）；全都解析不了返回 null。
+     */
+    private fun recoverFromBadLocked(): List<Book>? {
+        val backups = dir.listFiles().orEmpty()
+            .filter {
+                it.isFile && it.name.startsWith(INDEX_FILE_NAME + ".") && it.name.endsWith(BAD_SUFFIX)
+            }
+            .sortedByDescending { it.lastModified() }
+        for (backup in backups) {
+            val decoded = runCatching { codec.decode(backup.readText()) }.getOrNull()
+            if (!decoded.isNullOrEmpty()) return decoded
+        }
+        return null
     }
 
     /**
@@ -626,3 +837,5 @@ private const val TMP_SUFFIX = ".tmp"
 private const val INDEX_VERSION = 1
 private const val LIBRARY_DIR_NAME = "_pb_files"
 private const val DOWNLOAD_TAG = "zlib-download"
+private const val RECOVERED_TAG = "recovered"
+private const val BAD_SUFFIX = ".bad"
