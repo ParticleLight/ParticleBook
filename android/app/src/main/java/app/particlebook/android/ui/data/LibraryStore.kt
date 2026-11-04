@@ -19,11 +19,20 @@ import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
+import java.io.RandomAccessFile
+import java.security.MessageDigest
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
 import java.util.UUID
+
+/** [LibraryStore.importDocument] 的结果：区分「新导入」与「已在书架」的重复导入，供 UI 分文案/跳转。 */
+data class ImportOutcome(
+    val book: Book,
+    /** true：命中已有书架条目（同 SAF URI 或同内容指纹），本次没有新增条目。 */
+    val alreadyInLibrary: Boolean,
+)
 
 /**
  * 书架数据源：assets/fixtures.json（内置样书）+ filesDir/books.json（用户导入的持久化索引）。
@@ -91,35 +100,106 @@ class LibraryStore(
         }
     }
 
-    /** 通过 SAF 导入一本本地文件：复制文件 → 写索引 → 加入书架。 */
-    suspend fun importDocument(uri: Uri): Result<Book> {
+    /**
+     * 通过 SAF 导入一本本地文件：复制文件 → 写索引 → 加入书架。
+     *
+     * P1 task-70：重复导入同一文件不再生成第二份副本。
+     * 1. 先按持久化的 SAF URI tag 认领：同一文档再次导入且文件还在，直接返回已有条目；
+     * 2. 复制后按内容指纹 tag 认领（不同 URI 但大小+首尾内容相同），命中则删掉刚复制的副本；
+     * 3. 老版本导入的条目还没有指纹 tag，按大小筛一遍现场算指纹兜底；
+     * 4. 并发导入的兜底在 registerFile：identity tag 幂等命中已有条目，多复制出来的副本会删掉。
+     * 返回 [ImportOutcome]，[ImportOutcome.alreadyInLibrary] 供 UI 提示「已在书架」并跳转。
+     */
+    suspend fun importDocument(uri: Uri): Result<ImportOutcome> {
         val began = SystemClock.elapsedRealtime()
+        val uriTag = safUriTag(uri.toString())
         val result = withContext(Dispatchers.IO) {
             try {
+                // ① 同一 SAF URI 再次导入：文件还在就直接认领，不复制。
+                indexStore.findByTag(uriTag)?.let { existing ->
+                    if (File(existing.filePath).isFile) {
+                        Log.i(TAG, "import skipped, already in library by uri id=" + existing.id)
+                        return@withContext Result.success(ImportOutcome(existing, alreadyInLibrary = true))
+                    }
+                    Log.i(TAG, "import uri tag hit but file missing, re-copy and re-point id=" + existing.id)
+                }
                 val copied = copyUriToLibrary(uri, prefix = "import")
-                // 索引写失败：回滚刚复制的文件，避免留下无主文件。
+                val fingerprintTag = contentFingerprintTag(copied.file)
+                // ② 不同 URI 但内容相同：命中已有条目时删掉刚复制出来的多余副本，并补记 URI tag。
+                val duplicate = findDuplicateImport(indexStore.books, uriTag, fingerprintTag)
+                if (duplicate != null) {
+                    runCatching { copied.file.delete() }
+                    mergeImportTags(duplicate.book, listOfNotNull(uriTag, fingerprintTag))
+                    Log.i(
+                        TAG,
+                        "import skipped, already in library by " + duplicate.kind + " id=" + duplicate.book.id,
+                    )
+                    return@withContext Result.success(
+                        ImportOutcome(duplicate.book, alreadyInLibrary = true),
+                    )
+                }
+                // ③ 兼容老版本导入、条目还没有指纹 tag：按大小 + 指纹现场比对一次（最多读 128KiB/本）。
+                val legacyDuplicate = if (fingerprintTag != null) {
+                    indexStore.books.firstOrNull { book ->
+                        book.fileSize == copied.file.length() &&
+                            File(book.filePath).isFile &&
+                            contentFingerprintTag(File(book.filePath)) == fingerprintTag
+                    }
+                } else {
+                    null
+                }
+                if (legacyDuplicate != null) {
+                    runCatching { copied.file.delete() }
+                    mergeImportTags(legacyDuplicate, listOfNotNull(uriTag, fingerprintTag))
+                    Log.i(TAG, "import skipped, legacy entry content matched id=" + legacyDuplicate.id)
+                    return@withContext Result.success(
+                        ImportOutcome(legacyDuplicate, alreadyInLibrary = true),
+                    )
+                }
+                val tags = buildList {
+                    add(uriTag)
+                    fingerprintTag?.let(::add)
+                }
                 indexStore.registerFile(
                     file = copied.file,
                     title = copied.displayName.substringBeforeLast('.', copied.displayName),
                     author = null,
-                    tags = emptyList(),
-                ).onFailure { runCatching { copied.file.delete() } }
+                    tags = tags,
+                ).map { book ->
+                    // 并发导入时可能命中已有条目（identity tag 幂等）：刚复制出来的副本是多余的，删掉。
+                    val deduped = pathKey(book.filePath) != pathKey(copied.file.absolutePath)
+                    if (deduped) runCatching { copied.file.delete() }
+                    ImportOutcome(book, alreadyInLibrary = deduped)
+                }.onFailure { runCatching { copied.file.delete() } }
             } catch (throwable: Throwable) {
                 if (throwable is CancellationException) throw throwable
                 Result.failure(throwable)
             }
         }
-        result.onSuccess { book ->
+        result.onSuccess { outcome ->
             Log.i(
                 PERF_TAG,
                 "PBPERF|phase=library_import|ms=" + (SystemClock.elapsedRealtime() - began) +
-                    "|extra=books:" + books.size,
+                    "|extra=books:" + books.size + "|duplicate:" + outcome.alreadyInLibrary,
             )
-            Log.d(TAG, "imported book id=" + book.id + " title=" + book.title)
+            if (outcome.alreadyInLibrary) {
+                Log.d(TAG, "import deduped id=" + outcome.book.id + " title=" + outcome.book.title)
+            } else {
+                Log.d(TAG, "imported book id=" + outcome.book.id + " title=" + outcome.book.title)
+            }
         }.onFailure { throwable ->
             Log.e(TAG, "import failed uri=" + uri, throwable)
         }
         return result
+    }
+
+    /** 重复导入命中已有条目后补记新的 URI/指纹 tag（best-effort，失败只记日志不影响返回）。 */
+    private suspend fun mergeImportTags(book: Book, tags: List<String>) {
+        if (tags.isEmpty()) return
+        val file = File(book.filePath)
+        if (!file.isFile) return
+        indexStore.registerFile(file = file, title = book.title, author = book.author, tags = tags)
+            .onFailure { Log.w(TAG, "merge import tags failed id=" + book.id, it) }
     }
 
     /**
@@ -474,13 +554,110 @@ internal fun resolveLocal(book: Book, dir: File): Book {
 internal fun findBookByZlibTag(books: List<Book>, tag: String): Book? =
     books.firstOrNull { tag in it.tags }
 
-/** P2-3：登记前的幂等命中：先同路径，再按 zlib:<bookId> 标签（SAF 复制路径不同也认得出）。 */
+/** 重复导入识别 tag：zlib 书号 / SAF URI 哈希 / 内容指纹。 */
+internal fun isImportIdentityTag(tag: String): Boolean =
+    tag.startsWith(ZLIB_TAG_PREFIX) ||
+        tag.startsWith(SAF_URI_TAG_PREFIX) ||
+        tag.startsWith(CONTENT_FINGERPRINT_TAG_PREFIX)
+
+/**
+ * 登记前的幂等命中：先同路径，再按 identity tag。
+ * task-70 起 identity tag 覆盖 zlib:<bookId>、saf-uri:<sha256>、fp:<size>-<sha256>：
+ * 同一 SAF 文档换路径 / 不同 URI 导入同一内容都能认回已有条目，不再登记第二条。
+ */
 internal fun findIdempotentBook(books: List<Book>, filePath: String, tags: List<String>): Book? {
     val target = pathKey(filePath)
     books.firstOrNull { pathKey(it.filePath) == target }?.let { return it }
-    val zlibTags = tags.filterTo(HashSet()) { it.startsWith(ZLIB_TAG_PREFIX) }
-    if (zlibTags.isEmpty()) return null
-    return books.firstOrNull { book -> book.tags.any { it in zlibTags } }
+    val identityTags = tags.filterTo(HashSet()) { isImportIdentityTag(it) }
+    if (identityTags.isEmpty()) return null
+    return books.firstOrNull { book -> book.tags.any { it in identityTags } }
+}
+
+/** task-70：一次重复导入命中：URI 优先于内容指纹。 */
+internal enum class DuplicateImportKind { SAF_URI, CONTENT }
+
+internal data class DuplicateImport(val book: Book, val kind: DuplicateImportKind)
+
+/**
+ * task-70：导入前的重复判定（纯函数，单测用）。
+ * - 只认「书架条目指向的文件还在」的条目：文件被删了要允许重新导入并由 registerFile 修路径；
+ * - URI 命中优先于内容指纹：同一个 SAF 文档再次导入无需读文件；
+ * - [fileExists] 可注入，便于 JVM 单测不依赖真实文件。
+ */
+internal fun findDuplicateImport(
+    books: List<Book>,
+    uriTag: String,
+    fingerprintTag: String?,
+    fileExists: (Book) -> Boolean = { File(it.filePath).isFile },
+): DuplicateImport? {
+    if (uriTag.isNotBlank()) {
+        books.firstOrNull { uriTag in it.tags && fileExists(it) }?.let {
+            return DuplicateImport(it, DuplicateImportKind.SAF_URI)
+        }
+    }
+    if (fingerprintTag != null) {
+        books.firstOrNull { fingerprintTag in it.tags && fileExists(it) }?.let {
+            return DuplicateImport(it, DuplicateImportKind.CONTENT)
+        }
+    }
+    return null
+}
+
+/**
+ * task-70：SAF 文档身份 tag = "saf-uri:<sha256(uriString)>"。
+ * 只收 String（不依赖 android.net.Uri），JVM 单测可直接验证；URI 字符串由系统在授权有效期内保持稳定。
+ */
+internal fun safUriTag(uriString: String): String =
+    SAF_URI_TAG_PREFIX + sha256Hex(uriString.toByteArray(Charsets.UTF_8))
+
+/**
+ * task-70：内部副本内容指纹 tag = "fp:<size>-<sha256(size + 内容)>"。
+ * <=8MiB 全量哈希（常见书籍，避免首尾相同中间不同被误判）；更大的文件只读首尾 64KiB，
+ * 导入时不必再全量读一遍。同内容不同 SAF URI 的重复导入靠它判重。
+ */
+internal fun contentFingerprintTag(file: File): String? {
+    if (!file.isFile) return null
+    return runCatching {
+        val size = file.length()
+        val digest = MessageDigest.getInstance("SHA-256")
+        digest.update(size.toString().toByteArray(Charsets.UTF_8))
+        if (size <= FULL_FINGERPRINT_LIMIT_BYTES) {
+            // 常见书籍（<=8MiB）全量算，杜绝「大小+首尾相同但中间不同」的误判。
+            file.inputStream().use { input ->
+                val buffer = ByteArray(FINGERPRINT_CHUNK_BYTES)
+                while (true) {
+                    val read = input.read(buffer)
+                    if (read <= 0) break
+                    digest.update(buffer, 0, read)
+                }
+            }
+        } else {
+            // 大文件只读首尾块，导入时不必再全量读一遍。
+            file.inputStream().use { input ->
+                val head = ByteArray(FINGERPRINT_CHUNK_BYTES)
+                val read = input.read(head)
+                if (read > 0) digest.update(head, 0, read)
+            }
+            RandomAccessFile(file, "r").use { raf ->
+                raf.seek(size - FINGERPRINT_CHUNK_BYTES)
+                val tail = ByteArray(FINGERPRINT_CHUNK_BYTES)
+                raf.readFully(tail)
+                digest.update(tail)
+            }
+        }
+        CONTENT_FINGERPRINT_TAG_PREFIX + size + "-" + sha256Hex(digest.digest())
+    }.getOrNull()
+}
+
+internal fun sha256Hex(bytes: ByteArray): String {
+    val digest = MessageDigest.getInstance("SHA-256").digest(bytes)
+    val out = StringBuilder(digest.size * 2)
+    for (byte in digest) {
+        val value = byte.toInt() and 0xFF
+        out.append(HEX_DIGITS[value ushr 4])
+        out.append(HEX_DIGITS[value and 0x0F])
+    }
+    return out.toString()
 }
 
 /** 文件回到磁盘后清掉 missing 标记（索引会被回写，避免书架永远显示「文件缺失」）。 */
@@ -489,6 +666,18 @@ internal fun clearMissingTag(book: Book): Book =
 
 /** 下载完成时给书架条目打的标记，与下载记录页的 zlibBookTag 保持一致。 */
 internal const val ZLIB_TAG_PREFIX = "zlib:"
+
+/** task-70：SAF 文档身份 tag 前缀（值为 safUriTag 生成，见 [safUriTag]）。 */
+internal const val SAF_URI_TAG_PREFIX = "saf-uri:"
+
+/** task-70：内容指纹 tag 前缀（值为 contentFingerprintTag 生成，见 [contentFingerprintTag]）。 */
+internal const val CONTENT_FINGERPRINT_TAG_PREFIX = "fp:"
+
+private const val FINGERPRINT_CHUNK_BYTES = 64 * 1024
+
+/** 指纹全量哈希的上限：常见 EPUB/PDF 都在此范围内；更大的书才退回首尾块。 */
+private const val FULL_FINGERPRINT_LIMIT_BYTES = 8L * 1024 * 1024
+private const val HEX_DIGITS = "0123456789abcdef"
 
 /** P2-1：一条下载历史线索（只关心能直接对应的本地 File 记录）。public：作为 LibraryStore 构造参数类型。 */
 data class LibraryDownloadHint(
@@ -793,7 +982,11 @@ internal class LibraryIndexStore(
         return outcome.value
     }
 
-    /** 登记一个已落盘文件（下载完成 / 导入）：同路径幂等，id 在锁内分配。 */
+    /**
+     * 登记一个已落盘文件（下载完成 / 导入）：同路径或同 identity tag（zlib/SAF URI/内容指纹）幂等，
+     * 幂等命中时把本次的新 tag 合并进已有条目（重复导入不同 URI 时补记新 URI，下次直接认领）。
+     * id 在锁内分配。
+     */
     suspend fun registerFile(
         file: File,
         title: String?,
@@ -804,7 +997,7 @@ internal class LibraryIndexStore(
         return try {
             val outcome = mutex.withLock {
                 ensureLoadedLocked()
-                // 幂等命中：同路径优先；否则按 zlib:<bookId>（SAF 复制路径不同 / 冷启恢复过也认得出，P2-3）。
+                // 幂等命中：同路径优先；否则按 identity tag（zlib:<bookId> / SAF URI / 内容指纹）。
                 val existing = findIdempotentBook(committed, file.absolutePath, tags)
                 if (existing != null) {
                     // P1-1 task-63：tag 命中但书架条目指向的文件已不存在（旧下载文件被移走/清掉）时，
@@ -815,8 +1008,16 @@ internal class LibraryIndexStore(
                     } else {
                         existing
                     }
+                    // task-70：重复导入命中时合并新的识别 tag（例如第二次用不同 SAF URI 导入同一内容），
+                    // 以后再选这个 URI 就能在第一道判重直接命中。
+                    val addedTags = tags.filterNot { it in repointed.tags }
+                    val tagged = if (addedTags.isEmpty()) {
+                        repointed
+                    } else {
+                        repointed.copy(tags = repointed.tags + addedTags)
+                    }
                     // 文件回来了：清掉 missing 标记并回写；否则原样返回已有条目。
-                    val healed = clearMissingTag(repointed)
+                    val healed = clearMissingTag(tagged)
                     if (healed != existing) {
                         val next = committed.map { if (it.id == existing.id) healed else it }
                         writeIndexLocked(next)
@@ -921,12 +1122,15 @@ internal class LibraryIndexStore(
         return outcome.value
     }
 
-    /** P2-3：按 zlib tag 查已有书架条目（下载记录重复导入前先认领，不再复制文件）。 */
+    /**
+     * 按 tag 查已有书架条目（P2-3 下载记录的 zlib tag；task-70 SAF URI/内容指纹 tag 也走这里）。
+     * 命中不代表文件还在，调用方仍需自行检查 filePath（缺失时继续复制并由 registerFile 修路径）。
+     */
     suspend fun findByTag(tag: String): Book? {
         if (tag.isBlank()) return null
         return mutex.withLock {
             ensureLoadedLocked()
-            findBookByZlibTag(committed, tag)
+            committed.firstOrNull { tag in it.tags }
         }
     }
 

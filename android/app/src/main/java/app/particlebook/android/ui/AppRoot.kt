@@ -306,9 +306,16 @@ fun ParticleBookApp() {
         if (uri == null) return@rememberLauncherForActivityResult
         scope.launch {
             store.importDocument(uri)
-                .onSuccess { book ->
-                    snackbarHostState.showSnackbar("已导入《" + book.title + "》")
-                    if (book.format == BookFormat.Pdf) openBookId = book.id
+                .onSuccess { outcome ->
+                    val book = outcome.book
+                    // task-70：重复导入（同 URI / 同内容）命中已有条目时提示「已在书架」并直接跳过去。
+                    if (outcome.alreadyInLibrary) {
+                        snackbarHostState.showSnackbar("已在书架：《" + book.title + "》")
+                        openBookId = book.id
+                    } else {
+                        snackbarHostState.showSnackbar("已导入《" + book.title + "》")
+                        if (book.format == BookFormat.Pdf) openBookId = book.id
+                    }
                 }
                 .onFailure { throwable ->
                     snackbarHostState.showSnackbar("导入失败：" + (throwable.message ?: "未知错误"))
