@@ -16,7 +16,8 @@ import org.junit.Test
  *
  * 覆盖四点：
  * 1) 瞬时网络失败 / 5xx 不清 pin（只记失败次数与时间，失败信息由注册表记录）；
- * 2) 明确非正式站证据（HTTP 4xx、200 但 PAGE/OTHER）才清 pin；
+ * 2) 明确非正式站证据（HTTP 4xx、200 的登录页/错误页/网关）才清 pin；合法空结果页 / SPA 壳 /
+ *    维护页等软页证据不足，保留 pin（task-66 P2-2）；
  * 3) 用户切线路后，后台探测/搜索的旧结果因 epoch 变化被丢弃，不覆盖用户选择；
  * 4) switchMirror 的 pin 写用同步落盘（commit）。
  */
@@ -275,9 +276,9 @@ class ZlibMirrorPinRobustnessTest {
         }
     }
 
-    /** 200 但结构是导航/推广页（PAGE）：与 PARSE 同级的明确非 APP 证据，清 pin。 */
+    /** P2-2：200 的推广/导航软页（PAGE）不等于线路失效：空结果/改版都可能这样，保留 pin 等重探。 */
     @Test
-    fun softNonAppPageClearsPin() {
+    fun softNonAppPageKeepsPin() {
         val navBody = "<html><title>Z-Library Project</title><nav>mirrors</nav></html>"
         StubHttpServer(navBody).use { page ->
             freshRegistry(listOf(page.baseUrl))
@@ -291,10 +292,131 @@ class ZlibMirrorPinRobustnessTest {
                 assertEquals(ZlibException.Kind.NO_MIRROR, e.kind)
             }
 
-            assertNull("200 但 PAGE 属于明确非 APP 证据，应清 pin", store.stored)
+            assertEquals("软页证据不足，不得清 pin", page.baseUrl, store.stored)
             assertTrue(
-                "应记录 probe_non_app 清 pin: " + logs,
-                logs.any { it.startsWith("mirror_unpin") && it.contains("reason=probe_non_app") },
+                "应记录 soft_page 保留 pin: " + logs,
+                logs.any { it.startsWith("mirror_pin_keep") && it.contains("reason=soft_page") },
+            )
+        }
+    }
+
+    /** P2-2：合法空结果页（含站点标记但搜不到内容）只是临时状态，保留 pin。 */
+    @Test
+    fun emptyResultPageKeepsPin() {
+        val emptyBody = "<html><title>Z-Library</title><p>Nothing has been found</p></html>"
+        StubHttpServer(emptyBody).use { page ->
+            freshRegistry(listOf(page.baseUrl))
+            val store = MemoryPinStore(stored = page.baseUrl)
+            val client = newClient(store)
+
+            try {
+                client.probeMirrors()
+                throw AssertionError("软页必须抛 NO_MIRROR")
+            } catch (e: ZlibException) {
+                assertEquals(ZlibException.Kind.NO_MIRROR, e.kind)
+            }
+
+            assertEquals("空结果页不得清 pin", page.baseUrl, store.stored)
+            assertTrue(
+                "应记录 soft_page: " + logs,
+                logs.any { it.startsWith("mirror_pin_keep") && it.contains("reason=soft_page") },
+            )
+        }
+    }
+
+    /** P2-2：SPA 壳（<div id="app">）正文里没有站点标记，属于 OTHER 软页，保留 pin。 */
+    @Test
+    fun spaShellKeepsPin() {
+        val spaBody = "<html><body><div id=\"app\"></div><script src=\"/main.js\"></script></body></html>"
+        StubHttpServer(spaBody).use { page ->
+            freshRegistry(listOf(page.baseUrl))
+            val store = MemoryPinStore(stored = page.baseUrl)
+            val client = newClient(store)
+
+            try {
+                client.probeMirrors()
+                throw AssertionError("软页必须抛 NO_MIRROR")
+            } catch (e: ZlibException) {
+                assertEquals(ZlibException.Kind.NO_MIRROR, e.kind)
+            }
+
+            assertEquals("SPA 壳不得清 pin", page.baseUrl, store.stored)
+            assertTrue(
+                "应记录 soft_page: " + logs,
+                logs.any { it.startsWith("mirror_pin_keep") && it.contains("reason=soft_page") },
+            )
+        }
+    }
+
+    /** P2-2：维护页不是「站点永久失效」，保留 pin 等恢复。 */
+    @Test
+    fun maintenancePageKeepsPin() {
+        val maintenanceBody = "<html><body>网站维护中，请稍后再试</body></html>"
+        StubHttpServer(maintenanceBody).use { page ->
+            freshRegistry(listOf(page.baseUrl))
+            val store = MemoryPinStore(stored = page.baseUrl)
+            val client = newClient(store)
+
+            try {
+                client.probeMirrors()
+                throw AssertionError("软页必须抛 NO_MIRROR")
+            } catch (e: ZlibException) {
+                assertEquals(ZlibException.Kind.NO_MIRROR, e.kind)
+            }
+
+            assertEquals("维护页不得清 pin", page.baseUrl, store.stored)
+            assertTrue(
+                "应记录 soft_page: " + logs,
+                logs.any { it.startsWith("mirror_pin_keep") && it.contains("reason=soft_page") },
+            )
+        }
+    }
+
+    /** P2-2：登录页是确定性非正式站证据（线路已变成登录墙），清 pin。 */
+    @Test
+    fun loginPageClearsPin() {
+        val loginBody =
+            "<html><title>Login</title><input type=\"password\" name=\"pw\"><a>z-library</a></html>"
+        StubHttpServer(loginBody).use { page ->
+            freshRegistry(listOf(page.baseUrl))
+            val store = MemoryPinStore(stored = page.baseUrl)
+            val client = newClient(store)
+
+            try {
+                client.probeMirrors()
+                throw AssertionError("登录页必须抛 NO_MIRROR")
+            } catch (e: ZlibException) {
+                assertEquals(ZlibException.Kind.NO_MIRROR, e.kind)
+            }
+
+            assertNull("登录页应清 pin", store.stored)
+            assertTrue(
+                "应记录 probe_login_page: " + logs,
+                logs.any { it.startsWith("mirror_unpin") && it.contains("reason=probe_login_page") },
+            )
+        }
+    }
+
+    /** P2-2：明确错误页（404 Not Found 正文）是确定性证据，清 pin。 */
+    @Test
+    fun errorPageClearsPin() {
+        val errorBody = "<html><title>404 Not Found</title><p>z-lib</p></html>"
+        StubHttpServer(errorBody).use { page ->
+            freshRegistry(listOf(page.baseUrl))
+            val store = MemoryPinStore(stored = page.baseUrl)
+            val client = newClient(store)
+
+            try {
+                client.probeMirrors()
+                throw AssertionError("错误页必须抛 NO_MIRROR")
+            } catch (e: ZlibException) {
+                assertEquals(ZlibException.Kind.NO_MIRROR, e.kind)
+            }
+
+            assertNull("错误页应清 pin", store.stored)
+            assertTrue(
+                "应记录 probe_error_page: " + logs,
+                logs.any { it.startsWith("mirror_unpin") && it.contains("reason=probe_error_page") },
             )
         }
     }

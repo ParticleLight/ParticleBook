@@ -327,14 +327,18 @@ class ZlibClient(
         require(page >= 1) { "page must be >= 1" }
         ensureInitialized()
         val startedAt = System.nanoTime()
+        // P2-3：在读取 base 之前先取操作纪元快照，避免「读 base → 用户切线路 → 取 epoch」窗口里
+        // 旧请求的成功/失败混入新线路的 epoch 语义。
+        val opEpoch = currentMirrorEpoch()
         try {
             val base = mirror ?: probeMirrors()
             if (page > 1) return runSearchOnce(base, q, page, filters = filters)
-            return searchWithFailover(base, q, startedAt, filters)
+            return searchWithFailover(base, q, startedAt, opEpoch, filters)
         } catch (e: ZlibException) {
             // B1/T10 P1-3/T17：PARSE 可能是推广/导航等非正式站返回的 200 HTML；
             // 只有明确非正式站证据（PAGE/OTHER/FAIL）才清镜像记忆，未探明线路保留 pin/prefs 交给重探。
-            if (e.kind == ZlibException.Kind.PARSE) releaseMirrorIfNotApp()
+            // P2-3：传操作纪元；失败期间用户切过线路则释放逻辑自行跳过，不会清掉新选择。
+            if (e.kind == ZlibException.Kind.PARSE) releaseMirrorIfNotApp(opEpoch)
             // 失败后清一次性状态：网络恢复后（进程不重启）下一次 search() 自动重新解析代理并重探镜像。
             debugLog("reset_state reason=search_failure kind=${e.kind}")
             resetStateLocked()
@@ -373,10 +377,12 @@ class ZlibClient(
         firstBase: String,
         query: String,
         startedAt: Long,
+        epoch: Long,
         filters: ZlibSearchFilters? = null,
     ): ZSearchPage {
         val now = System.currentTimeMillis()
-        val epoch = currentMirrorEpoch()
+        // P2-1/P2-3：epoch 由 [search] 在读取 base 前捕获，本函数只用快照，不再现取 current。
+        val opEpoch = epoch
         val file = registryFile()
         ZlibMirrorRegistry.ensureLoaded(file, now)
         val budget = maxOf(1, ZlibMirrorRegistry.orderedUrls(now).size)
@@ -391,7 +397,7 @@ class ZlibClient(
             attempts++
             try {
                 val result = runSearchOnce(base, query, 1, deadlineNanos, filters)
-                markSearchSuccess(base, now, epoch)
+                markSearchSuccess(base, now, opEpoch)
                 return result
             } catch (e: ZlibException) {
                 lastFailure = e
@@ -411,7 +417,7 @@ class ZlibClient(
                     base, failedRank,
                     keepPin = e.kind == ZlibException.Kind.PARSE ||
                         (e.kind == ZlibException.Kind.HTTP && isTransientHttpStatus(e.httpCode)),
-                    epoch = currentMirrorEpoch(),
+                    epoch = opEpoch,
                 )
                 if (remainingMs(deadlineNanos) < MIN_REQUEST_MS) {
                     debugLog("mirror_advance_abort reason=budget remaining_ms=${remainingMs(deadlineNanos)}")
@@ -420,8 +426,20 @@ class ZlibClient(
                 base = nextMirrorCandidate(tried, now)
             }
         }
+        // P2-3：本轮失败期间用户切过线路（epoch 已变）→ 旧请求的「全线路失败」不代表用户刚选的线；
+        // 有当前线路就在新线路上再试一次，结果/异常都反映用户当前选择，不抛 stale NO_MIRROR banner。
+        if (currentMirrorEpoch() != opEpoch) {
+            val current = mirror ?: pinned()
+            if (current != null) {
+                debugLog("search_stale_retry current=" + hostOf(current) + " tried=" + tried.size)
+                val retryEpoch = currentMirrorEpoch()
+                val result = runSearchOnce(current, query, 1, null, filters)
+                markSearchSuccess(current, now, retryEpoch)
+                return result
+            }
+        }
         ZlibMirrorRegistry.save(file)
-        debugLog("probe_result fail_all tried=${tried.size} stage=search_failover")
+        debugLog("probe_result fail_all tried=" + tried.size + " stage=search_failover")
         val detail = lastFailure?.message ?: "budget"
         throw ZlibException(
             "no available mirror for search (tried=${tried.size}, last: $detail)",
@@ -462,7 +480,7 @@ class ZlibClient(
         failed: String,
         rank: ZlibMirrorRegistry.Rank?,
         keepPin: Boolean = false,
-        epoch: Long = currentMirrorEpoch(),
+        epoch: Long,
     ) {
         val target = normalizeMirror(failed)
         if (target.isEmpty()) return
@@ -473,28 +491,28 @@ class ZlibClient(
             )
             return
         }
-        // P2-6：pin 用 CAS 清（判断与写入同一把锁），不会误清用户刚切换的新 pin。
-        if (keepPin) {
-            if (normalizeMirror(pinned()) == target) {
-                // T24②：PARSE 只说明这条线返回的页面结构不对，不等于用户选择的线路已失效 → 不清 pin。
-                debugLog("mirror_keep_pin reason=parse host=" + hostOf(failed))
-            }
-        } else {
-            clearPinIfMatches(failed, "search_fail")
-        }
-        // P2-6：若用户在此期间切换过线路（纪元变化），不要清他刚选中的 mirror/prefs 缓存。
-        val stale = synchronized(mirrorLock) {
+        // P2-1/P2-6：epoch 校验、pin CAS、mirror/prefs 清理放在同一把锁里。
+        // 只对 pin 值做 CAS 不够：A 失败期间用户切走再切回 A，pin 值仍是 A，会把用户刚重新选中的 A 清掉。
+        // epoch 在请求发起时快照，只要用户切过任何一次线路就整块跳过，新选择永不被旧失败波及。
+        synchronized(mirrorLock) {
             if (epoch != mirrorEpoch.get()) {
-                true
-            } else {
-                if (normalizeMirror(mirror) == target) mirror = null
-                if (normalizeMirror(prefs?.getString(KEY_MIRROR, null)) == target) {
-                    prefs?.edit()?.remove(KEY_MIRROR)?.apply()
+                debugLog("mirror_release_skip reason=epoch host=" + hostOf(failed))
+                return
+            }
+            if (keepPin) {
+                if (normalizeMirror(pinned()) == target) {
+                    // T24②：PARSE 只说明这条线返回的页面结构不对，不等于用户选择的线路已失效 → 不清 pin。
+                    debugLog("mirror_keep_pin reason=parse host=" + hostOf(failed))
                 }
-                false
+            } else {
+                // P2-6：pin 用 CAS 清（判断与写入同一把锁），不会误清用户刚切换的新 pin。
+                clearPinIfMatches(failed, "search_fail")
+            }
+            if (normalizeMirror(mirror) == target) mirror = null
+            if (normalizeMirror(prefs?.getString(KEY_MIRROR, null)) == target) {
+                prefs?.edit()?.remove(KEY_MIRROR)?.apply()
             }
         }
-        if (stale) debugLog("mirror_release_skip reason=epoch host=" + hostOf(failed))
     }
 
     /** 明确的「非正式站/坏站」rank（T17）：只有这些证据才清镜像记忆。 */
@@ -559,12 +577,13 @@ class ZlibClient(
      * T10 P1-3 / T17：PARSE 且当前线路有明确非正式站证据（PAGE/OTHER/FAIL）→ 清镜像/pin/prefs；
      * UNKNOWN/null（旧缓存、手动固定但还没探测）只当本次失败，保留记忆交给换线/重探。
      */
-    private fun releaseMirrorIfNotApp() {
+    private fun releaseMirrorIfNotApp(epoch: Long) {
         val current = mirror ?: prefs?.getString(KEY_MIRROR, null) ?: return
         val rank = mirrorRankOf(current, System.currentTimeMillis())
         if (isNonAppRank(rank)) {
             // T24②：PARSE 不 adopt 失败页、也不清用户 pin（换线语义只作用于 mirror/prefs 记忆）。
-            releaseFailedMirror(current, rank, keepPin = true, epoch = currentMirrorEpoch())
+            // P2-1：epoch 用搜索发起时的快照，期间用户切过线路则释放逻辑整体跳过。
+            releaseFailedMirror(current, rank, keepPin = true, epoch = epoch)
             debugLog("mirror_release reason=parse rank=" + (rank?.label ?: "none") + " host=" + hostOf(current))
         } else {
             debugLog(
@@ -636,8 +655,22 @@ class ZlibClient(
             if (normalizeMirror(pinned()) == normalizeMirror(preferredUrl)) {
                 val evidence = outcome.evidenceReason
                 if (evidence != null) {
-                    // 4xx/软页/网关：明确非正式站，清 pin 并记下具体原因（probe_non_app / probe_gateway）。
-                    clearPinIfMatches(preferredUrl, evidence)
+                    // 4xx/登录页/错误页/网关：明确非正式站，清 pin 并记下具体原因。
+                    // P2-1：epoch 校验与清 pin 同锁——用户在本次探测期间切走再切回时，旧证据不能清新 pin。
+                    var staleDrop = false
+                    synchronized(mirrorLock) {
+                        if (epoch != mirrorEpoch.get()) {
+                            staleDrop = true
+                        } else {
+                            clearPinIfMatches(preferredUrl, evidence)
+                        }
+                    }
+                    if (staleDrop) {
+                        debugLog("mirror_epoch_drop stage=probe_pin_clear host=" + hostOf(preferredUrl))
+                    }
+                } else if (outcome.soft != null) {
+                    // P2-2：合法空结果页/SPA 壳/维护页只是结构不像正式站，可能随时恢复，保留 pin。
+                    debugLog("mirror_pin_keep reason=soft_page host=" + hostOf(preferredUrl))
                 } else {
                     debugLog("mirror_pin_keep reason=transient host=" + hostOf(preferredUrl))
                 }
@@ -718,6 +751,17 @@ class ZlibClient(
             )
         }
 
+        // P2-3：本轮探测期间用户切过线路（epoch 变化）→ 旧探测的「全军覆没」不代表新线路，
+        // 已有当前线路就直接返回，不弹 stale NO_MIRROR banner。
+        if (currentMirrorEpoch() != epoch) {
+            val current = mirror ?: pinned()
+            if (current != null) {
+                debugLog("mirror_probe_stale return_current=" + hostOf(current) + " tried=" + tried.size)
+                ZlibMirrorRegistry.save(file)
+                return current
+            }
+        }
+
         val totalMs = (System.nanoTime() - startedAt) / 1_000_000L
         debugLog("mirror_probe_abort budget_ms=" + probeBudget + " picked=none tried=" + tried.size)
         debugLog("probe_result fail_all tried=" + tried.size + " elapsed_ms=" + totalMs + " last=" + (lastError ?: "none"))
@@ -783,20 +827,29 @@ class ZlibClient(
                     )
                     if (rank != ZlibMirrorRegistry.Rank.APP) {
                         ZlibMirrorRegistry.recordProbeResult(candidate, rank, elapsed, now)
-                        debugLog("mirror_probe_soft host=" + host + " rank=" + rank.label + " ms=" + elapsed)
+                        // P2-2：软页不再一律当「非正式站」证据——合法空结果页 / SPA 壳 / 维护页是常见
+                        // 但可能随时恢复的形态，只有登录页 / 明确错误页才清 pin；其余保留等下次重探。
+                        val evidence = softPageEvidence(res.body)
+                        debugLog(
+                            "mirror_probe_soft host=" + host + " rank=" + rank.label + " ms=" + elapsed +
+                                " unpin=" + (evidence ?: "none"),
+                        )
                         return ProbeOutcome(
                             soft = SoftPick(candidate.trimEnd('/'), tierLabel, source, rank, elapsed),
-                            // 200 但结构明确不是正式站：与 PARSE 同级的证据，可作为清 pin 依据（P2-6）。
-                            evidenceReason = "probe_non_app",
+                            evidenceReason = evidence,
                         )
                     }
                     ZlibMirrorRegistry.recordSuccess(candidate, finalRoot, elapsed, now, rank)
+                    // P2-4：跨 host 跳转（如网关 301 到正式站）时采用最终落点，后续请求省一跳；
+                    // 跳转后正文已按 final body 判为 APP，落点就是真实正式站。
+                    val adoptedUrl = if (redirected && finalRoot != null) finalRoot else candidate.trimEnd('/')
                     debugLog(
                         "mirror_pick host=" + host + " tier=" + tierLabel + " source=" + source +
                             " ms=" + elapsed + " latency_ms=" + elapsed + " rank=" + rank.label +
-                            " final=" + (if (redirected) 1 else 0),
+                            " final=" + (if (redirected) 1 else 0) +
+                            " adopt=" + (if (adoptedUrl != candidate.trimEnd('/')) "final" else "self"),
                     )
-                    return ProbeOutcome(picked = candidate.trimEnd('/'))
+                    return ProbeOutcome(picked = adoptedUrl)
                 }
                 if (isDiamWallBlock(res)) {
                     lastProbeError = host + " -> diamwall (" + res.status + ")"
@@ -906,13 +959,26 @@ class ZlibClient(
 
     /**
      * B1 探测排名分类（对齐桌面 LooksLikeZlibApp / LooksLikeZlibContent）：
-     * 挑战已解或正文含正式站特征 -> APP；只提到 Z-Library -> PAGE；其余 -> OTHER。
+     * 正文含正式站特征 -> APP；只提到 Z-Library -> PAGE；其余 -> OTHER。
+     * P2-4：挑战已解（res.challenged）不再直接判 APP——挑战解完也可能落到登录/错误/空壳页，
+     * 必须按最终正文重新分类，避免把「解了挑战但网站不可用」的线路当正式站采用。
      */
     private fun probeRankOf(res: HttpResult): ZlibMirrorRegistry.Rank {
-        if (res.challenged) return ZlibMirrorRegistry.Rank.APP
         if (APP_MARKERS.any { res.body.contains(it, ignoreCase = true) }) return ZlibMirrorRegistry.Rank.APP
         if (PAGE_MARKERS.any { res.body.contains(it, ignoreCase = true) }) return ZlibMirrorRegistry.Rank.PAGE
         return ZlibMirrorRegistry.Rank.OTHER
+    }
+
+    /**
+     * P2-2：200 非 APP 页面的「非正式站」证据分级。
+     * - 登录页 / 明确错误页（404、403、Access denied）→ 确定性失效证据，可清 pin；
+     * - 合法空结果页 / SPA 壳 / 维护页（不匹配任何标记）→ 证据不足，只降权不清 pin。
+     * Cloudflare 的 "just a moment" 拦截页属于临时反爬，不计入错误页证据。
+     */
+    private fun softPageEvidence(body: String): String? {
+        if (LOGIN_PAGE_MARKERS.any { body.contains(it, ignoreCase = true) }) return "probe_login_page"
+        if (ERROR_PAGE_MARKERS.any { body.contains(it, ignoreCase = true) }) return "probe_error_page"
+        return null
     }
 
     /** 本轮软候选择优：rank 数值小者优先，同 rank 比延迟。 */
@@ -3177,6 +3243,20 @@ class ZlibClient(
             "1lib",
             "singlelogin",
             "bookfi",
+        )
+
+        /** P2-2：200 软页里只有登录页/明确错误页是确定性失效证据；空结果/SPA/维护页保留 pin。 */
+        private val LOGIN_PAGE_MARKERS = listOf(
+            "type=\"password\"",
+            "type='password'",
+            "<title>login",
+            "sign in to",
+        )
+        private val ERROR_PAGE_MARKERS = listOf(
+            "404 not found",
+            "page not found",
+            "access denied",
+            "403 forbidden",
         )
 
         /** 官方站挑战重试：含首次最多 [MAX_MIRROR_ATTEMPTS] 次。 */
