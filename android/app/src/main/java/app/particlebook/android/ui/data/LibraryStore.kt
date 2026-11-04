@@ -121,6 +121,8 @@ class LibraryStore(
     suspend fun importDocument(uri: Uri): Result<ImportOutcome> {
         val began = SystemClock.elapsedRealtime()
         val uriTag = safUriTag(uri.toString())
+        // task-102 P1-2：复制成功后到索引登记前若被取消，必须回收已 rename 的副本；登记成功后置 null。
+        var copiedRef: CopiedFile? = null
         val result = withContext(Dispatchers.IO) {
             try {
                 // ① 同一 SAF URI 再次导入：文件还在就直接认领，不复制。
@@ -132,11 +134,13 @@ class LibraryStore(
                     Log.i(TAG, "import uri tag hit but file missing, re-copy and re-point id=" + existing.id)
                 }
                 val copied = copyUriToLibrary(uri, prefix = "import")
+                copiedRef = copied
                 val fingerprintTag = contentFingerprintTag(copied.file)
                 // ② 不同 URI 但内容相同：命中已有条目时删掉刚复制出来的多余副本，并补记 URI tag。
                 val duplicate = findDuplicateImport(indexStore.books, uriTag, fingerprintTag)
                 if (duplicate != null) {
                     runCatching { copied.file.delete() }
+                    copiedRef = null
                     mergeImportTags(duplicate.book, listOfNotNull(uriTag, fingerprintTag))
                     Log.i(
                         TAG,
@@ -158,6 +162,7 @@ class LibraryStore(
                 }
                 if (legacyDuplicate != null) {
                     runCatching { copied.file.delete() }
+                    copiedRef = null
                     mergeImportTags(legacyDuplicate, listOfNotNull(uriTag, fingerprintTag))
                     Log.i(TAG, "import skipped, legacy entry content matched id=" + legacyDuplicate.id)
                     return@withContext Result.success(
@@ -176,6 +181,7 @@ class LibraryStore(
                 )
                 if (registered.isFailure) {
                     runCatching { copied.file.delete() }
+                    copiedRef = null
                     return@withContext Result.failure<ImportOutcome>(
                         registered.exceptionOrNull() ?: IllegalStateException("导入登记失败"),
                     )
@@ -183,12 +189,17 @@ class LibraryStore(
                 val book = registered.getOrThrow()
                 // 并发导入时可能命中已有条目（identity tag 幂等）：刚复制出来的副本是多余的，删掉。
                 val deduped = pathKey(book.filePath) != pathKey(copied.file.absolutePath)
+                if (deduped) runCatching { copied.file.delete() }
+                // 索引已引用这个文件（或副本已删/去重），此后的取消不能再清理它。
+                copiedRef = null
                 // task-81：导入成功也算「文件回到书架」，清掉同内容旧删除墓碑（删除前算指纹）。
                 forgetDeletedFileTombstonesBestEffort(listOf(copied.file))
-                if (deduped) runCatching { copied.file.delete() }
                 Result.success(ImportOutcome(book, alreadyInLibrary = deduped))
+            } catch (cancellation: CancellationException) {
+                discardCopiedFileOnCancellation(copiedRef)
+                throw cancellation
             } catch (throwable: Throwable) {
-                if (throwable is CancellationException) throw throwable
+                discardCopiedFileOnCancellation(copiedRef)
                 Result.failure(throwable)
             }
         }

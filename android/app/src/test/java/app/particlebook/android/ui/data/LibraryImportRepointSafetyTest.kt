@@ -268,6 +268,9 @@ class LibraryImportRepointSafetyTest {
     @Test
     fun adoptDocumentAndRegisterFileWireCancellationAndThreeStateCleanup() {
         val source = sourceFile("src/main/java/app/particlebook/android/ui/data/LibraryStore.kt")
+        val import = functionBody(source, "suspend fun importDocument(")
+        assertTrue("手工 SAF 导入复制后取消也要回收副本", import.contains("discardCopiedFileOnCancellation(copiedRef)"))
+        assertTrue("登记成功后必须置空，避免取消误删已入库文件", import.contains("copiedRef = null"))
         val adopt = functionBody(source, "suspend fun adoptDocument(")
         assertTrue("adopt 复制要改用可取消的分块复制", adopt.contains("copyUriToLibrary(uri, prefix = \"zlib\")"))
         assertTrue("取消时清理已复制的文件", adopt.contains("discardCopiedFileOnCancellation(copiedRef)"))
