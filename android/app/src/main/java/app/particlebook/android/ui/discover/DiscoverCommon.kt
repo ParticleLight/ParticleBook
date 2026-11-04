@@ -50,17 +50,19 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import app.particlebook.android.R
 import app.particlebook.android.ui.AppType
 import app.particlebook.android.ui.Motion
 import app.particlebook.android.ui.Radius
 import app.particlebook.android.ui.Spacing
 import app.particlebook.android.ui.ZlibCoverCache
-import app.particlebook.android.ui.ZlibUiError
 import app.particlebook.android.ui.bottomBarPadding
+import app.particlebook.android.ui.zlibKindLabelRes
 import kotlinx.coroutines.flow.collect
 
 /**
@@ -104,7 +106,7 @@ internal fun DiscoverPageScaffold(
                     IconButton(onClick = onBack, modifier = Modifier.size(48.dp)) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
-                            contentDescription = "返回",
+                            contentDescription = stringResource(R.string.common_back),
                             tint = MaterialTheme.colorScheme.onSurface,
                         )
                     }
@@ -168,7 +170,7 @@ internal fun DiscoverErrorState(
             modifier = Modifier.size(48.dp),
         )
         Spacer(Modifier.height(Spacing.sm))
-        Text("加载失败", style = MaterialTheme.typography.titleMedium)
+        Text(stringResource(R.string.discover_error_title), style = MaterialTheme.typography.titleMedium)
         Spacer(Modifier.height(Spacing.xxs))
         Text(
             text = message,
@@ -177,17 +179,18 @@ internal fun DiscoverErrorState(
             textAlign = TextAlign.Center,
         )
         // spec §11.6：副行不能暴露英文枚举；未知类型直接隐藏。
-        val kindText = ZlibUiError.kindLabel(kindLabel)
-        if (kindText != null) {
+        // Phase 1b：kindLabel 是 DiscoverException.kind（ZlibException.Kind.name），与 task-99 一致按枚举名映射。
+        val kindRes = zlibKindLabelRes(kindLabel)
+        if (kindRes != null) {
             Spacer(Modifier.height(Spacing.xs))
             Text(
-                text = kindText,
+                text = stringResource(kindRes),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.outline,
             )
         }
         Spacer(Modifier.height(Spacing.md))
-        FilledTonalButton(onClick = onRetry) { Text("重试") }
+        FilledTonalButton(onClick = onRetry) { Text(stringResource(R.string.common_retry)) }
     }
 }
 
@@ -255,11 +258,11 @@ internal fun DiscoverListFooter(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
             )
-            TextButton(onClick = onRetry) { Text("重试") }
+            TextButton(onClick = onRetry) { Text(stringResource(R.string.common_retry)) }
         }
 
         end -> Text(
-            text = "已经到底了",
+            text = stringResource(R.string.common_end_of_list),
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,

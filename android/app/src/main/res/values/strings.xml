@@ -5,6 +5,11 @@
     <string name="common_cancel">取消</string>
     <string name="common_clear">清除</string>
     <string name="common_more_actions">更多操作</string>
+    <string name="common_back">返回</string>
+    <string name="common_collapse">收起</string>
+    <string name="common_expand">展开</string>
+    <string name="common_unknown_author">未知作者</string>
+    <string name="common_end_of_list">已经到底了</string>
 
     <!-- 搜索页 -->
     <string name="find_header_subtitle">内置书源 · 检索 · 下载</string>
@@ -114,4 +119,45 @@
     <string name="find_summary_loaded_format">已加载 %1$d 本</string>
     <string name="find_summary_page_format">第 %1$d / %2$d 页</string>
     <string name="find_summary_filter_format">筛选：%1$s</string>
+
+    <!-- 发现页（Phase 1b） -->
+    <string name="discover_error_title">加载失败</string>
+    <string name="discover_books_count_format">%1$d 本</string>
+    <string name="discover_editor_choice">精选</string>
+
+    <string name="discover_booklists_empty_title">暂无书单</string>
+    <string name="discover_booklists_empty_message">Z-Library 上的编辑精选与用户书单会显示在这里。</string>
+    <string name="discover_booklist_meta_views_format">%1$s 浏览</string>
+    <string name="discover_booklist_meta_comments_format">%1$d 评论</string>
+
+    <string name="discover_popular_heading">热门榜单</string>
+    <string name="discover_popular_empty_title">榜单暂时为空</string>
+    <string name="discover_popular_empty_message">Z-Library 的热门榜单暂时没有可展示的书籍。</string>
+
+    <string name="discover_categories_filter_hint">筛选分类</string>
+    <string name="discover_categories_clear_filter">清除筛选</string>
+    <string name="discover_categories_empty_title">暂无分类数据</string>
+    <string name="discover_categories_empty_message">分类数据暂时为空，请稍后重试。</string>
+    <string name="discover_categories_no_match_title">没有匹配的分类</string>
+    <string name="discover_categories_no_match_message">换个关键词试试，或清除筛选查看全部分类。</string>
+    <string name="discover_categories_subcategory_count_format">%1$d 个子类</string>
+    <string name="discover_categories_refresh_failed_format">刷新失败，展示缓存数据：%1$s</string>
+
+    <string name="discover_category_loading">正在加载分类书籍…</string>
+    <string name="discover_category_empty_title">该分类暂无书籍</string>
+    <string name="discover_category_empty_message">这个分类下暂时没有可展示的书籍。</string>
+    <string name="discover_category_summary_format">第 %1$d / %2$d 页 · 已加载 %3$d 本</string>
+    <string name="discover_category_not_found_title">该分类不存在或已变更</string>
+    <string name="discover_category_not_found_message">Z-Library 的分类结构可能已调整，请返回分类列表重新选择。</string>
+    <string name="discover_category_back">返回分类</string>
+
+    <string name="discover_booklist_loading">正在加载书单…</string>
+    <string name="discover_booklist_meta_format">共 %1$d 本 · 评论 %2$d</string>
+    <string name="discover_booklist_books_header">书籍</string>
+    <string name="discover_booklist_sort_format">排序：%1$s</string>
+    <string name="discover_sort_newest">新→旧</string>
+    <string name="discover_sort_oldest">旧→新</string>
+    <string name="discover_sort_title">排序</string>
+    <string name="discover_booklist_empty_title">书单里还没有书</string>
+    <string name="discover_booklist_empty_message">这个书单暂时没有可展示的书籍。</string>
 </resources>

@@ -27,8 +27,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import app.particlebook.android.R
 import app.particlebook.android.ui.Radius
 import app.particlebook.android.ui.Spacing
 import app.particlebook.android.ui.parseBookRef
@@ -142,7 +144,7 @@ fun PopularScreen(
     val gridState = rememberLazyGridState()
 
     DiscoverPageScaffold(
-        title = "热门榜单",
+        title = stringResource(R.string.discover_popular_heading),
         onBack = onBack,
         modifier = modifier,
     ) { innerPadding ->
@@ -155,8 +157,8 @@ fun PopularScreen(
 
             is PopularViewModel.State.Empty -> DiscoverEmptyState(
                 icon = Icons.Outlined.TrendingUp,
-                title = "榜单暂时为空",
-                message = "Z-Library 的热门榜单暂时没有可展示的书籍。",
+                title = stringResource(R.string.discover_popular_empty_title),
+                message = stringResource(R.string.discover_popular_empty_message),
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(innerPadding),
@@ -221,6 +223,7 @@ fun PopularScreen(
 
 @Composable
 private fun PopularCard(item: PopularBook, onClick: () -> Unit) {
+    val unknownAuthor = stringResource(R.string.common_unknown_author)
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -244,7 +247,7 @@ private fun PopularCard(item: PopularBook, onClick: () -> Unit) {
         )
         Spacer(Modifier.height(2.dp))
         Text(
-            text = item.book.author.ifBlank { "未知作者" },
+            text = item.book.author.ifBlank { unknownAuthor },
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1,

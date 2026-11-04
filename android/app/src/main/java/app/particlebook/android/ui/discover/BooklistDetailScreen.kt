@@ -39,8 +39,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import app.particlebook.android.R
 import app.particlebook.android.ui.Spacing
 import app.particlebook.android.ui.ZlibResultRow
 import app.particlebook.android.ui.parseBookRef
@@ -123,15 +125,19 @@ fun BooklistDetailScreen(
     val largeFont = LocalDensity.current.fontScale >= 1.3f
     var sortSheetOpen by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(href) { viewModel.load(href) }
+    val fallbackTitle = stringResource(R.string.discover_booklists_title)
+    val unknownAuthor = stringResource(R.string.common_unknown_author)
+    val newestFirst = stringResource(R.string.discover_sort_newest)
+    val oldestFirst = stringResource(R.string.discover_sort_oldest)
 
     DiscoverPageScaffold(
-        title = (state as? BooklistDetailViewModel.State.Ready)?.detail?.title ?: "书单",
+        title = (state as? BooklistDetailViewModel.State.Ready)?.detail?.title ?: fallbackTitle,
         onBack = onBack,
         modifier = modifier,
     ) { innerPadding ->
         when (val current = state) {
             is BooklistDetailViewModel.State.Loading -> DiscoverLoading(
-                message = "正在加载书单…",
+                message = stringResource(R.string.discover_booklist_loading),
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(innerPadding),
@@ -167,13 +173,17 @@ fun BooklistDetailScreen(
                             )
                             Spacer(Modifier.height(Spacing.xs))
                             Text(
-                                text = detail.author.ifBlank { "未知作者" },
+                                text = detail.author.ifBlank { unknownAuthor },
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                             Spacer(Modifier.height(2.dp))
                             Text(
-                                text = "共 " + detail.booksCount + " 本 · 评论 " + detail.commentsCount,
+                                text = stringResource(
+                                    R.string.discover_booklist_meta_format,
+                                    detail.booksCount,
+                                    detail.commentsCount,
+                                ),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -187,7 +197,15 @@ fun BooklistDetailScreen(
                                 )
                                 if (detail.description.length > 120) {
                                     TextButton(onClick = { descExpanded = !descExpanded }) {
-                                        Text(if (descExpanded) "收起" else "展开")
+                                        Text(
+                                            stringResource(
+                                                if (descExpanded) {
+                                                    R.string.common_collapse
+                                                } else {
+                                                    R.string.common_expand
+                                                },
+                                            ),
+                                        )
                                     }
                                 }
                             }
@@ -199,7 +217,7 @@ fun BooklistDetailScreen(
                                     verticalAlignment = Alignment.CenterVertically,
                                 ) {
                                     Text(
-                                        text = "书籍",
+                                        text = stringResource(R.string.discover_booklist_books_header),
                                         style = MaterialTheme.typography.titleSmall,
                                         modifier = Modifier.weight(1f),
                                     )
@@ -208,7 +226,10 @@ fun BooklistDetailScreen(
                                         modifier = Modifier.heightIn(min = 48.dp),
                                     ) {
                                         Text(
-                                            text = "排序：" + if (current.reversed) "旧→新" else "新→旧",
+                                            text = stringResource(
+                                                R.string.discover_booklist_sort_format,
+                                                if (current.reversed) oldestFirst else newestFirst,
+                                            ),
                                             maxLines = 1,
                                         )
                                     }
@@ -220,7 +241,7 @@ fun BooklistDetailScreen(
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                 ) {
                                     Text(
-                                        text = "书籍",
+                                        text = stringResource(R.string.discover_booklist_books_header),
                                         style = MaterialTheme.typography.titleSmall,
                                     )
                                     SingleChoiceSegmentedButtonRow {
@@ -228,12 +249,12 @@ fun BooklistDetailScreen(
                                             selected = !current.reversed,
                                             onClick = { if (current.reversed) viewModel.toggleSort() },
                                             shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
-                                        ) { Text("新→旧", maxLines = 1) }
+                                        ) { Text(newestFirst, maxLines = 1) }
                                         SegmentedButton(
                                             selected = current.reversed,
                                             onClick = { if (!current.reversed) viewModel.toggleSort() },
                                             shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
-                                        ) { Text("旧→新", maxLines = 1) }
+                                        ) { Text(oldestFirst, maxLines = 1) }
                                     }
                                 }
                             }
@@ -244,8 +265,8 @@ fun BooklistDetailScreen(
                         item(key = "empty") {
                             DiscoverEmptyState(
                                 icon = Icons.AutoMirrored.Outlined.MenuBook,
-                                title = "书单里还没有书",
-                                message = "这个书单暂时没有可展示的书籍。",
+                                title = stringResource(R.string.discover_booklist_empty_title),
+                                message = stringResource(R.string.discover_booklist_empty_message),
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .height(320.dp),
@@ -286,7 +307,7 @@ fun BooklistDetailScreen(
                                 .padding(bottom = Spacing.sm),
                         ) {
                             Text(
-                                text = "排序",
+                                text = stringResource(R.string.discover_sort_title),
                                 style = MaterialTheme.typography.titleSmall,
                                 modifier = Modifier.padding(
                                     horizontal = Spacing.screen,
@@ -294,7 +315,7 @@ fun BooklistDetailScreen(
                                 ),
                             )
                             SortOptionRow(
-                                label = "新→旧",
+                                label = newestFirst,
                                 selected = !current.reversed,
                                 onClick = {
                                     if (current.reversed) viewModel.toggleSort()
@@ -302,7 +323,7 @@ fun BooklistDetailScreen(
                                 },
                             )
                             SortOptionRow(
-                                label = "旧→新",
+                                label = oldestFirst,
                                 selected = current.reversed,
                                 onClick = {
                                     if (!current.reversed) viewModel.toggleSort()

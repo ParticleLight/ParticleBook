@@ -41,8 +41,10 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import app.particlebook.android.R
 import app.particlebook.android.ui.Radius
 import app.particlebook.android.ui.Spacing
 import kotlinx.coroutines.CancellationException
@@ -130,7 +132,7 @@ fun CategoriesScreen(
     }
 
     DiscoverPageScaffold(
-        title = "分类",
+        title = stringResource(R.string.discover_categories_title),
         onBack = onBack,
         modifier = modifier,
     ) { innerPadding ->
@@ -146,7 +148,7 @@ fun CategoriesScreen(
                 shape = RoundedCornerShape(28.dp),
                 placeholder = {
                     Text(
-                        text = "筛选分类",
+                        text = stringResource(R.string.discover_categories_filter_hint),
                         style = MaterialTheme.typography.bodyMedium,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -165,7 +167,7 @@ fun CategoriesScreen(
                         IconButton(onClick = { query = "" }, modifier = Modifier.size(48.dp)) {
                             Icon(
                                 imageVector = Icons.Filled.Close,
-                                contentDescription = "清除筛选",
+                                contentDescription = stringResource(R.string.discover_categories_clear_filter),
                                 modifier = Modifier.size(20.dp),
                             )
                         }
@@ -222,12 +224,20 @@ fun CategoriesScreen(
                     if (visibleGroups.isEmpty()) {
                         DiscoverEmptyState(
                             icon = Icons.Outlined.Search,
-                            title = if (trimmed.isEmpty()) "暂无分类数据" else "没有匹配的分类",
-                            message = if (trimmed.isEmpty()) {
-                                "分类数据暂时为空，请稍后重试。"
-                            } else {
-                                "换个关键词试试，或清除筛选查看全部分类。"
-                            },
+                            title = stringResource(
+                                if (trimmed.isEmpty()) {
+                                    R.string.discover_categories_empty_title
+                                } else {
+                                    R.string.discover_categories_no_match_title
+                                },
+                            ),
+                            message = stringResource(
+                                if (trimmed.isEmpty()) {
+                                    R.string.discover_categories_empty_message
+                                } else {
+                                    R.string.discover_categories_no_match_message
+                                },
+                            ),
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .weight(1f),
@@ -309,14 +319,19 @@ private fun CategoryGroupHeader(
                     modifier = Modifier.weight(1f),
                 )
                 Text(
-                    text = group.categories.size.toString() + " 个子类",
+                    text = stringResource(
+                        R.string.discover_categories_subcategory_count_format,
+                        group.categories.size,
+                    ),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Spacer(Modifier.size(Spacing.xs))
                 Icon(
                     imageVector = if (expanded) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,
-                    contentDescription = if (expanded) "收起" else "展开",
+                    contentDescription = stringResource(
+                        if (expanded) R.string.common_collapse else R.string.common_expand,
+                    ),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.size(20.dp),
                 )
@@ -359,7 +374,7 @@ private fun CategoryRow(
         )
         if (entry.booksCount > 0) {
             Text(
-                text = entry.booksCount.toString() + " 本",
+                text = stringResource(R.string.discover_books_count_format, entry.booksCount),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
@@ -390,7 +405,7 @@ private fun RefreshFailureHint(message: String, onRetry: () -> Unit) {
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                text = "刷新失败，展示缓存数据：" + message,
+                text = stringResource(R.string.discover_categories_refresh_failed_format, message),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onErrorContainer,
                 maxLines = 2,
@@ -398,7 +413,7 @@ private fun RefreshFailureHint(message: String, onRetry: () -> Unit) {
                 modifier = Modifier.weight(1f),
             )
             Text(
-                text = "重试",
+                text = stringResource(R.string.common_retry),
                 style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.onErrorContainer,
                 modifier = Modifier

@@ -30,8 +30,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import app.particlebook.android.R
 import app.particlebook.android.ui.Radius
 import app.particlebook.android.ui.Spacing
 import kotlinx.coroutines.CancellationException
@@ -137,7 +139,7 @@ fun BooklistsScreen(
     val listState = rememberLazyListState()
 
     DiscoverPageScaffold(
-        title = "书单",
+        title = stringResource(R.string.discover_booklists_title),
         onBack = onBack,
         modifier = modifier,
     ) { innerPadding ->
@@ -150,8 +152,8 @@ fun BooklistsScreen(
 
             is BooklistsViewModel.State.Empty -> DiscoverEmptyState(
                 icon = Icons.AutoMirrored.Outlined.MenuBook,
-                title = "暂无书单",
-                message = "Z-Library 上的编辑精选与用户书单会显示在这里。",
+                title = stringResource(R.string.discover_booklists_empty_title),
+                message = stringResource(R.string.discover_booklists_empty_message),
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(innerPadding),
@@ -204,6 +206,7 @@ fun BooklistsScreen(
 private fun BooklistRow(item: BooklistCard, onClick: () -> Unit) {
     // C4：200% 字号时描述收成 1 行，标题/作者/元信息仍完整，卡片高度靠 heightIn 自适应。
     val largeFont = LocalDensity.current.fontScale >= 1.3f
+    val unknownAuthor = stringResource(R.string.common_unknown_author)
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -239,17 +242,28 @@ private fun BooklistRow(item: BooklistCard, onClick: () -> Unit) {
             }
             Spacer(Modifier.height(2.dp))
             Text(
-                text = item.author.ifBlank { "未知作者" },
+                text = item.author.ifBlank { unknownAuthor },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            val meta = buildList {
-                if (item.quantity > 0) add(item.quantity.toString() + " 本")
-                if (item.views.isNotBlank()) add(item.views + " 浏览")
-                if (item.comments > 0) add(item.comments.toString() + " 评论")
-            }.joinToString(" · ")
+            val booksMeta = if (item.quantity > 0) {
+                stringResource(R.string.discover_books_count_format, item.quantity)
+            } else {
+                null
+            }
+            val viewsMeta = if (item.views.isNotBlank()) {
+                stringResource(R.string.discover_booklist_meta_views_format, item.views)
+            } else {
+                null
+            }
+            val commentsMeta = if (item.comments > 0) {
+                stringResource(R.string.discover_booklist_meta_comments_format, item.comments)
+            } else {
+                null
+            }
+            val meta = listOfNotNull(booksMeta, viewsMeta, commentsMeta).joinToString(" · ")
             if (meta.isNotEmpty()) {
                 Spacer(Modifier.height(2.dp))
                 Text(
@@ -281,7 +295,7 @@ private fun EditorChoiceTag() {
         color = MaterialTheme.colorScheme.tertiaryContainer,
     ) {
         Text(
-            text = "精选",
+            text = stringResource(R.string.discover_editor_choice),
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onTertiaryContainer,
             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),

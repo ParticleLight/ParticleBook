@@ -25,8 +25,10 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import app.particlebook.android.R
 import app.particlebook.android.ui.Spacing
 import app.particlebook.android.ui.ZlibResultRow
 import app.particlebook.android.ui.parseBookRef
@@ -139,15 +141,16 @@ fun CategoryListScreen(
     val state = viewModel.state
     val listState = rememberLazyListState()
     LaunchedEffect(categoryId, slug) { viewModel.load(categoryId, slug) }
+    val fallbackTitle = stringResource(R.string.discover_categories_title)
 
     DiscoverPageScaffold(
-        title = name.ifBlank { "分类" },
+        title = name.ifBlank { fallbackTitle },
         onBack = onBack,
         modifier = modifier,
     ) { innerPadding ->
         when (val current = state) {
             is CategoryListViewModel.State.Loading -> DiscoverLoading(
-                message = "正在加载分类书籍…",
+                message = stringResource(R.string.discover_category_loading),
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(innerPadding),
@@ -162,8 +165,8 @@ fun CategoryListScreen(
 
             is CategoryListViewModel.State.Empty -> DiscoverEmptyState(
                 icon = Icons.Outlined.BrokenImage,
-                title = "该分类暂无书籍",
-                message = "这个分类下暂时没有可展示的书籍。",
+                title = stringResource(R.string.discover_category_empty_title),
+                message = stringResource(R.string.discover_category_empty_message),
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(innerPadding),
@@ -197,8 +200,12 @@ fun CategoryListScreen(
                 ) {
                     item(key = "summary") {
                         Text(
-                            text = "第 " + current.page + " / " + current.totalPages +
-                                " 页 · 已加载 " + current.books.size + " 本",
+                            text = stringResource(
+                                R.string.discover_category_summary_format,
+                                current.page,
+                                current.totalPages,
+                                current.books.size,
+                            ),
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(vertical = Spacing.sm),
@@ -240,18 +247,18 @@ private fun CategoryNotFound(onBack: () -> Unit, modifier: Modifier = Modifier) 
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Text(
-            text = "该分类不存在或已变更",
+            text = stringResource(R.string.discover_category_not_found_title),
             style = MaterialTheme.typography.titleMedium,
             textAlign = TextAlign.Center,
         )
         Spacer(Modifier.height(Spacing.xs))
         Text(
-            text = "Z-Library 的分类结构可能已调整，请返回分类列表重新选择。",
+            text = stringResource(R.string.discover_category_not_found_message),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,
         )
         Spacer(Modifier.height(Spacing.md))
-        FilledTonalButton(onClick = onBack) { Text("返回分类") }
+        FilledTonalButton(onClick = onBack) { Text(stringResource(R.string.discover_category_back)) }
     }
 }

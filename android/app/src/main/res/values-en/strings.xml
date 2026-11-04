@@ -5,6 +5,11 @@
     <string name="common_cancel">Cancel</string>
     <string name="common_clear">Clear</string>
     <string name="common_more_actions">More actions</string>
+    <string name="common_back">Back</string>
+    <string name="common_collapse">Collapse</string>
+    <string name="common_expand">Expand</string>
+    <string name="common_unknown_author">Unknown author</string>
+    <string name="common_end_of_list">You have reached the end</string>
 
     <!-- Search screen -->
     <string name="find_header_subtitle">Built-in sources · Search · Download</string>
@@ -114,4 +119,45 @@
     <string name="find_summary_loaded_format">Loaded: %1$d</string>
     <string name="find_summary_page_format">Page %1$d / %2$d</string>
     <string name="find_summary_filter_format">Filters: %1$s</string>
+
+    <!-- Discover pages (Phase 1b) -->
+    <string name="discover_error_title">Failed to load</string>
+    <string name="discover_books_count_format">%1$d books</string>
+    <string name="discover_editor_choice">Editor’s pick</string>
+
+    <string name="discover_booklists_empty_title">No booklists yet</string>
+    <string name="discover_booklists_empty_message">Editor picks and user booklists on Z-Library will appear here.</string>
+    <string name="discover_booklist_meta_views_format">%1$s views</string>
+    <string name="discover_booklist_meta_comments_format">%1$d comments</string>
+
+    <string name="discover_popular_heading">Popular ranking</string>
+    <string name="discover_popular_empty_title">No rankings yet</string>
+    <string name="discover_popular_empty_message">Z-Library’s popular ranking has no books to show right now.</string>
+
+    <string name="discover_categories_filter_hint">Filter categories</string>
+    <string name="discover_categories_clear_filter">Clear filter</string>
+    <string name="discover_categories_empty_title">No category data</string>
+    <string name="discover_categories_empty_message">Category data is currently empty. Please try again later.</string>
+    <string name="discover_categories_no_match_title">No matching categories</string>
+    <string name="discover_categories_no_match_message">Try another keyword, or clear the filter to see all categories.</string>
+    <string name="discover_categories_subcategory_count_format">%1$d subcategories</string>
+    <string name="discover_categories_refresh_failed_format">Refresh failed; showing cached data: %1$s</string>
+
+    <string name="discover_category_loading">Loading category books…</string>
+    <string name="discover_category_empty_title">No books in this category</string>
+    <string name="discover_category_empty_message">There are no books to show in this category yet.</string>
+    <string name="discover_category_summary_format">Page %1$d / %2$d · Loaded %3$d</string>
+    <string name="discover_category_not_found_title">This category does not exist or has changed</string>
+    <string name="discover_category_not_found_message">Z-Library’s category structure may have changed. Return to the category list and choose again.</string>
+    <string name="discover_category_back">Back to categories</string>
+
+    <string name="discover_booklist_loading">Loading booklist…</string>
+    <string name="discover_booklist_meta_format">%1$d books · %2$d comments</string>
+    <string name="discover_booklist_books_header">Books</string>
+    <string name="discover_booklist_sort_format">Sort: %1$s</string>
+    <string name="discover_sort_newest">Newest first</string>
+    <string name="discover_sort_oldest">Oldest first</string>
+    <string name="discover_sort_title">Sort</string>
+    <string name="discover_booklist_empty_title">No books in this booklist yet</string>
+    <string name="discover_booklist_empty_message">This booklist has no books to show yet.</string>
 </resources>
