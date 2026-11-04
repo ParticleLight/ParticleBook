@@ -1,6 +1,7 @@
 package app.particlebook.android.ui
 
 import android.content.Context
+import android.content.SharedPreferences
 import android.net.Uri
 import android.os.ParcelFileDescriptor
 import android.os.SystemClock
@@ -153,6 +154,101 @@ internal fun zlibHistoryForRemovedBooks(
         record.destPath == book.filePath || book.tags.contains(zlibBookTag(record.bookId))
     }
 }
+
+/** task-79：从被删书架条目里提取 Z-Library 书号（tags 里的 zlib:<bookId>），用于写墓碑。 */
+internal fun zlibRemovedBookIds(books: List<Book>): Set<String> {
+    val ids = LinkedHashSet<String>()
+    books.forEach { book ->
+        book.tags.forEach { tag ->
+            if (tag.startsWith("zlib:")) {
+                tag.removePrefix("zlib:").takeIf { it.isNotBlank() }?.let(ids::add)
+            }
+        }
+    }
+    return ids
+}
+
+/** task-79：墓碑持久化接口（生产 SharedPreferences，JVM 单测注入内存实现）。 */
+internal interface ZlibTombstonePersistence {
+    fun read(): Set<String>
+    fun write(ids: Set<String>)
+}
+
+/**
+ * task-79：已删书的墓碑集合。
+ *
+ * 删书事件先在主线程写墓碑，再取消对应 run / 清历史；之后即使导入回调晚到，也按墓碑
+ * 静默回收 adopted 条目，不让它带着新 Book.id 和 COMPLETED 记录复活。用户显式重新下载/
+ * 重试/续传/重新导入时由 Manager 清除对应书号。
+ */
+internal class ZlibDownloadTombstones(
+    private val persistence: ZlibTombstonePersistence? = null,
+) {
+    private val ids = LinkedHashSet<String>()
+    private val lock = Any()
+
+    fun reload() {
+        synchronized(lock) {
+            ids.clear()
+            persistence?.read()?.filter { it.isNotBlank() }?.let(ids::addAll)
+        }
+    }
+
+    fun contains(bookId: String): Boolean =
+        bookId.isNotBlank() && synchronized(lock) { bookId in ids }
+
+    fun addAll(bookIds: Collection<String>) {
+        val normalized = bookIds.filter { it.isNotBlank() }
+        if (normalized.isEmpty()) return
+        synchronized(lock) {
+            if (ids.addAll(normalized)) persistLocked()
+        }
+    }
+
+    fun remove(bookId: String) {
+        if (bookId.isBlank()) return
+        synchronized(lock) {
+            if (ids.remove(bookId)) persistLocked()
+        }
+    }
+
+    fun snapshot(): Set<String> = synchronized(lock) { ids.toSet() }
+
+    private fun persistLocked() {
+        runCatching { persistence?.write(ids.toSet()) }
+    }
+}
+
+/** task-79：删书时历史还没读盘完成 → 入队；读完后只 drain 已 loaded 的队列（TOCTOU 真值表）。 */
+internal fun zlibRemovalsToDrain(historyLoaded: Boolean, queued: List<Book>): List<Book> =
+    if (historyLoaded) queued else emptyList()
+
+/**
+ * U10/task-79：磁盘快照 = 非终态记录 + 终态历史（同书以非终态为准），纯函数便于单测。
+ * 传入的 pending 必须是同一次加锁快照，避免排空写盘时读到半更新集合。
+ */
+internal fun zlibRecordsForDisk(
+    history: List<ZlibDownloadTask>,
+    pending: Collection<ZlibDownloadTask>,
+): List<ZlibDownloadTask> {
+    if (pending.isEmpty()) return history
+    val pendingIds = pending.mapTo(HashSet(pending.size)) { it.bookId }
+    return pending.toList() + history.filterNot { it.bookId in pendingIds }
+}
+
+private class SharedPreferencesZlibTombstonePersistence(
+    private val prefs: SharedPreferences,
+) : ZlibTombstonePersistence {
+    override fun read(): Set<String> =
+        prefs.getStringSet(TOMBSTONE_PREF_KEY, emptySet())?.filter { it.isNotBlank() }?.toSet().orEmpty()
+
+    override fun write(ids: Set<String>) {
+        prefs.edit().putStringSet(TOMBSTONE_PREF_KEY, ids).apply()
+    }
+}
+
+private const val TOMBSTONE_PREFS_NAME = "pb_zlib_removal"
+private const val TOMBSTONE_PREF_KEY = "deleted_book_ids"
 
 /** P2-4：普通 File 目标的完整性判定（纯 JVM，单测直接覆盖）。 */
 internal fun zlibInspectBookFile(
@@ -769,6 +865,13 @@ object ZlibDownloadManager {
     /** P3-4：下载历史读盘完成前被删掉的书，读完后补做记录级联清理。 */
     private val removedWhileHistoryLoading = ArrayList<Book>()
 
+    /**
+     * task-79：已删书的墓碑（持久化，重启后仍生效）。删书时先写墓碑再取消在途下载；
+     * 迟到的导入完成回调命中墓碑会被静默回收，不会复活书架条目/下载记录。
+     * 用户显式重新下载/重试/续传/重新导入时清除对应书号。
+     */
+    private var tombstones = ZlibDownloadTombstones()
+
     /** T15：start() 异步判定窗口内按 bookId 去重（只在主线程读写），防连点开出两个同书任务。 */
     private val startGuards = HashSet<String>()
 
@@ -794,8 +897,13 @@ object ZlibDownloadManager {
             decode = ::decodeHistory,
         )
         historyStore = store
-        // P3-4：书架删书后按 filePath/zlib tag 级联清下载记录（RECORD_ONLY）。
-        LibraryRemovalBus.listener = ::removeDownloadHistoryForBooks
+        tombstones = ZlibDownloadTombstones(
+            SharedPreferencesZlibTombstonePersistence(
+                app.getSharedPreferences(TOMBSTONE_PREFS_NAME, Context.MODE_PRIVATE),
+            ),
+        ).also { it.reload() }
+        // P3-4/task-79：书架删书后先写墓碑/取消在途下载，再级联清下载记录（RECORD_ONLY）。
+        LibraryRemovalBus.listener = ::onLibraryBooksRemoved
         scope.launch {
             val loaded = withContext(Dispatchers.IO) { store.read() }
             // U10：上次进程被杀时留在磁盘上的非终态记录 → 恢复成可重试的中断失败态。
@@ -809,11 +917,9 @@ object ZlibDownloadManager {
                 }
             }
             _historyLoaded.value = true
-            // P3-4：读盘完成前发生的删书，补做下载记录级联清理。
-            val pendingRemoved = synchronized(removedWhileHistoryLoading) {
-                removedWhileHistoryLoading.toList().also { removedWhileHistoryLoading.clear() }
-            }
-            if (pendingRemoved.isNotEmpty()) removeDownloadHistoryForBooks(pendingRemoved)
+            // task-79：历史读盘完成后，先按墓碑清掉已删书可能复活的记录，再补做队列里的删书事件。
+            purgeTombstonedHistory()
+            drainRemovedWhileHistoryLoading()
             // 规范化结果写回磁盘；读盘完成前被 gate 的写盘请求在这里补一次（合并后的快照）。
             val needsWrite = historyWritePending || recovered != loaded
             historyWritePending = false
@@ -897,7 +1003,7 @@ object ZlibDownloadManager {
                 // P1-2 task-73：用户明确选择「重新下载」时，旧 COMPLETED/IMPORT_FAILED 记录不能
                 // 再触发重新导入（坏文件会反复失败）；先清掉旧记录，下面按全新任务走。
                 if (forceRedownload) {
-                    pendingRecords.remove(detail.bookId)
+                    pendingRecordsRemove(detail.bookId)
                     removeHistoryRecord(detail.bookId)
                 }
                 // 判定期间历史可能刚加载完（冷启）→ 在 IO hop 之后再读一次，避免重复下载已完成的书。
@@ -1039,6 +1145,8 @@ object ZlibDownloadManager {
                 }
                 _tasks.update { list -> list.filterNot { it.id == task.id } + task }
                 persistActive(task)
+                // task-79：真正开跑时才解除删书墓碑（判定失败/已有任务时不解除，旧回调仍受保护）。
+                tombstones.remove(detail.bookId)
                 launchDownload(
                     task = task,
                     store = store,
@@ -1095,6 +1203,8 @@ object ZlibDownloadManager {
         if (current.isActive) return
         // 上一轮取消还在收尾（.part 仍被写）：等协程退出后再允许续传。
         if (runs.current(id) != null) return
+        // task-79：真正重试时才解除删书墓碑。
+        tombstones.remove(current.bookId)
         // T23：CANCELLED 也会落历史；续传会生成新终态，先清掉旧记录。
         removeHistoryRecord(current.bookId)
         // P0 task-62：只有 CANCELLED 的 SAF 目标允许截断复用；FAILED(INTERRUPTED) 一律新建文档。
@@ -1130,6 +1240,8 @@ object ZlibDownloadManager {
             ?: return null
         if (_tasks.value.any { it.bookId == bookId && it.isActive }) return null
         if (runs.current(record.id) != null) return null
+        // task-79：真正续传时才解除删书墓碑。
+        tombstones.remove(bookId)
         // 半成品大小只做一次 stat（cacheDir/外部目录的小文件），用于提示「续传」还是「从头下载」。
         val partialBytes = partialBytesOf(context, record)
         val source = zlibResumeSourceFor(record, partialBytes)
@@ -1265,6 +1377,94 @@ object ZlibDownloadManager {
     }
 
     /**
+     * task-79：书架删书事件入口（LibraryRemovalBus，主线程）。
+     *
+     * 顺序很关键：先写墓碑并取消在途 run，再删下载记录。这样即使导入协程已经跑完、
+     * completeImport 晚到，也会因墓碑被静默回收，不会复活书架条目和 COMPLETED 记录。
+     * 历史尚未读盘完成时先排队，读完后按同一墓碑语义补做（见 [drainRemovedWhileHistoryLoading]）。
+     */
+    private fun onLibraryBooksRemoved(books: List<Book>) {
+        if (books.isEmpty()) return
+        val ids = zlibRemovedBookIds(books)
+        if (ids.isNotEmpty()) {
+            tombstones.addAll(ids)
+            cancelActiveDownloadsForRemovedBooks(ids)
+        }
+        if (!_historyLoaded.value) {
+            synchronized(removedWhileHistoryLoading) { removedWhileHistoryLoading += books }
+            // 入队后重新 drain：读盘可能恰好在这期间完成（TOCTOU）。
+            drainRemovedWhileHistoryLoading()
+            return
+        }
+        applyRemovalToLoadedHistory(books)
+    }
+
+    /** 历史已读盘时：把 path/tag 关联到的记录书号也写墓碑，清历史并取消在途任务。 */
+    private fun applyRemovalToLoadedHistory(books: List<Book>) {
+        val recordIds = zlibHistoryForRemovedBooks(_history.value, books)
+            .mapTo(LinkedHashSet()) { it.bookId }
+        if (recordIds.isNotEmpty()) {
+            tombstones.addAll(recordIds)
+            cancelActiveDownloadsForRemovedBooks(recordIds)
+        }
+        removeDownloadHistoryForBooks(books)
+    }
+
+    /** 冷启删书队列的补做；只有历史读盘完成后才真正 drain，避免删记录后又从磁盘冒出来。 */
+    private fun drainRemovedWhileHistoryLoading() {
+        val pending = synchronized(removedWhileHistoryLoading) {
+            val queued = removedWhileHistoryLoading.toList()
+            val drained = zlibRemovalsToDrain(_historyLoaded.value, queued)
+            if (drained.isNotEmpty()) removedWhileHistoryLoading.clear()
+            drained
+        }
+        if (pending.isNotEmpty()) applyRemovalToLoadedHistory(pending)
+    }
+
+    /**
+     * 取消已删书关联的在途下载：移除任务卡片和 pending 快照；run 以 USER 原因取消。
+     * 活动任务的半成品等协程收尾（handleDownloadFailure 命中墓碑分支）再删，避免和网络写文件竞争。
+     */
+    private fun cancelActiveDownloadsForRemovedBooks(bookIds: Set<String>) {
+        if (bookIds.isEmpty()) return
+        val affected = _tasks.value.filter { it.bookId in bookIds }
+        if (affected.isEmpty()) {
+            removePendingForBookIds(bookIds)
+            return
+        }
+        affected.forEach { task ->
+            if (task.isActive) {
+                if (runs.cancel(task.id, ZlibCancelReason.USER)) {
+                    Log.i(TAG, "zlib_download_removed_cancel book=" + task.bookId + " task=" + task.id)
+                }
+            } else {
+                cleanupPartial(task)
+            }
+            Log.i(TAG, "zlib_download_removed_drop book=" + task.bookId + " task=" + task.id)
+        }
+        _tasks.update { list -> list.filterNot { it.bookId in bookIds } }
+        removePendingForBookIds(bookIds)
+    }
+
+    private fun removePendingForBookIds(bookIds: Set<String>) {
+        if (bookIds.isEmpty()) return
+        val removed = withPendingRecords { pending -> pending.keys.removeAll(bookIds) }
+        if (removed) scheduleHistoryWrite()
+    }
+
+    /** 冷启时按持久化墓碑清掉已删书的残留记录/非终态快照（防止记录页把它们又显示出来）。 */
+    private fun purgeTombstonedHistory() {
+        val deleted = tombstones.snapshot()
+        if (deleted.isEmpty()) return
+        val current = _history.value
+        val kept = current.filterNot { it.bookId in deleted }
+        val removedPending = withPendingRecords { pending -> pending.keys.removeAll(deleted) }
+        if (kept.size == current.size && !removedPending) return
+        _history.value = kept
+        scheduleHistoryWrite()
+    }
+
+    /**
      * P3-4：书架删书后的下载记录级联清理。
      * - 按 destPath == book.filePath 或 book.tags 含 zlib:<record.bookId> 关联（SAF 副本只能靠 tag）；
      * - deleteFile = false：文件归 LibraryStore/用户所有，这里只删记录（RECORD_ONLY），
@@ -1275,6 +1475,7 @@ object ZlibDownloadManager {
         if (books.isEmpty()) return
         if (!_historyLoaded.value) {
             synchronized(removedWhileHistoryLoading) { removedWhileHistoryLoading += books }
+            drainRemovedWhileHistoryLoading()
             return
         }
         val records = zlibHistoryForRemovedBooks(_history.value, books)
@@ -1294,6 +1495,11 @@ object ZlibDownloadManager {
         store: LibraryStore,
         allowSafTargetReuse: Boolean = false,
     ) {
+        // task-79：start 判定期间书被删（墓碑已写）→ 不再发起网络下载。
+        if (tombstones.contains(task.bookId)) {
+            Log.i(TAG, "zlib_download_drop_launch_tombstoned book=" + task.bookId + " task=" + task.id)
+            return
+        }
         val context = appContext ?: return
         val run = runs.begin(task.id)
         val throttle = ZlibProgressThrottle()
@@ -1405,6 +1611,7 @@ object ZlibDownloadManager {
         )
         if (!runs.isCurrent(run)) return true
         if (adopt.isSuccess) {
+            if (reclaimTombstonedAdoption(task.bookId, adopt.getOrThrow(), store)) return true
             completeImport(task.id, size, target.name, target.absolutePath)
             Log.i(
                 PERF_TAG,
@@ -1449,6 +1656,7 @@ object ZlibDownloadManager {
         )
         if (!runs.isCurrent(run)) return true
         if (adopt.isSuccess) {
+            if (reclaimTombstonedAdoption(task.bookId, adopt.getOrThrow(), store)) return true
             completeImport(task.id, size, actualName, raw)
             Log.i(
                 PERF_TAG,
@@ -1495,6 +1703,7 @@ object ZlibDownloadManager {
         )
         if (!runs.isCurrent(run)) return
         if (adopt.isSuccess) {
+            if (reclaimTombstonedAdoption(task.bookId, adopt.getOrThrow(), store)) return
             completeImport(task.id, size, file.name, file.absolutePath)
             Log.i(
                 PERF_TAG,
@@ -1575,6 +1784,7 @@ object ZlibDownloadManager {
             )
             if (!runs.isCurrent(run)) return
             if (adopt.isSuccess) {
+                if (reclaimTombstonedAdoption(task.bookId, adopt.getOrThrow(), store)) return
                 completeImport(task.id, bytes, actualName, target.toString())
                 Log.i(
                     PERF_TAG,
@@ -1599,6 +1809,14 @@ object ZlibDownloadManager {
     ) {
         // 旧世代（重试/新任务已接管）的迟到异常：丢弃，绝不覆盖新状态。
         if (!runs.isCurrent(run)) return
+        // task-79：删书时已取消该任务 —— 静默收尾，不写 CANCELLED/FAILED 历史，也不留半成品。
+        if (tombstones.contains(task.bookId)) {
+            removePendingForBookIds(setOf(task.bookId))
+            _tasks.update { list -> list.filterNot { it.id == task.id } }
+            cleanupPartial(task)
+            Log.i(TAG, "zlib_download_dropped_tombstoned book=" + task.bookId + " task=" + task.id)
+            return
+        }
         val kindName = (throwable as? ZlibException)?.kind?.name
         if (kindName == ZlibException.Kind.CANCELLED.name) {
             when (run.cancelReason) {
@@ -1666,6 +1884,13 @@ object ZlibDownloadManager {
         fileName: String?,
         destPath: String?,
     ) {
+        // task-79：导入完成时书已被删 → 不再写 COMPLETED 历史（迟到回调兜底，正常由 reclaim 处理）。
+        val bookId = _tasks.value.firstOrNull { it.id == id }?.bookId
+        if (bookId != null && tombstones.contains(bookId)) {
+            removePendingForBookIds(setOf(bookId))
+            Log.i(TAG, "zlib_download_drop_complete_tombstoned book=" + bookId + " task=" + id)
+            return
+        }
         // T15(P0)：用 updateTask 返回的 COMPLETED 副本写历史，不能用导入前快照。
         val completed = updateTask(id) {
             zlibCompletedHistoryRecord(it, size, fileName, destPath)
@@ -1680,6 +1905,12 @@ object ZlibDownloadManager {
         cause: Throwable?,
         messageOverride: String? = null,
     ) {
+        val bookId = _tasks.value.firstOrNull { it.id == id }?.bookId
+        if (bookId != null && tombstones.contains(bookId)) {
+            removePendingForBookIds(setOf(bookId))
+            Log.i(TAG, "zlib_download_drop_import_failed_tombstoned book=" + bookId + " task=" + id)
+            return
+        }
         val failed = updateTask(id) {
             ZlibDownloadCompletion.importFailed(it, cause, messageOverride)
         } ?: return
@@ -1692,6 +1923,8 @@ object ZlibDownloadManager {
         val context = appContext ?: return
         if (task.isActive) return
         if (runs.current(task.id) != null) return
+        // task-79：用户显式「重新导入」= 解除删书墓碑。
+        tombstones.remove(task.bookId)
         val run = runs.begin(task.id)
         _tasks.update { list ->
             list.filterNot { it.id == task.id } + task.copy(
@@ -1737,6 +1970,7 @@ object ZlibDownloadManager {
                 }
                 if (!runs.isCurrent(run)) return@launch
                 if (adopt.isSuccess) {
+                    if (reclaimTombstonedAdoption(task.bookId, adopt.getOrThrow(), store)) return@launch
                     completeImport(task.id, size, effective.fileName, effective.destPath)
                 } else {
                     failImport(task.id, size, adopt.exceptionOrNull())
@@ -1817,12 +2051,40 @@ object ZlibDownloadManager {
      * 后会自动从「下载」切到「已下载 · 打开」。
      */
     private fun adoptLibraryRecord(detail: ZBookDetail, book: Book, size: Long) {
+        if (tombstones.contains(detail.bookId)) {
+            Log.i(TAG, "zlib_download_drop_library_record_tombstoned book=" + detail.bookId)
+            return
+        }
         val record = zlibLibraryDownloadRecord(detail, book, size, System.currentTimeMillis())
-        pendingRecords.remove(record.bookId)
+        pendingRecordsRemove(record.bookId)
         _tasks.update { list ->
             list.filterNot { it.bookId == record.bookId && !it.isActive }
         }
         addHistory(record, size)
+    }
+
+    /**
+     * task-79：导入成功后才发现书在下载期间被删 → 静默撤销刚 adopt 的书架条目并清掉记录。
+     *
+     * 用 [LibraryStore.removeBooksSilently]（不触发 LibraryRemovalBus）避免递归回调；导入路径正常
+     * 已在主线程，removeBooksSilently 内部自己切 IO。返回 true 表示已回收，调用方不要再 completeImport。
+     */
+    private suspend fun reclaimTombstonedAdoption(
+        bookId: String,
+        book: Book,
+        store: LibraryStore,
+    ): Boolean {
+        if (!tombstones.contains(bookId)) return false
+        val removed = runCatching { store.removeBooksSilently(setOf(book.id)).getOrThrow() }
+            .onFailure { Log.w(TAG, "zlib_download_tombstoned_reclaim_failed book=" + bookId, it) }
+            .getOrDefault(0)
+        removePendingForBookIds(setOf(bookId))
+        removeHistoryRecord(bookId)
+        Log.i(
+            TAG,
+            "zlib_download_tombstoned_reclaim book=" + bookId + " id=" + book.id + " removed=" + removed,
+        )
+        return true
     }
 
     /**
@@ -1977,8 +2239,14 @@ object ZlibDownloadManager {
     }
 
     private fun addHistory(task: ZlibDownloadTask, actualSize: Long) {
+        // task-79：已删书的迟到完成/失败回调不得再写历史（完成路径已静默回收书架条目）。
+        if (tombstones.contains(task.bookId)) {
+            Log.i(TAG, "zlib_download_drop_history_tombstoned book=" + task.bookId)
+            clearActive(task.bookId)
+            return
+        }
         // U10：进入终态 → 非终态快照退场（随后统一写一次盘）。
-        pendingRecords.remove(task.bookId)
+        pendingRecordsRemove(task.bookId)
         val record = task.copy(
             received = actualSize.coerceAtLeast(task.received),
             total = actualSize.takeIf { it > 0L } ?: task.total,
@@ -1994,7 +2262,12 @@ object ZlibDownloadManager {
      * 取消记录会变成「100% · 1MB/1MB」的假完成态；取消必须保留原 total 表示「没下完」。
      */
     private fun addCancelledHistory(record: ZlibDownloadTask) {
-        pendingRecords.remove(record.bookId)
+        if (tombstones.contains(record.bookId)) {
+            Log.i(TAG, "zlib_download_drop_cancelled_tombstoned book=" + record.bookId)
+            clearActive(record.bookId)
+            return
+        }
+        pendingRecordsRemove(record.bookId)
         _history.update { list -> listOf(record) + list.filterNot { it.bookId == record.bookId } }
         scheduleHistoryWrite()
     }
@@ -2040,21 +2313,35 @@ object ZlibDownloadManager {
      * 进行中记录只写盘、不进入 [_history]，所以记录页/详情页看不到它。
      */
     private fun snapshotForDisk(): List<ZlibDownloadTask> {
-        if (pendingRecords.isEmpty()) return _history.value
-        val pendingIds = pendingRecords.keys
-        return pendingRecords.values.toList() + _history.value.filterNot { it.bookId in pendingIds }
+        // 同一次加锁里取 pending 快照与 keys，避免并发排空时读到半更新集合。
+        return withPendingRecords { pending ->
+            zlibRecordsForDisk(_history.value, pending.values.toList())
+        }
     }
 
     /** U10：记录一条进行中的下载快照并落盘（失败/取消/完成时由 [clearActive] 移除）。 */
     private fun persistActive(task: ZlibDownloadTask) {
-        pendingRecords[task.bookId] = task.copy(importing = false, cancelling = false)
+        if (tombstones.contains(task.bookId)) {
+            Log.i(TAG, "zlib_download_drop_active_tombstoned book=" + task.bookId)
+            return
+        }
+        val snapshot = task.copy(importing = false, cancelling = false)
+        withPendingRecords { pending -> pending[task.bookId] = snapshot }
         scheduleHistoryWrite()
     }
 
     /** U10：进行中快照退场（终态写入走 [addHistory] 里同一次 scheduleHistoryWrite）。 */
     private fun clearActive(bookId: String) {
-        if (pendingRecords.remove(bookId) != null) scheduleHistoryWrite()
+        if (pendingRecordsRemove(bookId)) scheduleHistoryWrite()
     }
+
+    /** task-79：pendingRecords 的原子访问（主线程写、IO 快照读），所有读写都走这两个 helper。 */
+    private inline fun <T> withPendingRecords(
+        block: (LinkedHashMap<String, ZlibDownloadTask>) -> T,
+    ): T = synchronized(pendingRecords) { block(pendingRecords) }
+
+    private fun pendingRecordsRemove(bookId: String): Boolean =
+        withPendingRecords { pending -> pending.remove(bookId) != null }
 
     /**
      * T4（D8）：删除下载文件（普通路径/SAF）。

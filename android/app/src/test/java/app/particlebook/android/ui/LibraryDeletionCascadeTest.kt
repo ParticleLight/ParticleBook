@@ -136,7 +136,7 @@ class LibraryDeletionCascadeTest {
     @Test
     fun downloadManagerRegistersRemovalListenerAndDeletesRecordOnly() {
         val source = sourceFile("src/main/java/app/particlebook/android/ui/ZlibDownloadManager.kt")
-        assertTrue("下载管理器要注册删书监听", source.contains("LibraryRemovalBus.listener = ::removeDownloadHistoryForBooks"))
+        assertTrue("下载管理器要注册删书监听（task-79 起走墓碑入口）", source.contains("LibraryRemovalBus.listener = ::onLibraryBooksRemoved"))
         assertTrue("级联清理按 path/tag 匹配", source.contains("zlibHistoryForRemovedBooks"))
         assertTrue("下载记录只能 RECORD_ONLY（文件归书架/用户）", source.contains("removeHistory(record.bookId, deleteFile = false)"))
         assertTrue("历史未加载完要排队", source.contains("removedWhileHistoryLoading"))
