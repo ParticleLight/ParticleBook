@@ -36,7 +36,9 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -103,10 +105,18 @@ fun ZlibDownloadsScreen(
     val openFolder: () -> Unit = {
         if (DownloadLocation.isCustom(context)) {
             if (!DownloadLocation.openFolder(context)) {
+                // P2-5 task-100：SAF 目录的系统文件管理器入口失败时，至少回退到应用内默认目录
+                // 列表；Snackbar 带 action，避免用户只剩「无法打开」这一条死路。
                 scope.launch {
-                    snackbarHostState.showSnackbar(
-                        DownloadLocation.openFolderFailureMessage(context),
+                    val result = snackbarHostState.showSnackbar(
+                        message = DownloadLocation.openFolderFailureMessage(context),
+                        actionLabel = "打开应用文件夹",
+                        withDismissAction = true,
+                        duration = SnackbarDuration.Long,
                     )
+                    if (result == SnackbarResult.ActionPerformed) {
+                        onOpenDownloadFolder()
+                    }
                 }
             }
         } else {

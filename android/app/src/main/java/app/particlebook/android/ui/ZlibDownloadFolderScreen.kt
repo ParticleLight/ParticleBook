@@ -23,27 +23,38 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material.icons.outlined.InsertDriveFile
+import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.produceState
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import app.particlebook.android.ui.data.Book
 import app.particlebook.android.ui.data.DownloadFolderEntry
 import app.particlebook.android.ui.data.DownloadLocation
@@ -69,18 +80,47 @@ fun ZlibDownloadFolderScreen(
     onOpenBook: (Book) -> Unit,
     onOpenSettings: () -> Unit,
     modifier: Modifier = Modifier,
+    // 记录页是唯一入口（pushRoute("downloadFolder")），默认返回上一页即下载记录。
+    // 保留显式回调，后续若从别的路由进入可由调用方覆盖。
+    onOpenDownloads: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
-    // 文件列表在 IO 线程读取；null = 加载中，避免先闪一下「文件夹为空」。
-    val entries by produceState<List<DownloadFolderEntry>?>(initialValue = null) {
-        value = withContext(Dispatchers.IO) {
+    val openDownloads = onOpenDownloads ?: onBack
+
+    // P2-2：页面会被 AppRoot 保留在组合里，produceState 无 key 时列表永远是首次快照。
+    // refreshTick 由「顶部刷新」和 Activity ON_RESUME 递增；下载历史变化也作为刷新 key，
+    // 这样下载完成后即使页面隐藏也会在回到前台时重新读目录。
+    var refreshTick by remember { mutableIntStateOf(0) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) refreshTick++
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+    val downloadHistory by ZlibDownloadManager.history.collectAsState()
+    // P2-1：destPath + bookId -> zlib:<bookId> tag；书架文件可能已被 SAF 复制/repoint 到 _pb_files，
+    // 不能只比较 filePath。
+    val historyHints = remember(downloadHistory) {
+        DownloadLocation.downloadFolderHistoryHints(
+            downloadHistory.map { DownloadLocation.DownloadFolderBookHint(it.destPath, it.bookId) },
+        )
+    }
+    LaunchedEffect(Unit) { store.ensureLoaded() }
+
+    // 列表状态：null = 首次加载；刷新时保留旧列表，避免每次历史变化都闪一下加载圈。
+    var entries by remember { mutableStateOf<List<DownloadFolderEntry>?>(null) }
+    LaunchedEffect(refreshTick, downloadHistory) {
+        entries = withContext(Dispatchers.IO) {
             runCatching { DownloadLocation.listDefaultFolderEntries(context) }
                 .getOrDefault(emptyList())
         }
     }
-    val locationSummary = remember { DownloadLocation.summary(context) }
+    val locationSummary = remember(refreshTick) { DownloadLocation.summary(context) }
+    val libraryLoading = store.loading
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -105,6 +145,18 @@ fun ZlibDownloadFolderScreen(
                         )
                     }
                 },
+                actions = {
+                    IconButton(
+                        onClick = { refreshTick++ },
+                        modifier = Modifier.size(48.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Refresh,
+                            contentDescription = "刷新文件列表",
+                            tint = MaterialTheme.colorScheme.onSurface,
+                        )
+                    }
+                },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
                 ),
@@ -118,7 +170,8 @@ fun ZlibDownloadFolderScreen(
         ) {
             val loaded = entries
             when {
-                loaded == null -> Box(
+                // P2-3：冷启时书架还没读完，不能让所有文件先显示「未导入」。
+                loaded == null || libraryLoading -> Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .weight(1f),
@@ -148,7 +201,12 @@ fun ZlibDownloadFolderScreen(
                     ),
                 ) {
                     items(loaded, key = { it.path }) { entry ->
-                        val book = store.books.firstOrNull { it.filePath == entry.path }
+                        // P2-1：pathKey 全等优先；未命中再用下载历史 destPath -> zlib tag 兜底。
+                        val book = DownloadLocation.findBookForFolderEntry(
+                            entry = entry,
+                            books = store.books,
+                            historyHints = historyHints,
+                        )
                         DownloadFolderRow(
                             entry = entry,
                             inLibrary = book != null,
@@ -157,9 +215,15 @@ fun ZlibDownloadFolderScreen(
                                     onOpenBook(book)
                                 } else {
                                     scope.launch {
-                                        snackbarHostState.showSnackbar(
-                                            "该文件尚未导入书架，请先在下载记录页导入",
+                                        val result = snackbarHostState.showSnackbar(
+                                            message = "该文件尚未导入书架，请先在下载记录页导入",
+                                            actionLabel = "去下载记录",
+                                            withDismissAction = true,
+                                            duration = SnackbarDuration.Long,
                                         )
+                                        if (result == SnackbarResult.ActionPerformed) {
+                                            openDownloads()
+                                        }
                                     }
                                 }
                             },

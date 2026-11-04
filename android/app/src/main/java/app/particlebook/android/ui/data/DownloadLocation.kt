@@ -73,6 +73,46 @@ object DownloadLocation {
         runCatching { downloadFolderEntries(defaultDir(context).listFiles()?.toList().orEmpty()) }
             .getOrDefault(emptyList())
 
+    /**
+     * D1 A-lite P2：下载历史到书架身份的一条提示。
+     *
+     * 默认目录里的文件被 adoptLocalFile 原地登记时 book.filePath 通常等于文件路径；但 SAF 导入会
+     * 复制到 _pb_files、repoint 也可能把书架条目指到副本，因此文件本身不在书架的 filePath 里。
+     * 下载历史仍记得 destPath + bookId，可用 zlib:<bookId> tag 把文件行与书架条目重新关联。
+     */
+    internal data class DownloadFolderBookHint(
+        val destPath: String,
+        val bookId: String,
+    )
+
+    /** 把下载历史整理成 pathKey(destPath) -> bookId 集合；空白路径/书目直接忽略。纯 JVM。 */
+    internal fun downloadFolderHistoryHints(
+        hints: List<DownloadFolderBookHint>,
+    ): Map<String, Set<String>> = hints.asSequence()
+        .filter { it.destPath.isNotBlank() && it.bookId.isNotBlank() }
+        .groupBy({ pathKey(it.destPath) }, { it.bookId })
+        .mapValues { (_, bookIds) -> bookIds.toSet() }
+
+    /**
+     * 目录文件行 -> 书架条目。
+     *
+     * 先按归一化 filePath 全等匹配（主流程）；未命中时用下载历史 destPath 找到 bookId，再按
+     * zlib:<bookId> tag 兜底，覆盖 SAF 副本/repoint 后 filePath 与下载目录不一致的书。
+     * 纯 JVM 函数，便于单测覆盖，不访问 Android API。
+     */
+    internal fun findBookForFolderEntry(
+        entry: DownloadFolderEntry,
+        books: List<Book>,
+        historyHints: Map<String, Set<String>>,
+    ): Book? {
+        val entryPath = pathKey(entry.path)
+        books.firstOrNull { pathKey(it.filePath) == entryPath }?.let { return it }
+        val bookIds = historyHints[entryPath].orEmpty()
+        if (bookIds.isEmpty()) return null
+        val wantedTags = bookIds.mapTo(HashSet()) { ZLIB_TAG_PREFIX + it }
+        return books.firstOrNull { book -> book.tags.any { tag -> tag in wantedTags } }
+    }
+
     /** 已持久化且授权仍有效的 SAF 目录；未选择/授权失效时为 null（即使用默认目录）。 */
     fun treeUri(context: Context): Uri? {
         val stored = storedTreeUri(context) ?: return null

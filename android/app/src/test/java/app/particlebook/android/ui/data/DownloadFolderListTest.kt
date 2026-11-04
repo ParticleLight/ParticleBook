@@ -110,6 +110,8 @@ class DownloadFolderListTest {
         assertTrue("默认目录走应用内列表", source.contains("onOpenDownloadFolder()"))
         assertTrue("SAF 目录仍走系统文件管理器", source.contains("DownloadLocation.openFolder(context)"))
         assertTrue("系统入口失败仍带真实路径提示", source.contains("openFolderFailureMessage(context)"))
+        assertTrue("SAF 入口失败要回退应用内列表", source.contains("打开应用文件夹"))
+        assertTrue("回退入口要处理 Snackbar action", source.contains("SnackbarResult.ActionPerformed"))
     }
 
     @Test
@@ -119,6 +121,127 @@ class DownloadFolderListTest {
         assertTrue("记录页入口要压栈", source.contains("pushRoute(\"downloadFolder\")"))
         assertTrue("路由要渲染新页面", source.contains("ZlibDownloadFolderScreen("))
     }
+
+    @Test
+    fun matchesBookByNormalizedFilePathFirst() {
+        val dir = newTempDir()
+        try {
+            val file = File(dir, "book.pdf")
+            val entry = DownloadFolderEntry(
+                name = file.name,
+                path = file.absolutePath,
+                sizeBytes = 10L,
+                modifiedAt = 1_600_000_000_000L,
+            )
+            val exact = book(2L, file.absolutePath, tags = emptyList())
+            val tagged = book(1L, File(dir, "_pb_files/book.pdf").absolutePath, tags = listOf("zlib:42"))
+            val hints = DownloadLocation.downloadFolderHistoryHints(
+                listOf(DownloadLocation.DownloadFolderBookHint(file.absolutePath, "42")),
+            )
+            assertEquals(
+                exact,
+                DownloadLocation.findBookForFolderEntry(entry, listOf(tagged, exact), hints),
+            )
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun matchesBookViaHistoryDestPathAndZlibTagFallback() {
+        val dir = newTempDir()
+        try {
+            val source = File(dir, "book.epub")
+            val entry = DownloadFolderEntry(
+                name = source.name,
+                path = source.absolutePath,
+                sizeBytes = 10L,
+                modifiedAt = 1_600_000_000_000L,
+            )
+            // SAF 导入/重指后书架条目指向 _pb_files 副本，与下载目录源文件路径不同。
+            val copied = book(
+                7L,
+                File(dir, "_pb_files/book.epub").absolutePath,
+                tags = listOf("zlib-download", "zlib:42"),
+            )
+            val hints = DownloadLocation.downloadFolderHistoryHints(
+                listOf(DownloadLocation.DownloadFolderBookHint(source.absolutePath, "42")),
+            )
+            assertEquals(
+                copied,
+                DownloadLocation.findBookForFolderEntry(entry, listOf(copied), hints),
+            )
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun doesNotMatchDifferentPathOrFilenameOnly() {
+        val dir = newTempDir()
+        try {
+            val entry = DownloadFolderEntry(
+                name = "book.epub",
+                path = File(dir, "book.epub").absolutePath,
+                sizeBytes = 10L,
+                modifiedAt = 1_600_000_000_000L,
+            )
+            val other = book(7L, File(dir, "other.epub").absolutePath, tags = listOf("zlib:42"))
+            val hints = DownloadLocation.downloadFolderHistoryHints(
+                listOf(DownloadLocation.DownloadFolderBookHint(File(dir, "other.epub").absolutePath, "42")),
+            )
+            assertEquals(
+                null,
+                DownloadLocation.findBookForFolderEntry(entry, listOf(other), hints),
+            )
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun historyHintsIgnoreBlankAndDedupe() {
+        val hints = DownloadLocation.downloadFolderHistoryHints(
+            listOf(
+                DownloadLocation.DownloadFolderBookHint("/downloads/book.epub", "42"),
+                DownloadLocation.DownloadFolderBookHint("/downloads/book.epub", "42"),
+                DownloadLocation.DownloadFolderBookHint("", "43"),
+                DownloadLocation.DownloadFolderBookHint("/downloads/book.epub", ""),
+            ),
+        )
+        assertEquals(setOf("42"), hints[pathKeyForTest("/downloads/book.epub")])
+    }
+
+    @Test
+    fun downloadFolderScreenRefreshesAndGuardsLibraryLoading() {
+        val source = sourceFile(
+            "src/main/java/app/particlebook/android/ui/ZlibDownloadFolderScreen.kt",
+        )
+        assertTrue("路径匹配必须走 pathKey+历史 tag 兜底", source.contains("findBookForFolderEntry"))
+        assertTrue("下载历史 destPath 参与匹配", source.contains("downloadFolderHistoryHints"))
+        assertTrue("列表必须有刷新 key", source.contains("refreshTick") && source.contains("ON_RESUME"))
+        assertTrue("书架加载中不能全显示未导入", source.contains("libraryLoading"))
+        assertTrue("未导入提示要能去下载记录", source.contains("去下载记录"))
+        assertTrue("Snackbar action 要处理点击", source.contains("SnackbarResult.ActionPerformed"))
+    }
+
+    private fun pathKeyForTest(path: String): String = try {
+        File(path).absolutePath
+    } catch (_: Throwable) {
+        path
+    }
+
+    private fun book(id: Long, filePath: String, tags: List<String>): Book =
+        Book(
+            id = id,
+            title = "Book " + id,
+            author = null,
+            format = BookFormat.Epub,
+            filePath = filePath,
+            fileSize = 10L,
+            addedAt = null,
+            tags = tags,
+        )
 
     private fun fileWithTime(dir: File, name: String, modifiedAt: Long): File {
         val file = File(dir, name)
