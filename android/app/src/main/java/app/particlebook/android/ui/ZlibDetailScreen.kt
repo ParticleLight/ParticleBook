@@ -38,6 +38,10 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -65,12 +69,40 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.particlebook.android.ui.data.Book
+import app.particlebook.android.ui.data.DownloadLocation
 import app.particlebook.android.ui.data.LibraryStore
 import app.particlebook.android.zlib.ZBookDetail
 import app.particlebook.android.zlib.ZRecommendation
 import app.particlebook.android.zlib.ZlibClient
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+
+/** task-55：详情页「已完成记录」在三种书架/文件状态下的动作。 */
+internal enum class ZlibDetailCompletedAction {
+    /** 书架里有对应条目 → 已下载 · 打开。 */
+    OPEN,
+
+    /** 记录是 COMPLETED 但书架里没有条目，目标文件还在 → 重新导入（不重下）。 */
+    REIMPORT,
+
+    /** 记录是 COMPLETED、书架没有、目标文件也不在 → 只能重新下载。 */
+    REDOWNLOAD,
+}
+
+/**
+ * task-55：completedBook 为 null 时不能继续显示不可点的「已下载」。
+ * 文件仍在走 reimportTask/adopt；文件已丢则回到重新下载，避免用户卡死在假完成态。
+ */
+internal fun zlibDetailCompletedAction(
+    completedBook: Book?,
+    targetExists: Boolean,
+): ZlibDetailCompletedAction = when {
+    completedBook != null -> ZlibDetailCompletedAction.OPEN
+    targetExists -> ZlibDetailCompletedAction.REIMPORT
+    else -> ZlibDetailCompletedAction.REDOWNLOAD
+}
 
 /**
  * Z-Library 书籍详情页（P1b §4.3，全屏 route zlib/detail）。
@@ -92,11 +124,14 @@ fun ZlibDetailScreen(
 ) {
     val state = viewModel.state
     LaunchedEffect(hash, slug) { viewModel.load(hash, slug) }
+    // task-55：Manager 发现书架已有同一本时给一次「已在书架」提示，动作直接打开书。
+    val snackbarHostState = remember { SnackbarHostState() }
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
         containerColor = MaterialTheme.colorScheme.surface,
         contentWindowInsets = androidx.compose.foundation.layout.WindowInsets(0, 0, 0, 0),
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = {
@@ -146,6 +181,7 @@ fun ZlibDetailScreen(
                     onRequireLogin = onRequireLogin,
                     onOpenDetail = onOpenDetail,
                     layerVisible = layerVisible,
+                    snackbarHostState = snackbarHostState,
                     modifier = Modifier.fillMaxSize(),
                 )
             }
@@ -222,9 +258,11 @@ private fun DetailContent(
     onRequireLogin: () -> Unit,
     onOpenDetail: (String, String?) -> Unit,
     layerVisible: Boolean,
+    snackbarHostState: SnackbarHostState,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val density = androidx.compose.ui.platform.LocalDensity.current
     val loggedIn = ZlibClient.get(context).isLoggedIn(context)
     val coverWidthPx = with(density) { 112.dp.roundToPx() }
@@ -252,6 +290,29 @@ private fun DetailContent(
         // P1c：SAF 下载会复制成本地文件再入书架，filePath 对不上记录，用下载标记兜底。
         store.books.firstOrNull {
             it.filePath == task.destPath || it.tags.contains("zlib:" + task.bookId)
+        }
+    }
+    // task-55：完成记录还在但书架里没有条目时，先看目标文件是否仍在（SAF 查询要挪到 IO）。
+    val completedTargetExists by produceState(
+        initialValue = false,
+        completedTask?.id,
+        completedTask?.destPath,
+    ) {
+        val record = completedTask
+        value = record != null && withContext(Dispatchers.IO) {
+            DownloadLocation.exists(context, record.destPath)
+        }
+    }
+    val completedAction = zlibDetailCompletedAction(completedBook, completedTargetExists)
+    // task-55：Manager 的 onAlreadyInLibrary 回调 —— 提示「已在书架」并可直接打开。
+    val onAlreadyInLibrary: (Book) -> Unit = { book ->
+        scope.launch {
+            val result = snackbarHostState.showSnackbar(
+                message = "已在书架",
+                actionLabel = "打开",
+                duration = SnackbarDuration.Long,
+            )
+            if (result == SnackbarResult.ActionPerformed) onOpenBook(book)
         }
     }
 
@@ -340,10 +401,12 @@ private fun DetailContent(
                 failedTask = failedTask,
                 completedTask = completedTask,
                 completedBook = completedBook,
+                completedAction = completedAction,
                 // U9：未登录时「重试」必然再次 LOGIN_REQUIRED，按钮直接改成「去登录」。
                 loggedIn = loggedIn,
                 onOpenBook = onOpenBook,
                 onRequireLogin = onRequireLogin,
+                onAlreadyInLibrary = onAlreadyInLibrary,
             )
             Spacer(Modifier.height(Spacing.sm))
             // A13 转向：reader.z-lib.by 内容接口对当前账号全部不可读，不做内嵌 WebView，
@@ -508,9 +571,11 @@ private fun DownloadAction(
     failedTask: ZlibDownloadTask?,
     completedTask: ZlibDownloadTask?,
     completedBook: Book?,
+    completedAction: ZlibDetailCompletedAction,
     loggedIn: Boolean,
     onOpenBook: (Book) -> Unit,
     onRequireLogin: () -> Unit,
+    onAlreadyInLibrary: (Book) -> Unit,
 ) {
     when {
         activeTask != null -> {
@@ -630,7 +695,7 @@ private fun DownloadAction(
                                 ) {
                                     ZlibDownloadManager.reimport(failedTask.id, store)
                                 } else {
-                                    ZlibDownloadManager.start(detail, store)
+                                    ZlibDownloadManager.start(detail, store, onAlreadyInLibrary)
                                 }
                             },
                             shape = RoundedCornerShape(Radius.cover),
@@ -650,7 +715,7 @@ private fun DownloadAction(
                         else -> Button(
                             onClick = {
                                 // start() 会重置失败任务（含重启后从历史里恢复的失败记录）。
-                                ZlibDownloadManager.start(detail, store)
+                                ZlibDownloadManager.start(detail, store, onAlreadyInLibrary)
                             },
                             shape = RoundedCornerShape(Radius.cover),
                             modifier = Modifier.heightIn(min = 48.dp),
@@ -663,26 +728,60 @@ private fun DownloadAction(
         }
 
         completedTask != null -> {
+            // task-55：记录 COMPLETED ≠ 书架里一定有书。书架有条目才给「打开」；没有但文件还在
+            // 给「重新导入」；文件也没了才允许重新下载，避免停在不可点的假完成态。
             val book = completedBook
-            Button(
-                onClick = { book?.let(onOpenBook) },
-                enabled = book != null,
-                shape = RoundedCornerShape(Radius.cover),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = 56.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                ),
-            ) {
-                Text(if (book != null) "已下载 · 打开" else "已下载", fontWeight = FontWeight.Medium)
+            Column(modifier = Modifier.fillMaxWidth()) {
+                if (book != null) {
+                    Button(
+                        onClick = { onOpenBook(book) },
+                        shape = RoundedCornerShape(Radius.cover),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 56.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                        ),
+                    ) {
+                        Text("已下载 · 打开", fontWeight = FontWeight.Medium)
+                    }
+                } else {
+                    Text(
+                        text = if (completedAction == ZlibDetailCompletedAction.REIMPORT) {
+                            "下载记录还在，但书架里没有这本书"
+                        } else {
+                            "下载记录还在，但下载文件已不存在"
+                        },
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.height(Spacing.xs))
+                    Button(
+                        onClick = {
+                            // 文件仍在时 start() 会走 reimportTask，不重新下载；文件不在则重新下载。
+                            ZlibDownloadManager.start(detail, store, onAlreadyInLibrary)
+                        },
+                        shape = RoundedCornerShape(Radius.cover),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 48.dp),
+                    ) {
+                        Text(
+                            if (completedAction == ZlibDetailCompletedAction.REIMPORT) {
+                                "重新导入"
+                            } else {
+                                "重新下载"
+                            },
+                        )
+                    }
+                }
             }
         }
 
         else -> {
             Button(
-                onClick = { ZlibDownloadManager.start(detail, store) },
+                onClick = { ZlibDownloadManager.start(detail, store, onAlreadyInLibrary) },
                 shape = RoundedCornerShape(Radius.cover),
                 modifier = Modifier
                     .fillMaxWidth()

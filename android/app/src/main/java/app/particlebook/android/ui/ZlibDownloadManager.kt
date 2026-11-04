@@ -836,7 +836,23 @@ object ZlibDownloadManager {
                     )
                 val fileExists = done != null && needsFileCheck &&
                     withContext(Dispatchers.IO) { DownloadLocation.exists(context, done.destPath) }
-                if (done != null && done.status == ZlibDownloadStatus.COMPLETED && fileExists) return@launch
+                // P2-5/task-55：历史是 COMPLETED、目标文件也还在，但书架里没有对应条目
+                // （用户删过书或旧版本没打 zlib 标签）→ 重新导入，不能直接当成「已下载」什么都不做。
+                if (done != null && done.status == ZlibDownloadStatus.COMPLETED && fileExists) {
+                    Log.i(
+                        TAG,
+                        "zlib_download_completed_book_missing book=" + detail.bookId +
+                            " target=" + if (saf) "saf" else "file",
+                    )
+                    reimportTask(
+                        done.copy(
+                            title = detail.title.ifBlank { done.title },
+                            author = done.author ?: detail.authors.firstOrNull(),
+                        ),
+                        store,
+                    )
+                    return@launch
+                }
                 // U4：上次下载完成但导入失败 → 文件还在，只需重新导入（不再消耗下载额度）。
                 if (done != null && done.status == ZlibDownloadStatus.FAILED &&
                     done.errorKind == ZLIB_IMPORT_FAILED_KIND && fileExists
