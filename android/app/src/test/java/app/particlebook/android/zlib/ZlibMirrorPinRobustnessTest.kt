@@ -149,6 +149,48 @@ class ZlibMirrorPinRobustnessTest {
         }
     }
 
+    /** task-33 现场形态：任意深链 301 到站点首页（path 被丢弃）的网关。 */
+    private class HomeRedirectGateway(private val homeUrl: String) : Closeable {
+        private val server = ServerSocket(0)
+        val baseUrl: String = "http://127.0.0.1:" + server.localPort
+        private val thread = Thread {
+            try {
+                server.soTimeout = 5_000
+                while (!server.isClosed) {
+                    val socket = try {
+                        server.accept()
+                    } catch (t: Throwable) {
+                        break
+                    }
+                    socket.use {
+                        val reader = it.getInputStream().bufferedReader(Charsets.UTF_8)
+                        while (true) {
+                            val line = reader.readLine() ?: break
+                            if (line.isEmpty()) break
+                        }
+                        val head = "HTTP/1.1 301 Moved Permanently\r\n" +
+                            "Location: " + homeUrl + "\r\n" +
+                            "Content-Length: 0\r\n" +
+                            "Connection: close\r\n\r\n"
+                        it.getOutputStream().write(head.toByteArray(Charsets.UTF_8))
+                        it.getOutputStream().flush()
+                    }
+                }
+            } catch (_: Throwable) {
+                // close() 中断 accept：正常收尾。
+            }
+        }
+
+        init {
+            thread.isDaemon = true
+            thread.start()
+        }
+
+        override fun close() {
+            runCatching { server.close() }
+        }
+    }
+
     private fun freshRegistry(official: List<String>, fallback: List<String> = emptyList()) {
         ZlibMirrorRegistry.resetForTest(official, fallback)
         ZlibMirrorRegistry.ensureLoaded(null, now)
@@ -327,6 +369,56 @@ class ZlibMirrorPinRobustnessTest {
                 assertTrue(
                     "应因 epoch 变化丢弃旧搜索结果: " + logs,
                     logs.any { it.startsWith("mirror_epoch_drop") && it.contains("stage=search") },
+                )
+            }
+        }
+    }
+
+    /** 408 超时 / 429 限流是瞬时状态：只记失败次数，不得清 pin。 */
+    @Test
+    fun timeoutAndRateLimitKeepPin() {
+        for (code in listOf(408, 429)) {
+            StubHttpServer("transient", code).use { server ->
+                freshRegistry(listOf(server.baseUrl))
+                val store = MemoryPinStore(stored = server.baseUrl)
+                val client = newClient(store)
+
+                try {
+                    client.probeMirrors()
+                    throw AssertionError("HTTP " + code + " 线路必须抛 NO_MIRROR")
+                } catch (e: ZlibException) {
+                    assertEquals(ZlibException.Kind.NO_MIRROR, e.kind)
+                }
+
+                assertEquals("HTTP " + code + " 是瞬时状态，不得清 pin", server.baseUrl, store.stored)
+                assertTrue(
+                    "应记录保留 pin: " + logs,
+                    logs.any { it.startsWith("mirror_pin_keep") && it.contains("reason=transient") },
+                )
+            }
+        }
+    }
+
+    /** 首页网关是确定性非正式站：清 pin，避免每轮 preferred 阶段白耗 4s 预算。 */
+    @Test
+    fun gatewayPinClearedToAvoidBudgetWaste() {
+        StubHttpServer(appBody).use { home ->
+            HomeRedirectGateway(home.baseUrl + "/").use { gateway ->
+                freshRegistry(listOf(gateway.baseUrl))
+                val store = MemoryPinStore(stored = gateway.baseUrl)
+                val client = newClient(store)
+
+                try {
+                    client.probeMirrors()
+                    throw AssertionError("首页网关必须抛 NO_MIRROR")
+                } catch (e: ZlibException) {
+                    assertEquals(ZlibException.Kind.NO_MIRROR, e.kind)
+                }
+
+                assertNull("网关 pin 应清掉，不再每轮白探", store.stored)
+                assertTrue(
+                    "应记录 probe_gateway 清 pin: " + logs,
+                    logs.any { it.startsWith("mirror_unpin") && it.contains("reason=probe_gateway") },
                 )
             }
         }

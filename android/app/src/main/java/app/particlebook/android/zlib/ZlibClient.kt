@@ -297,10 +297,12 @@ class ZlibClient(
         val picked: String? = null,
         val soft: SoftPick? = null,
         /**
-         * P2-6：是否拿到「明确非正式站」证据（200 但 rank=PAGE/OTHER，或 HTTP 4xx）。
-         * 网络失败/超时/5xx/挑战/首页网关都不算——瞬时故障不能作为清用户 pin 的依据。
+         * P2-6/P3：明确非正式站证据的清 pin 原因（日志用）；null = 证据不足，pin 保留。
+         * 200 但 rank=PAGE/OTHER、HTTP 4xx（408/429 瞬时状态除外）、首页网关 redirect_home 才算；
+         * 网络失败/超时/5xx/挑战都不算——瞬时故障不能作为清用户 pin 的依据。
+         * 网关也清 pin 是为了不让一条死线路在每轮 preferred 阶段白耗预算。
          */
-        val nonAppEvidence: Boolean = false,
+        val evidenceReason: String? = null,
     )
 
     // ---------------------------------------------------------------- public API
@@ -406,7 +408,9 @@ class ZlibClient(
                         " tried=${tried.size}/$budget demote_until=${entry?.demoteUntil ?: 0L}",
                 )
                 releaseFailedMirror(
-                    base, failedRank, keepPin = e.kind == ZlibException.Kind.PARSE,
+                    base, failedRank,
+                    keepPin = e.kind == ZlibException.Kind.PARSE ||
+                        (e.kind == ZlibException.Kind.HTTP && isTransientHttpStatus(e.httpCode)),
                     epoch = currentMirrorEpoch(),
                 )
                 if (remainingMs(deadlineNanos) < MIN_REQUEST_MS) {
@@ -498,6 +502,12 @@ class ZlibClient(
         rank == ZlibMirrorRegistry.Rank.PAGE ||
             rank == ZlibMirrorRegistry.Rank.OTHER ||
             rank == ZlibMirrorRegistry.Rank.FAIL
+
+    /**
+     * P3：408 请求超时 / 429 限流是瞬时状态（服务端忙/慢），不当作「线路明确非正式站」证据。
+     * 这类失败只记失败次数与时间，pin 保留等下次重探；其余 4xx（如 404/403/410）仍按确定性拒绝清 pin。
+     */
+    private fun isTransientHttpStatus(code: Int?): Boolean = code == 408 || code == 429
 
     /**
      * 下一条候选：按注册表排序，优先未降权项；全降权时退回全量（最后一搏）。
@@ -624,8 +634,10 @@ class ZlibClient(
             // P2-6：只有明确非正式站证据才清 pin；网络失败/超时/5xx 只是本次不可达，
             // 失败次数/时间已由 probeCandidate 写入注册表，pin 保留等下次重探。
             if (normalizeMirror(pinned()) == normalizeMirror(preferredUrl)) {
-                if (outcome.nonAppEvidence) {
-                    clearPinIfMatches(preferredUrl, "probe_non_app")
+                val evidence = outcome.evidenceReason
+                if (evidence != null) {
+                    // 4xx/软页/网关：明确非正式站，清 pin 并记下具体原因（probe_non_app / probe_gateway）。
+                    clearPinIfMatches(preferredUrl, evidence)
                 } else {
                     debugLog("mirror_pin_keep reason=transient host=" + hostOf(preferredUrl))
                 }
@@ -758,7 +770,8 @@ class ZlibClient(
                             "mirror_demote host=" + host + " tier=" + tierLabel + " reason=redirect_home until=" +
                                 (entry?.demoteUntil ?: 0L) + " fail_count=" + (entry?.failCount ?: 1),
                         )
-                        return ProbeOutcome()
+                        // P3：首页网关是确定性非正式站；清 pin 免得每轮 preferred 阶段白耗预算。
+                        return ProbeOutcome(evidenceReason = "probe_gateway")
                     }
                     val kind = if (res.challenged) "pow" else "http"
                     val rank = probeRankOf(res)
@@ -774,7 +787,7 @@ class ZlibClient(
                         return ProbeOutcome(
                             soft = SoftPick(candidate.trimEnd('/'), tierLabel, source, rank, elapsed),
                             // 200 但结构明确不是正式站：与 PARSE 同级的证据，可作为清 pin 依据（P2-6）。
-                            nonAppEvidence = true,
+                            evidenceReason = "probe_non_app",
                         )
                     }
                     ZlibMirrorRegistry.recordSuccess(candidate, finalRoot, elapsed, now, rank)
@@ -803,8 +816,15 @@ class ZlibClient(
                     "mirror_demote host=" + host + " tier=" + tierLabel + " reason=" + reason +
                         " until=" + (entry?.demoteUntil ?: 0L) + " fail_count=" + (entry?.failCount ?: 1),
                 )
-                // P2-6：4xx 是线路对这本书/站点的确定性拒绝（清 pin）；5xx 可能只是服务端抖动（保留 pin）。
-                return ProbeOutcome(nonAppEvidence = res.status in 400..499)
+                // P2-6/P3：4xx 是线路对这本书/站点的确定性拒绝（清 pin）；5xx 可能只是服务端抖动（保留 pin）；
+                // 408 超时 / 429 限流是瞬时状态，只记失败次数，不当成「明确非正式站」证据。
+                return ProbeOutcome(
+                    evidenceReason = if (res.status in 400..499 && !isTransientHttpStatus(res.status)) {
+                        "probe_non_app"
+                    } else {
+                        null
+                    },
+                )
             } catch (e: Exception) {
                 lastThrown = e
                 val root = rootCauseOf(e)
@@ -1685,16 +1705,26 @@ class ZlibClient(
      *
      * debug 下换 mock 服务 / 换镜像后必须调用，否则上一次的地址会「粘」在缓存里，
      * 后续真实流程仍然打到 mock 或已失效的镜像。不动 cookie / 代理 / 动态名单缓存。
+     * P3：与用户 pin 解耦——清缓存不等于取消用户选择，pin 保留；要清 pin 用 [clearPinnedMirror]。
      */
     fun clearCachedMirror() {
         // P2-6：清缓存同样推进纪元，进行中的探测/搜索不得把旧线路写回来。
         synchronized(mirrorLock) {
             mirrorEpoch.incrementAndGet()
             mirror = null
-            setPinnedMirror(null)
             prefs?.edit()?.remove(KEY_MIRROR)?.apply()
         }
-        debugLog("clear_mirror prefs=removed memory=null pin=null")
+        debugLog("clear_mirror prefs=removed memory=null pin=kept")
+    }
+
+    /**
+     * 显式取消用户 pin（P3：与清缓存拆开）。只清 pin，不动当前缓存线路与 cookie/代理状态。
+     * 不推进纪元：在途探测/搜索仍可把可用线路写进缓存，但不会再产生 pin。
+     */
+    fun clearPinnedMirror() {
+        // 用户主动操作同样同步落盘（与 switchMirror 的 commit 一致）：清完立刻杀进程也不复活 pin。
+        setPinnedMirror(null, commit = true)
+        debugLog("clear_pin done")
     }
 
     // ---------------------------------------------------------------- P1c: 动态镜像名单

@@ -103,8 +103,9 @@ class ZlibMirrorPinPersistenceTest {
         assertEquals("https://b.page", info.mirrors[info.index - 1])
     }
 
+    /** P3：清缓存线路与取消用户 pin 解耦——清缓存不得丢用户选择。 */
     @Test
-    fun clearCachedMirrorClearsPersistedPin() {
+    fun clearCachedMirrorKeepsUserPin() {
         freshRegistry(0L, listOf("https://a.page", "https://b.page"))
         val store = MemoryPinStore()
         val first = newClient(store)
@@ -113,7 +114,29 @@ class ZlibMirrorPinPersistenceTest {
 
         first.clearCachedMirror()
 
-        assertNull("清缓存线路必须同时清磁盘 pin", store.stored)
+        assertEquals("清缓存不得取消用户 pin", "https://b.page", store.stored)
+        assertNull("缓存线路应已清空", first.mirror)
+        val restarted = newClient(store)
+        assertTrue(
+            "重启后 pin 仍在",
+            restarted.mirrorItems().any { it.url == "https://b.page" && it.pinned },
+        )
+        assertEquals("https://b.page", store.stored)
+    }
+
+    /** P3：显式取消 pin 只动 pin，不清当前缓存线路。 */
+    @Test
+    fun clearPinnedMirrorRemovesPersistedPinOnly() {
+        freshRegistry(0L, listOf("https://a.page", "https://b.page"))
+        val store = MemoryPinStore()
+        val first = newClient(store)
+        assertTrue(first.switchMirror("https://b.page"))
+        assertEquals("https://b.page", first.mirror)
+
+        first.clearPinnedMirror()
+
+        assertNull("显式清 pin 必须清磁盘", store.stored)
+        assertEquals("清 pin 不应清缓存线路", "https://b.page", first.mirror)
         val restarted = newClient(store)
         assertFalse("重启后不应再有 pin", restarted.mirrorItems().any { it.pinned })
         assertNull(restarted.mirror)
