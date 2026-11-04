@@ -51,6 +51,38 @@ class ZlibReaderResolverTest {
         assertEquals(ZlibReaderLaunchState.Error(ZLIB_READER_MISSING_LINK_MESSAGE), state)
     }
 
+    // task-58：cookie 失效时 fetchDetail 成功、抓 HTML 却 200 落登录页；不能误报「未提供入口」。
+
+    @Test
+    fun loginPageHtmlBecomesSessionExpiredError() = runBlocking {
+        val resolver = resolverWith(
+            detailPath = "/book/hash/x.html",
+            loadPage = { fixture("login-error.html") },
+        )
+
+        val state = resolver.resolve("hash", null)
+
+        assertEquals(ZlibReaderLaunchState.Error(ZLIB_READER_SESSION_EXPIRED_MESSAGE), state)
+        val message = (state as ZlibReaderLaunchState.Error).message
+        assertTrue(message, message.contains("登录可能已失效"))
+        assertTrue(message, message.contains(ZLIB_READER_LIMITED_MESSAGE))
+    }
+
+    @Test
+    fun challengePageHtmlBecomesVerificationError() = runBlocking {
+        val resolver = resolverWith(
+            detailPath = "/book/hash/x.html",
+            loadPage = { fixture("challenge.html") },
+        )
+
+        val state = resolver.resolve("hash", null)
+
+        assertEquals(ZlibReaderLaunchState.Error(ZLIB_READER_CHALLENGE_PAGE_MESSAGE), state)
+        val message = (state as ZlibReaderLaunchState.Error).message
+        assertTrue(message, message.contains("人机验证"))
+        assertTrue(message, message.contains(ZLIB_READER_LIMITED_MESSAGE))
+    }
+
     @Test
     fun invalidReaderLinkIsRejectedBeforeBrowserOpen() = runBlocking {
         val html = "<a class=\"reader-link\" href=\"http://reader.z-lib.by/read/a/b/c.html?file_access_token=t\">x</a>"

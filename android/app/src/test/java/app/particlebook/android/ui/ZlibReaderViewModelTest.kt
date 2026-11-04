@@ -88,7 +88,7 @@ class ZlibReaderViewModelTest {
     }
 
     @Test
-    fun readyBookIsNotReloadedButRetryBypassesCache() = runBlocking {
+    fun readyBookIsNotReloadedWhileReady() = runBlocking {
         var calls = 0
         val scope = CoroutineScope(Dispatchers.Unconfined)
         val vm = ZlibReaderViewModel(scope) { _, _ ->
@@ -98,10 +98,9 @@ class ZlibReaderViewModelTest {
 
         vm.load("hash-a", null)
         vm.load("hash-a", null)
-        assertEquals(1, calls)
 
-        vm.retry("hash-a", null)
-        assertEquals(2, calls)
+        assertEquals(1, calls)
+        assertTrue(vm.state is ZlibReaderLaunchState.Ready)
     }
 
     // task-43 P2-1：点击路径在调用方协程里直接拿 URL（不再靠 LaunchedEffect 自动打开）。

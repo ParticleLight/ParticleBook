@@ -3,6 +3,7 @@ package app.particlebook.android.ui
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -100,6 +101,21 @@ class ZlibReaderActionTest {
                 state = ZlibReaderLaunchState.Error("x"),
             ),
         )
+    }
+
+    // task-58 P2-1：打开失败（无浏览器/系统拒绝）也必须消费 Ready，下次点击重新解析；
+    // 否则旧 URL 会一直留在 state 里被重复复用，而它可能属于已失效的登录会话。
+    @Test
+    fun openAttemptAlwaysConsumesReadyEvenWhenBrowserMissing() {
+        val success = zlibReaderOpenOutcome(browserLaunched = true)
+        assertTrue(success.opened)
+        assertNull(success.launchError)
+        assertTrue(success.consumeReady)
+
+        val failure = zlibReaderOpenOutcome(browserLaunched = false)
+        assertFalse(failure.opened)
+        assertEquals(ZLIB_READER_NO_BROWSER_MESSAGE, failure.launchError)
+        assertTrue(failure.consumeReady)
     }
 
     @Test

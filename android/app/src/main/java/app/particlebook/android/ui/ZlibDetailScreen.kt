@@ -73,7 +73,6 @@ import app.particlebook.android.ui.data.DownloadLocation
 import app.particlebook.android.ui.data.LibraryStore
 import app.particlebook.android.zlib.ZBookDetail
 import app.particlebook.android.zlib.ZRecommendation
-import app.particlebook.android.zlib.ZlibClient
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
@@ -116,6 +115,10 @@ fun ZlibDetailScreen(
     store: LibraryStore,
     hash: String,
     slug: String?,
+    /** task-58：账号状态由 AppRoot 的账号 ViewModel（Observable）显式传入。 */
+    loggedIn: Boolean,
+    /** task-58：账号标识（邮箱/昵称）；换账号时连同 loggedIn 一起重建阅读入口状态。 */
+    accountKey: String?,
     onBack: () -> Unit,
     onOpenBook: (Book) -> Unit,
     onRequireLogin: () -> Unit,
@@ -180,6 +183,8 @@ fun ZlibDetailScreen(
                     onOpenBook = onOpenBook,
                     onRequireLogin = onRequireLogin,
                     onOpenDetail = onOpenDetail,
+                    loggedIn = loggedIn,
+                    accountKey = accountKey,
                     layerVisible = layerVisible,
                     snackbarHostState = snackbarHostState,
                     modifier = Modifier.fillMaxSize(),
@@ -257,6 +262,8 @@ private fun DetailContent(
     onOpenBook: (Book) -> Unit,
     onRequireLogin: () -> Unit,
     onOpenDetail: (String, String?) -> Unit,
+    loggedIn: Boolean,
+    accountKey: String?,
     layerVisible: Boolean,
     snackbarHostState: SnackbarHostState,
     modifier: Modifier = Modifier,
@@ -264,7 +271,6 @@ private fun DetailContent(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val density = androidx.compose.ui.platform.LocalDensity.current
-    val loggedIn = ZlibClient.get(context).isLoggedIn(context)
     val coverWidthPx = with(density) { 112.dp.roundToPx() }
     val coverBitmap by produceState<Bitmap?>(initialValue = null, detail.bookId, detail.coverUrl) {
         value = ZlibCoverCache.load(context, detail.bookId, detail.coverUrl, coverWidthPx)
@@ -414,6 +420,7 @@ private fun DetailContent(
             ReaderAction(
                 bookHash = detail.hash,
                 loggedIn = loggedIn,
+                accountKey = accountKey,
                 layerVisible = layerVisible,
             )
         }
@@ -814,26 +821,29 @@ private fun DownloadAction(
 private fun ReaderAction(
     bookHash: String,
     loggedIn: Boolean,
+    accountKey: String?,
     layerVisible: Boolean,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val viewModel = remember(bookHash) { ZlibReaderViewModel(scope = scope, context = context) }
+    // task-58 P2-1：登录态/账号变化时重建入口状态。否则退出或换账号后仍会复用旧会话解析出的
+    // reader URL（票据属于旧 cookie），点开只会得到浏览器的无权限页。
+    val viewModel = remember(bookHash, loggedIn, accountKey) {
+        ZlibReaderViewModel(scope = scope, context = context)
+    }
     val state = viewModel.state
-    var launchError by remember(bookHash) { mutableStateOf<String?>(null) }
-    var opened by remember(bookHash) { mutableStateOf(false) }
+    var launchError by remember(bookHash, loggedIn, accountKey) { mutableStateOf<String?>(null) }
+    var opened by remember(bookHash, loggedIn, accountKey) { mutableStateOf(false) }
     // 解析期间本层可能被上层压住；读最新可见性而不是点击那一刻的快照。
     val visibleNow by rememberUpdatedState(layerVisible)
 
     fun openFromClick(readerUrl: String) {
-        if (openZlibReaderInBrowser(context, readerUrl)) {
-            opened = true
-            launchError = null
-            viewModel.consumeReady()
-        } else {
-            opened = false
-            launchError = ZLIB_READER_NO_BROWSER_MESSAGE
-        }
+        // task-58 P2-1：成功和失败都消费 Ready —— 无浏览器时旧 URL 下次点击仍会失败，
+        // 且票据可能属于旧会话；下次点击重新解析，不再复用。
+        val outcome = zlibReaderOpenOutcome(openZlibReaderInBrowser(context, readerUrl))
+        opened = outcome.opened
+        launchError = outcome.launchError
+        if (outcome.consumeReady) viewModel.consumeReady()
     }
 
     val inlineMessage = zlibReaderActionHint(loggedIn, state, launchError, opened)

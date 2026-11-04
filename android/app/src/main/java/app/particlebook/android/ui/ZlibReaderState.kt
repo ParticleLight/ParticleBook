@@ -27,6 +27,20 @@ internal const val ZLIB_READER_LIMITED_MESSAGE =
 internal const val ZLIB_READER_MISSING_LINK_MESSAGE =
     "该书未提供在线阅读入口。$ZLIB_READER_LIMITED_MESSAGE"
 
+/**
+ * task-58：抓详情 HTML 时 cookie 已失效，站点 200 返回登录页（页面里没有 reader-link）。
+ * 不能落「未提供在线阅读入口」——要明确告诉用户会话可能过期、可重新登录。
+ */
+internal const val ZLIB_READER_SESSION_EXPIRED_MESSAGE =
+    "登录可能已失效，可重新登录后重试。$ZLIB_READER_LIMITED_MESSAGE"
+
+/**
+ * task-58：抓详情 HTML 时落到站点人机验证页（挑战未通过/被网关拦截）。
+ * 与登录失效区分：先建议稍后重试，仍失败再重新登录。
+ */
+internal const val ZLIB_READER_CHALLENGE_PAGE_MESSAGE =
+    "站点要求人机验证，请稍后重试；仍失败可重新登录。$ZLIB_READER_LIMITED_MESSAGE"
+
 /** 未登录时按钮禁用，并在按钮下方说明原因（不承诺登录后可读）。 */
 internal const val ZLIB_READER_LOGIN_REQUIRED_MESSAGE =
     "未登录：可先登录后重试，但在线阅读当前受限，建议下载到书架。"
@@ -90,6 +104,34 @@ internal fun zlibReaderShouldOpenBrowser(
     layerVisible: Boolean,
     state: ZlibReaderLaunchState,
 ): Boolean = layerVisible && state is ZlibReaderLaunchState.Ready
+
+/**
+ * task-58 P2-1：一次「交给系统浏览器」尝试后的归并结果。
+ *
+ * 成功与失败都必须消费 Ready：失败（无浏览器/系统拒绝）时旧 URL 不会变好，
+ * 且它可能属于已过期的登录会话；下次点击应重新解析，不能复用。
+ */
+internal data class ZlibReaderOpenOutcome(
+    val opened: Boolean,
+    val launchError: String?,
+    val consumeReady: Boolean,
+)
+
+/** 打开尝试无论成功失败都消费 Ready，只有副文案不同。 */
+internal fun zlibReaderOpenOutcome(browserLaunched: Boolean): ZlibReaderOpenOutcome =
+    if (browserLaunched) {
+        ZlibReaderOpenOutcome(
+            opened = true,
+            launchError = null,
+            consumeReady = true,
+        )
+    } else {
+        ZlibReaderOpenOutcome(
+            opened = false,
+            launchError = ZLIB_READER_NO_BROWSER_MESSAGE,
+            consumeReady = true,
+        )
+    }
 
 /** 按钮文案：加载中/失败重试/普通入口。 */
 internal fun zlibReaderActionLabel(state: ZlibReaderLaunchState): String = when (state) {

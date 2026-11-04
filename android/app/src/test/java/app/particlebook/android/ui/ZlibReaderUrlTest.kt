@@ -6,7 +6,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * A13：reader.z-lib.by 链接提取/校验/脱敏。
+ * A13：reader.z-lib.by 链接提取/校验；task-58 补 200 登录页/挑战页识别。
  *
  * 真实夹具 book-detail.html 的 reader-link href **没有引号**，且 query 里的 & 未转义；
  * 用带引号的正则会漏掉，这里用真实夹具锁住该形态。
@@ -137,18 +137,44 @@ class ZlibReaderUrlTest {
         )
     }
 
-    @Test
-    fun redactHidesTicketSignatureAndClientKey() {
-        val parsed = ZlibReaderUrl.extract(fixture("book-detail.html"))
-        assertTrue(parsed is ZlibReaderUrl.ParseResult.Ok)
-        val url = (parsed as ZlibReaderUrl.ParseResult.Ok).url
-        val redacted = ZlibReaderUrl.redact(url)
+    // task-58：200 中间页识别（cookie 失效会跟随重定向落登录页；挑战/网关拦截落验证页）。
 
-        assertTrue(redacted, redacted.contains("file_access_token=***"))
-        assertTrue(redacted, redacted.contains("signature=***"))
-        assertTrue(redacted, redacted.contains("client_key=***"))
-        assertFalse(redacted, redacted.contains("eyJ"))
-        assertFalse(redacted, redacted.contains("a2f182827f32c659fdc146e54f66af7a3bb9d6cd48fdc65d25096d6599b5cbc9"))
+    @Test
+    fun realLoginPageIsClassifiedAsLogin() {
+        assertEquals(
+            ZlibReaderUrl.InterstitialPage.LOGIN,
+            ZlibReaderUrl.classifyInterstitial(fixture("login-error.html")),
+        )
+    }
+
+    @Test
+    fun realChallengePagesAreClassifiedAsChallenge() {
+        assertEquals(
+            ZlibReaderUrl.InterstitialPage.CHALLENGE,
+            ZlibReaderUrl.classifyInterstitial(fixture("challenge.html")),
+        )
+        assertEquals(
+            ZlibReaderUrl.InterstitialPage.CHALLENGE,
+            ZlibReaderUrl.classifyInterstitial(fixture("challenge-rotated.html")),
+        )
+    }
+
+    @Test
+    fun realDetailAndNotFoundPagesAreNotInterstitials() {
+        // 详情页导航里也有「/login?redirectUrl=」，不能把它当登录页判据（否则正常详情必误判）。
+        assertEquals(
+            ZlibReaderUrl.InterstitialPage.NONE,
+            ZlibReaderUrl.classifyInterstitial(fixture("book-detail.html")),
+        )
+        assertEquals(
+            ZlibReaderUrl.InterstitialPage.NONE,
+            ZlibReaderUrl.classifyInterstitial(fixture("page-not-found.html")),
+        )
+        assertEquals(ZlibReaderUrl.InterstitialPage.NONE, ZlibReaderUrl.classifyInterstitial(""))
+        assertEquals(
+            ZlibReaderUrl.InterstitialPage.NONE,
+            ZlibReaderUrl.classifyInterstitial("<html><body>no reader link</body></html>"),
+        )
     }
 
     private fun failure(url: String): ZlibReaderUrl.Failure =

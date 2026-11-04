@@ -509,6 +509,12 @@ fun ParticleBookApp() {
                                 store = store,
                                 hash = entry.hash.orEmpty(),
                                 slug = entry.slug?.takeIf { it.isNotBlank() },
+                                // task-58：账号状态从 Observable 的账号 ViewModel 传入，
+                                // 登录/退出后详情层随重组立即刷新按钮，不再组合期同步读 prefs；
+                                // accountKey 让换账号时重建在线阅读入口状态，不复用旧会话票据。
+                                loggedIn = accountViewModel.account != null,
+                                accountKey = accountViewModel.account?.email
+                                    ?: accountViewModel.account?.name,
                                 onBack = { popRoute() },
                                 onOpenBook = { book -> openBookId = book.id },
                                 onRequireLogin = { openLogin() },

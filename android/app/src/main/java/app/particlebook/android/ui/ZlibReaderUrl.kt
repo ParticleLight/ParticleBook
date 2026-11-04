@@ -4,7 +4,8 @@ import java.net.URI
 import java.util.Locale
 
 /**
- * A13：在线阅读（reader.z-lib.by）链接的提取 / 校验 / 脱敏，纯 Kotlin，JVM 单测可直接覆盖。
+ * A13：在线阅读（reader.z-lib.by）链接的提取 / 校验，以及抓详情 HTML 时的中间页识别，
+ * 纯 Kotlin，JVM 单测可直接覆盖。
  *
  * 详情页主块里的入口是隐藏锚：
  * `<a class="btn btn-primary dlButton reader-link" href=https://reader.z-lib.by/read/...>`。
@@ -34,6 +35,17 @@ internal object ZlibReaderUrl {
         data class Failed(val reason: Failure) : ParseResult
     }
 
+    /**
+     * task-58：fetchBytes 抓详情 HTML 时可能拿到 200 的中间页。
+     * cookie 失效会跟随重定向落到登录页；挑战/网关拦截会落人机验证页。
+     * 这两种页面都没有 reader-link，若直接 extract 会误报「未提供入口」。
+     */
+    enum class InterstitialPage {
+        NONE,
+        LOGIN,
+        CHALLENGE,
+    }
+
     private val TEMPLATE_BLOCK = Regex("""<template[\s\S]*?</template>""", RegexOption.IGNORE_CASE)
     private val ANCHOR = Regex("""<a\b([^>]*)>""", RegexOption.IGNORE_CASE)
     private val ATTRIBUTE = Regex(
@@ -44,8 +56,41 @@ internal object ZlibReaderUrl {
         RegexOption.IGNORE_CASE,
     )
     private val ENTITY = Regex("""&(#x?[0-9A-Fa-f]+|[A-Za-z]+);""")
-    private val SECRET_QUERY_KEY = Regex("""token|signature|key""", RegexOption.IGNORE_CASE)
     private val TICKET_KEYS = setOf("file_access_token", "access_token")
+
+    /**
+     * 登录页判据：真实 /login 页面含密码输入框，下载墙页面用文案。
+     * 特意不用「/login?redirectUrl=」——匿名详情页导航里也带它，会把正常详情页误判成登录页。
+     */
+    private val LOGIN_PAGE_MARKERS = listOf(
+        "type=\"password\"",
+        "type='password'",
+        "name=\"password\"",
+        "name='password'",
+        "log in to access",
+        "sign in to download",
+        "please sign in",
+        "请先登录",
+    )
+
+    /** 站点挑战页判据（真实 fixture：challenge.html / challenge-rotated.html）。 */
+    private val CHALLENGE_PAGE_MARKERS = listOf(
+        "checking your browser",
+        "wait a moment",
+        "just a moment",
+        "cf-challenge",
+        "cf_chl_opt",
+        "challenge-platform",
+    )
+
+    /** 识别 200 中间页：先判挑战（挑战页文案也可能含登录字样），再判登录。 */
+    fun classifyInterstitial(html: String): InterstitialPage {
+        if (html.isEmpty()) return InterstitialPage.NONE
+        val lower = html.lowercase(Locale.US)
+        if (CHALLENGE_PAGE_MARKERS.any { lower.contains(it) }) return InterstitialPage.CHALLENGE
+        if (LOGIN_PAGE_MARKERS.any { lower.contains(it) }) return InterstitialPage.LOGIN
+        return InterstitialPage.NONE
+    }
 
     /** 从详情页 HTML 找 reader-link 锚的 href；找不到时兜底扫首个 reader 域 /read/ 链接。 */
     fun extract(html: String): ParseResult {
@@ -97,33 +142,6 @@ internal object ZlibReaderUrl {
         }
         if (!hasTicket(uri.rawQuery)) return ParseResult.Failed(Failure.MISSING_TICKET)
         return ParseResult.Ok(trimmed)
-    }
-
-    /** 日志/诊断用：把 query 里的 token / signature / client_key 等秘密值替换为 ***。 */
-    fun redact(url: String): String {
-        val uri = try {
-            URI(url.trim())
-        } catch (e: Exception) {
-            return "<invalid reader url>"
-        }
-        val query = uri.rawQuery.orEmpty()
-            .split('&')
-            .filter { it.isNotEmpty() }
-            .joinToString("&") { part ->
-                val index = part.indexOf('=')
-                if (index <= 0) {
-                    part
-                } else {
-                    val key = part.substring(0, index)
-                    if (SECRET_QUERY_KEY.containsMatchIn(key)) key + "=***" else part
-                }
-            }
-        return buildString {
-            append(uri.scheme).append("://").append(uri.host ?: "?")
-            val path = uri.rawPath.orEmpty()
-            if (path.isNotEmpty()) append(path)
-            if (query.isNotEmpty()) append('?').append(query)
-        }
     }
 
     private fun hasTicket(rawQuery: String?): Boolean {

@@ -18,7 +18,7 @@ import kotlinx.coroutines.withContext
  * A13 详情页「在线阅读」按钮的 ViewModel：解析详情页拿到带票据的 reader URL，再交给外部浏览器。
  *
  * 与详情页同款 U2 防护：连续点击/换书时旧请求可能乱序返回，故 requestSeq 请求令牌 + loadedKey
- * 双校验，只有当前书的响应能写 state；load 失败可 retry。
+ * 双校验，只有当前书的响应能写 state；失败后再次 [load] 即重新解析。
  *
  * task-43：详情页不再用 LaunchedEffect 自动打开浏览器，改为点击处协程调用 [loadNow] 拿到 URL
  * 直接打开（避免迟到的 Ready 把用户从当前页拉走）；URL 成功交给浏览器后调用 [consumeReady]
@@ -56,8 +56,6 @@ internal class ZlibReaderViewModel(
         if (loadedKey == key && state is ZlibReaderLaunchState.Ready) return
         loadInternal(bookHash, bookSlug)
     }
-
-    fun retry(bookHash: String, bookSlug: String?): Unit = loadInternal(bookHash, bookSlug)
 
     /**
      * 点击路径：在调用方协程里解析并返回结果（详情页拿到 Ready 后立即打开浏览器）。
@@ -136,6 +134,8 @@ internal class ZlibReaderViewModel(
  * 不修改 ZlibDetailParser / ZBookDetail（A13 作用域只新增 ZlibReader*.kt）：先 fetchDetail
  * 拿到 detailPath（顺带解掉站点挑战），再 fetchBytes 取原始详情 HTML 抽 reader-link。
  * 若取 HTML 时挑战恰好过期（HTTP 503），重取一次详情页解挑战后再试一次。
+ * task-58：若取回的 HTML 是登录页/人机验证页（cookie 失效或挑战拦截），映射为可操作的
+ * 「登录可能已失效」/「站点要求人机验证」文案，而不是误报「未提供入口」。
  */
 internal class ZlibReaderResolver(
     private val loadDetail: suspend (bookHash: String, bookSlug: String?) -> ZBookDetail,
@@ -145,6 +145,15 @@ internal class ZlibReaderResolver(
     suspend fun resolve(bookHash: String, bookSlug: String?): ZlibReaderLaunchState {
         val detail = loadDetail(bookHash, bookSlug)
         val html = loadPageWithChallengeRetry(bookHash, bookSlug, detail.detailPath)
+        // task-58：cookie 失效时 200 也可能是登录页/人机验证页，先判中间页再找 reader-link；
+        // 否则会落 NOT_FOUND 只显示「未提供入口」，用户不知道要重新登录或稍后再试。
+        when (ZlibReaderUrl.classifyInterstitial(html)) {
+            ZlibReaderUrl.InterstitialPage.LOGIN ->
+                return ZlibReaderLaunchState.Error(ZLIB_READER_SESSION_EXPIRED_MESSAGE)
+            ZlibReaderUrl.InterstitialPage.CHALLENGE ->
+                return ZlibReaderLaunchState.Error(ZLIB_READER_CHALLENGE_PAGE_MESSAGE)
+            ZlibReaderUrl.InterstitialPage.NONE -> Unit
+        }
         return when (val parsed = ZlibReaderUrl.extract(html)) {
             is ZlibReaderUrl.ParseResult.Ok ->
                 ZlibReaderLaunchState.Ready(readerUrl = parsed.url)
