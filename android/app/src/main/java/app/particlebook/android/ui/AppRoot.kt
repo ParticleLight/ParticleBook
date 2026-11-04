@@ -535,6 +535,20 @@ fun ParticleBookApp() {
                             store = store,
                             onBack = { popRoute() },
                             onOpenBook = { book -> openBookId = book.id },
+                            // D1 A-lite：默认下载目录无法被系统文件管理器直达，压入应用内文件列表页。
+                            onOpenDownloadFolder = { pushRoute("downloadFolder") },
+                        )
+
+                        // D1 A-lite：应用内下载文件夹浏览器（默认目录）。SAF 自定义目录不经过这里。
+                        "downloadFolder" -> ZlibDownloadFolderScreen(
+                            store = store,
+                            onBack = { popRoute() },
+                            onOpenBook = { book -> openBookId = book.id },
+                            // 下载目录切换仍在设置页：清空二级栈回到主 tab，避免设置页被压在下载页下面。
+                            onOpenSettings = {
+                                navStack = emptyList()
+                                tabIndex = 2
+                            },
                         )
 
                         // P1.5 发现面（书单 / 榜单 / 分类）：返回回父页，不跳级、不重建。

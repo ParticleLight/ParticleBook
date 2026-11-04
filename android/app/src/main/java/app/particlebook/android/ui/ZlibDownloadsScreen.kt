@@ -76,6 +76,7 @@ fun ZlibDownloadsScreen(
     store: LibraryStore,
     onBack: () -> Unit,
     onOpenBook: (Book) -> Unit,
+    onOpenDownloadFolder: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val records by ZlibDownloadManager.history.collectAsState()
@@ -97,6 +98,21 @@ fun ZlibDownloadsScreen(
     // 书架还在读盘时 books 为空，无法判断文件是否被引用——此时也只允许删记录，宁可少删不可删错。
     val libraryLoading = store.loading
     val deleteTargetRecordOnly = deleteTargetInLibrary || libraryLoading
+    // D1 A-lite：默认目录在 Android 11+ 无法用系统文件管理器直达，改开应用内文件列表；
+    // SAF 自定义目录仍由系统文件管理器打开（p15 t42 D1b 已验证可用）。
+    val openFolder: () -> Unit = {
+        if (DownloadLocation.isCustom(context)) {
+            if (!DownloadLocation.openFolder(context)) {
+                scope.launch {
+                    snackbarHostState.showSnackbar(
+                        DownloadLocation.openFolderFailureMessage(context),
+                    )
+                }
+            }
+        } else {
+            onOpenDownloadFolder()
+        }
+    }
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -124,15 +140,7 @@ fun ZlibDownloadsScreen(
                 },
                 actions = {
                     IconButton(
-                        onClick = {
-                            if (!DownloadLocation.openFolder(context)) {
-                                scope.launch {
-                                    snackbarHostState.showSnackbar(
-                                        DownloadLocation.openFolderFailureMessage(context),
-                                    )
-                                }
-                            }
-                        },
+                        onClick = openFolder,
                         modifier = Modifier.size(48.dp),
                     ) {
                         Icon(
@@ -201,15 +209,7 @@ fun ZlibDownloadsScreen(
                         onOpen = { imported?.let(onOpenBook) },
                         onMenuClick = { menuBookId = record.bookId },
                         onDismissMenu = { if (menuBookId == record.bookId) menuBookId = null },
-                        onOpenFolder = {
-                            if (!DownloadLocation.openFolder(context)) {
-                                scope.launch {
-                                    snackbarHostState.showSnackbar(
-                                        DownloadLocation.openFolderFailureMessage(context),
-                                    )
-                                }
-                            }
-                        },
+                        onOpenFolder = openFolder,
                         onDeleteClick = { deleteTarget = record },
                         // T23/D3：CANCELLED（续传）与 FAILED(INTERRUPTED)（重试）都从历史恢复下载；
                         // 半成品被系统清掉时如实提示从头下载。记录页暂无进行中区块（已知限制），

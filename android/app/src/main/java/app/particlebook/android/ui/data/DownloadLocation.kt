@@ -30,6 +30,9 @@ object DownloadLocation {
     private const val DEFAULT_DIR_NAME = "Z-Library"
     private const val EXTERNAL_STORAGE_AUTHORITY = "com.android.externalstorage.documents"
 
+    /** 下载半成品后缀：不能在下载文件夹列表里当成可打开的完整书展示。 */
+    private val PARTIAL_SUFFIXES = listOf(".part", ".part.meta", ".part.part", ".tmp")
+
     /** 默认下载目录（File 语义）。外部存储不可用时退 filesDir/downloads/Z-Library。 */
     fun defaultDir(context: Context): File {
         val base = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
@@ -39,6 +42,36 @@ object DownloadLocation {
         fallback.mkdirs()
         return fallback
     }
+
+    /**
+     * D1 A-lite：把目录列表整理成可展示条目：只保留普通文件，过滤隐藏文件与下载半成品，
+     * 按修改时间倒序（最新在前），同一时间按文件名升序，保证列表稳定。
+     *
+     * 纯 JVM 函数（只做 File 元数据读取），单测直接断言排序/过滤；不要在这里访问 Android API。
+     */
+    internal fun downloadFolderEntries(files: List<File>): List<DownloadFolderEntry> =
+        files.asSequence()
+            .filter { it.isFile }
+            .filterNot { it.name.startsWith(".") }
+            .filterNot { file -> PARTIAL_SUFFIXES.any { suffix -> file.name.endsWith(suffix) } }
+            .map { file ->
+                DownloadFolderEntry(
+                    name = file.name,
+                    path = file.absolutePath,
+                    sizeBytes = file.length().coerceAtLeast(0L),
+                    modifiedAt = file.lastModified(),
+                )
+            }
+            .sortedWith(
+                compareByDescending<DownloadFolderEntry> { it.modifiedAt }
+                    .thenBy { it.name },
+            )
+            .toList()
+
+    /** D1 A-lite：读取默认下载目录（调用方应在 Dispatchers.IO）。目录读不到时返回空列表。 */
+    internal fun listDefaultFolderEntries(context: Context): List<DownloadFolderEntry> =
+        runCatching { downloadFolderEntries(defaultDir(context).listFiles()?.toList().orEmpty()) }
+            .getOrDefault(emptyList())
 
     /** 已持久化且授权仍有效的 SAF 目录；未选择/授权失效时为 null（即使用默认目录）。 */
     fun treeUri(context: Context): Uri? {
@@ -338,6 +371,18 @@ object DownloadLocation {
     }.onFailure { Log.w(TAG, "open folder intent failed: " + intent.action) }
         .getOrDefault(false)
 }
+
+/**
+ * D1 A-lite：默认下载目录里的一个可展示文件（不含 .part / .part.meta / .tmp 等半成品）。
+ * 默认目录是应用专属目录（Android/data/...），系统文件管理器在 Android 11+ 无法直达，
+ * 因此由应用内列表展示；SAF 自定义目录仍走系统文件管理器。
+ */
+internal data class DownloadFolderEntry(
+    val name: String,
+    val path: String,
+    val sizeBytes: Long,
+    val modifiedAt: Long,
+)
 
 /** P2-2：只有持久写授权 + 目录可创建文件才允许保存并启用 SAF 下载目录（纯函数，单测用）。 */
 internal fun safTreeAcceptable(persisted: Boolean, writable: Boolean): Boolean = persisted && writable
