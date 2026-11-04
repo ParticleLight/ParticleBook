@@ -63,6 +63,8 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.Saver
+import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -157,6 +159,56 @@ private class AppPreferences(context: Context) {
 }
 
 /**
+ * task-21：二级页导航条目。
+ *
+ * 旧实现把 detail 的 (hash, slug) 放在 AppRoot 全局状态里，栈内所有 detail 层共读同一份，
+ * 于是「详情 A → 推荐 → 详情 B」后返回，底层 A 层也显示 B。现在 detail 条目自带参数，
+ * 每层只读自己这一份，返回自然回到上一本书。
+ *
+ * 其余路由暂不携带参数（书单 href / 分类 id 仍走 AppRoot 级状态，等 search-ux 接阅读器路由时
+ * 可按同一模式扩展）。
+ */
+internal data class NavEntry(
+    val route: String,
+    val hash: String? = null,
+    val slug: String? = null,
+)
+
+/** 压栈：空白的 hash/slug 归一为 null，避免 detail 层出现空串参数。 */
+internal fun List<NavEntry>.push(next: String, hash: String? = null, slug: String? = null): List<NavEntry> =
+    this + NavEntry(
+        route = next,
+        hash = hash?.trim()?.takeIf { it.isNotEmpty() },
+        slug = slug?.trim()?.takeIf { it.isNotEmpty() },
+    )
+
+/** 出栈；[expected] 非空时只在栈顶路由匹配时才执行（防迟到异步回调误弹），否则原样返回。 */
+internal fun List<NavEntry>.pop(expected: String? = null): List<NavEntry> {
+    if (isEmpty()) return this
+    if (expected != null && last().route != expected) return this
+    return dropLast(1)
+}
+
+/**
+ * task-21：进程重建（rememberSaveable）时保留每层参数。
+ * 扁平三元组 route/hash/slug 存字符串，不依赖 Bundle 之外的序列化；容量极小（栈深个位数）。
+ */
+internal val NavStackSaver: Saver<List<NavEntry>, Any> = listSaver(
+    save = { entries -> entries.flatMap { listOf(it.route, it.hash.orEmpty(), it.slug.orEmpty()) } },
+    restore = { saved ->
+        saved.chunked(3)
+            .filter { it.size == 3 }
+            .map { parts ->
+                NavEntry(
+                    route = parts[0],
+                    hash = parts[1].takeIf { value -> value.isNotEmpty() },
+                    slug = parts[2].takeIf { value -> value.isNotEmpty() },
+                )
+            }
+    },
+)
+
+/**
  * App 根：竖屏 = 悬浮胶囊导航（书架 / 设置 / 导入）；手机横屏 = 左侧 NavigationRail（A2 几何不变）。
  * 打开书籍时全屏进入阅读器（不带导航），返回时刷新 Hero 的「最近阅读」。
  */
@@ -187,17 +239,14 @@ fun ParticleBookApp() {
     val accountViewModel = remember(scope, appContext) {
         ZlibAccountViewModel(scope, appContext)
     }
-    val detailViewModel = remember(scope, appContext) {
-        ZlibDetailViewModel(scope, appContext)
-    }
     // P1.5 发现面：数据源由 discover 包提供（zlib 落地前是“接入中”占位，不造假数据）。
     val discoverRepository = remember(appContext) { DiscoverRepositoryProvider.create(appContext) }
     LaunchedEffect(appContext) { ZlibDownloadManager.init(appContext) }
     // P1.5 §11.7：二级页返回栈。空 = 主 tab 外壳；push/pop 只增删栈顶，
     // 栈内页面全部保持组合（见下方渲染），因此返回不重建父页、滚动位置/已加载页/展开态都不丢。
-    var navStack by rememberSaveable { mutableStateOf(ArrayList<String>()) }
-    var detailHash by rememberSaveable { mutableStateOf("") }
-    var detailSlug by rememberSaveable { mutableStateOf("") }
+    var navStack by rememberSaveable(stateSaver = NavStackSaver) {
+        mutableStateOf<List<NavEntry>>(emptyList())
+    }
     var booklistHref by rememberSaveable { mutableStateOf("") }
     var categoryId by rememberSaveable { mutableStateOf("") }
     var categorySlug by rememberSaveable { mutableStateOf("") }
@@ -209,8 +258,9 @@ fun ParticleBookApp() {
     var loginSession by rememberSaveable { mutableLongStateOf(0L) }
     var loginReturnTo by rememberSaveable { mutableStateOf("") }
 
-    fun pushRoute(next: String) {
-        navStack = ArrayList(navStack).apply { add(next) }
+    /** [hash]/[slug] 仅 detail 路由使用（task-21）：参数跟着栈条目走，不落全局状态。 */
+    fun pushRoute(next: String, hash: String? = null, slug: String? = null) {
+        navStack = navStack.push(next, hash, slug)
     }
 
     /**
@@ -222,17 +272,17 @@ fun ParticleBookApp() {
      */
     fun popRoute(expected: String? = null) {
         if (navStack.isEmpty()) return
-        if (expected != null && navStack.lastOrNull() != expected) return
+        if (expected != null && navStack.last().route != expected) return
         val removed = navStack.last()
-        navStack = ArrayList(navStack).apply { removeAt(lastIndex) }
+        navStack = navStack.pop(expected)
         // U5：登录页真正出栈（返回键/系统返回/成功回调）即作废返程快照。
-        if (removed == "login") loginReturnTo = ""
+        if (removed.route == "login") loginReturnTo = ""
     }
 
     /** 登录是模态任务页：压栈，成功后 pop 回来源页（详情/发现页/主 tab 都能原样恢复）。 */
     val openLogin: () -> Unit = {
         loginSession += 1L
-        loginReturnTo = navStack.lastOrNull().orEmpty()
+        loginReturnTo = navStack.lastOrNull()?.route.orEmpty()
         pushRoute("login")
     }
     val books: List<Book> = store.books
@@ -357,11 +407,7 @@ fun ParticleBookApp() {
                     onLoginClick = { openLogin() },
                     onLogout = { accountViewModel.logout() },
                     onDownloadsClick = { pushRoute("downloads") },
-                    onOpenDetail = { hash, slug ->
-                        detailHash = hash
-                        detailSlug = slug ?: ""
-                        pushRoute("detail")
-                    },
+                    onOpenDetail = { hash, slug -> pushRoute("detail", hash, slug) },
                     onBooklistsClick = { pushRoute("booklists") },
                     onPopularClick = { pushRoute("popular") },
                     onCategoriesClick = { pushRoute("categories") },
@@ -405,7 +451,8 @@ fun ParticleBookApp() {
         // P1.5 二级页：整条返回栈都保持组合（父页在栈里不会离开组合），最上层不透明背景截住输入。
         // 返回 = popRoute()，父页的 ViewModel / LazyListState / 展开态自然原样保留。
         for (index in navStack.indices) {
-            val stackRoute = navStack[index]
+            val entry = navStack[index]
+            val stackRoute = entry.route
             // P2（p15-code-audit §1）：只有栈顶是活跃层。非栈顶层仍然保持组合
             // （ViewModel / LazyListState / 已加载页原样保留），但被压成 0 约束：
             // 隐藏期间不做常规布局、不组合列表可见项，因此不会触发列表自动翻页、
@@ -433,7 +480,14 @@ fun ParticleBookApp() {
                                 viewModel = accountViewModel,
                                 onBack = { popRoute() },
                                 onLoginSuccess = {
-                                    if (canCompleteLoginReturn(openSession, loginSession, navStack, returnTo)) {
+                                    if (
+                                        canCompleteLoginReturn(
+                                            openSession,
+                                            loginSession,
+                                            navStack.map { it.route },
+                                            returnTo,
+                                        )
+                                    ) {
                                         popRoute(expected = "login")
                                     } else {
                                         // 用户已返回/已重新登录：只保留账号状态更新，不动导航。
@@ -443,21 +497,26 @@ fun ParticleBookApp() {
                             )
                         }
 
-                        "detail" -> ZlibDetailScreen(
-                            viewModel = detailViewModel,
-                            store = store,
-                            hash = detailHash,
-                            slug = detailSlug.ifBlank { null },
-                            onBack = { popRoute() },
-                            onOpenBook = { book -> openBookId = book.id },
-                            onRequireLogin = { openLogin() },
-                            // A12：推荐卡跳另一本书的详情 —— 复用 Discover 的同一套导航状态。
-                            onOpenDetail = { hash, slug ->
-                                detailHash = hash
-                                detailSlug = slug ?: ""
-                                pushRoute("detail")
-                            },
-                        )
+                        "detail" -> {
+                            // task-21：每层详情独立 ViewModel —— 共享 ViewModel 时，A 层隐藏期间
+                            // 会被 B 层的加载结果覆盖，返回 A 仍显示 B。参数也从本层条目取。
+                            val layerScope = rememberCoroutineScope()
+                            val layerViewModel = remember(layerScope) {
+                                ZlibDetailViewModel(layerScope, appContext)
+                            }
+                            ZlibDetailScreen(
+                                viewModel = layerViewModel,
+                                store = store,
+                                hash = entry.hash.orEmpty(),
+                                slug = entry.slug?.takeIf { it.isNotBlank() },
+                                onBack = { popRoute() },
+                                onOpenBook = { book -> openBookId = book.id },
+                                onRequireLogin = { openLogin() },
+                                // A12 + task-21：推荐卡压入新的 detail 条目（带新 hash/slug），
+                                // 返回时弹掉本层，自然回到上一本书。
+                                onOpenDetail = { hash, slug -> pushRoute("detail", hash, slug) },
+                            )
+                        }
 
                         "downloads" -> ZlibDownloadsScreen(
                             store = store,
@@ -479,21 +538,13 @@ fun ParticleBookApp() {
                             repository = discoverRepository,
                             href = booklistHref,
                             onBack = { popRoute() },
-                            onOpenBook = { hash, slug ->
-                                detailHash = hash
-                                detailSlug = slug.orEmpty()
-                                pushRoute("detail")
-                            },
+                            onOpenBook = { hash, slug -> pushRoute("detail", hash, slug) },
                         )
 
                         "popular" -> PopularScreen(
                             repository = discoverRepository,
                             onBack = { popRoute() },
-                            onOpenBook = { hash, slug ->
-                                detailHash = hash
-                                detailSlug = slug.orEmpty()
-                                pushRoute("detail")
-                            },
+                            onOpenBook = { hash, slug -> pushRoute("detail", hash, slug) },
                         )
 
                         "categories" -> CategoriesScreen(
@@ -513,11 +564,7 @@ fun ParticleBookApp() {
                             slug = categorySlug,
                             name = categoryName,
                             onBack = { popRoute() },
-                            onOpenBook = { hash, slug ->
-                                detailHash = hash
-                                detailSlug = slug.orEmpty()
-                                pushRoute("detail")
-                            },
+                            onOpenBook = { hash, slug -> pushRoute("detail", hash, slug) },
                         )
 
                         else -> Unit
