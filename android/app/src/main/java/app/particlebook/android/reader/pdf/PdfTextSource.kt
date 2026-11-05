@@ -171,6 +171,13 @@ class PdfTextSource private constructor(
         closeQuietly(page)
     }
 
+    /** 释放某页的 native 句柄；命中缓存返回 true。控制器用它落实可见页窗口。 */
+    internal fun releasePage(pageIndex: Int): Boolean = synchronized(lock) {
+        val page = cache.remove(pageIndex) ?: return false
+        closeQuietly(page)
+        true
+    }
+
     /** 仅供单测和诊断使用。 */
     internal fun cachedPageCount(): Int = synchronized(lock) { cache.size }
 
