@@ -3,7 +3,6 @@ package app.particlebook.android.ui
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
-import android.util.Log
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -244,6 +243,7 @@ fun EpubReaderScreen(book: Book, onBack: () -> Unit) {
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         containerColor = MaterialTheme.colorScheme.background,
+        contentWindowInsets = androidx.compose.foundation.layout.WindowInsets(0),
         topBar = {
             ReaderTopBar(
                 title = book.title,
@@ -256,35 +256,44 @@ fun EpubReaderScreen(book: Book, onBack: () -> Unit) {
             )
         },
         bottomBar = {
-            val count = chapterLayout?.pageCount ?: 0
-            if (count > 0) {
-                ReaderBottomBar(
-                    pageIndex = pageIndex,
-                    pageCount = count,
-                    overallPercent = controller?.percentAt(pageIndex) ?: 0f,
-                    selectionLength = selectedRange?.length ?: 0,
-                    previousEnabled = pageIndex > 0 || chapterIndex > 0,
-                    nextEnabled = pageIndex < count - 1 || chapterIndex < chapterCount - 1,
-                    onCopySelection = copySelection,
-                    onPrevious = {
-                        selectedRange = null
-                        if (pageIndex > 0) {
-                            val next = pageIndex - 1
-                            pageIndex = controller?.setPage(next) ?: next
-                        } else if (chapterIndex > 0) {
-                            requestChapter(chapterIndex - 1, null, null)
-                        }
-                    },
-                    onNext = {
-                        selectedRange = null
-                        if (pageIndex < count - 1) {
-                            val next = pageIndex + 1
-                            pageIndex = controller?.setPage(next) ?: next
-                        } else if (chapterIndex < chapterCount - 1) {
-                            requestChapter(chapterIndex + 1, 0, null)
-                        }
-                    },
-                )
+            // 固定占位：排版首帧 chapterLayout 还是 null，如果这时底栏不占高度，
+            // 正文会先按“无底栏”排一次，等底栏出现后再缩高，页数从 13 变 12，
+            // 保存的页号/字符位置就对不上了。
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(64.dp + Spacing.md),
+            ) {
+                val count = chapterLayout?.pageCount ?: 0
+                if (count > 0) {
+                    ReaderBottomBar(
+                        pageIndex = pageIndex,
+                        pageCount = count,
+                        overallPercent = controller?.percentAt(pageIndex) ?: 0f,
+                        selectionLength = selectedRange?.length ?: 0,
+                        previousEnabled = pageIndex > 0 || chapterIndex > 0,
+                        nextEnabled = pageIndex < count - 1 || chapterIndex < chapterCount - 1,
+                        onCopySelection = copySelection,
+                        onPrevious = {
+                            selectedRange = null
+                            if (pageIndex > 0) {
+                                val next = pageIndex - 1
+                                pageIndex = controller?.setPage(next) ?: next
+                            } else if (chapterIndex > 0) {
+                                requestChapter(chapterIndex - 1, null, null)
+                            }
+                        },
+                        onNext = {
+                            selectedRange = null
+                            if (pageIndex < count - 1) {
+                                val next = pageIndex + 1
+                                pageIndex = controller?.setPage(next) ?: next
+                            } else if (chapterIndex < chapterCount - 1) {
+                                requestChapter(chapterIndex + 1, 0, null)
+                            }
+                        },
+                    )
+                }
             }
         },
     ) { innerPadding ->
@@ -441,21 +450,8 @@ private fun EpubContent(
                     controller.layoutChapter(config)
                 }
                 val restoredPage = request?.locator?.let { locator ->
-                    val exact = controller.pageAt(locator)
-                    val fallback = initialPageFor(locator, layout, request.page ?: 0)
-                    if (exact == null) {
-                        Log.i(
-                            "PBEPUB",
-                            "restore-miss href=" + locator.chapterHref +
-                                " block=" + locator.blockIndex +
-                                " char=" + locator.charOffset +
-                                " chapter=" + controller.currentChapterIndex +
-                                " layoutHref=" + layout.chapterHref +
-                                " pages=" + layout.pageCount +
-                                " fallback=" + fallback,
-                        )
-                    }
-                    exact ?: fallback
+                    controller.pageAt(locator)
+                        ?: initialPageFor(locator, layout, request.page ?: 0)
                 }
                 val targetPage = when {
                     restoredPage != null -> restoredPage

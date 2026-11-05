@@ -170,6 +170,19 @@ class EpubReaderControllerTest {
     }
 
     @Test
+    fun pageAtUsesNextLineStartWhenPreviousLineEndOverlaps() {
+        EpubReaderController.open(fixture(), OverlapMeasurer(), bookId = 11L).use { controller ->
+            controller.openChapter(0)
+            controller.layoutChapter(EpubLayoutConfig(viewportWidthPx = 100, viewportHeightPx = 20))
+
+            val secondPage = controller.locatorForPage(1)
+            assertEquals(10, secondPage.charOffset)
+            assertEquals(1, controller.pageAt(secondPage))
+            assertEquals(1, controller.pageForLocator(secondPage))
+        }
+    }
+
+    @Test
     fun defaultMeasurerStillAllowsOpenAndLayoutForPreflight() {
         EpubReaderController.open(fixture(), bookId = 7L).use { controller ->
             assertEquals(0, controller.pageCount)
@@ -285,6 +298,38 @@ class EpubReaderControllerTest {
             }
         }
         return file
+    }
+
+    /**
+     * 模拟 StaticLayout 的行尾空白：lineEnd 比下一行 lineStart 多 1。
+     * 页首字符正好等于下一行 lineStart，必须归到下一页而不是上一页。
+     */
+    private class OverlapMeasurer : EpubBlockMeasurer {
+        override fun measure(block: EpubBlock, blockIndex: Int, config: EpubLayoutConfig): MeasuredBlock {
+            val text = when (block) {
+                is EpubBlock.Paragraph -> block.text
+                is EpubBlock.Heading -> block.text
+                is EpubBlock.ListItem -> block.text
+                else -> ""
+            }
+            if (text.isEmpty()) return MeasuredBlock(blockIndex, block, heightPx = 0)
+            val lineCount = max(1, ceil(text.length.toFloat() / 10).toInt())
+            val lines = object : EpubCharLineMetrics {
+                override val lineCount: Int = lineCount
+                override fun lineTop(line: Int): Int = line.coerceIn(0, lineCount) * 10
+                override fun lineBottom(line: Int): Int = (line.coerceIn(0, lineCount) + 1) * 10
+                override fun lineBaseline(line: Int): Int = lineBottom(line) - 2
+                override fun lineStart(line: Int): Int = line.coerceIn(0, lineCount) * 10
+                override fun lineEnd(line: Int): Int =
+                    minOf(text.length, lineStart(line) + 11)
+            }
+            return MeasuredBlock(
+                blockIndex = blockIndex,
+                block = block,
+                heightPx = lines.lineCount * 10,
+                lines = lines,
+            )
+        }
     }
 
     private class FakeMeasurer : EpubBlockMeasurer {

@@ -64,11 +64,13 @@ object EpubPageIndex {
         val metrics = block.lines as? EpubCharLineMetrics ?: return 0
         if (metrics.lineCount <= 0) return 0
         val offset = charOffset.coerceAtLeast(0)
+        // 与 EpubReaderController 保持一致：按 lineStart 边界定位，避免行尾空白
+        // 让“下一页页首字符”被算到上一行/上一页。
+        var result = 0
         for (line in 0 until metrics.lineCount) {
-            val end = metrics.lineEnd(line)
-            if (offset < end || line == metrics.lineCount - 1) return line
+            if (metrics.lineStart(line) <= offset) result = line else break
         }
-        return 0
+        return result
     }
 
     fun percent(

@@ -327,13 +327,14 @@ class EpubReaderController private constructor(
         if (metrics.lineCount <= 0) return null
         val length = textOf(block.block).length
         val offset = charOffset.coerceIn(0, length)
+        // 用 lineStart 边界而不是 lineEnd：StaticLayout 的上一行 lineEnd 可能把
+        // 行尾空白算进去（end > 下一行 start），用 end 会把“页首字符”误判到上一页。
+        var result = 0
         for (line in 0 until metrics.lineCount) {
             val start = metrics.lineStart(line).coerceIn(0, length)
-            val end = metrics.lineEnd(line).coerceIn(start, length)
-            if (offset < end || line == metrics.lineCount - 1) return line
-            if (offset == start && start == end && line == metrics.lineCount - 1) return line
+            if (start <= offset) result = line else break
         }
-        return null
+        return result
     }
 
     private fun charOffsetForLine(block: EpubBlock, line: Int): Int {

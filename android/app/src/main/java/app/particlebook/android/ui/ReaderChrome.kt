@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
@@ -82,7 +81,8 @@ internal fun ReaderBottomPill(content: @Composable RowScope.() -> Unit) {
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = Spacing.xl)
-            .navigationBarsPadding()
+            // 不用 navigationBarsPadding：沉浸模式下导航栏显隐会改变底栏高度，
+            // 进而改变正文可视高度，导致同一本书两次打开页数不同、进度恢复错页。
             .padding(bottom = Spacing.md)
             .height(64.dp)
             .floatingShadow(shape),
