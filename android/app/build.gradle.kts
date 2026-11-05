@@ -28,6 +28,21 @@ android {
     buildTypes {
         debug { isMinifyEnabled = false }
         release { isMinifyEnabled = false }
+        // P0 性能探针专用：非 debuggable、debug 签名、包含 src/debug 的 M0ProbeActivity。
+        // 只用于 M0 真机测量，不进入发布产物；release 仍不带探针。
+        create("benchmark") {
+            initWith(getByName("release"))
+            isDebuggable = false
+            signingConfig = signingConfigs.getByName("debug")
+            matchingFallbacks += listOf("release")
+        }
+    }
+
+    sourceSets {
+        getByName("benchmark") {
+            java.srcDir("src/debug/java")
+            manifest.srcFile("src/debug/AndroidManifest.xml")
+        }
     }
 
     compileOptions {

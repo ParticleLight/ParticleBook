@@ -2,5 +2,11 @@
 <!-- DEBUG 变体专用：允许明文 http，便于离线 mock 镜像（pb_zlib_mirror=http://127.0.0.1:8899）。
      release 变体不包含此文件，线上仍强制 https。 -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <application android:usesCleartextTraffic="true" />
+    <application android:usesCleartextTraffic="true">
+        <!-- M0 性能探针，仅 debug；p15 用 adb am start 调用。 -->
+        <activity
+            android:name=".debug.M0ProbeActivity"
+            android:exported="true"
+            android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+    </application>
 </manifest>
