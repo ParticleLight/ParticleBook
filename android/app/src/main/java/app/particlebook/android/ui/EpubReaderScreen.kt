@@ -118,7 +118,10 @@ fun EpubReaderScreen(book: Book, onBack: () -> Unit) {
     var chapterRequest by remember(book.filePath) { mutableStateOf<ChapterRequest?>(null) }
     var requestVersion by remember(book.filePath) { mutableIntStateOf(0) }
 
-    DisposableEffect(controller, archive) {
+    // 只在阅读屏真正离开组合时释放；不能把 controller/archive 作为 key——
+    // 打开成功会先赋值 controller 再赋值 archive，key 变化会在中途触发 onDispose
+    // 把刚打开的 controller 关掉（真机表现为 "EpubReaderController is closed"）。
+    DisposableEffect(Unit) {
         onDispose {
             archive?.close()
             controller?.close()

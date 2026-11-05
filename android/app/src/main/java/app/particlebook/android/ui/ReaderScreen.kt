@@ -160,7 +160,7 @@ private fun pageCacheLimitBytes(): Int {
 }
 
 /**
- * 阅读器：PDF 走原生纵向连续滚动；EPUB 暂未迁移，给「兼容模式」出口。
+ * 阅读器：PDF 走原生纵向连续滚动；EPUB 走原生 Canvas 分页。
  * 进入即切沉浸（隐藏系统栏），退出恢复。
  */
 @Composable
