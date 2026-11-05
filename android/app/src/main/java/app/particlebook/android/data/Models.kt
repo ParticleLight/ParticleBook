@@ -142,6 +142,20 @@ data class SearchHit(
     val snippet: String,
 )
 
+data class SearchDocumentInput(
+    val docType: String,
+    val locator: String,
+    val rawText: String,
+)
+
+data class MigrationStateRow(
+    val id: Long = 1,
+    val status: String,
+    val startedAt: Long = 0,
+    val finishedAt: Long? = null,
+    val detailsJson: String? = null,
+)
+
 data class IndexStateRow(
     val key: String,
     val value: String,

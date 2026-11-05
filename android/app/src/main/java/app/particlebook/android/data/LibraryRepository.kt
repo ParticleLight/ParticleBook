@@ -20,6 +20,8 @@ interface LibraryRepository {
 
     fun progress(bookId: Long): ProgressRow?
     fun saveProgress(row: ProgressRow)
+    fun upsertProgress(row: ProgressRow) = saveProgress(row)
+    fun saveProgressBatch(rows: List<ProgressRow>) = rows.forEach { saveProgress(it) }
 
     fun annotations(bookId: Long): List<AnnotationRow>
     fun addAnnotation(row: AnnotationRow): Long
@@ -28,6 +30,9 @@ interface LibraryRepository {
     fun addDownload(row: DownloadRow): Long
 
     fun saveSearchDocument(bookId: Long, docType: String, locator: String, rawText: String)
+    fun saveSearchDocuments(bookId: Long, documents: List<SearchDocumentInput>) {
+        documents.forEach { saveSearchDocument(bookId, it.docType, it.locator, it.rawText) }
+    }
     fun search(query: String, limit: Int = 50): List<SearchHit>
 
     fun <T> transaction(block: (LibraryRepository) -> T): T
@@ -64,6 +69,10 @@ class SqliteLibraryRepository(private val db: SQLiteDatabase) : LibraryRepositor
 
     override fun saveProgress(row: ProgressRow) = progressDao.save(row)
 
+    override fun upsertProgress(row: ProgressRow) = progressDao.upsert(row)
+
+    override fun saveProgressBatch(rows: List<ProgressRow>) = progressDao.saveAll(rows)
+
     override fun annotations(bookId: Long): List<AnnotationRow> = annotationDao.list(bookId)
 
     override fun addAnnotation(row: AnnotationRow): Long = annotationDao.add(row)
@@ -74,6 +83,19 @@ class SqliteLibraryRepository(private val db: SQLiteDatabase) : LibraryRepositor
 
     override fun saveSearchDocument(bookId: Long, docType: String, locator: String, rawText: String) {
         searchDao.replaceDocument(bookId, docType, locator, rawText, SearchTokenizer.indexText(rawText))
+    }
+
+    override fun saveSearchDocuments(bookId: Long, documents: List<SearchDocumentInput>) {
+        val rows = documents.map { document ->
+            SearchDocumentRow(
+                bookId = bookId,
+                docType = document.docType,
+                locator = document.locator,
+                rawText = document.rawText,
+                indexedText = SearchTokenizer.indexText(document.rawText),
+            )
+        }
+        searchDao.replaceDocuments(bookId, rows)
     }
 
     override fun search(query: String, limit: Int): List<SearchHit> {

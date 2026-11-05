@@ -26,6 +26,12 @@ interface TagDao {
 interface ProgressDao {
     fun get(bookId: Long): ProgressRow?
     fun save(row: ProgressRow)
+
+    /** 显式 upsert 语义；默认等价于 save（SQLite 实现用 INSERT OR REPLACE）。 */
+    fun upsert(row: ProgressRow) = save(row)
+
+    /** 批量写必须处于调用方事务内；默认逐条写，Sqlite 实现覆盖为单事务。 */
+    fun saveAll(rows: List<ProgressRow>) = rows.forEach { save(it) }
 }
 
 interface AnnotationDao {
@@ -41,6 +47,13 @@ interface DownloadDao {
 interface SearchDao {
     fun replaceDocument(bookId: Long, docType: String, locator: String, rawText: String, indexedText: String)
     fun search(matchExpression: String, limit: Int): List<SearchHit>
+
+    /** 批量替换；默认逐条调用，Sqlite 实现覆盖为单事务，避免每条文档各自开事务。 */
+    fun replaceDocuments(bookId: Long, documents: List<SearchDocumentRow>) {
+        documents.forEach { document ->
+            replaceDocument(bookId, document.docType, document.locator, document.rawText, document.indexedText)
+        }
+    }
 }
 
 class SqliteBookDao(private val db: SQLiteDatabase) : BookDao {
@@ -65,11 +78,15 @@ class SqliteBookDao(private val db: SQLiteDatabase) : BookDao {
 
     override fun save(book: BookRow): Long {
         val values = bookValues(book)
-        val existingId = if (book.id > 0) {
+        // 先按显式 id，再按 stable_key 认领；显式 id 不存在的旧迁移行也不会
+        // 因 stable_key 已存在而撞 UNIQUE(stable_key) 约束。
+        val byId = if (book.id > 0) {
             queryLong("SELECT id FROM books WHERE id = ?", arrayOf(book.id.toString()))
         } else {
-            queryLong("SELECT id FROM books WHERE stable_key = ?", arrayOf(book.stableKey))
+            null
         }
+        val byStableKey = queryLong("SELECT id FROM books WHERE stable_key = ?", arrayOf(book.stableKey))
+        val existingId = byId ?: byStableKey
         if (existingId != null) {
             values.remove("id")
             db.update(LibrarySchema.TABLE_BOOKS, values, "id = ?", arrayOf(existingId.toString()))
@@ -214,6 +231,17 @@ class SqliteProgressDao(private val db: SQLiteDatabase) : ProgressDao {
         }
         db.insertWithOnConflict(LibrarySchema.TABLE_PROGRESS, null, values, SQLiteDatabase.CONFLICT_REPLACE)
     }
+
+    override fun saveAll(rows: List<ProgressRow>) {
+        if (rows.isEmpty()) return
+        db.beginTransaction()
+        try {
+            rows.forEach { save(it) }
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
+    }
 }
 
 class SqliteAnnotationDao(private val db: SQLiteDatabase) : AnnotationDao {
@@ -342,6 +370,19 @@ class SqliteSearchDao(private val db: SQLiteDatabase) : SearchDao {
             values,
             SQLiteDatabase.CONFLICT_REPLACE,
         )
+    }
+
+    override fun replaceDocuments(bookId: Long, documents: List<SearchDocumentRow>) {
+        if (documents.isEmpty()) return
+        db.beginTransaction()
+        try {
+            documents.forEach { document ->
+                replaceDocument(bookId, document.docType, document.locator, document.rawText, document.indexedText)
+            }
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
     }
 
     override fun search(matchExpression: String, limit: Int): List<SearchHit> = db.rawQuery(
