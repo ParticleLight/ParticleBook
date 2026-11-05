@@ -1,6 +1,7 @@
 package app.particlebook.android.ui.data
 
 import android.content.Context
+import app.particlebook.android.reader.ReaderLocator
 
 /**
  * 阅读进度：ReaderScreen 把 `page_<bookId>`（当前页，0 基）与 `pages_<bookId>`（总页数）
@@ -28,6 +29,30 @@ object ReadingProgress {
     /** 是否有真实阅读进度（Hero「继续阅读」只看有进度的书）。 */
     fun hasProgress(context: Context, bookId: Long): Boolean =
         prefs(context).getInt("pages_" + bookId, 0) > 1
+
+    /** 最近一次保存的 EPUB 位置；缺失或损坏返回 null。 */
+    fun locator(context: Context, bookId: Long): ReaderLocator? =
+        ReaderLocator.decode(prefs(context).getString("locator_" + bookId, null))
+
+    /**
+     * EPUB 翻页/换章后写回统一 locator，并同步书架用的 page/pages/last_read。
+     * pages <= 0 时不写，避免布局未完成把进度清成 0。
+     */
+    fun saveEpubProgress(
+        context: Context,
+        bookId: Long,
+        locator: ReaderLocator,
+        page: Int,
+        pages: Int,
+    ) {
+        if (pages <= 0) return
+        prefs(context).edit()
+            .putString("locator_" + bookId, locator.encode())
+            .putInt("page_" + bookId, page.coerceIn(0, pages - 1))
+            .putInt("pages_" + bookId, pages)
+            .putLong("last_read_" + bookId, System.currentTimeMillis())
+            .apply()
+    }
 
     /** 最近一次阅读时间（毫秒，0 = 未知）；Hero 用它挑「最近读的那本」。 */
     fun lastReadAt(context: Context, bookId: Long): Long =
@@ -62,12 +87,17 @@ object ReadingProgress {
                     removed += 1
                 }
             }
+            val locatorKey = "locator_" + bookId
+            if (store.contains(locatorKey)) {
+                editor.remove(locatorKey)
+                removed += 1
+            }
         }
         editor.apply()
         return removed
     }
 }
 
-/** 一本书在 pb_reading 里的全部键（删书级联清理用；纯函数，单测用）。 */
+/** 一本书在 pb_reading 里的页码类键（locator_ 由 clear 单独清理；纯函数，单测用）。 */
 internal fun progressKeys(bookId: Long): List<String> =
     listOf("page_" + bookId, "pages_" + bookId, "last_read_" + bookId)
