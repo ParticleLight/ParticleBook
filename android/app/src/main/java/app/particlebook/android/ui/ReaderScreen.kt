@@ -4,7 +4,6 @@ import android.app.Activity
 import android.content.ComponentCallbacks2
 import android.content.Context
 import android.content.ContextWrapper
-import android.content.Intent
 import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.Color
@@ -51,7 +50,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.List
-import androidx.compose.material.icons.automirrored.outlined.MenuBook
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.BrokenImage
@@ -113,14 +111,16 @@ import androidx.compose.ui.window.DialogWindowProvider
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
-import app.particlebook.android.MainActivity
 import app.particlebook.android.ui.data.Book
 import app.particlebook.android.ui.data.BookFormat
+import app.particlebook.android.reader.pdf.PdfTextLayerController
+import app.particlebook.android.reader.pdf.PdfTextLayerOpenResult
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -344,6 +344,8 @@ private fun PdfReadingPane(book: Book, source: PdfSource, onBack: () -> Unit) {
     var bookmark by rememberSaveable(book.id) { mutableStateOf(false) }
     var sliderDragging by remember { mutableStateOf(false) }
     var sliderValue by remember { mutableFloatStateOf(0f) }
+    // P1：PDF 文本层（可见页 ±1，只读）。失败不阻断渲染，只记日志。
+    var textLayer by remember(book.filePath) { mutableStateOf<PdfTextLayerController?>(null) }
 
     val currentPage by remember(listState, pageCount) {
         derivedStateOf { computeCurrentPage(listState, pageCount) }
@@ -453,6 +455,60 @@ private fun PdfReadingPane(book: Book, source: PdfSource, onBack: () -> Unit) {
             }
             appContext.registerComponentCallbacks(callbacks)
             onDispose { appContext.unregisterComponentCallbacks(callbacks) }
+        }
+        // 文本层独立打开（第二个 fd）；延后 600ms 避开首帧渲染，失败只降级不报错。
+        LaunchedEffect(book.filePath) {
+            val begin = SystemClock.elapsedRealtime()
+            val opened = withContext(Dispatchers.IO) {
+                delay(600)
+                runCatching { PdfTextLayerController.open(appContext, File(book.filePath)) }
+                    .getOrElse { error ->
+                        PdfTextLayerOpenResult.Failure(
+                            reason = app.particlebook.android.reader.pdf.PdfTextFailureReason.OPEN_FAILED,
+                            message = error.message,
+                            cause = error,
+                        )
+                    }
+            }
+            if (!isActive) {
+                (opened as? PdfTextLayerOpenResult.Success)?.controller?.close()
+                return@LaunchedEffect
+            }
+            when (opened) {
+                is PdfTextLayerOpenResult.Success -> {
+                    textLayer = opened.controller
+                    Log.i(
+                        PERF_TAG,
+                        "PBPERF|phase=pdf_text_open|ms=" + (SystemClock.elapsedRealtime() - begin) +
+                            "|extra=pages:" + opened.controller.pageCount,
+                    )
+                }
+                is PdfTextLayerOpenResult.Failure -> Log.w(
+                    TAG,
+                    "pdf text layer unavailable reason=" + opened.reason +
+                        " message=" + opened.message,
+                )
+            }
+        }
+        DisposableEffect(book.filePath) {
+            onDispose { textLayer?.close() }
+        }
+        // 可见页 ±1；滚动中不重复预载，页面稳定后一次。
+        LaunchedEffect(textLayer, currentPage, pageCount, listState.isScrollInProgress) {
+            val layer = textLayer ?: return@LaunchedEffect
+            if (listState.isScrollInProgress) return@LaunchedEffect
+            val begin = SystemClock.elapsedRealtime()
+            val window = withContext(Dispatchers.IO) {
+                runCatching { layer.preloadVisible(currentPage, 1) }.getOrNull()
+            }
+            if (window != null) {
+                Log.i(
+                    PERF_TAG,
+                    "PBPERF|phase=pdf_text_preload|ms=" + (SystemClock.elapsedRealtime() - begin) +
+                        "|extra=page:" + currentPage + ",loaded:" + window.pages.size +
+                        ",failed:" + window.failures.size,
+                )
+            }
         }
         // 空闲时预取相邻 2 页；滚动中不插队，避免和当前页渲染抢同一条 PDF 线程。
         LaunchedEffect(pageCache, currentPage, pageCount, listState.isScrollInProgress) {
@@ -948,88 +1004,6 @@ private fun computeCurrentPage(state: LazyListState, pageCount: Int): Int {
         }
     }
     return bestIndex.coerceIn(0, (pageCount - 1).coerceAtLeast(0))
-}
-
-// ---------------------------------------------------------------- EPUB
-
-@Composable
-private fun EpubReaderScreen(book: Book, onBack: () -> Unit) {
-    val context = LocalContext.current
-    var dialogOpen by rememberSaveable(book.id) { mutableStateOf(true) }
-
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.surfaceContainerLowest),
-        contentAlignment = Alignment.Center,
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(Spacing.xl),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center,
-        ) {
-            Icon(
-                imageVector = Icons.AutoMirrored.Outlined.MenuBook,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(64.dp),
-            )
-            Spacer(Modifier.height(Spacing.md))
-            Text(
-                text = book.title,
-                style = MaterialTheme.typography.titleMedium,
-                textAlign = TextAlign.Center,
-            )
-            Spacer(Modifier.height(Spacing.xs))
-            Text(
-                text = "EPUB 阅读器尚未就绪",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center,
-            )
-            Spacer(Modifier.height(Spacing.xl))
-            FilledTonalButton(onClick = { dialogOpen = true }) { Text("用兼容模式打开") }
-            Spacer(Modifier.height(Spacing.xs))
-            TextButton(onClick = onBack) { Text("返回书架") }
-        }
-    }
-
-    if (dialogOpen) {
-        AlertDialog(
-            onDismissRequest = { dialogOpen = false },
-            icon = {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Outlined.MenuBook,
-                    contentDescription = null,
-                )
-            },
-            title = { Text("EPUB 阅读器尚未就绪") },
-            text = {
-                Text(
-                    "Compose 版目前只提供 PDF 原生阅读，EPUB 排版仍留在旧版 WebView 阅读器里。" +
-                        "要现在用兼容模式打开《" + book.title + "》吗？",
-                )
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    dialogOpen = false
-                    context.startActivity(Intent(context, MainActivity::class.java))
-                }) {
-                    Text("用兼容模式打开")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = {
-                    dialogOpen = false
-                    onBack()
-                }) {
-                    Text("返回书架")
-                }
-            },
-        )
-    }
 }
 
 // ---------------------------------------------------------------- 基础设施
