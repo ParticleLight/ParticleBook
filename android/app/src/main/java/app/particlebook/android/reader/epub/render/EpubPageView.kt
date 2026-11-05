@@ -50,6 +50,8 @@ class EpubPageView @JvmOverloads constructor(
             velocityY: Float,
         ): Boolean {
             if (e1 == null) return false
+            // 长按选区后拖动扩展时，抬手不能把这次拖动当成翻页 fling。
+            if (selectingByLongPress || selection != null) return true
             val dx = e2.x - e1.x
             val dy = e2.y - e1.y
             if (abs(dx) <= minFlingDistance || abs(dx) <= abs(dy)) return false
