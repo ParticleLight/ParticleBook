@@ -11,6 +11,7 @@ import android.text.style.LeadingMarginSpan
 import android.text.style.StyleSpan
 import app.particlebook.android.reader.epub.EpubAlign
 import app.particlebook.android.reader.epub.EpubBlock
+import app.particlebook.android.reader.epub.EpubCharLineMetrics
 import kotlin.math.max
 import kotlin.math.roundToInt
 
@@ -181,7 +182,12 @@ class StaticLayoutBlockMeasurer(
     }
 }
 
-private class StaticLineMetrics(private val layout: StaticLayout) : LineMetrics {
+/**
+ * 生产字符行信息。纯 JVM 单测无法构造 StaticLayout，因此这里只做契约接线；
+ * lineStart/lineEnd 的字符级结果由 p15 在设备/instrumentation 用例中对照
+ * StaticLayout.getLineStart/getLineEnd 断言。
+ */
+internal class StaticLineMetrics(private val layout: StaticLayout) : EpubCharLineMetrics {
     override val lineCount: Int
         get() = layout.lineCount
 
@@ -190,4 +196,8 @@ private class StaticLineMetrics(private val layout: StaticLayout) : LineMetrics 
     override fun lineBottom(line: Int): Int = layout.getLineBottom(line)
 
     override fun lineBaseline(line: Int): Int = layout.getLineBaseline(line)
+
+    override fun lineStart(line: Int): Int = layout.getLineStart(line)
+
+    override fun lineEnd(line: Int): Int = layout.getLineEnd(line)
 }
