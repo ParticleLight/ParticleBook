@@ -16,5 +16,5 @@ android {
 
 dependencies {
     implementation("androidx.core:core-ktx:1.13.1")
-    implementation("io.legere:pdfiumandroid:1.0.24")
+    implementation("io.legere:pdfiumandroid:1.0.30")
 }
