@@ -3,6 +3,7 @@ package app.particlebook.android.ui
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.util.Log
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -49,6 +50,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -82,6 +84,7 @@ private data class OpenedEpub(
     val archive: EpubArchive?,
     val chapterIndex: Int,
     val restore: ReaderLocator.Epub?,
+    val restorePage: Int?,
 )
 
 private sealed interface EpubOpenState {
@@ -100,6 +103,7 @@ private sealed interface EpubOpenState {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun EpubReaderScreen(book: Book, onBack: () -> Unit) {
+    ImmersiveSystemBars()
     BackHandler(onBack = onBack)
     val density = LocalDensity.current
     val densityValue = density.density
@@ -117,6 +121,8 @@ fun EpubReaderScreen(book: Book, onBack: () -> Unit) {
     var selectedRange by remember { mutableStateOf<EpubSelectionRange?>(null) }
     var chapterRequest by remember(book.filePath) { mutableStateOf<ChapterRequest?>(null) }
     var requestVersion by remember(book.filePath) { mutableIntStateOf(0) }
+    // 恢复定位完成前不允许写进度：否则 locator 解析失败时会把已保存的 page2 立刻覆盖成 0。
+    var progressReady by remember(book.filePath) { mutableStateOf(false) }
 
     // 只在阅读屏真正离开组合时释放；不能把 controller/archive 作为 key——
     // 打开成功会先赋值 controller 再赋值 archive，key 变化会在中途触发 onDispose
@@ -135,6 +141,7 @@ fun EpubReaderScreen(book: Book, onBack: () -> Unit) {
         chapterIndex = 0
         chapterRequest = null
         requestVersion = 0
+        progressReady = false
         selectedRange = null
         val oldController = controller
         val oldArchive = archive
@@ -151,6 +158,7 @@ fun EpubReaderScreen(book: Book, onBack: () -> Unit) {
                 )
                 val openedArchive = runCatching { EpubArchive.open(File(book.filePath)) }.getOrNull()
                 val saved = ReadingProgress.locator(context, book.id) as? ReaderLocator.Epub
+                val savedPage = ReadingProgress.savedPage(context, book.id)
                 var targetChapter = 0
                 var restore: ReaderLocator.Epub? = null
                 if (saved != null) {
@@ -165,6 +173,7 @@ fun EpubReaderScreen(book: Book, onBack: () -> Unit) {
                     archive = openedArchive,
                     chapterIndex = targetChapter,
                     restore = restore,
+                    restorePage = savedPage,
                 )
             }
             controller = opened.controller
@@ -175,7 +184,7 @@ fun EpubReaderScreen(book: Book, onBack: () -> Unit) {
             if (opened.restore != null) {
                 chapterRequest = ChapterRequest(
                     chapterIndex = opened.chapterIndex,
-                    page = 0,
+                    page = opened.restorePage ?: 0,
                     locator = opened.restore,
                 )
                 requestVersion += 1
@@ -202,7 +211,8 @@ fun EpubReaderScreen(book: Book, onBack: () -> Unit) {
             selectedRange = null
         }
     }
-    LaunchedEffect(controller, chapterIndex, chapterLayout, pageIndex) {
+    LaunchedEffect(controller, chapterIndex, chapterLayout, pageIndex, progressReady) {
+        if (!progressReady) return@LaunchedEffect
         val active = controller ?: return@LaunchedEffect
         val layout = chapterLayout ?: return@LaunchedEffect
         if (layout.pageCount <= 0 || active.currentChapterIndex != chapterIndex) return@LaunchedEffect
@@ -235,19 +245,9 @@ fun EpubReaderScreen(book: Book, onBack: () -> Unit) {
         modifier = Modifier.fillMaxSize(),
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        text = book.title,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
-                    }
-                },
+            ReaderTopBar(
+                title = book.title,
+                onBack = onBack,
                 actions = {
                     IconButton(onClick = { tocOpen = true }) {
                         Icon(Icons.AutoMirrored.Outlined.List, contentDescription = "目录")
@@ -318,6 +318,7 @@ fun EpubReaderScreen(book: Book, onBack: () -> Unit) {
                                 chapterLayout = layout
                                 pageIndex = page
                                 selectedRange = null
+                                progressReady = true
                             },
                             onPageChanged = { page ->
                                 selectedRange = null
@@ -341,8 +342,10 @@ fun EpubReaderScreen(book: Book, onBack: () -> Unit) {
         ModalBottomSheet(
             onDismissRequest = { tocOpen = false },
             sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+            contentWindowInsets = { androidx.compose.foundation.layout.WindowInsets(0) },
         ) {
-            Column(Modifier.fillMaxWidth()) {
+            ImmersiveDialogWindow()
+            Column(Modifier.fillMaxWidth().navigationBarsPadding()) {
                 Text(
                     text = "目录",
                     style = MaterialTheme.typography.titleMedium,
@@ -438,8 +441,21 @@ private fun EpubContent(
                     controller.layoutChapter(config)
                 }
                 val restoredPage = request?.locator?.let { locator ->
-                    controller.pageAt(locator)
-                        ?: initialPageFor(locator, layout, request.page ?: 0)
+                    val exact = controller.pageAt(locator)
+                    val fallback = initialPageFor(locator, layout, request.page ?: 0)
+                    if (exact == null) {
+                        Log.i(
+                            "PBEPUB",
+                            "restore-miss href=" + locator.chapterHref +
+                                " block=" + locator.blockIndex +
+                                " char=" + locator.charOffset +
+                                " chapter=" + controller.currentChapterIndex +
+                                " layoutHref=" + layout.chapterHref +
+                                " pages=" + layout.pageCount +
+                                " fallback=" + fallback,
+                        )
+                    }
+                    exact ?: fallback
                 }
                 val targetPage = when {
                     restoredPage != null -> restoredPage
@@ -515,16 +531,16 @@ private fun ReaderBottomBar(
     onPrevious: () -> Unit,
     onNext: () -> Unit,
 ) {
-    Surface(tonalElevation = 3.dp) {
+    ReaderBottomPill {
         Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .navigationBarsPadding()
-                .padding(horizontal = Spacing.md, vertical = Spacing.xs),
+            modifier = Modifier.fillMaxSize(),
+            verticalArrangement = Arrangement.Center,
         ) {
             LinearProgressIndicator(
                 progress = { overallPercent.coerceIn(0f, 1f) },
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(2.dp),
             )
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -539,6 +555,10 @@ private fun ReaderBottomBar(
                         (pageIndex + 1) + " / " + pageCount +
                         if (selectionLength > 0) " · 已选 " + selectionLength + " 字" else "",
                     style = MaterialTheme.typography.labelMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.weight(1f),
                 )
                 IconButton(onClick = onNext, enabled = nextEnabled) {
                     Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "下一页")

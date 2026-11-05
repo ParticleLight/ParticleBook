@@ -84,6 +84,9 @@ class EpubReaderControllerTest {
 
             assertEquals(10, controller.locatorForPage(1).charOffset)
             assertEquals(1, controller.pageAt(controller.locatorForPage(1)))
+            val lastPage = controller.locatorForPage(2)
+            assertEquals(2, controller.pageAt(lastPage))
+            assertEquals(2, controller.pageForLocator(lastPage))
             assertEquals(0f, controller.percentAt(0), 0.0001f)
             assertEquals(1f / 6f, controller.percentAt(1), 0.0001f)
             assertEquals(1f / 3f, controller.percentAt(2), 0.0001f)

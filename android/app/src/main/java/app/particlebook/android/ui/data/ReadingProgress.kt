@@ -35,6 +35,18 @@ object ReadingProgress {
         ReaderLocator.decode(prefs(context).getString("locator_" + bookId, null))
 
     /**
+     * 最近一次保存的章内页下标；没有 page/pages 记录返回 null。
+     * locator 精确定位失败时用它兜底，避免恢复直接回到第 1 页。
+     */
+    fun savedPage(context: Context, bookId: Long): Int? {
+        val store = prefs(context)
+        if (!store.contains("page_" + bookId)) return null
+        val pages = store.getInt("pages_" + bookId, 0)
+        if (pages <= 0) return null
+        return store.getInt("page_" + bookId, 0).coerceIn(0, pages - 1)
+    }
+
+    /**
      * EPUB 翻页/换章后写回统一 locator，并同步书架用的 page/pages/last_read。
      * pages <= 0 时不写，避免布局未完成把进度清成 0。
      */

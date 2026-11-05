@@ -567,90 +567,59 @@ private fun PdfReadingPane(book: Book, source: PdfSource, onBack: () -> Unit) {
             exit = fadeOut(chromeFadeOut) + slideOutVertically(chromeMotionOut) { -chromeShiftPx },
             modifier = Modifier.align(Alignment.TopCenter),
         ) {
-            // E3 取舍：不做真实 backdrop blur（成本高），用 0.88 alpha 的半透明底；
-            // 关键是不能把 TopAppBar 的文字一起 blur 掉（会导致返回/书名看不见）。
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(88.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                TopAppBar(
-                    title = {
-                        Text(
-                            text = book.title,
-                            style = AppType.topBarTitle,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
+            ReaderTopBar(
+                title = book.title,
+                onBack = onBack,
+                actions = {
+                    IconButton(onClick = {
+                        bookmark = !bookmark
+                        wakeChrome()
+                    }) {
+                        Icon(
+                            imageVector = if (bookmark) Icons.Filled.Bookmark else Icons.Filled.BookmarkBorder,
+                            contentDescription = if (bookmark) "取消书签" else "加书签",
                         )
-                    },
-                    navigationIcon = {
-                        IconButton(onClick = onBack) {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                contentDescription = "返回书架",
-                            )
-                        }
-                    },
-                    actions = {
-                        IconButton(onClick = {
-                            bookmark = !bookmark
-                            wakeChrome()
-                        }) {
-                            Icon(
-                                imageVector = if (bookmark) Icons.Filled.Bookmark else Icons.Filled.BookmarkBorder,
-                                contentDescription = if (bookmark) "取消书签" else "加书签",
-                            )
-                        }
-                        IconButton(onClick = {
-                            moreMenuOpen = true
-                            wakeChrome()
-                        }) {
-                            Icon(
-                                imageVector = Icons.Filled.MoreVert,
-                                contentDescription = "更多",
-                            )
-                        }
-                        DropdownMenu(
-                            expanded = moreMenuOpen,
-                            onDismissRequest = { moreMenuOpen = false },
-                        ) {
-                            DropdownMenuItem(
-                                text = { Text("目录") },
-                                onClick = {
-                                    moreMenuOpen = false
-                                    tocOpen = true
-                                },
-                            )
-                            DropdownMenuItem(
-                                text = { Text("搜索（即将推出）") },
-                                enabled = false,
-                                onClick = {},
-                            )
-                            DropdownMenuItem(
-                                text = { Text("阅读设置（即将推出）") },
-                                enabled = false,
-                                onClick = {},
-                            )
-                            DropdownMenuItem(
-                                text = { Text("书籍详情") },
-                                onClick = {
-                                    moreMenuOpen = false
-                                    detailsOpen = true
-                                },
-                            )
-                        }
-                    },
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = androidx.compose.ui.graphics.Color.Transparent,
-                    ),
-                )
-                }
-            }
+                    }
+                    IconButton(onClick = {
+                        moreMenuOpen = true
+                        wakeChrome()
+                    }) {
+                        Icon(
+                            imageVector = Icons.Filled.MoreVert,
+                            contentDescription = "更多",
+                        )
+                    }
+                    DropdownMenu(
+                        expanded = moreMenuOpen,
+                        onDismissRequest = { moreMenuOpen = false },
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("目录") },
+                            onClick = {
+                                moreMenuOpen = false
+                                tocOpen = true
+                            },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("搜索（即将推出）") },
+                            enabled = false,
+                            onClick = {},
+                        )
+                        DropdownMenuItem(
+                            text = { Text("阅读设置（即将推出）") },
+                            enabled = false,
+                            onClick = {},
+                        )
+                        DropdownMenuItem(
+                            text = { Text("书籍详情") },
+                            onClick = {
+                                moreMenuOpen = false
+                                detailsOpen = true
+                            },
+                        )
+                    }
+                },
+            )
         }
 
         AnimatedVisibility(
@@ -802,53 +771,34 @@ private fun PdfBottomBar(
     onSliderFinished: () -> Unit,
     onOpenToc: () -> Unit,
 ) {
-    val shape = CircleShape
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = Spacing.xl)
-            .navigationBarsPadding()
-            .padding(bottom = Spacing.md)
-            .height(64.dp)
-            .floatingShadow(shape),
-        shape = shape,
-        color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.92f),
-        border = BorderStroke(1.dp, androidx.compose.ui.graphics.Color.White.copy(alpha = 0.12f)),
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = Spacing.md),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            IconButton(onClick = onOpenToc) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Outlined.List,
-                    contentDescription = "目录",
-                )
-            }
-            Text(
-                text = (displayPage + 1).toString() + " / " + pageCount,
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onSurface,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.widthIn(min = 64.dp),
+    ReaderBottomPill {
+        IconButton(onClick = onOpenToc) {
+            Icon(
+                imageVector = Icons.AutoMirrored.Outlined.List,
+                contentDescription = "目录",
             )
-            if (pageCount > 1) {
-                Spacer(Modifier.width(Spacing.xs))
-                Slider(
-                    value = sliderValue.coerceIn(0f, (pageCount - 1).toFloat()),
-                    onValueChange = onSliderChange,
-                    onValueChangeFinished = onSliderFinished,
-                    valueRange = 0f..(pageCount - 1).toFloat(),
-                    modifier = Modifier
-                        .weight(1f)
-                        .semantics {
-                            contentDescription = "跳转页码"
-                            stateDescription = "第 " + (displayPage + 1) + " 页，共 " + pageCount + " 页"
-                        },
-                )
-            }
+        }
+        Text(
+            text = (displayPage + 1).toString() + " / " + pageCount,
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurface,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.widthIn(min = 64.dp),
+        )
+        if (pageCount > 1) {
+            Spacer(Modifier.width(Spacing.xs))
+            Slider(
+                value = sliderValue.coerceIn(0f, (pageCount - 1).toFloat()),
+                onValueChange = onSliderChange,
+                onValueChangeFinished = onSliderFinished,
+                valueRange = 0f..(pageCount - 1).toFloat(),
+                modifier = Modifier
+                    .weight(1f)
+                    .semantics {
+                        contentDescription = "跳转页码"
+                        stateDescription = "第 " + (displayPage + 1) + " 页，共 " + pageCount + " 页"
+                    },
+            )
         }
     }
 }
@@ -1010,7 +960,7 @@ private fun computeCurrentPage(state: LazyListState, pageCount: Int): Int {
 
 /** 沉浸式：隐藏系统栏，下滑临时呼出；退出时恢复。 */
 @Composable
-private fun ImmersiveSystemBars() {
+internal fun ImmersiveSystemBars() {
     val view = LocalView.current
     val context = LocalContext.current
     DisposableEffect(view) {
@@ -1030,7 +980,7 @@ private fun ImmersiveSystemBars() {
  * 不会带过去 —— 一打开系统栏就重新出现、底层页面被 insets 顶下去。这里在 dialog 窗口里再隐藏一次。
  */
 @Composable
-private fun ImmersiveDialogWindow() {
+internal fun ImmersiveDialogWindow() {
     val view = LocalView.current
     DisposableEffect(view) {
         var node: Any? = view
