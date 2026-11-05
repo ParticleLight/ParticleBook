@@ -2,6 +2,7 @@ package app.particlebook.android.reader
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ReaderContractsTest {
@@ -45,14 +46,65 @@ class ReaderContractsTest {
     fun negativeOffsetsAreClamped() {
         assertEquals(ReaderLocator.Pdf(0), ReaderLocator.decode("pdf|-3|0|0"))
         assertEquals(ReaderLocator.Text(0), ReaderLocator.decode("text|-3"))
+        assertNull(ReaderLocator.decode("epub|Y2gueGh0bWw|-1|0"))
     }
 
     @Test
-    fun formatMappingCoversTextFormats() {
+    fun formatMappingRejectsUnsupportedFormats() {
         assertEquals(ReaderFormat.PDF, ReaderFormat.fromRaw("PDF"))
         assertEquals(ReaderFormat.TEXT, ReaderFormat.fromRaw("md"))
+        assertEquals(ReaderFormat.HTML, ReaderFormat.fromRaw("html"))
         assertEquals(ReaderFormat.EPUB, ReaderFormat.fromRaw("epub"))
-        assertEquals(ReaderFormat.EPUB, ReaderFormat.fromRaw(null))
+        assertEquals(ReaderFormat.UNSUPPORTED, ReaderFormat.fromRaw("azw3"))
+        assertEquals(ReaderFormat.UNSUPPORTED, ReaderFormat.fromRaw(null))
+    }
+
+    @Test
+    fun fiveLocatorKindsRoundTripWithRanges() {
+        val values = listOf(
+            ReaderLocator.Epub("OEBPS/ch1.xhtml", 2, 3, 4),
+            ReaderLocator.Pdf(5, 0.1f, 0.2f, ReaderRect(0.1f, 0.2f, 0.3f, 0.4f)),
+            ReaderLocator.Text(6, 7),
+            ReaderLocator.Html("notes.xhtml", "sec-2", 8, 9),
+            ReaderLocator.Scroll(0.55f),
+        )
+        values.forEach { locator ->
+            val encoded = locator.encode()
+            assertTrue(encoded, encoded.startsWith("v1|"))
+            assertEquals(locator, ReaderLocator.decode(encoded))
+        }
+    }
+
+    @Test
+    fun invalidV1ValuesAreRejected() {
+        assertNull(ReaderLocator.decode("v1|pdf|-1|0|0|-|-|-|-"))
+        assertNull(ReaderLocator.decode("v1|pdf|0|NaN|0|-|-|-|-"))
+        assertNull(ReaderLocator.decode("v1|pdf|0|0|0|0.5|0.5|0.4|0.6"))
+        assertNull(ReaderLocator.decode("v1|epub|" + "a".repeat(12000) + "|0|0|0"))
+        assertNull(ReaderLocator.decode("v1|scroll|NaN"))
+    }
+
+    @Test
+    fun legacyUnversionedLinesStillDecode() {
+        assertEquals(ReaderLocator.Pdf(3, 0.25f, 0.75f), ReaderLocator.decode("pdf|3|0.25|0.75"))
+        assertEquals(ReaderLocator.Epub("ch.xhtml", 1, 2), ReaderLocator.decode("epub|Y2gueGh0bWw|1|2"))
+    }
+
+    @Test
+    fun annotationCarriesLocatorAndLegacyFields() {
+        val annotation = ReaderAnnotation(
+            id = 7,
+            bookId = 9,
+            type = ReaderAnnotationType.HIGHLIGHT,
+            locator = ReaderLocator.Epub("ch.xhtml", 1, 2, 3),
+            quote = "quote",
+            note = "note",
+            tags = listOf("tag"),
+            legacyId = 11,
+            legacyType = "highlight",
+        )
+        assertEquals(annotation, annotation.copy())
+        assertEquals(ReaderAnnotationType.HIGHLIGHT, annotation.type)
     }
 
     @Test
