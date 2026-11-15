@@ -557,12 +557,29 @@ private fun PdfReadingPane(
             }
             when (opened) {
                 is PdfTextLayerOpenResult.Success -> {
-                    textLayer = opened.controller
-                    Log.i(
-                        PERF_TAG,
-                        "PBPERF|phase=pdf_text_open|ms=" + (SystemClock.elapsedRealtime() - begin) +
-                            "|extra=pages:" + opened.controller.pageCount,
-                    )
+                    val controller = opened.controller
+                    // A022-2：扫描版 PDF 的文本层可能“打开成功但没有任何字符”。
+                    // 只探前 2 页，避免把大文件的扫描件逐页加载；探针失败按“有文本层”处理，
+                    // 不因为一次异常就误报。
+                    val hasText = withContext(Dispatchers.IO) {
+                        runCatching {
+                            (0 until minOf(controller.pageCount, 2)).any { page ->
+                                controller.loadPage(page).hasTextLayer
+                            }
+                        }.getOrDefault(true)
+                    }
+                    if (!hasText) {
+                        controller.close()
+                        textLayerUnavailable = true
+                        Log.w(TAG, "pdf text layer empty pages=" + controller.pageCount)
+                    } else {
+                        textLayer = controller
+                        Log.i(
+                            PERF_TAG,
+                            "PBPERF|phase=pdf_text_open|ms=" + (SystemClock.elapsedRealtime() - begin) +
+                                "|extra=pages:" + controller.pageCount,
+                        )
+                    }
                 }
                 is PdfTextLayerOpenResult.Failure -> {
                     textLayerUnavailable = true

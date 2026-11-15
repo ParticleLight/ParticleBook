@@ -435,8 +435,11 @@ fun EpubReaderScreen(
         val damaged = annotation.locatorError != null
         val active = controller
         if (damaged) {
+            // 侧栏是 ModalBottomSheet，Snackbar 会被它盖住；先关侧栏再提示。
+            annotationsOpen = false
             notify("位置不可用，无法跳转")
         } else if (locator == null || active == null) {
+            annotationsOpen = false
             notify("无法定位该标注")
         } else {
             val target = active.chapterIndexForHref(locator.chapterHref)
