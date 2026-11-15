@@ -485,6 +485,12 @@ fun ParticleBookApp() {
                     onLoginClick = { openLogin() },
                     onLogout = { accountViewModel.logout() },
                     onDownloadsClick = { pushRoute("downloads") },
+                    onSettingsRestored = {
+                        // 设置恢复只覆盖 37 个全局键；字号/行高在 AppRoot 里另有
+                        // rememberSaveable 状态，必须从 SettingsStore 重新读取。
+                        fontSize = preferences.fontSize
+                        lineHeight = preferences.lineHeight
+                    },
                 )
             }
         }

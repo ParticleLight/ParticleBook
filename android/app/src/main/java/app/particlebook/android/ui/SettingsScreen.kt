@@ -99,6 +99,9 @@ fun SettingsScreen(
     onLoginClick: () -> Unit,
     onLogout: () -> Unit,
     onDownloadsClick: () -> Unit,
+    // A023-5：恢复设置后把 AppRoot 的 rememberSaveable 状态重新读一遍，
+    // 否则当前页仍显示恢复前的字号/行高（prefs 已更新，但 Compose 状态没变）。
+    onSettingsRestored: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -397,6 +400,7 @@ fun SettingsScreen(
                                     runCatching { settingsExportFile.restore(settingsStore) }
                                 }
                                 result.onSuccess { imported ->
+                                    onSettingsRestored()
                                     snackbarHostState.showSnackbar(
                                         "已恢复 " + imported.importedKeyCount + " 个全局键、" +
                                             imported.bookValues.size + " 本书的覆盖值",
