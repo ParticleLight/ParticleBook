@@ -22,6 +22,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.outlined.List
+import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -31,6 +32,8 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -43,6 +46,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -53,13 +57,19 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import app.particlebook.android.reader.AnnotationStore
+import app.particlebook.android.reader.ReaderAnnotation
+import app.particlebook.android.reader.adapter.EpubReaderAdapter
+import app.particlebook.android.reader.ReaderAnnotationType
 import app.particlebook.android.reader.ReaderLocator
 import app.particlebook.android.reader.epub.EpubReaderController
+import app.particlebook.android.reader.epub.EpubSelection
 import app.particlebook.android.reader.epub.EpubTocTarget
 import app.particlebook.android.reader.epub.layout.EpubChapterLayout
 import app.particlebook.android.reader.epub.layout.EpubLayoutConfig
 import app.particlebook.android.reader.epub.layout.StaticLayoutBlockMeasurer
 import app.particlebook.android.reader.epub.parser.EpubArchive
+import app.particlebook.android.reader.epub.render.EpubHighlight
 import app.particlebook.android.reader.epub.render.EpubPageIndex
 import app.particlebook.android.reader.epub.render.EpubPageView
 import app.particlebook.android.reader.epub.render.EpubSelectionRange
@@ -67,6 +77,7 @@ import app.particlebook.android.ui.data.Book
 import app.particlebook.android.ui.data.ReadingProgress
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import kotlin.math.max
@@ -76,6 +87,12 @@ private data class ChapterRequest(
     val chapterIndex: Int,
     val page: Int?,
     val locator: ReaderLocator.Epub? = null,
+)
+
+/** 新建笔记时捕获的选区；对话框打开期间选区状态可能变化，必须先快照。 */
+private data class EpubNoteDraft(
+    val existing: ReaderAnnotation?,
+    val selection: EpubSelection?,
 )
 
 private data class OpenedEpub(
@@ -101,13 +118,22 @@ private sealed interface EpubOpenState {
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun EpubReaderScreen(book: Book, onBack: () -> Unit) {
+fun EpubReaderScreen(
+    book: Book,
+    onBack: () -> Unit,
+    annotationStore: AnnotationStore? = null,
+) {
     ImmersiveSystemBars()
     BackHandler(onBack = onBack)
     val density = LocalDensity.current
     val densityValue = density.density
     val scaledDensity = density.density * density.fontScale
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val snackbarHostState = remember { SnackbarHostState() }
+    val notify: (String) -> Unit = { message ->
+        scope.launch { snackbarHostState.showSnackbar(message) }
+    }
 
     var controller by remember(book.filePath) { mutableStateOf<EpubReaderController?>(null) }
     var archive by remember(book.filePath) { mutableStateOf<EpubArchive?>(null) }
@@ -115,6 +141,9 @@ fun EpubReaderScreen(book: Book, onBack: () -> Unit) {
     var reloadTick by remember(book.filePath) { mutableIntStateOf(0) }
     var chapterIndex by remember(book.filePath) { mutableIntStateOf(0) }
     var chapterLayout by remember(book.filePath) { mutableStateOf<EpubChapterLayout?>(null) }
+    // PB-022：ReaderAdapter 需要 layoutConfig 才能跨章 goTo/getTextModel；
+    // 配置由 EpubContent 实测视口后回传，适配器只在拿到配置后创建。
+    var layoutConfig by remember(book.filePath) { mutableStateOf<EpubLayoutConfig?>(null) }
     var pageIndex by remember(book.filePath) { mutableIntStateOf(0) }
     var tocOpen by remember { mutableStateOf(false) }
     var selectedRange by remember { mutableStateOf<EpubSelectionRange?>(null) }
@@ -122,6 +151,24 @@ fun EpubReaderScreen(book: Book, onBack: () -> Unit) {
     var requestVersion by remember(book.filePath) { mutableIntStateOf(0) }
     // 恢复定位完成前不允许写进度：否则 locator 解析失败时会把已保存的 page2 立刻覆盖成 0。
     var progressReady by remember(book.filePath) { mutableStateOf(false) }
+    var annotations by remember(book.filePath) { mutableStateOf<List<ReaderAnnotation>>(emptyList()) }
+    var annotationVersion by remember(book.filePath) { mutableIntStateOf(0) }
+    var annotationsLoading by remember(book.filePath) { mutableStateOf(false) }
+    var annotationsOpen by remember { mutableStateOf(false) }
+    var noteDraft by remember(book.filePath) { mutableStateOf<EpubNoteDraft?>(null) }
+    var pendingDelete by remember(book.filePath) { mutableStateOf<ReaderAnnotation?>(null) }
+    val adapter = remember(controller, layoutConfig, annotationStore) {
+        val active = controller
+        val config = layoutConfig
+        if (active != null && config != null) {
+            EpubReaderAdapter(active, config, annotationStore)
+        } else {
+            null
+        }
+    }
+    DisposableEffect(adapter) {
+        onDispose { adapter?.close() }
+    }
 
     // 只在阅读屏真正离开组合时释放；不能把 controller/archive 作为 key——
     // 打开成功会先赋值 controller 再赋值 archive，key 变化会在中途触发 onDispose
@@ -140,6 +187,7 @@ fun EpubReaderScreen(book: Book, onBack: () -> Unit) {
         chapterIndex = 0
         chapterRequest = null
         requestVersion = 0
+        layoutConfig = null
         progressReady = false
         selectedRange = null
         val oldController = controller
@@ -210,40 +258,251 @@ fun EpubReaderScreen(book: Book, onBack: () -> Unit) {
             selectedRange = null
         }
     }
-    LaunchedEffect(controller, chapterIndex, chapterLayout, pageIndex, progressReady) {
+    LaunchedEffect(controller, adapter, chapterIndex, chapterLayout, pageIndex, progressReady) {
         if (!progressReady) return@LaunchedEffect
         val active = controller ?: return@LaunchedEffect
         val layout = chapterLayout ?: return@LaunchedEffect
         if (layout.pageCount <= 0 || active.currentChapterIndex != chapterIndex) return@LaunchedEffect
-        val locator = active.locatorForPage(pageIndex) ?: return@LaunchedEffect
+        // PB-022：进度位置统一经 ReaderAdapter 读取；adapter 未就绪时退回 controller。
+        val locator = adapter?.getLocator() ?: active.locatorForPage(pageIndex) ?: return@LaunchedEffect
         val pages = layout.pageCount
         withContext(Dispatchers.IO) {
             ReadingProgress.saveEpubProgress(context, book.id, locator, pageIndex, pages)
         }
     }
-    val copySelection = {
+    LaunchedEffect(annotationStore, book.id, annotationVersion) {
+        val store = annotationStore
+        if (store == null) {
+            annotations = emptyList()
+            annotationsLoading = false
+            return@LaunchedEffect
+        }
+        // 不先清空：保存后 version++ 重读时保留旧高亮，避免闪一下再出现。
+        annotationsLoading = true
+        val result = withContext(Dispatchers.IO) { runCatching { store.list(book.id) } }
+        annotationsLoading = false
+        result.onSuccess { annotations = it }
+            .onFailure { notify("读取标注失败：" + (it.message ?: "未知错误")) }
+    }
+
+    val captureSelection: () -> EpubSelection? = {
         val range = selectedRange
-        val c = controller
-        val selection = if (range != null && c != null) {
-            c.selectionRangeInBlock(
+        val active = controller
+        if (range == null || active == null) {
+            null
+        } else {
+            active.selectionRangeInBlock(
                 pageIndex = pageIndex,
                 blockIndex = range.blockIndex,
                 startChar = range.startChar,
                 endChar = range.endChar,
             )
-        } else {
-            null
         }
-        val text = selection?.text
+    }
+    val copySelection = {
+        val text = captureSelection()?.text
         if (!text.isNullOrEmpty()) {
             clipboard?.setPrimaryClip(ClipData.newPlainText("EPUB 摘录", text))
             selectedRange = null
         }
     }
+    val saveAnnotation: (ReaderAnnotationType, String?, String, EpubSelection) -> Unit =
+        { type, color, note, selection ->
+            val store = annotationStore
+            if (store == null) {
+                notify("标注存储未就绪")
+            } else {
+                val annotation = annotationFromSelection(
+                    bookId = book.id,
+                    type = type,
+                    selection = selection,
+                    color = color,
+                    note = note,
+                    now = System.currentTimeMillis(),
+                )
+                if (annotation == null) {
+                    notify("选区已失效，请重新选择")
+                } else {
+                    scope.launch {
+                        val result = withContext(Dispatchers.IO) {
+                            runCatching {
+                                adapter?.applyAnnotation(annotation) ?: store.add(annotation)
+                            }
+                        }
+                        result.onSuccess {
+                            annotationVersion += 1
+                            selectedRange = null
+                            noteDraft = null
+                            notify(
+                                if (type == ReaderAnnotationType.NOTE) "笔记已保存" else "高亮已保存",
+                            )
+                        }.onFailure {
+                            notify("保存标注失败：" + (it.message ?: "未知错误"))
+                        }
+                    }
+                }
+            }
+        }
+    val highlightSelection: (String) -> Unit = { colorKey ->
+        val selection = captureSelection()
+        if (selection == null) {
+            notify("请先选中正文")
+        } else {
+            saveAnnotation(ReaderAnnotationType.HIGHLIGHT, colorKey, "", selection)
+        }
+    }
+    val openNoteForSelection = {
+        val selection = captureSelection()
+        if (annotationStore == null) {
+            notify("标注存储未就绪")
+        } else if (selection == null) {
+            notify("请先选中正文")
+        } else {
+            noteDraft = EpubNoteDraft(existing = null, selection = selection)
+        }
+    }
+    val openNoteEditor: (ReaderAnnotation) -> Unit = { annotation ->
+        annotationsOpen = false
+        noteDraft = EpubNoteDraft(existing = annotation, selection = null)
+    }
+    val saveNote: (String) -> Unit = { text ->
+        val draft = noteDraft
+        val store = annotationStore
+        if (draft == null) {
+            Unit
+        } else if (store == null) {
+            notify("标注存储未就绪")
+        } else {
+            val existing = draft.existing
+            if (existing == null) {
+                val selection = draft.selection
+                if (selection == null) {
+                    notify("选区已失效，请重新选择")
+                } else {
+                    saveAnnotation(ReaderAnnotationType.NOTE, EpubAnnotationPalette.note.key, text, selection)
+                }
+            } else {
+                scope.launch {
+                    val result = withContext(Dispatchers.IO) {
+                        runCatching {
+                            store.update(
+                                annotationWithNote(existing, text, System.currentTimeMillis()),
+                            )
+                        }
+                    }
+                    result.onSuccess { updated ->
+                        if (updated == null) {
+                            notify("标注不存在或已被删除")
+                        } else {
+                            annotationVersion += 1
+                            noteDraft = null
+                            notify("笔记已更新")
+                        }
+                    }.onFailure {
+                        notify("更新笔记失败：" + (it.message ?: "未知错误"))
+                    }
+                }
+            }
+        }
+    }
+    val deleteAnnotation: (ReaderAnnotation) -> Unit = { annotation ->
+        val store = annotationStore
+        if (store == null) {
+            notify("标注存储未就绪")
+        } else {
+            scope.launch {
+                val result = withContext(Dispatchers.IO) {
+                    runCatching {
+                        adapter?.removeAnnotation(annotation.id) ?: store.remove(annotation.id)
+                    }
+                }
+                result.onSuccess { removed ->
+                    pendingDelete = null
+                    if (removed) {
+                        annotationVersion += 1
+                        notify("已删除标注")
+                    } else {
+                        notify("标注不存在")
+                    }
+                }.onFailure {
+                    notify("删除标注失败：" + (it.message ?: "未知错误"))
+                }
+            }
+        }
+    }
+    val jumpToAnnotation: (ReaderAnnotation) -> Unit = { annotation ->
+        val locator = annotation.locator as? ReaderLocator.Epub
+        val damaged = annotation.locatorError != null
+        val active = controller
+        if (damaged) {
+            notify("位置不可用，无法跳转")
+        } else if (locator == null || active == null) {
+            notify("无法定位该标注")
+        } else {
+            val target = active.chapterIndexForHref(locator.chapterHref)
+            if (target == null) {
+                notify("标注所在章节已变化")
+            } else {
+                annotationsOpen = false
+                requestChapter(target, 0, locator)
+            }
+        }
+    }
+    val openAnnotationList: () -> Unit = {
+        if (annotationStore == null) {
+            notify("标注存储未就绪")
+        } else {
+            annotationsOpen = true
+        }
+    }
+    // A021-2：书签不是选区标注，直接记当前页起点 locator；侧栏与高亮/笔记共用同一张表。
+    val addBookmark: () -> Unit = {
+        val store = annotationStore
+        val active = controller
+        if (store == null) {
+            notify("标注存储未就绪")
+        } else if (active == null) {
+            notify("阅读器尚未就绪")
+        } else {
+            val locator = runCatching { adapter?.getLocator() }.getOrNull()
+                ?: active.locatorForPage(pageIndex)
+            if (locator == null) {
+                notify("当前位置不可用")
+            } else {
+                val quote = runCatching { active.pageText(pageIndex) }.getOrDefault("")
+                    .take(80)
+                    .trim()
+                val annotation = ReaderAnnotation(
+                    bookId = book.id,
+                    type = ReaderAnnotationType.BOOKMARK,
+                    locator = locator,
+                    quote = quote,
+                    createdAt = System.currentTimeMillis(),
+                )
+                scope.launch {
+                    val result = withContext(Dispatchers.IO) {
+                        runCatching {
+                            adapter?.applyAnnotation(annotation) ?: store.add(annotation)
+                        }
+                    }
+                    result.onSuccess {
+                        annotationVersion += 1
+                        notify("书签已保存")
+                    }.onFailure {
+                        notify("保存书签失败：" + (it.message ?: "未知错误"))
+                    }
+                }
+            }
+        }
+    }
+    val pageHighlights = remember(annotations, chapterLayout, pageIndex) {
+        chapterLayout?.let { annotationsOnPage(annotations, it, pageIndex) }.orEmpty()
+    }
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         containerColor = MaterialTheme.colorScheme.background,
         contentWindowInsets = androidx.compose.foundation.layout.WindowInsets(0),
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             ReaderTopBar(
                 title = book.title,
@@ -252,6 +511,10 @@ fun EpubReaderScreen(book: Book, onBack: () -> Unit) {
                     IconButton(onClick = { tocOpen = true }) {
                         Icon(Icons.AutoMirrored.Outlined.List, contentDescription = "目录")
                     }
+                    IconButton(onClick = addBookmark) {
+                        Icon(Icons.Filled.BookmarkBorder, contentDescription = "添加书签")
+                    }
+                    TextButton(onClick = openAnnotationList) { Text("标注") }
                 },
             )
         },
@@ -274,6 +537,9 @@ fun EpubReaderScreen(book: Book, onBack: () -> Unit) {
                         previousEnabled = pageIndex > 0 || chapterIndex > 0,
                         nextEnabled = pageIndex < count - 1 || chapterIndex < chapterCount - 1,
                         onCopySelection = copySelection,
+                        onHighlight = highlightSelection,
+                        onOpenAnnotations = openAnnotationList,
+                        onNote = openNoteForSelection,
                         onPrevious = {
                             selectedRange = null
                             if (pageIndex > 0) {
@@ -323,6 +589,7 @@ fun EpubReaderScreen(book: Book, onBack: () -> Unit) {
                             requestVersion = requestVersion,
                             pageIndex = pageIndex,
                             selectedRange = selectedRange,
+                            highlights = pageHighlights,
                             onLayout = { layout, page ->
                                 chapterLayout = layout
                                 pageIndex = page
@@ -337,6 +604,7 @@ fun EpubReaderScreen(book: Book, onBack: () -> Unit) {
                                 if (chapterRequest == applied) chapterRequest = null
                             },
                             onRequestChapter = requestChapter,
+                            onLayoutConfig = { layoutConfig = it },
                             onSelectionChanged = { selectedRange = it },
                         )
                     }
@@ -397,6 +665,32 @@ fun EpubReaderScreen(book: Book, onBack: () -> Unit) {
             }
         }
     }
+
+    if (annotationsOpen) {
+        EpubAnnotationSheet(
+            annotations = annotations,
+            loading = annotationsLoading,
+            onDismiss = { annotationsOpen = false },
+            onJump = jumpToAnnotation,
+            onEditNote = openNoteEditor,
+            onDelete = { pendingDelete = it },
+        )
+    }
+    noteDraft?.let { draft ->
+        EpubNoteEditorDialog(
+            title = if (draft.existing == null) "新建笔记" else "编辑笔记",
+            initialText = draft.existing?.note.orEmpty(),
+            onDismiss = { noteDraft = null },
+            onConfirm = saveNote,
+        )
+    }
+    pendingDelete?.let { annotation ->
+        EpubDeleteAnnotationDialog(
+            annotation = annotation,
+            onDismiss = { pendingDelete = null },
+            onConfirm = { deleteAnnotation(annotation) },
+        )
+    }
 }
 
 @Composable
@@ -410,10 +704,12 @@ private fun EpubContent(
     requestVersion: Int,
     pageIndex: Int,
     selectedRange: EpubSelectionRange?,
+    highlights: List<EpubHighlight>,
     onLayout: (EpubChapterLayout, Int) -> Unit,
     onPageChanged: (Int) -> Unit,
     onRequestApplied: (ChapterRequest) -> Unit,
     onRequestChapter: (Int, Int?, ReaderLocator.Epub?) -> Unit,
+    onLayoutConfig: (EpubLayoutConfig) -> Unit,
     onSelectionChanged: (EpubSelectionRange?) -> Unit,
 ) {
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
@@ -432,6 +728,7 @@ private fun EpubContent(
                 defaultTextColor = textColor,
             )
         }
+        LaunchedEffect(config) { onLayoutConfig(config) }
         var retryTick by remember { mutableIntStateOf(0) }
         var layoutLoading by remember { mutableStateOf(true) }
         var layoutError by remember { mutableStateOf<String?>(null) }
@@ -478,6 +775,7 @@ private fun EpubContent(
                 modifier = Modifier.fillMaxSize(),
                 update = { view ->
                     view.setChapter(layout, pageIndex, archive)
+                    view.setHighlights(highlights)
                     view.setSelection(selectedRange)
                     view.onPageRequested = { target ->
                         val count = layout.pageCount
@@ -524,6 +822,9 @@ private fun ReaderBottomBar(
     previousEnabled: Boolean,
     nextEnabled: Boolean,
     onCopySelection: () -> Unit,
+    onHighlight: (String) -> Unit,
+    onNote: () -> Unit,
+    onOpenAnnotations: () -> Unit,
     onPrevious: () -> Unit,
     onNext: () -> Unit,
 ) {
@@ -538,29 +839,36 @@ private fun ReaderBottomBar(
                     .fillMaxWidth()
                     .height(2.dp),
             )
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.Center,
-            ) {
-                IconButton(onClick = onPrevious, enabled = previousEnabled) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "上一页")
-                }
-                Text(
-                    text = "全书 " + (overallPercent * 100f).roundToInt() + "% · " +
-                        (pageIndex + 1) + " / " + pageCount +
-                        if (selectionLength > 0) " · 已选 " + selectionLength + " 字" else "",
-                    style = MaterialTheme.typography.labelMedium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.weight(1f),
+            if (selectionLength > 0) {
+                // 选区工具条替换翻页行，但底栏总高不变，避免正文重排导致页数变化。
+                EpubSelectionToolbar(
+                    selectedLength = selectionLength,
+                    onHighlight = onHighlight,
+                    onNote = onNote,
+                    onCopy = onCopySelection,
                 )
-                IconButton(onClick = onNext, enabled = nextEnabled) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "下一页")
-                }
-                if (selectionLength > 0) {
-                    TextButton(onClick = onCopySelection) { Text("复制") }
+            } else {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center,
+                ) {
+                    IconButton(onClick = onPrevious, enabled = previousEnabled) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "上一页")
+                    }
+                    Text(
+                        text = "全书 " + (overallPercent * 100f).roundToInt() + "% · " +
+                            (pageIndex + 1) + " / " + pageCount,
+                        style = MaterialTheme.typography.labelMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.weight(1f),
+                    )
+                    IconButton(onClick = onNext, enabled = nextEnabled) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "下一页")
+                    }
+                    TextButton(onClick = onOpenAnnotations) { Text("标注") }
                 }
             }
         }

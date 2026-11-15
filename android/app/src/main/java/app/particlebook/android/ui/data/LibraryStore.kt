@@ -651,7 +651,7 @@ class LibraryStore(
         val format = when {
             extension == "pdf" || mimeType == "application/pdf" -> BookFormat.Pdf
             extension == "epub" || mimeType == "application/epub+zip" -> BookFormat.Epub
-            else -> BookFormat.Epub
+            else -> BookFormat.Unsupported
         }
         val safeExtension = sanitizeCopyExtension(extension, format)
         // 唯一文件名带 uuid：同一毫秒并发导入/下载也不会互相覆盖。
@@ -1177,7 +1177,13 @@ internal fun libraryCopyFileName(prefix: String, extension: String, millis: Long
 /** 扩展名只保留字母数字并限长，避免异常/恶意的 SAF DISPLAY_NAME 带出路径分隔符。 */
 internal fun sanitizeCopyExtension(rawExtension: String, format: BookFormat): String {
     val safe = rawExtension.lowercase(Locale.US).filter { it.isLetterOrDigit() }.take(8)
-    return safe.ifEmpty { if (format == BookFormat.Pdf) "pdf" else "epub" }
+    return safe.ifEmpty {
+        when (format) {
+            BookFormat.Pdf -> "pdf"
+            BookFormat.Epub -> "epub"
+            BookFormat.Unsupported -> "bin"
+        }
+    }
 }
 
 /** 读文件头判断书籍类型：%PDF → Pdf，PK（ZIP/EPUB）→ Epub；读不到或不像书籍 → null。 */
@@ -1455,7 +1461,7 @@ internal class JsonLibraryIndexCodec : LibraryIndexCodec {
         .put("id", book.id)
         .put("title", book.title)
         .put("author", book.author ?: JSONObject.NULL)
-        .put("format", if (book.format == BookFormat.Pdf) "pdf" else "epub")
+        .put("format", book.format.raw)
         .put("filePath", book.filePath)
         .put("fileSize", book.fileSize)
         .put("addedAt", book.addedAt ?: JSONObject.NULL)
@@ -2344,7 +2350,7 @@ internal fun detectBookFormat(file: File): BookFormat {
     ) {
         BookFormat.Pdf
     } else {
-        BookFormat.Epub
+        BookFormat.Unsupported
     }
 }
 

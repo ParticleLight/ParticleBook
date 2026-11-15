@@ -111,9 +111,12 @@ import androidx.compose.ui.window.DialogWindowProvider
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import app.particlebook.android.reader.AnnotationStore
 import app.particlebook.android.ui.data.Book
 import app.particlebook.android.ui.data.BookFormat
+import app.particlebook.android.reader.pdf.PdfSelectionController
 import app.particlebook.android.reader.pdf.PdfTextLayerController
+import app.particlebook.android.reader.pdf.PdfTextLayerDocumentSource
 import app.particlebook.android.reader.pdf.PdfTextLayerOpenResult
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
@@ -164,11 +167,65 @@ private fun pageCacheLimitBytes(): Int {
  * 进入即切沉浸（隐藏系统栏），退出恢复。
  */
 @Composable
-fun ReaderScreen(book: Book, onBack: () -> Unit) {
+fun ReaderScreen(
+    book: Book,
+    onBack: () -> Unit,
+    annotationStore: AnnotationStore? = null,
+) {
     BackHandler(onBack = onBack)
     when (book.format) {
-        BookFormat.Pdf -> PdfReaderScreen(book = book, onBack = onBack)
-        BookFormat.Epub -> EpubReaderScreen(book = book, onBack = onBack)
+        BookFormat.Pdf -> PdfReaderScreen(book = book, onBack = onBack, annotationStore = annotationStore)
+        BookFormat.Epub -> EpubReaderScreen(book = book, onBack = onBack, annotationStore = annotationStore)
+        BookFormat.Unsupported -> UnsupportedReaderScreen(book = book, onBack = onBack)
+    }
+}
+
+/**
+ * 未知格式入口：不把 TXT/AZW3/DOCX 之类硬塞进 EPUB 解析器，也不让点击无反应。
+ * 明确告诉用户当前只支持 EPUB/PDF，并保留返回路径。
+ */
+@Composable
+private fun UnsupportedReaderScreen(book: Book, onBack: () -> Unit) {
+    BackHandler(onBack = onBack)
+    ImmersiveSystemBars()
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background),
+    ) {
+        Column(
+            Modifier
+                .fillMaxSize()
+                .padding(horizontal = 32.dp, vertical = 24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.ErrorOutline,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(48.dp),
+            )
+            Spacer(Modifier.height(16.dp))
+            Text("暂不支持此格式", style = MaterialTheme.typography.titleLarge)
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "《" + book.title + "》是 " + book.format.label + " 格式，当前原生阅读器只支持 EPUB 与 PDF。",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+            )
+            Spacer(Modifier.height(24.dp))
+            Button(onClick = onBack) { Text("返回书架") }
+        }
+        TextButton(
+            onClick = onBack,
+            modifier = Modifier.align(Alignment.TopStart),
+        ) {
+            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+            Spacer(Modifier.width(4.dp))
+            Text("返回")
+        }
     }
 }
 
@@ -197,7 +254,11 @@ private class PdfSourceHolder {
 }
 
 @Composable
-private fun PdfReaderScreen(book: Book, onBack: () -> Unit) {
+private fun PdfReaderScreen(
+    book: Book,
+    onBack: () -> Unit,
+    annotationStore: AnnotationStore? = null,
+) {
     ImmersiveSystemBars()
     var state by remember(book.filePath) { mutableStateOf<PdfState>(PdfState.Loading) }
     var reloadTick by remember { mutableIntStateOf(0) }
@@ -261,6 +322,7 @@ private fun PdfReaderScreen(book: Book, onBack: () -> Unit) {
                         book = book,
                         source = current.source,
                         onBack = onBack,
+                        annotationStore = annotationStore,
                     )
                 }
             }
@@ -319,7 +381,12 @@ private fun PdfOpenError(message: String, onRetry: () -> Unit, onBack: () -> Uni
 /** 主阅读区：纵向连续滚动 + 覆盖式 chrome + 页码/目录 sheet。 */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun PdfReadingPane(book: Book, source: PdfSource, onBack: () -> Unit) {
+private fun PdfReadingPane(
+    book: Book,
+    source: PdfSource,
+    onBack: () -> Unit,
+    annotationStore: AnnotationStore? = null,
+) {
     val pageCount = source.pageCount
     val context = LocalContext.current
     val progressPrefs = remember(context) {
@@ -346,6 +413,20 @@ private fun PdfReadingPane(book: Book, source: PdfSource, onBack: () -> Unit) {
     var sliderValue by remember { mutableFloatStateOf(0f) }
     // P1：PDF 文本层（可见页 ±1，只读）。失败不阻断渲染，只记日志。
     var textLayer by remember(book.filePath) { mutableStateOf<PdfTextLayerController?>(null) }
+    // A022-2：文本层打不开时（扫描版 PDF）给一次明确提示，而不是让长按毫无反应。
+    var textLayerUnavailable by remember(book.filePath) { mutableStateOf(false) }
+    LaunchedEffect(textLayerUnavailable) {
+        if (!textLayerUnavailable) return@LaunchedEffect
+        delay(8000)
+        textLayerUnavailable = false
+    }
+    // A022-2：PDF 文本层就绪后才有选区；文本层失败时 state 为 null，长按不拦截页面点击。
+    val selectionController = remember(textLayer) {
+        textLayer?.let { PdfSelectionController(PdfTextLayerDocumentSource(it)) }
+    }
+    val selectionState = selectionController?.let {
+        rememberPdfSelectionState(it, book.id, annotationStore)
+    }
 
     val currentPage by remember(listState, pageCount) {
         derivedStateOf { computeCurrentPage(listState, pageCount) }
@@ -483,11 +564,14 @@ private fun PdfReadingPane(book: Book, source: PdfSource, onBack: () -> Unit) {
                             "|extra=pages:" + opened.controller.pageCount,
                     )
                 }
-                is PdfTextLayerOpenResult.Failure -> Log.w(
-                    TAG,
-                    "pdf text layer unavailable reason=" + opened.reason +
-                        " message=" + opened.message,
-                )
+                is PdfTextLayerOpenResult.Failure -> {
+                    textLayerUnavailable = true
+                    Log.w(
+                        TAG,
+                        "pdf text layer unavailable reason=" + opened.reason +
+                            " message=" + opened.message,
+                    )
+                }
             }
         }
         DisposableEffect(book.filePath) {
@@ -540,6 +624,7 @@ private fun PdfReadingPane(book: Book, source: PdfSource, onBack: () -> Unit) {
                     cache = pageCache,
                     pageIndex = index,
                     widthDp = pageWidthDp,
+                    selectionState = selectionState,
                 )
             }
         }
@@ -622,6 +707,34 @@ private fun PdfReadingPane(book: Book, source: PdfSource, onBack: () -> Unit) {
             )
         }
 
+        // A022-2：扫描版/无文本层 PDF 的提示；8 秒后自动消失，不长期遮挡正文。
+        if (textLayerUnavailable) {
+            Surface(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 88.dp, start = Spacing.md, end = Spacing.md),
+                shape = RoundedCornerShape(Spacing.sm),
+                color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.96f),
+                tonalElevation = 4.dp,
+                shadowElevation = 6.dp,
+            ) {
+                Text(
+                    text = "此 PDF 没有文本层，无法选择文字",
+                    modifier = Modifier.padding(horizontal = Spacing.md, vertical = Spacing.sm),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+            }
+        }
+        val activePdfSelection = selectionState?.selection?.takeIf { it.hasText }
+        if (selectionState != null && activePdfSelection != null) {
+            PdfSelectionToolbar(
+                state = selectionState,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 96.dp),
+            )
+        }
         AnimatedVisibility(
             visible = chromeVisible,
             enter = fadeIn(chromeFade) + slideInVertically(chromeMotion) { chromeShiftPx },
@@ -811,7 +924,12 @@ private sealed interface PageRender {
 
 /** 单页：缓存命中直接显示，未命中再渲染；未完成显示占位块（不插 spinner），失败给内联错误 + 重试。 */
 @Composable
-private fun PdfPageItem(cache: PdfPageCache, pageIndex: Int, widthDp: Dp) {
+private fun PdfPageItem(
+    cache: PdfPageCache,
+    pageIndex: Int,
+    widthDp: Dp,
+    selectionState: PdfSelectionState? = null,
+) {
     var retry by remember { mutableIntStateOf(0) }
     // 组合期间给该页位图记 in-use：缓存淘汰 / trim 都会跳过它，避免把正在显示的位图 recycle 掉。
     DisposableEffect(cache, pageIndex) {
@@ -851,14 +969,23 @@ private fun PdfPageItem(cache: PdfPageCache, pageIndex: Int, widthDp: Dp) {
                             "|extra=size:" + current.bitmap.width + "x" + current.bitmap.height,
                     )
                 }
-                Image(
-                    bitmap = current.bitmap.asImageBitmap(),
-                    contentDescription = "第 " + (pageIndex + 1) + " 页",
-                    contentScale = ContentScale.FillWidth,
-                    modifier = Modifier
-                        .width(widthDp)
-                        .clip(RoundedCornerShape(Spacing.xxs)),
-                )
+                Box(modifier = Modifier.width(widthDp)) {
+                    Image(
+                        bitmap = current.bitmap.asImageBitmap(),
+                        contentDescription = "第 " + (pageIndex + 1) + " 页",
+                        contentScale = ContentScale.FillWidth,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(Spacing.xxs)),
+                    )
+                    if (selectionState != null) {
+                        PdfSelectionOverlay(
+                            pageIndex = pageIndex,
+                            state = selectionState,
+                            modifier = Modifier.matchParentSize(),
+                        )
+                    }
+                }
             }
             is PageRender.Failed -> PageRenderError(
                 pageIndex = pageIndex,

@@ -2,6 +2,7 @@ package app.particlebook.android.reader.epub
 
 import app.particlebook.android.reader.ReaderFormat
 import app.particlebook.android.reader.ReaderLocator
+import app.particlebook.android.reader.ReaderSearchHit
 import app.particlebook.android.reader.ReaderSession
 import app.particlebook.android.reader.epub.layout.EpubBlockMeasurer
 import app.particlebook.android.reader.epub.layout.EpubChapterLayout
@@ -299,6 +300,39 @@ class EpubReaderController private constructor(
         return pageAt(ReaderLocator.Epub(href, 0, 0))
     }
 
+    /**
+     * 全书文本搜索：遍历 spine，按块内文本大小写不敏感匹配。
+     *
+     * 只读：不会改变当前章节、当前页或当前布局；章节解析复用 [chapterAt] 的 LRU。
+     * snippet 为命中位置前后各 [SNIPPET_CONTEXT] 个 UTF-16 code unit（不额外加省略号）。
+     * 空 query 或非正 limit 返回空列表；坏章节解析失败时跳过该章，不向外抛。
+     */
+    fun search(query: String, limit: Int = 50): List<ReaderSearchHit> {
+        if (query.isBlank() || limit <= 0) return emptyList()
+        val hits = ArrayList<ReaderSearchHit>()
+        for (chapterIndex in book.spine.indices) {
+            val chapter = runCatching { chapterAt(chapterIndex) }.getOrNull() ?: continue
+            for ((blockIndex, block) in chapter.blocks.withIndex()) {
+                val text = selectableTextOf(block)
+                if (text.isEmpty()) continue
+                var from = 0
+                while (from <= text.length - query.length) {
+                    val index = text.indexOf(query, from, ignoreCase = true)
+                    if (index < 0) break
+                    val snippetStart = max(0, index - SNIPPET_CONTEXT)
+                    val snippetEnd = minOf(text.length, index + query.length + SNIPPET_CONTEXT)
+                    hits += ReaderSearchHit(
+                        locator = ReaderLocator.Epub(chapter.href, blockIndex, index),
+                        snippet = text.substring(snippetStart, snippetEnd),
+                    )
+                    if (hits.size >= limit) return hits
+                    from = index + max(1, query.length)
+                }
+            }
+        }
+        return hits
+    }
+
     /** 当前布局的第 pageIndex 页；越界返回 null。 */
     fun page(pageIndex: Int): Page? = pageAtPage(pageIndex)
 
@@ -444,6 +478,7 @@ class EpubReaderController private constructor(
     companion object {
         const val CHAPTER_CACHE_SIZE = 3
         const val LAYOUT_CACHE_SIZE = 3
+        const val SNIPPET_CONTEXT = 30
 
         /**
          * 打开 EPUB。

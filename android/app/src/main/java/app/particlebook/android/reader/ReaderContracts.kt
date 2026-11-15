@@ -227,7 +227,10 @@ data class ReaderSession(
         copy(chapterIndex = chapter, pageIndex = page, pageCount = pages, percent = percent.coerceIn(0f, 1f))
 }
 
-/** 标注类型；P1 先冻结形状，PDF 标注在 P2 落地。 */
+/**
+ * 标注类型；P1 先冻结形状。PDF 几何标注在 P1 以 HIGHLIGHT 持久化
+ * （SQLite kind 只有 bookmark/highlight/note），PDF 独立类型留给 P2 扩展。
+ */
 enum class ReaderAnnotationType {
     BOOKMARK,
     HIGHLIGHT,
@@ -252,6 +255,12 @@ data class ReaderAnnotation(
     val updatedAt: Long = 0,
     val legacyId: Long? = null,
     val legacyType: String? = null,
+    /**
+     * A021-6：DB 里的 locator_json 无法解析时，列表仍要显示这一行并提示「位置不可用」。
+     * 非空时 [locator] 只是占位（Text(0)），UI 不得据此跳转；[rawLocatorJson] 保留原文供诊断。
+     */
+    val locatorError: String? = null,
+    val rawLocatorJson: String? = null,
 )
 
 /** 选区：locator 是起点，text 是选中文本，rects 是渲染层可画的高亮区域。 */

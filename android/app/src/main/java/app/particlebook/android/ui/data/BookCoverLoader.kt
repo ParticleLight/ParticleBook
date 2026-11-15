@@ -74,6 +74,7 @@ object BookCoverLoader {
             when (book.format) {
                 BookFormat.Pdf -> renderPdfCover(file)
                 BookFormat.Epub -> renderEpubCover(file)
+                BookFormat.Unsupported -> null
             }
         }.onFailure {
             Log.w(TAG, "cover generate failed id=" + book.id + ": " + it.message)

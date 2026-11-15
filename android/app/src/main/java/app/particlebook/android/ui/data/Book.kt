@@ -3,14 +3,24 @@ package app.particlebook.android.ui.data
 import org.json.JSONObject
 import java.util.Locale
 
-/** 书架里只有两种格式；EPUB 排版尚未迁移，PDF 走原生 PdfRenderer。 */
-enum class BookFormat(val label: String, val mime: String) {
-    Epub("EPUB", "application/epub+zip"),
-    Pdf("PDF", "application/pdf");
+/**
+ * 书架条目格式。P1 原生阅读只支持 EPUB/PDF；其他格式保留条目但入口明确提示不支持，
+ * 不能再像 P0 那样把未知格式默认当 EPUB（否则 TXT/AZW3 会被送进 EPUB 解析器）。
+ */
+enum class BookFormat(val label: String, val mime: String, val raw: String) {
+    Epub("EPUB", "application/epub+zip", "epub"),
+    Pdf("PDF", "application/pdf", "pdf"),
+    Unsupported("不支持", "application/octet-stream", "unsupported");
+
+    /** 是否有原生阅读器实现；UI 入口据此禁用或提示。 */
+    val isReadable: Boolean get() = this == Epub || this == Pdf
 
     companion object {
-        fun fromRaw(raw: String?): BookFormat =
-            if (raw != null && raw.equals("pdf", ignoreCase = true)) Pdf else Epub
+        fun fromRaw(raw: String?): BookFormat = when (raw?.lowercase(Locale.US)) {
+            "pdf" -> Pdf
+            "epub" -> Epub
+            else -> Unsupported
+        }
     }
 }
 

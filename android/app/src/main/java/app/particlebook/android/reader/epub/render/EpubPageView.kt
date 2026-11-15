@@ -30,6 +30,7 @@ class EpubPageView @JvmOverloads constructor(
     private var chapterLayout: EpubChapterLayout? = null
     private var pageIndex: Int = 0
     private var selection: EpubSelectionRange? = null
+    private var highlights: List<EpubHighlight> = emptyList()
     private var selectionAnchor: EpubSelectionHit? = null
     private var selectingByLongPress = false
 
@@ -108,6 +109,16 @@ class EpubPageView @JvmOverloads constructor(
         invalidate()
     }
 
+    /**
+     * 当前页已持久化标注的高亮范围。与 [selection] 独立：选区绘制在最上层，
+     * 高亮只按颜色画半透明底，不参与命中/拖动。
+     */
+    fun setHighlights(ranges: List<EpubHighlight>) {
+        if (highlights == ranges) return
+        highlights = ranges
+        invalidate()
+    }
+
     /** 由上层恢复/清除选区；不重建章节，拖动过程中调用不会丢锚点。 */
     fun setSelection(range: EpubSelectionRange?) {
         if (selection == range) return
@@ -140,6 +151,18 @@ class EpubPageView @JvmOverloads constructor(
         super.onDraw(canvas)
         val page = currentPage() ?: return
         renderer.draw(canvas, page)
+        for (highlight in highlights) {
+            if (highlight.length <= 0) continue
+            val rects = renderer.selectionRects(
+                page,
+                EpubSelectionRange(
+                    blockIndex = highlight.blockIndex,
+                    startChar = highlight.startChar,
+                    endChar = highlight.endChar,
+                ),
+            )
+            if (rects.isNotEmpty()) renderer.drawSelection(canvas, rects, highlight.colorArgb)
+        }
         val active = selection ?: return
         val rects = renderer.selectionRects(page, active)
         if (rects.isNotEmpty()) renderer.drawSelection(canvas, rects)
