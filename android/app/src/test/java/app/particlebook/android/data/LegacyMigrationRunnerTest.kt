@@ -105,12 +105,14 @@ class LegacyMigrationRunnerTest {
             mapOf("page_1" to 3, "pages_1" to 100, "last_read_1" to 1700000000000L)
         },
         now: () -> Long = { 123L },
+        preserveSource: Boolean = false,
     ): LegacyMigrationRunner = LegacyMigrationRunner(
         dataDir = dir,
         readPreferences = prefs,
         store = store,
         now = now,
         loader = loader(),
+        preserveSource = preserveSource,
     )
 
     @Test
@@ -137,6 +139,25 @@ class LegacyMigrationRunnerTest {
         val migrated = File(result.migratedPath)
         assertTrue(migrated.isFile)
         assertEquals(original, migrated.readText())
+    }
+
+    @Test
+    fun preserveSourceKeepsBooksJsonAndLeavesMigratedCopy() {
+        val dir = tempDir()
+        val source = writeSource(dir)
+        val original = source.readText()
+        val store = FakeMigrationStore()
+
+        val result = runner(dir, store, preserveSource = true).run()
+
+        assertTrue(result.toString(), result is LegacyMigrationResult.Completed)
+        result as LegacyMigrationResult.Completed
+        assertTrue("preserveSource 必须保留 books.json 给 LibraryStore", source.isFile)
+        assertEquals(original, source.readText())
+        val migrated = File(result.migratedPath)
+        assertTrue(migrated.isFile)
+        assertEquals(original, migrated.readText())
+        assertEquals(2, store.repository.bookCount())
     }
 
     @Test

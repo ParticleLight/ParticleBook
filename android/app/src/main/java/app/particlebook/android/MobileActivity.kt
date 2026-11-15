@@ -8,12 +8,13 @@ import android.view.Choreographer
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import app.particlebook.android.data.LibraryRuntime
 import app.particlebook.android.ui.ParticleBookApp
 import app.particlebook.android.zlib.ZlibClient
 
 /**
- * Compose + Material 3 新门面。书架 / Z-Library / 设置三屏与 PDF 阅读器都在这里起。
- * 旧 WebView 阅读器（EPUB/HTML）仍由 MainActivity 承担，可从中跳转。
+ * Compose + Material 3 唯一门面：书架 / Z-Library / 设置三屏与原生 EPUB/PDF 阅读器都在这里起。
+ * 旧 WebView 壳已在 P1 出口轮移除，不再有第二套阅读入口。
  */
 class MobileActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -23,6 +24,8 @@ class MobileActivity : ComponentActivity() {
         enableEdgeToEdge()
         applyDebugMirrorOverride()
         setContent { ParticleBookApp() }
+        // P1-b：启动后台线程打开 SQLite，避免数据库建表计入冷启动关键路径。
+        LibraryRuntime.prewarm(applicationContext)
         // 首帧绘制回调只跑一次；release 也需要，所以不加 BuildConfig.DEBUG 判断。
         Choreographer.getInstance().postFrameCallback {
             Log.i(

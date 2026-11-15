@@ -36,7 +36,18 @@ interface ProgressDao {
 
 interface AnnotationDao {
     fun add(row: AnnotationRow): Long
+
+    /** 只返回未软删的记录；软删行对上层视为不存在。 */
+    fun byId(id: Long): AnnotationRow?
+
+    /** 只返回未软删记录，按 createdAt、id 升序，供 AnnotationStore 稳定排序。 */
     fun list(bookId: Long): List<AnnotationRow>
+
+    /** 只更新可编辑字段（quote/note/color/updated_at）；行不存在或已软删返回 0。 */
+    fun update(row: AnnotationRow): Int
+
+    /** 软删且幂等；已删/不存在的行返回 0。 */
+    fun softDelete(id: Long, deletedAt: Long): Int
 }
 
 interface DownloadDao {
@@ -260,29 +271,63 @@ class SqliteAnnotationDao(private val db: SQLiteDatabase) : AnnotationDao {
         return db.insertOrThrow(LibrarySchema.TABLE_ANNOTATIONS, null, values)
     }
 
+    override fun byId(id: Long): AnnotationRow? = db.rawQuery(
+        "SELECT * FROM annotations WHERE id = ? AND deleted_at IS NULL",
+        arrayOf(id.toString()),
+    ).use { cursor ->
+        if (cursor.moveToFirst()) mapAnnotation(cursor) else null
+    }
+
     override fun list(bookId: Long): List<AnnotationRow> = db.rawQuery(
-        "SELECT * FROM annotations WHERE book_id = ? AND deleted_at IS NULL ORDER BY created_at DESC",
+        "SELECT * FROM annotations WHERE book_id = ? AND deleted_at IS NULL " +
+            "ORDER BY created_at ASC, id ASC",
         arrayOf(bookId.toString()),
     ).use { cursor ->
         buildList {
-            while (cursor.moveToNext()) {
-                add(
-                    AnnotationRow(
-                        id = cursor.long("id"),
-                        bookId = bookId,
-                        kind = cursor.string("kind").orEmpty(),
-                        locatorJson = cursor.string("locator_json").orEmpty(),
-                        quote = cursor.string("quote").orEmpty(),
-                        note = cursor.string("note").orEmpty(),
-                        color = cursor.stringOrNull("color"),
-                        createdAt = cursor.long("created_at"),
-                        updatedAt = cursor.long("updated_at"),
-                        deletedAt = cursor.longOrNull("deleted_at"),
-                    ),
-                )
-            }
+            while (cursor.moveToNext()) add(mapAnnotation(cursor))
         }
     }
+
+    override fun update(row: AnnotationRow): Int {
+        val values = ContentValues().apply {
+            put("quote", row.quote)
+            put("note", row.note)
+            putStringOrNull("color", row.color)
+            put("updated_at", row.updatedAt)
+        }
+        return db.update(
+            LibrarySchema.TABLE_ANNOTATIONS,
+            values,
+            "id = ? AND deleted_at IS NULL",
+            arrayOf(row.id.toString()),
+        )
+    }
+
+    override fun softDelete(id: Long, deletedAt: Long): Int {
+        val values = ContentValues().apply {
+            put("deleted_at", deletedAt)
+            put("updated_at", deletedAt)
+        }
+        return db.update(
+            LibrarySchema.TABLE_ANNOTATIONS,
+            values,
+            "id = ? AND deleted_at IS NULL",
+            arrayOf(id.toString()),
+        )
+    }
+
+    private fun mapAnnotation(cursor: Cursor): AnnotationRow = AnnotationRow(
+        id = cursor.long("id"),
+        bookId = cursor.long("book_id"),
+        kind = cursor.string("kind").orEmpty(),
+        locatorJson = cursor.string("locator_json").orEmpty(),
+        quote = cursor.string("quote").orEmpty(),
+        note = cursor.string("note").orEmpty(),
+        color = cursor.stringOrNull("color"),
+        createdAt = cursor.long("created_at"),
+        updatedAt = cursor.long("updated_at"),
+        deletedAt = cursor.longOrNull("deleted_at"),
+    )
 }
 
 class SqliteDownloadDao(private val db: SQLiteDatabase) : DownloadDao {

@@ -25,6 +25,9 @@ interface LibraryRepository {
 
     fun annotations(bookId: Long): List<AnnotationRow>
     fun addAnnotation(row: AnnotationRow): Long
+    fun annotationById(annotationId: Long): AnnotationRow?
+    fun updateAnnotation(row: AnnotationRow): Boolean
+    fun removeAnnotation(annotationId: Long): Boolean
 
     fun downloads(): List<DownloadRow>
     fun addDownload(row: DownloadRow): Long
@@ -76,6 +79,14 @@ class SqliteLibraryRepository(private val db: SQLiteDatabase) : LibraryRepositor
     override fun annotations(bookId: Long): List<AnnotationRow> = annotationDao.list(bookId)
 
     override fun addAnnotation(row: AnnotationRow): Long = annotationDao.add(row)
+
+    override fun annotationById(annotationId: Long): AnnotationRow? = annotationDao.byId(annotationId)
+
+    override fun updateAnnotation(row: AnnotationRow): Boolean = annotationDao.update(row) > 0
+
+    /** 软删；只有真正从「未删」变为「已删」时返回 true，重复删除幂等返回 false。 */
+    override fun removeAnnotation(annotationId: Long): Boolean =
+        annotationDao.softDelete(annotationId, System.currentTimeMillis()) > 0
 
     override fun downloads(): List<DownloadRow> = downloadDao.list()
 

@@ -10,8 +10,6 @@ object Assets {
     fun readText(context: Context, path: String): String =
         context.assets.open(path).bufferedReader().use { it.readText() }
 
-    fun glue(context: Context): String = readText(context, "bridge.js")
-
     fun copyAssetIfMissing(context: Context, assetPath: String, dest: File) {
         if (dest.exists() && dest.length() > 0) return
         dest.parentFile?.mkdirs()

@@ -28,6 +28,12 @@ class LegacyMigrationRunner(
     private val store: LegacyMigrationStore,
     private val now: () -> Long = { System.currentTimeMillis() },
     private val loader: LegacyLibraryLoader = LegacyLibraryLoader(),
+    /**
+     * P1-b 双源桥：true 时成功后把 books.json 复制为 .migrated 而不是改名。
+     * LibraryStore 仍以 books.json 为读源，改名会让旧书架在 SQLite 切换前丢失；
+     * 复制既保留原文件，又留下 A014 要求的可回退副本。
+     */
+    private val preserveSource: Boolean = false,
 ) {
 
     fun run(): LegacyMigrationResult {
@@ -146,7 +152,12 @@ class LegacyMigrationRunner(
 
         val migratedTo = nextMigratedFile()
         val renamed = try {
-            source.renameTo(migratedTo)
+            if (preserveSource) {
+                source.copyTo(migratedTo, overwrite = false)
+                migratedTo.isFile && migratedTo.length() == source.length()
+            } else {
+                source.renameTo(migratedTo)
+            }
         } catch (error: Throwable) {
             false
         }
@@ -222,13 +233,18 @@ class LegacyMigrationRunner(
         const val STATUS_COMPLETED = "completed"
 
         /** 生产工厂：读取真实 filesDir/SharedPreferences，复用传入的 LibraryDatabase。 */
-        fun forContext(context: Context, database: LibraryDatabase): LegacyMigrationRunner {
+        fun forContext(
+            context: Context,
+            database: LibraryDatabase,
+            preserveSource: Boolean = false,
+        ): LegacyMigrationRunner {
             val appContext = context.applicationContext
             val prefs = appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             return LegacyMigrationRunner(
                 dataDir = appContext.filesDir,
                 readPreferences = { HashMap(prefs.all) },
                 store = SqliteLegacyMigrationStore(database.writableDatabase),
+                preserveSource = preserveSource,
             )
         }
     }

@@ -2,6 +2,7 @@ package app.particlebook.android.ui
 
 import android.content.Context
 import android.net.Uri
+import android.util.Log
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -79,8 +80,11 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import app.particlebook.android.data.CatalogSync
+import app.particlebook.android.data.LibraryRuntime
 import app.particlebook.android.ui.data.Book
 import app.particlebook.android.ui.data.BookFormat
+import app.particlebook.android.ui.data.LibraryCatalogBridge
 import app.particlebook.android.ui.data.LibraryStore
 import app.particlebook.android.ui.discover.BooklistDetailScreen
 import app.particlebook.android.ui.discover.BooklistsScreen
@@ -90,7 +94,9 @@ import app.particlebook.android.ui.discover.DiscoverRepositoryProvider
 import app.particlebook.android.ui.discover.PopularScreen
 import app.particlebook.android.zlib.ZAccount
 import app.particlebook.android.zlib.ZlibClient
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /** 导航三个等权目的地：书架 / Z-Library / 设置。阅读器是全屏任务页，不在这里。 */
 private enum class TopLevel(
@@ -115,9 +121,22 @@ private enum class TopLevel(
     ),
 }
 
-/** 轻量持久化：主题与字号。UI 状态只有这两项值得跨进程保留。 */
+/**
+ * 轻量持久化：主题、字号、行高、默认排序。
+ *
+ * 字号/行高从 P1 起走 [SettingsStore]（A023-1 的 37 键 schema + 旧键迁移）；
+ * 主题与排序仍留在旧 pb_mobile_ui，因为 AppThemeMode 有 System、LibrarySort 有 Rating，
+ * 都不在桌面 37 键的枚举里，强行映射会丢值。旧键 font_size/line_height 首次 load 时
+ * 由 SettingsSchema 自动迁移，不会丢用户设置。
+ */
 private class AppPreferences(context: Context) {
-    private val prefs = context.getSharedPreferences("pb_mobile_ui", Context.MODE_PRIVATE)
+    private val appContext = context.applicationContext
+    private val prefs = appContext.getSharedPreferences("pb_mobile_ui", Context.MODE_PRIVATE)
+    private val settings by lazy {
+        app.particlebook.android.settings.SettingsStore(
+            app.particlebook.android.settings.SharedPreferencesSettingsStorage.from(appContext),
+        )
+    }
 
     var themeMode: AppThemeMode
         get() = runCatching {
@@ -130,16 +149,16 @@ private class AppPreferences(context: Context) {
         }
 
     var fontSize: Int
-        get() = prefs.getInt(KEY_FONT_SIZE, 18)
+        get() = runCatching { settings.getInt("fontSize") }.getOrDefault(18)
         set(value) {
-            prefs.edit().putInt(KEY_FONT_SIZE, value).apply()
+            runCatching { settings.set("fontSize", value) }
         }
 
     /** 正文行高倍数（1.3 / 1.5 / 1.7 / 2.0）。 */
     var lineHeight: Float
-        get() = prefs.getFloat(KEY_LINE_HEIGHT, 1.7f)
+        get() = runCatching { settings.getDouble("lineHeight").toFloat() }.getOrDefault(1.7f)
         set(value) {
-            prefs.edit().putFloat(KEY_LINE_HEIGHT, value).apply()
+            runCatching { settings.set("lineHeight", value.toDouble()) }
         }
 
     /** 书架默认排序，存 LibrarySort.name。 */
@@ -287,6 +306,21 @@ fun ParticleBookApp() {
     }
     val books: List<Book> = store.books
     val openBook = remember(books, openBookId) { books.firstOrNull { it.id == openBookId } }
+    // P1-b：旧书架（books.json）仍是读源；每次书目变化后把行 upsert 进 SQLite，
+    // 让 annotations.book_id 外键有对应 books 行。SQLite 失败不阻断书架。
+    val annotationStore = remember(appContext) { LibraryRuntime.lazyAnnotationStore(appContext) }
+    LaunchedEffect(books) {
+        if (books.isEmpty()) return@LaunchedEffect
+        withContext(Dispatchers.IO) {
+            runCatching {
+                LibraryRuntime.ensureCatalogReady(appContext)
+                CatalogSync.syncBooks(
+                    LibraryRuntime.repository(appContext),
+                    LibraryCatalogBridge.bookRows(books),
+                )
+            }.onFailure { Log.w("PBCatalog", "catalog sync failed", it) }
+        }
+    }
 
     // 多选状态只在会话内有效（书源本身也还没有持久化）。
     var selectionMode by remember { mutableStateOf(false) }
@@ -639,6 +673,7 @@ fun ParticleBookApp() {
                 ) {
                     ReaderScreen(
                         book = readingBook,
+                        annotationStore = annotationStore,
                         onBack = {
                             openBookId = -1L
                             progressEpoch += 1

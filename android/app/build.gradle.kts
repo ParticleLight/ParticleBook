@@ -58,7 +58,6 @@ dependencies {
     implementation("androidx.core:core-ktx:1.13.1")
     // PDF 文本层（16KB 静态对齐；P0 由 download-ux 验证运行时）
     implementation("io.legere:pdfiumandroid:1.0.30")
-    implementation("androidx.webkit:webkit:1.12.1")
     implementation(project(":bench"))
 
     // M3 mobile UI（L1 Compose 外壳；见 docs/android-port/android-ui-m3.md）

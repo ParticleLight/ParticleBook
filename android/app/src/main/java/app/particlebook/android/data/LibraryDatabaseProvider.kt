@@ -1,6 +1,7 @@
 package app.particlebook.android.data
 
 import android.content.Context
+import java.io.File
 
 /**
  * 进程内 SQLite 单例。
@@ -45,14 +46,45 @@ object LibraryDatabaseProvider {
     fun isInitialized(): Boolean = synchronized(lock) { repository != null }
 
     /** 迁移执行器；复用同一个数据库连接，不单独 open。 */
-    fun migrationRunner(context: Context): LegacyMigrationRunner = synchronized(lock) {
+    fun migrationRunner(
+        context: Context,
+        preserveSource: Boolean = false,
+    ): LegacyMigrationRunner = synchronized(lock) {
         val helper = database ?: error("LibraryDatabaseProvider 未 initialize")
-        LegacyMigrationRunner.forContext(context.applicationContext, helper)
+        LegacyMigrationRunner.forContext(context.applicationContext, helper, preserveSource)
+    }
+
+    /**
+     * A014-3：迁移前把 SQLite 主库复制成 `particlebook.db.pre-migration.bak`。
+     *
+     * - 只在 books.json 仍存在时调用（没有旧数据就没有迁移风险）；
+     * - 先 WAL checkpoint(TRUNCATE)，避免只复制主库而漏掉 -wal 里的已提交页；
+     * - 已存在备份不覆盖：保留最早一次「迁移前」快照，重复启动不把好库覆盖成半迁移库。
+     * 返回备份文件；库尚未打开或主库不存在时返回 null。
+     */
+    fun backupBeforeMigration(context: Context): File? = synchronized(lock) {
+        val helper = database ?: return@synchronized null
+        val appContext = context.applicationContext
+        val source = appContext.getDatabasePath(LibrarySchema.DATABASE_NAME)
+        if (!source.isFile) return@synchronized null
+        runCatching {
+            helper.writableDatabase
+                .rawQuery("PRAGMA wal_checkpoint(TRUNCATE)", null)
+                .use { cursor -> cursor.moveToFirst() }
+        }
+        val backup = File(source.parentFile, source.name + ".pre-migration.bak")
+        if (backup.isFile) return@synchronized backup
+        return@synchronized runCatching {
+            source.copyTo(backup, overwrite = false)
+            backup
+        }.getOrNull()
     }
 
     /** 一次性迁移的便捷入口；语义见 [LegacyMigrationRunner.run]。 */
-    fun migrateLegacy(context: Context): LegacyMigrationResult =
-        migrationRunner(context).run()
+    fun migrateLegacy(
+        context: Context,
+        preserveSource: Boolean = false,
+    ): LegacyMigrationResult = migrationRunner(context, preserveSource).run()
 
     /** 关闭连接并清空单例；可安全重复调用。 */
     fun close() = synchronized(lock) {

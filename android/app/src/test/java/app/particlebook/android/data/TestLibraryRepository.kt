@@ -63,7 +63,7 @@ internal class TestLibraryRepository : LibraryRepository {
 
     override fun annotations(bookId: Long): List<AnnotationRow> =
         annotationMap.values.filter { it.bookId == bookId && it.deletedAt == null }
-            .sortedByDescending { it.createdAt }
+            .sortedWith(compareBy({ it.createdAt }, { it.id }))
 
     override fun addAnnotation(row: AnnotationRow): Long {
         require(bookMap.containsKey(row.bookId)) { "book 不存在: " + row.bookId }
@@ -71,6 +71,28 @@ internal class TestLibraryRepository : LibraryRepository {
         nextAnnotationId = maxOf(nextAnnotationId, id + 1)
         annotationMap[id] = row.copy(id = id)
         return id
+    }
+
+    override fun annotationById(annotationId: Long): AnnotationRow? =
+        annotationMap[annotationId]?.takeIf { it.deletedAt == null }
+
+    override fun updateAnnotation(row: AnnotationRow): Boolean {
+        val existing = annotationMap[row.id]?.takeIf { it.deletedAt == null } ?: return false
+        // 与 SqliteAnnotationDao 对齐：只允许修改可编辑字段。
+        annotationMap[row.id] = existing.copy(
+            quote = row.quote,
+            note = row.note,
+            color = row.color,
+            updatedAt = row.updatedAt,
+        )
+        return true
+    }
+
+    override fun removeAnnotation(annotationId: Long): Boolean {
+        val existing = annotationMap[annotationId]?.takeIf { it.deletedAt == null } ?: return false
+        val now = System.currentTimeMillis()
+        annotationMap[annotationId] = existing.copy(deletedAt = now, updatedAt = now)
+        return true
     }
 
     override fun downloads(): List<DownloadRow> = downloadMap.values.toList()
