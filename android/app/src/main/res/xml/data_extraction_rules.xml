@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A023-3：密钥 SharedPreferences 永不进入云备份或设备迁移。 -->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="sharedpref" path="particlebook_secrets.xml" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="sharedpref" path="particlebook_secrets.xml" />
+    </device-transfer>
+</data-extraction-rules>

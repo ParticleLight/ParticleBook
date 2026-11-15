@@ -60,6 +60,10 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import app.particlebook.android.platform.AndroidSecretStore
+import app.particlebook.android.settings.SettingsSecretBridge
+import app.particlebook.android.settings.TranslationKeyController
+import app.particlebook.android.settings.TranslationKeySection
 import app.particlebook.android.ui.data.DownloadLocation
 import app.particlebook.android.zlib.ZAccount
 import app.particlebook.android.zlib.ZMirrorInfo
@@ -97,6 +101,12 @@ fun SettingsScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
+    // A023-3/4：翻译 Key 只走 Android Keystore；SettingsSecretBridge 固定 translation.apiKey 槽位。
+    val translationKeyController = remember {
+        TranslationKeyController(
+            SettingsSecretBridge(AndroidSecretStore(context.applicationContext)),
+        )
+    }
     val client = remember { ZlibClient.get(context.applicationContext) }
     var mirrorInfo by remember { mutableStateOf<ZMirrorInfo?>(null) }
     var mirrorSheetOpen by rememberSaveable { mutableStateOf(false) }
@@ -284,6 +294,10 @@ fun SettingsScreen(
                     SettingsRow(title = "存储占用", value = storageLabel)
                     SettingsRow(title = "书源管理", support = "后续版本")
                 }
+            }
+
+            item {
+                TranslationKeySection(translationKeyController)
             }
 
             item {

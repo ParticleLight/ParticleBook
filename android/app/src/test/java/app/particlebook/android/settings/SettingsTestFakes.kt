@@ -46,6 +46,7 @@ internal class FakeSecretStore : SecretStore {
     val aliasCalls = mutableListOf<String>()
     var failGet: SecretStoreException? = null
     var failPut: SecretStoreException? = null
+    var failDelete: SecretStoreException? = null
 
     override fun setAlias(alias: String) {
         aliasCalls += alias
@@ -63,6 +64,7 @@ internal class FakeSecretStore : SecretStore {
     }
 
     override fun delete() {
+        failDelete?.let { throw it }
         slots.remove(selected)
     }
 
