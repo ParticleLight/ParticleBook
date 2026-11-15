@@ -61,7 +61,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.particlebook.android.platform.AndroidSecretStore
+import app.particlebook.android.settings.SettingsExportFile
 import app.particlebook.android.settings.SettingsSecretBridge
+import app.particlebook.android.settings.SettingsStore
+import app.particlebook.android.settings.SharedPreferencesSettingsStorage
 import app.particlebook.android.settings.TranslationKeyController
 import app.particlebook.android.settings.TranslationKeySection
 import app.particlebook.android.ui.data.DownloadLocation
@@ -107,6 +110,12 @@ fun SettingsScreen(
             SettingsSecretBridge(AndroidSecretStore(context.applicationContext)),
         )
     }
+    // A023-5：设置导出/恢复入口。只写 filesDir/settings-export.json，不含翻译 Key；
+    // 完整备份/恢复 UI 仍属 P3，这里只覆盖设置 JSON 的往返。
+    val settingsStore = remember {
+        SettingsStore(SharedPreferencesSettingsStorage.from(context.applicationContext))
+    }
+    val settingsExportFile = remember { SettingsExportFile(context.filesDir) }
     val client = remember { ZlibClient.get(context.applicationContext) }
     var mirrorInfo by remember { mutableStateOf<ZMirrorInfo?>(null) }
     var mirrorSheetOpen by rememberSaveable { mutableStateOf(false) }
@@ -359,6 +368,47 @@ fun SettingsScreen(
 
             item {
                 SettingsGroup(title = "数据") {
+                    SettingsRow(
+                        title = "导出设置",
+                        support = "写入 settings-export.json；不含翻译 Key",
+                        showChevron = true,
+                        onClick = {
+                            scope.launch {
+                                val result = withContext(Dispatchers.IO) {
+                                    runCatching { settingsExportFile.write(settingsStore) }
+                                }
+                                result.onSuccess { file ->
+                                    snackbarHostState.showSnackbar("已导出到 " + file.absolutePath)
+                                }.onFailure { error ->
+                                    snackbarHostState.showSnackbar(
+                                        "导出失败：" + (error.message ?: "未知错误"),
+                                    )
+                                }
+                            }
+                        },
+                    )
+                    SettingsRow(
+                        title = "恢复设置",
+                        support = "从 settings-export.json 恢复；翻译 Key 需重新输入",
+                        showChevron = true,
+                        onClick = {
+                            scope.launch {
+                                val result = withContext(Dispatchers.IO) {
+                                    runCatching { settingsExportFile.restore(settingsStore) }
+                                }
+                                result.onSuccess { imported ->
+                                    snackbarHostState.showSnackbar(
+                                        "已恢复 " + imported.importedKeyCount + " 个全局键、" +
+                                            imported.bookValues.size + " 本书的覆盖值",
+                                    )
+                                }.onFailure { error ->
+                                    snackbarHostState.showSnackbar(
+                                        "恢复失败：" + (error.message ?: "未知错误"),
+                                    )
+                                }
+                            }
+                        },
+                    )
                     SettingsRow(title = "阅读统计", support = "后续版本")
                     SettingsRow(
                         title = "清除阅读记录",
