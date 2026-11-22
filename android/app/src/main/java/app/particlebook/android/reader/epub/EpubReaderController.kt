@@ -14,10 +14,12 @@ import app.particlebook.android.reader.epub.layout.Page
 import app.particlebook.android.reader.epub.parser.EpubParseException
 import app.particlebook.android.reader.epub.parser.EpubParser
 import app.particlebook.android.reader.epub.parser.EpubPaths
+import app.particlebook.android.reader.epub.render.EpubSelectionRange
 import java.io.Closeable
 import java.io.File
 import kotlin.math.ceil
 import kotlin.math.max
+import kotlin.math.min
 import kotlin.math.roundToInt
 
 /**
@@ -57,6 +59,16 @@ class EpubReaderController private constructor(
     var currentPageIndex: Int = 0
         private set
 
+    /**
+     * 当前「章节 + 布局」的代次；[openChapter] 与真正换掉布局实例的 [layoutChapter] 各 +1。
+     *
+     * 只回答一件事：页界可能变了。分屏/折叠/旋转/系统字号都会改变页界而页号不变，
+     * 上层（朗读高亮、页文本缓存）据此作废旧页的内容。同一 config 的重复布局不推进代次，
+     * 否则每帧调一次的 [layoutChapter] 会让所有以它为键的缓存永不命中。
+     */
+    var layoutRevision: Int = 0
+        private set
+
     private var currentChapter: EpubChapter? = null
     private var currentLayout: EpubChapterLayout? = null
     private var currentConfig: EpubLayoutConfig? = null
@@ -73,6 +85,13 @@ class EpubReaderController private constructor(
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<LayoutKey, EpubChapterLayout>?): Boolean =
             size > LAYOUT_CACHE_SIZE
     }
+
+    /** 页文本映射一级缓存：只留最近两页（上一页 + 当前页），键含 [layoutRevision]。 */
+    private val pageTextCache = PageTextMapCache(PAGE_TEXT_CACHE_SIZE)
+
+    /** 页文本映射的真实重建次数；只给单测断言缓存是否命中，业务逻辑不读。 */
+    internal var pageTextMapBuildsForTest: Int = 0
+        private set
 
     val currentLayoutOrNull: EpubChapterLayout?
         get() = currentLayout
@@ -96,6 +115,7 @@ class EpubReaderController private constructor(
         currentLayout = null
         currentConfig = null
         currentPageIndex = 0
+        layoutRevision++
         return chapter
     }
 
@@ -128,6 +148,8 @@ class EpubReaderController private constructor(
         val chapter = currentChapter ?: chapterAt(currentChapterIndex).also { currentChapter = it }
         val key = LayoutKey(currentChapterIndex, config)
         val layout = layoutCache[key] ?: engine.layout(chapter, config).also { layoutCache[key] = it }
+        // 只有真的换了布局实例才推进代次：同 config 命中 LRU 时页界没变，缓存继续有效。
+        if (layout !== currentLayout) layoutRevision++
         currentLayout = layout
         currentConfig = config
         currentPageIndex = currentPageIndex.coerceIn(0, max(0, layout.pageCount - 1))
@@ -232,6 +254,30 @@ class EpubReaderController private constructor(
 
     /** 页内可选中文本；多个块之间用换行连接，便于选区偏移稳定。 */
     fun pageText(pageIndex: Int): String = pageTextMap(pageIndex)?.text.orEmpty()
+
+    /**
+     * 把 [pageText] 的字符区间拆成块内区间，供按块绘制的场景复用同一套偏移计算（例如朗读高亮）。
+     *
+     * 区间里的段落分隔符会自然落空；返回的 endChar 为 exclusive，块号与渲染层一致。
+     */
+    fun blockRangesInPage(pageIndex: Int, startInPage: Int, endInPage: Int): List<EpubSelectionRange> {
+        val map = pageTextMap(pageIndex) ?: return emptyList()
+        val from = startInPage.coerceIn(0, map.text.length)
+        val to = endInPage.coerceIn(from, map.text.length)
+        if (from >= to) return emptyList()
+        val out = ArrayList<EpubSelectionRange>(2)
+        for (segment in map.segments) {
+            val overlapStart = max(from, segment.startInPage)
+            val overlapEnd = min(to, segment.endInPage)
+            if (overlapEnd <= overlapStart) continue
+            out += EpubSelectionRange(
+                blockIndex = segment.blockIndex,
+                startChar = segment.charInBlock + (overlapStart - segment.startInPage),
+                endChar = segment.charInBlock + (overlapEnd - segment.startInPage),
+            )
+        }
+        return out
+    }
 
     /**
      * 页内选区：startChar/endChar 是 [pageText] 的 UTF-16 偏移，end 为 exclusive。
@@ -344,6 +390,7 @@ class EpubReaderController private constructor(
         currentConfig = null
         layoutCache.clear()
         chapterCache.clear()
+        pageTextCache.clear()
         parser.close()
     }
 
@@ -384,10 +431,25 @@ class EpubReaderController private constructor(
         return currentLayout?.measuredBlocks?.firstOrNull { it.blockIndex == index }?.lines
     }
 
+    /**
+     * 页文本映射的唯一入口：先查两槽缓存，未命中才重建。
+     *
+     * 命中路径只做两轮整数比较，不分配 StringBuilder、不扫块；朗读高亮每句都会打到这里，
+     * 命中时返回的是同一个 [PageTextMap] 实例（含同一个 text 字符串）。
+     */
     private fun pageTextMap(pageIndex: Int): PageTextMap? {
+        pageTextCache.get(pageIndex, layoutRevision)?.let { return it }
+        val map = buildPageTextMap(pageIndex) ?: return null
+        pageTextCache.put(pageIndex, layoutRevision, map)
+        return map
+    }
+
+    /** 重建整页文本映射；只在缓存未命中时执行，块数 × 页内片段数的线性查找都在这里。 */
+    private fun buildPageTextMap(pageIndex: Int): PageTextMap? {
         val page = pageAtPage(pageIndex) ?: return null
         val layout = currentLayout ?: return null
         val chapter = currentChapter ?: return null
+        pageTextMapBuildsForTest++
         val segments = ArrayList<PageTextSegment>()
         val builder = StringBuilder()
 
@@ -468,6 +530,60 @@ class EpubReaderController private constructor(
         }
     }
 
+    /**
+     * 页文本映射的定长槽缓存（容量 2，环形覆盖）：只留最近两页，避免长书累积整页字符串。
+     *
+     * 键是 (页下标, 布局代次)：代次一变，旧槽位自然不再命中，无需显式清理，
+     * 最坏也就残留两页旧文本，随下一次 put 覆盖。命中路径只读整数字段，不分配对象。
+     *
+     * 线程约定同 [EpubReaderController]：单 worker 使用，不做同步。
+     */
+    private class PageTextMapCache(private val capacity: Int) {
+        private val pageIndexes = IntArray(capacity) { UNSET }
+        private val revisions = IntArray(capacity) { UNSET }
+        private val maps = arrayOfNulls<PageTextMap>(capacity)
+        private var nextSlot = 0
+
+        fun get(pageIndex: Int, layoutRevision: Int): PageTextMap? {
+            var slot = 0
+            while (slot < capacity) {
+                if (pageIndexes[slot] == pageIndex && revisions[slot] == layoutRevision) return maps[slot]
+                slot++
+            }
+            return null
+        }
+
+        fun put(pageIndex: Int, layoutRevision: Int, map: PageTextMap) {
+            var slot = 0
+            while (slot < capacity) {
+                if (pageIndexes[slot] == pageIndex && revisions[slot] == layoutRevision) break
+                slot++
+            }
+            if (slot >= capacity) {
+                slot = nextSlot
+                nextSlot = (nextSlot + 1) % capacity
+            }
+            pageIndexes[slot] = pageIndex
+            revisions[slot] = layoutRevision
+            maps[slot] = map
+        }
+
+        fun clear() {
+            var slot = 0
+            while (slot < capacity) {
+                pageIndexes[slot] = UNSET
+                revisions[slot] = UNSET
+                maps[slot] = null
+                slot++
+            }
+            nextSlot = 0
+        }
+
+        private companion object {
+            const val UNSET = Int.MIN_VALUE
+        }
+    }
+
     private fun EpubTocEntry.toTarget(): EpubTocTarget = EpubTocTarget(
         title = title,
         href = href,
@@ -479,6 +595,9 @@ class EpubReaderController private constructor(
         const val CHAPTER_CACHE_SIZE = 3
         const val LAYOUT_CACHE_SIZE = 3
         const val SNIPPET_CONTEXT = 30
+
+        /** 页文本映射缓存容量：上一页 + 当前页，够覆盖翻页和朗读单页内的高频访问。 */
+        const val PAGE_TEXT_CACHE_SIZE = 2
 
         /**
          * 打开 EPUB。

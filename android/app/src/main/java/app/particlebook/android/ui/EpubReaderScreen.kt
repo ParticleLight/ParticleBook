@@ -3,6 +3,7 @@ package app.particlebook.android.ui
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.util.Log
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -34,19 +35,19 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -57,6 +58,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import app.particlebook.android.reader.AnnotationStore
 import app.particlebook.android.reader.ReaderAnnotation
 import app.particlebook.android.reader.adapter.EpubReaderAdapter
@@ -69,10 +73,17 @@ import app.particlebook.android.reader.epub.layout.EpubChapterLayout
 import app.particlebook.android.reader.epub.layout.EpubLayoutConfig
 import app.particlebook.android.reader.epub.layout.StaticLayoutBlockMeasurer
 import app.particlebook.android.reader.epub.parser.EpubArchive
+import app.particlebook.android.reader.epub.perf.EpubPerfEvent
+import app.particlebook.android.reader.epub.perf.EpubPerfTracker
 import app.particlebook.android.reader.epub.render.EpubHighlight
 import app.particlebook.android.reader.epub.render.EpubPageIndex
 import app.particlebook.android.reader.epub.render.EpubPageView
 import app.particlebook.android.reader.epub.render.EpubSelectionRange
+import app.particlebook.android.reader.tts.AndroidTtsSpeaker
+import app.particlebook.android.reader.tts.TtsPlayback
+import app.particlebook.android.reader.tts.TtsPlaybackState
+import app.particlebook.android.reader.tts.TtsSentence
+import app.particlebook.android.reader.tts.TtsText
 import app.particlebook.android.ui.data.Book
 import app.particlebook.android.ui.data.ReadingProgress
 import kotlinx.coroutines.CancellationException
@@ -83,10 +94,43 @@ import java.io.File
 import kotlin.math.max
 import kotlin.math.roundToInt
 
+/** 朗读高亮叠色透明度：够看清「正在念这一句」，又不盖住文字。 */
+private const val TtsHighlightAlpha = 0.24f
+
+/**
+ * 朗读高亮色（EPUB）。
+ *
+ * EPUB 页纸本身就是主题画布（正文色取 onSurface），所以这里直接取强调色 primary：
+ * 浅色方案是深蓝叠浅纸、深色方案是亮蓝叠暗底，两套都有可辨的色差，
+ * 不会出现「深色模式下高亮等于隐形」。与 PDF 侧同属 primary 色族，观感一致。
+ * 返回值要交给自绘 View（EpubHighlight 用 ARGB Int），因此在这里转成 Int。
+ */
+@Composable
+private fun epubTtsHighlightArgb(): Int =
+    MaterialTheme.colorScheme.primary.copy(alpha = TtsHighlightAlpha).toArgb()
+
+/**
+ * 当前朗读句子的锚点：句子的字符偏移只在"生成它的那一页、那一版布局"里才有意义。
+ *
+ * 三者缺一都会退化成"朗读继续、高亮错位"：翻页时页号变、重排后页号不变但页界变、
+ * 换书/重试打开后页号常常还是 0。所以判定高亮必须同时比 page + chapter + layoutRevision。
+ */
+private data class TtsSentenceAnchor(
+    val chapterIndex: Int,
+    val pageIndex: Int,
+    val layoutRevision: Int,
+) {
+    fun matches(chapterIndex: Int, pageIndex: Int, layoutRevision: Int): Boolean =
+        this.chapterIndex == chapterIndex &&
+            this.pageIndex == pageIndex &&
+            this.layoutRevision == layoutRevision
+}
+
 private data class ChapterRequest(
     val chapterIndex: Int,
     val page: Int?,
     val locator: ReaderLocator.Epub? = null,
+    val userInitiated: Boolean = false,
 )
 
 /** 新建笔记时捕获的选区；对话框打开期间选区状态可能变化，必须先快照。 */
@@ -98,9 +142,7 @@ private data class EpubNoteDraft(
 private data class OpenedEpub(
     val controller: EpubReaderController,
     val archive: EpubArchive?,
-    val chapterIndex: Int,
-    val restore: ReaderLocator.Epub?,
-    val restorePage: Int?,
+    val progress: EpubProgressRestore,
 )
 
 private sealed interface EpubOpenState {
@@ -122,9 +164,9 @@ fun EpubReaderScreen(
     book: Book,
     onBack: () -> Unit,
     annotationStore: AnnotationStore? = null,
+    openStartedAtNanos: Long? = null,
 ) {
     ImmersiveSystemBars()
-    BackHandler(onBack = onBack)
     val density = LocalDensity.current
     val densityValue = density.density
     val scaledDensity = density.density * density.fontScale
@@ -149,14 +191,56 @@ fun EpubReaderScreen(
     var selectedRange by remember { mutableStateOf<EpubSelectionRange?>(null) }
     var chapterRequest by remember(book.filePath) { mutableStateOf<ChapterRequest?>(null) }
     var requestVersion by remember(book.filePath) { mutableIntStateOf(0) }
-    // 恢复定位完成前不允许写进度：否则 locator 解析失败时会把已保存的 page2 立刻覆盖成 0。
-    var progressReady by remember(book.filePath) { mutableStateOf(false) }
+    var progressState by remember(book.filePath, book.id) { mutableStateOf(EpubProgressState()) }
     var annotations by remember(book.filePath) { mutableStateOf<List<ReaderAnnotation>>(emptyList()) }
     var annotationVersion by remember(book.filePath) { mutableIntStateOf(0) }
     var annotationsLoading by remember(book.filePath) { mutableStateOf(false) }
     var annotationsOpen by remember { mutableStateOf(false) }
+    // 朗读：句子只取"当前这一页"，换页/换章时由浏览器动作重新取，避免念到屏幕外的内容。
+    var ttsState by remember { mutableStateOf<TtsPlaybackState>(TtsPlaybackState.Idle) }
+    var ttsSentence by remember { mutableStateOf<TtsSentence?>(null) }
+    var ttsAnchor by remember { mutableStateOf<TtsSentenceAnchor?>(null) }
+    var ttsRate by remember { mutableStateOf(1.0f) }
+    // 布局代次：EpubReaderController.layoutRevision 在换章和"真的换掉布局"时各 +1
+    // （分屏、折叠、旋转、系统字号都算）。页文本与句子偏移只在同一代次内有效，
+    // 所以它同时进"停读"的 key 与高亮判定；同 config 的重复布局不会推进它，不会把朗读抖停。
+    val layoutRevision = controller?.layoutRevision ?: 0
+    val ttsContext = LocalContext.current
+    // 失焦回调要拿到 playback，而 playback 又需要 speaker：用持有者打破这个循环。
+    // SideEffect 在组合提交后赋值，真正的音频焦点变化只会发生在更晚。
+    val ttsPlaybackHolder = remember { mutableStateOf<TtsPlayback?>(null) }
+    val ttsSpeaker = remember(ttsContext) {
+        AndroidTtsSpeaker(ttsContext, onFocusLost = { ttsPlaybackHolder.value?.pause() })
+    }
+    val ttsPlayback = remember(ttsSpeaker) {
+        TtsPlayback(
+            speaker = ttsSpeaker,
+            onStateChanged = { ttsState = it },
+            onSentence = { sentence ->
+                ttsSentence = sentence
+                // 句子清空说明朗读已经停下（念完/手动停/换页即停）：锚点一起作废，别留半截高亮。
+                if (sentence == null) ttsAnchor = null
+            },
+        )
+    }
+    SideEffect { ttsPlaybackHolder.value = ttsPlayback }
+    DisposableEffect(ttsPlayback) {
+        onDispose { ttsPlayback.shutdown() }
+    }
     var noteDraft by remember(book.filePath) { mutableStateOf<EpubNoteDraft?>(null) }
     var pendingDelete by remember(book.filePath) { mutableStateOf<ReaderAnnotation?>(null) }
+    val perfTracker = remember(book.filePath, book.id) {
+        EpubPerfTracker(
+            bookId = book.id,
+            initialOpenStartNs = openStartedAtNanos,
+            log = { line -> Log.i(EpubPerfEvent.TAG, line) },
+        )
+    }
+    // PBPERF open token 由 AppRoot/ReaderScreen 注入；置空时撤销尚未提交的首章事件。
+    SideEffect { perfTracker.updateOpenStartNs(openStartedAtNanos) }
+    DisposableEffect(perfTracker) {
+        onDispose { perfTracker.close() }
+    }
     val adapter = remember(controller, layoutConfig, annotationStore) {
         val active = controller
         val config = layoutConfig
@@ -188,7 +272,7 @@ fun EpubReaderScreen(
         chapterRequest = null
         requestVersion = 0
         layoutConfig = null
-        progressReady = false
+        progressState = EpubProgressState()
         selectedRange = null
         val oldController = controller
         val oldArchive = archive
@@ -204,35 +288,30 @@ fun EpubReaderScreen(
                     bookId = book.id,
                 )
                 val openedArchive = runCatching { EpubArchive.open(File(book.filePath)) }.getOrNull()
-                val saved = ReadingProgress.locator(context, book.id) as? ReaderLocator.Epub
-                val savedPage = ReadingProgress.savedPage(context, book.id)
-                var targetChapter = 0
-                var restore: ReaderLocator.Epub? = null
-                if (saved != null) {
-                    val index = openedController.chapterIndexForHref(saved.chapterHref)
-                    if (index != null) {
-                        targetChapter = index
-                        restore = saved
-                    }
-                }
+                val savedSnapshot = ReadingProgress.snapshot(book.id)
+                val progress = EpubProgressRestore.from(
+                    rawLocator = savedSnapshot?.locatorJson,
+                    savedLocator = savedSnapshot?.locator(),
+                    savedPage = savedSnapshot?.savedPage(),
+                    chapterIndexForHref = openedController::chapterIndexForHref,
+                )
                 OpenedEpub(
                     controller = openedController,
                     archive = openedArchive,
-                    chapterIndex = targetChapter,
-                    restore = restore,
-                    restorePage = savedPage,
+                    progress = progress,
                 )
             }
             controller = opened.controller
             archive = opened.archive
-            chapterIndex = opened.chapterIndex
+            chapterIndex = opened.progress.chapterIndex
             chapterLayout = null
             pageIndex = 0
-            if (opened.restore != null) {
+            progressState = opened.progress.state
+            if (opened.progress.locator != null || opened.progress.page != null) {
                 chapterRequest = ChapterRequest(
-                    chapterIndex = opened.chapterIndex,
-                    page = opened.restorePage ?: 0,
-                    locator = opened.restore,
+                    chapterIndex = opened.progress.chapterIndex,
+                    page = opened.progress.page ?: 0,
+                    locator = opened.progress.locator,
                 )
                 requestVersion += 1
             }
@@ -250,7 +329,7 @@ fun EpubReaderScreen(
     }
     val requestChapter: (Int, Int?, ReaderLocator.Epub?) -> Unit = { target, page, locator ->
         if (target in 0 until chapterCount) {
-            chapterRequest = ChapterRequest(target, page, locator)
+            chapterRequest = ChapterRequest(target, page, locator, userInitiated = true)
             requestVersion += 1
             chapterIndex = target
             chapterLayout = null
@@ -258,18 +337,47 @@ fun EpubReaderScreen(
             selectedRange = null
         }
     }
-    LaunchedEffect(controller, adapter, chapterIndex, chapterLayout, pageIndex, progressReady) {
-        if (!progressReady) return@LaunchedEffect
-        val active = controller ?: return@LaunchedEffect
-        val layout = chapterLayout ?: return@LaunchedEffect
-        if (layout.pageCount <= 0 || active.currentChapterIndex != chapterIndex) return@LaunchedEffect
-        // PB-022：进度位置统一经 ReaderAdapter 读取；adapter 未就绪时退回 controller。
-        val locator = adapter?.getLocator() ?: active.locatorForPage(pageIndex) ?: return@LaunchedEffect
-        val pages = layout.pageCount
-        withContext(Dispatchers.IO) {
-            ReadingProgress.saveEpubProgress(context, book.id, locator, pageIndex, pages)
+    val showProgressPage: (EpubChapterLayout, Int, Boolean) -> Unit = { layout, page, userInitiated ->
+        val active = controller
+        if (active != null && active.currentLayoutOrNull === layout &&
+            active.currentChapterIndex == chapterIndex && page in 0 until layout.pageCount
+        ) {
+            val visible = EpubVisibleProgress(active.locatorForPage(page), page, layout.pageCount)
+            progressState = progressState.pageShown(visible, userInitiated)
         }
     }
+    val changeDisplayedPage: (Int) -> Unit = { page ->
+        selectedRange = null
+        chapterLayout?.let { showProgressPage(it, page, true) }
+        pageIndex = page
+    }
+    val saveDisplayedProgress: () -> Unit = {
+        progressState.writable?.let { visible ->
+            // 同步更新缓存并入进程级 IO 队列；父级 Back / Activity ON_STOP 随后才能完整 flush。
+            ReadingProgress.saveEpubProgress(context, book.id, visible.locator, visible.page, visible.pages)
+        }
+    }
+    LaunchedEffect(book.id, progressState) { saveDisplayedProgress() }
+    // 朗读只覆盖"当前这一页 + 当前这一版布局"：翻页/换章/重排后句子坐标变了，继续念会把高亮
+    // 与文本对错位，因此这些变化都即停，由用户在新页重新点「朗读」。
+    // 页号 0→0 的两种情形（换书、reloadTick 重试打开）只有文档标识能发现"文字已经不是同一本"。
+    LaunchedEffect(chapterIndex, pageIndex, layoutRevision, book.filePath, reloadTick) {
+        if (ttsState !is TtsPlaybackState.Idle) ttsPlayback.stop()
+    }
+    val latestSaveDisplayedProgress by rememberUpdatedState(saveDisplayedProgress)
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP) latestSaveDisplayedProgress()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+    val leaveReader: () -> Unit = {
+        saveDisplayedProgress()
+        onBack()
+    }
+    BackHandler(onBack = leaveReader)
     LaunchedEffect(annotationStore, book.id, annotationVersion) {
         val store = annotationStore
         if (store == null) {
@@ -501,6 +609,45 @@ fun EpubReaderScreen(
     val pageHighlights = remember(annotations, chapterLayout, pageIndex) {
         chapterLayout?.let { annotationsOnPage(annotations, it, pageIndex) }.orEmpty()
     }
+    // 朗读高亮只在"念的还是当前页、且还是当前这一版布局"时绘制：翻页/重排后立刻消失，
+    // 否则会用新布局的块偏移去画旧句子的区间，肉眼就是高亮错位。
+    // 高亮色走主题语义角色（深色模式必须仍是同族强调色），作为 remember 键参与失效。
+    val ttsHighlightArgb = epubTtsHighlightArgb()
+    val ttsHighlights = remember(
+        ttsSentence, ttsAnchor, pageIndex, chapterIndex, layoutRevision, controller, ttsHighlightArgb,
+    ) {
+        val sentence = ttsSentence
+        val reader = controller
+        if (sentence == null || reader == null ||
+            ttsAnchor?.matches(chapterIndex, pageIndex, layoutRevision) != true
+        ) {
+            emptyList()
+        } else {
+            reader.blockRangesInPage(pageIndex, sentence.startChar, sentence.endChar)
+                .map { EpubHighlight(it.blockIndex, it.startChar, it.endChar, ttsHighlightArgb) }
+        }
+    }
+    val displayedHighlights = remember(pageHighlights, ttsHighlights) {
+        if (ttsHighlights.isEmpty()) pageHighlights else pageHighlights + ttsHighlights
+    }
+    val startTts = {
+        val reader = controller
+        if (reader != null) {
+            val sentences = TtsText.sentences(reader.pageText(pageIndex))
+            if (sentences.isEmpty()) {
+                scope.launch { snackbarHostState.showSnackbar("本页没有可朗读的文字") }
+            } else {
+                ttsPlayback.setRate(ttsRate)
+                // start 返回 false = 没开始（引擎未就绪）：这时不该留锚点，否则界面会"显示在播
+                // 却不出声"，高亮还会挂在下一次重排后的坐标上。
+                if (ttsPlayback.start(sentences)) {
+                    ttsAnchor = TtsSentenceAnchor(chapterIndex, pageIndex, layoutRevision)
+                } else {
+                    notify("系统朗读引擎不可用")
+                }
+            }
+        }
+    }
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         containerColor = MaterialTheme.colorScheme.background,
@@ -509,11 +656,12 @@ fun EpubReaderScreen(
         topBar = {
             ReaderTopBar(
                 title = book.title,
-                onBack = onBack,
+                onBack = leaveReader,
                 actions = {
                     IconButton(onClick = { tocOpen = true }) {
                         Icon(Icons.AutoMirrored.Outlined.List, contentDescription = "目录")
                     }
+                    TextButton(onClick = startTts) { Text("朗读") }
                     IconButton(onClick = addBookmark) {
                         Icon(Icons.Filled.BookmarkBorder, contentDescription = "添加书签")
                     }
@@ -547,8 +695,10 @@ fun EpubReaderScreen(
                             selectedRange = null
                             if (pageIndex > 0) {
                                 val next = pageIndex - 1
-                                pageIndex = controller?.setPage(next) ?: next
+                                perfTracker.beginUserTurn(chapterIndex, next)
+                                changeDisplayedPage(controller?.setPage(next) ?: next)
                             } else if (chapterIndex > 0) {
+                                perfTracker.beginUserTurn(chapterIndex - 1, null)
                                 requestChapter(chapterIndex - 1, null, null)
                             }
                         },
@@ -556,8 +706,10 @@ fun EpubReaderScreen(
                             selectedRange = null
                             if (pageIndex < count - 1) {
                                 val next = pageIndex + 1
-                                pageIndex = controller?.setPage(next) ?: next
+                                perfTracker.beginUserTurn(chapterIndex, next)
+                                changeDisplayedPage(controller?.setPage(next) ?: next)
                             } else if (chapterIndex < chapterCount - 1) {
+                                perfTracker.beginUserTurn(chapterIndex + 1, 0)
                                 requestChapter(chapterIndex + 1, 0, null)
                             }
                         },
@@ -585,6 +737,7 @@ fun EpubReaderScreen(
                         EpubContent(
                             controller = c,
                             archive = archive,
+                            perfTracker = perfTracker,
                             chapterIndex = chapterIndex,
                             chapterCount = chapterCount,
                             chapterLayout = chapterLayout,
@@ -592,17 +745,17 @@ fun EpubReaderScreen(
                             requestVersion = requestVersion,
                             pageIndex = pageIndex,
                             selectedRange = selectedRange,
-                            highlights = pageHighlights,
-                            onLayout = { layout, page ->
+                            highlights = displayedHighlights,
+                            onLayout = { layout, page, request ->
+                                progressState = progressState.initialLayoutApplied(
+                                    layout, request?.locator, request?.userInitiated == true,
+                                )
                                 chapterLayout = layout
                                 pageIndex = page
                                 selectedRange = null
-                                progressReady = true
+                                showProgressPage(layout, page, request?.userInitiated == true)
                             },
-                            onPageChanged = { page ->
-                                selectedRange = null
-                                pageIndex = page
-                            },
+                            onPageChanged = changeDisplayedPage,
                             onRequestApplied = { applied ->
                                 if (chapterRequest == applied) chapterRequest = null
                             },
@@ -612,6 +765,31 @@ fun EpubReaderScreen(
                         )
                     }
                 }
+            }
+            // 朗读控制条浮在正文之上、底栏之上：底栏必须始终可见（翻页箭头只在底栏里），
+            // 因此不能像常规 mini-player 那样顶替底栏，否则朗读时无法翻页。
+            if (ttsState !is TtsPlaybackState.Idle) {
+                TtsBar(
+                    state = ttsState,
+                    rate = ttsRate,
+                    onPlayPause = {
+                        if (ttsState is TtsPlaybackState.Playing) ttsPlayback.pause() else ttsPlayback.resume()
+                    },
+                    onPrevious = { ttsPlayback.previous() },
+                    onNext = { ttsPlayback.next() },
+                    onCycleRate = {
+                        val next = TtsRates[(TtsRates.indexOf(ttsRate) + 1).mod(TtsRates.size)]
+                        ttsRate = next
+                        ttsPlayback.setRate(next)
+                    },
+                    onStop = {
+                        // stop() 会同步回调 onSentence(null)，锚点在那条路径上一起清掉。
+                        ttsPlayback.stop()
+                    },
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(horizontal = Spacing.md, vertical = Spacing.sm),
+                )
             }
         }
     }
@@ -700,6 +878,7 @@ fun EpubReaderScreen(
 private fun EpubContent(
     controller: EpubReaderController,
     archive: EpubArchive?,
+    perfTracker: EpubPerfTracker,
     chapterIndex: Int,
     chapterCount: Int,
     chapterLayout: EpubChapterLayout?,
@@ -708,7 +887,7 @@ private fun EpubContent(
     pageIndex: Int,
     selectedRange: EpubSelectionRange?,
     highlights: List<EpubHighlight>,
-    onLayout: (EpubChapterLayout, Int) -> Unit,
+    onLayout: (EpubChapterLayout, Int, ChapterRequest?) -> Unit,
     onPageChanged: (Int) -> Unit,
     onRequestApplied: (ChapterRequest) -> Unit,
     onRequestChapter: (Int, Int?, ReaderLocator.Epub?) -> Unit,
@@ -760,7 +939,7 @@ private fun EpubContent(
                     else -> request.page
                 }
                 val page = withContext(Dispatchers.IO) { controller.setPage(targetPage) }
-                onLayout(layout, page)
+                onLayout(layout, page, request)
                 if (request != null) onRequestApplied(request)
             } catch (cancelled: CancellationException) {
                 throw cancelled
@@ -777,18 +956,27 @@ private fun EpubContent(
                 factory = { ctx -> EpubPageView(ctx) },
                 modifier = Modifier.fillMaxSize(),
                 update = { view ->
+                    view.perfTracker = perfTracker
+                    view.perfChapterIndex = chapterIndex
                     view.setChapter(layout, pageIndex, archive)
                     view.setHighlights(highlights)
                     view.setSelection(selectedRange)
                     view.onPageRequested = { target ->
                         val count = layout.pageCount
                         when {
-                            target < 0 && chapterIndex > 0 ->
+                            target < 0 && chapterIndex > 0 -> {
+                                perfTracker.beginUserTurn(chapterIndex - 1, null)
                                 onRequestChapter(chapterIndex - 1, null, null)
-                            target >= count && chapterIndex < chapterCount - 1 ->
+                            }
+                            target >= count && chapterIndex < chapterCount - 1 -> {
+                                perfTracker.beginUserTurn(chapterIndex + 1, 0)
                                 onRequestChapter(chapterIndex + 1, 0, null)
+                            }
                             else -> {
                                 val next = target.coerceIn(0, max(0, count - 1))
+                                if (next != pageIndex) {
+                                    perfTracker.beginUserTurn(chapterIndex, next)
+                                }
                                 onPageChanged(controller.setPage(next))
                             }
                         }

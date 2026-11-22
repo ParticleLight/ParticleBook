@@ -6,29 +6,26 @@ import android.content.Context
 import android.content.ContextWrapper
 import android.content.res.Configuration
 import android.graphics.Bitmap
-import android.graphics.Color
-import android.graphics.pdf.PdfRenderer
-import android.os.ParcelFileDescriptor
 import android.os.SystemClock
 import android.util.Log
 import android.view.Window
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.interaction.DragInteraction
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.aspectRatio
@@ -45,8 +42,6 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.List
@@ -67,22 +62,23 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Slider
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -92,7 +88,11 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -103,7 +103,6 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogProperties
@@ -111,26 +110,39 @@ import androidx.compose.ui.window.DialogWindowProvider
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import app.particlebook.android.reader.AnnotationStore
 import app.particlebook.android.ui.data.Book
 import app.particlebook.android.ui.data.BookFormat
+import app.particlebook.android.ui.data.ReadingProgress
+import app.particlebook.android.reader.ReaderLocator
+import app.particlebook.android.reader.pdf.PdfNormalizedRect
 import app.particlebook.android.reader.pdf.PdfSelectionController
 import app.particlebook.android.reader.pdf.PdfTextLayerController
 import app.particlebook.android.reader.pdf.PdfTextLayerDocumentSource
-import app.particlebook.android.reader.pdf.PdfTextLayerOpenResult
+import app.particlebook.android.reader.pdf.PdfTtsFollow
+import app.particlebook.android.reader.pdf.PdfTtsPage
+import app.particlebook.android.reader.pdf.perf.PdfNavSource
+import app.particlebook.android.reader.pdf.perf.PdfOrigin
+import app.particlebook.android.reader.pdf.perf.PdfPageCache
+import app.particlebook.android.reader.pdf.perf.PdfPresentWindow
+import app.particlebook.android.reader.pdf.perf.PdfReaderAttempt
+import app.particlebook.android.reader.pdf.perf.PdfSessionClosed
+import app.particlebook.android.reader.tts.AndroidTtsSpeaker
+import app.particlebook.android.reader.tts.TtsPlayback
+import app.particlebook.android.reader.tts.TtsPlaybackState
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.io.Closeable
 import java.io.File
-import java.util.concurrent.ExecutorService
-import java.util.concurrent.Executors
 import kotlin.math.min
 import kotlin.math.roundToInt
 import kotlin.math.sqrt
@@ -156,6 +168,30 @@ private const val PageWidthOverHeight = 0.7071f
 /** 单页位图内存上限（ARGB_8888 = 宽×高×4 字节）。横屏撑满宽度时曾到 2400×3398 ≈ 32MB。 */
 private const val MaxPageBitmapBytes = 12 * 1024 * 1024
 
+/** 朗读高亮叠色：浅色画布 / 白纸位图上的透明度。 */
+private const val TtsHighlightLightAlpha = 0.24f
+
+/** 深色方案下的透明度：同族颜色更深，压低一点避免盖住字。 */
+private const val TtsHighlightDarkAlpha = 0.32f
+
+/**
+ * 朗读高亮色（PDF）。
+ *
+ * PDF 页是原版位图，底色永远是白纸，所以叠色的对比对象是「纸」而不是「画布」：
+ * - 浅色方案直接用 primary（#2563EB，深蓝），叠白纸清晰可辨；
+ * - 深色方案的 primary 是 #B0C6FF（淡蓝），叠白纸几乎看不见，因此换同族的
+ *   primaryContainer（#00429B，深蓝）。
+ * 两侧同属 primary 色族，和 EPUB 侧的朗读高亮是同一个观感；两档都只引用语义角色，
+ * 没有裸色，深色模式也不会退化成看不见的高亮。
+ */
+@Composable
+private fun pdfTtsHighlightColor(): Color {
+    val scheme = MaterialTheme.colorScheme
+    val darkCanvas = scheme.surface.luminance() < 0.5f
+    val role = if (darkCanvas) scheme.primaryContainer else scheme.primary
+    return role.copy(alpha = if (darkCanvas) TtsHighlightDarkAlpha else TtsHighlightLightAlpha)
+}
+
 /** 页位图缓存总字节上限 = min(48MB, 堆上限 / 8)：约 3–6 页 A4 位图，避免整本 PDF 常驻。 */
 private fun pageCacheLimitBytes(): Int {
     val maxMemory = Runtime.getRuntime().maxMemory()
@@ -171,11 +207,17 @@ fun ReaderScreen(
     book: Book,
     onBack: () -> Unit,
     annotationStore: AnnotationStore? = null,
+    openStartedAtNanos: Long? = null,
 ) {
     BackHandler(onBack = onBack)
     when (book.format) {
         BookFormat.Pdf -> PdfReaderScreen(book = book, onBack = onBack, annotationStore = annotationStore)
-        BookFormat.Epub -> EpubReaderScreen(book = book, onBack = onBack, annotationStore = annotationStore)
+        BookFormat.Epub -> EpubReaderScreen(
+            book = book,
+            onBack = onBack,
+            annotationStore = annotationStore,
+            openStartedAtNanos = openStartedAtNanos,
+        )
         BookFormat.Unsupported -> UnsupportedReaderScreen(book = book, onBack = onBack)
     }
 }
@@ -233,24 +275,8 @@ private fun UnsupportedReaderScreen(book: Book, onBack: () -> Unit) {
 
 private sealed interface PdfState {
     data object Loading : PdfState
-    class Ready(val source: PdfSource) : PdfState
+    class Ready(val pageCount: Int) : PdfState
     class Error(val message: String) : PdfState
-}
-
-/** 持有已打开的 PdfSource，保证「一次打开、退出时关闭」。 */
-private class PdfSourceHolder {
-    var source: PdfSource? = null
-        private set
-
-    fun attach(open: PdfSource) {
-        close()
-        source = open
-    }
-
-    fun close() {
-        source?.close()
-        source = null
-    }
 }
 
 @Composable
@@ -260,41 +286,19 @@ private fun PdfReaderScreen(
     annotationStore: AnnotationStore? = null,
 ) {
     ImmersiveSystemBars()
-    var state by remember(book.filePath) { mutableStateOf<PdfState>(PdfState.Loading) }
-    var reloadTick by remember { mutableIntStateOf(0) }
-    val holder = remember(book.filePath) { PdfSourceHolder() }
+    var reloadTick by remember(book.id, book.filePath) { mutableIntStateOf(0) }
+    val attempt = remember(book.id, book.filePath, reloadTick) { PdfReaderAttempt(book.id, File(book.filePath)) }
+    var state by remember(attempt) { mutableStateOf<PdfState>(PdfState.Loading) }
 
-    LaunchedEffect(book.filePath, reloadTick) {
-        holder.close()
-        state = PdfState.Loading
-        val file = File(book.filePath)
-        val openBegin = SystemClock.elapsedRealtime()
-        Log.d(TAG, "open start path=" + book.filePath + " exists=" + file.exists() + " size=" + file.length())
+    DisposableEffect(attempt) { onDispose { attempt.close() } }
+    LaunchedEffect(attempt) {
         state = try {
-            val opened = PdfSource.open(file)
-            Log.i(
-                PERF_TAG,
-                "PBPERF|phase=pdf_open|ms=" + (SystemClock.elapsedRealtime() - openBegin) +
-                    "|extra=pages:" + opened.pageCount,
-            )
-            Log.d(TAG, "open ok pages=" + opened.pageCount)
-            holder.attach(opened)
-            PdfState.Ready(opened)
-        } catch (cancellation: CancellationException) {
-            throw cancellation
-        } catch (throwable: Throwable) {
-            Log.e(TAG, "open failed path=" + book.filePath, throwable)
-            PdfState.Error(throwable.describe())
-        }
-    }
-
-    DisposableEffect(book.filePath) {
-        onDispose {
-            Log.d(TAG, "dispose pdf reader")
-            val pages = holder.source?.pageCount ?: 0
-            holder.close()
-            // 性能体检：阅读器关闭（退出/返回书架）时释放 PdfRenderer 与文件描述符。
-            Log.i(PERF_TAG, "PBPERF|phase=reader_close|ms=0|extra=pages:" + pages)
+            PdfState.Ready(attempt.open())
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            Log.e(TAG, "PDF open failed", error)
+            PdfState.Error(error.describe())
         }
     }
 
@@ -311,19 +315,22 @@ private fun PdfReaderScreen(
                 onBack = onBack,
             )
             is PdfState.Ready -> {
-                if (current.source.pageCount <= 0) {
+                if (current.pageCount <= 0) {
                     PdfOpenError(
                         message = "这份 PDF 没有可显示的页面",
                         onRetry = { reloadTick++ },
                         onBack = onBack,
                     )
                 } else {
-                    PdfReadingPane(
-                        book = book,
-                        source = current.source,
-                        onBack = onBack,
-                        annotationStore = annotationStore,
-                    )
+                    key(attempt) {
+                        PdfReadingPane(
+                            book = book,
+                            attempt = attempt,
+                            pageCount = current.pageCount,
+                            onBack = onBack,
+                            annotationStore = annotationStore,
+                        )
+                    }
                 }
             }
         }
@@ -383,22 +390,36 @@ private fun PdfOpenError(message: String, onRetry: () -> Unit, onBack: () -> Uni
 @Composable
 private fun PdfReadingPane(
     book: Book,
-    source: PdfSource,
+    attempt: PdfReaderAttempt,
+    pageCount: Int,
     onBack: () -> Unit,
     annotationStore: AnnotationStore? = null,
 ) {
-    val pageCount = source.pageCount
     val context = LocalContext.current
-    val progressPrefs = remember(context) {
-        context.getSharedPreferences("pb_reading", Context.MODE_PRIVATE)
+    val restoredProgress = remember(book.id) { ReadingProgress.snapshot(book.id) }
+    val restoredLocator = remember(restoredProgress) { restoredProgress?.locator() as? ReaderLocator.Pdf }
+    val preserveUnrestoredLocator = remember(restoredProgress, pageCount) {
+        restoredProgress?.locatorJson != null &&
+            (restoredLocator == null || restoredLocator.page !in 0 until pageCount)
     }
-    val progressKey = "page_" + book.id
-    // 总页数也存一份：横屏书架列表要按进度显示「已读 xx%」（见 ui/shelf/ShelfListRow.kt）。
-    val pagesKey = "pages_" + book.id
     val startPage = remember(book.id, pageCount) {
-        progressPrefs.getInt(progressKey, 0).coerceIn(0, pageCount - 1)
+        (restoredLocator?.page ?: ReadingProgress.savedPage(context, book.id) ?: 0)
+            .coerceIn(0, pageCount - 1)
     }
     val listState = rememberLazyListState(initialFirstVisibleItemIndex = startPage)
+    val view = LocalView.current
+    val presenter = remember(attempt, view) { PdfPresentWindow(view, attempt.perf) }
+    DisposableEffect(presenter) {
+        presenter.start()
+        onDispose { presenter.close() }
+    }
+    TrackPdfDrag(listState, pageCount, attempt, presenter)
+    val progressState = remember(book.id) { PdfProgressState(preserveUnrestoredLocator) }
+    fun beginProgressNavigation() {
+        progressState.navigationStarted(
+            if (listState.layoutInfo.visibleItemsInfo.isNotEmpty()) computeCurrentPage(listState, pageCount) else null,
+        )
+    }
     val scope = rememberCoroutineScope()
     // 性能体检：翻页计时用（纵向连续滚动，没有离散翻页手势）。
     var scrollStartMs by remember { mutableLongStateOf(0L) }
@@ -437,10 +458,109 @@ private fun PdfReadingPane(
         currentPage.coerceIn(0, pageCount - 1)
     }
 
+    // 朗读：整套引擎/状态机/控制条都复用 EPUB 那份（reader/tts + ui/TtsBar），PDF 这边只补两件它
+    // 没有的东西：①文本来源是本页字符层（PdfTtsPage），②句子高亮靠字符框而不是 blockIndex。
+    // 朗读永远只覆盖「当前这一页」，换页即停（见下方 LaunchedEffect），避免念到屏幕外的内容。
+    var ttsState by remember { mutableStateOf<TtsPlaybackState>(TtsPlaybackState.Idle) }
+    var ttsPage by remember { mutableStateOf<PdfTtsPage?>(null) }
+    var ttsRects by remember { mutableStateOf<List<PdfNormalizedRect>>(emptyList()) }
+    var ttsRate by remember { mutableStateOf(1.0f) }
+    // 与 EPUB 侧同一套做法：焦点回调需要 playback，用持有者打破循环。
+    val ttsPlaybackHolder = remember { mutableStateOf<TtsPlayback?>(null) }
+    val ttsSpeaker = remember(context) {
+        AndroidTtsSpeaker(context, onFocusLost = { ttsPlaybackHolder.value?.pause() })
+    }
+    val ttsPlayback = remember(ttsSpeaker) {
+        TtsPlayback(
+            speaker = ttsSpeaker,
+            onStateChanged = { state ->
+                ttsState = state
+                // 回到 Idle 说明本页念完或被停止：句子坐标与矩形一起作废，避免残留高亮。
+                if (state is TtsPlaybackState.Idle) {
+                    ttsPage = null
+                    ttsRects = emptyList()
+                }
+            },
+        )
+    }
+    SideEffect { ttsPlaybackHolder.value = ttsPlayback }
+    DisposableEffect(ttsPlayback) {
+        onDispose { ttsPlayback.shutdown() }
+    }
+    val snackbarHostState = remember { SnackbarHostState() }
+    val notify: (String) -> Unit = { message ->
+        scope.launch { snackbarHostState.showSnackbar(message) }
+    }
+
+    // 文本层按页取（PDF 没有整篇粒度可用，也没必要把整本书读进内存）。loadPage 会走
+    // PdfTextLayerController 的页缓存，通常命中当前页 ±1 的预载窗口；仍在 IO 线程执行，
+    // 因为未命中时它会同步调用 PDFium。
+    val startTts: () -> Unit = {
+        val layer = textLayer
+        if (layer == null) {
+            // textLayerUnavailable 8 秒后会自动复位，不能拿它判断"到底有没有文本层"；
+            // 这里只描述当前事实：文本层还没就绪。
+            notify("本页文字还没就绪，暂时不能朗读")
+        } else {
+            scope.launch {
+                val page = currentPage.coerceIn(0, pageCount - 1)
+                val reading = try {
+                    attempt.whileOpen {
+                        withContext(Dispatchers.IO) { PdfTtsPage.from(layer.loadPage(page)) }
+                    }
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (closed: PdfSessionClosed) {
+                    return@launch
+                } catch (error: Exception) {
+                    Log.e(TAG, "pdf tts read page failed page=" + (page + 1), error)
+                    notify("读取本页文字失败：" + error.describe())
+                    return@launch
+                }
+                if (reading.sentences.isEmpty()) {
+                    notify("本页没有可朗读的文字")
+                    return@launch
+                }
+                ttsPlayback.setRate(ttsRate)
+                // start 返回 false = 没开始（引擎未就绪）：此时先别挂本页句子，
+                // 否则 Idle 状态下 ttsPage 仍指着上一页，高亮/矩形会留一层空壳。
+                if (!ttsPlayback.start(reading.sentences)) {
+                    notify("系统朗读引擎不可用")
+                    return@launch
+                }
+                ttsPage = reading
+            }
+        }
+    }
+
+    // 当前句高亮：几何直接用句子的字符框在内存里算（PdfTtsPage 构造时已经握着那批 PdfChar），
+    // 不再回头找文本层控制器要锁 —— 那条路在朗读进行中不返回，控制条照常推进而矩形永远为空。
+    LaunchedEffect(ttsState.sentenceIndex, ttsPage, currentPage) {
+        val reading = ttsPage
+        val index = ttsState.sentenceIndex
+        ttsRects = if (reading == null || index < 0 || reading.page != currentPage) {
+            emptyList()
+        } else {
+            reading.rects(index)
+        }
+    }
+
+    // 翻页即停（与 EPUB 同一语义）：PDF 是连续滚动，currentPage 会随滚动反复重算，
+    // 判定收在 PdfTtsFollow 里，只有「念的已经不是屏幕上那一页」才停。
+    LaunchedEffect(currentPage, ttsPage) {
+        if (PdfTtsFollow.shouldStop(ttsPage, currentPage)) ttsPlayback.stop()
+    }
+    // 换书即停（EPUB 侧同一个坑）：换书后页号常常还是原来那个，PdfTtsFollow 只比页号，
+    // 比不出「这已经不是同一本 PDF」，只有文档标识能发现，所以单独按它兜底。
+    LaunchedEffect(book.filePath) {
+        if (ttsState !is TtsPlaybackState.Idle) ttsPlayback.stop()
+    }
+
     // 翻页：从滚动开始（手势）到新页成为当前页并停顿的首个空闲帧；每翻到一页打一次。
     LaunchedEffect(listState, pageCount) {
         snapshotFlow { listState.isScrollInProgress }.collect { scrolling ->
             if (scrolling) {
+                beginProgressNavigation()
                 scrollStartMs = SystemClock.elapsedRealtime()
             } else if (scrollStartMs > 0L) {
                 val page = computeCurrentPage(listState, pageCount)
@@ -473,16 +593,35 @@ private fun PdfReadingPane(
     LaunchedEffect(currentPage, sliderDragging) {
         if (!sliderDragging) sliderValue = currentPage.toFloat()
     }
-    // 阅读进度落在 SharedPreferences：退出再进入回到上次页码（首帧布局前不写，避免把进度清成 0）。
-    LaunchedEffect(currentPage, pageCount) {
-        if (listState.layoutInfo.totalItemsCount > 0) {
-            progressPrefs.edit()
-                .putInt(progressKey, currentPage)
-                .putInt(pagesKey, pageCount)
-                // 「继续阅读」取最近一次打开的书（Hero 卡排序用）。
-                .putLong("last_read_" + book.id, System.currentTimeMillis())
-                .apply()
+    // SQLite 是进度真源；只同步入队，磁盘写入由进程级单 writer 执行。
+    fun saveProgress(page: Int) {
+        if (!progressState.visiblePage(page)) return
+        ReadingProgress.savePdfProgress(context, book.id, page, pageCount)
+    }
+    val saveVisibleProgress: () -> Unit = {
+        if (listState.layoutInfo.visibleItemsInfo.isNotEmpty()) {
+            saveProgress(computeCurrentPage(listState, pageCount))
         }
+    }
+    val leaveReader: () -> Unit = {
+        saveVisibleProgress()
+        onBack()
+    }
+    BackHandler(onBack = leaveReader)
+    LaunchedEffect(book.id, listState, pageCount) {
+        snapshotFlow {
+            listState.layoutInfo.visibleItemsInfo.isNotEmpty() to computeCurrentPage(listState, pageCount)
+        }.collect { (laidOut, page) ->
+            if (laidOut) saveProgress(page)
+        }
+    }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner, book.id, listState, pageCount) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP) saveVisibleProgress()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
     LaunchedEffect(chromeVisible, chromeTick, tocOpen, moreMenuOpen, detailsOpen, sliderDragging) {
         if (chromeVisible && !tocOpen && !moreMenuOpen && !detailsOpen && !sliderDragging) {
@@ -491,10 +630,29 @@ private fun PdfReadingPane(
         }
     }
 
-    val jumpToPage: (Int) -> Unit = { index ->
+    val jumpToPage: (Int, PdfNavSource) -> Unit = { index, source ->
+        beginProgressNavigation()
+        val target = index.coerceIn(0, pageCount - 1)
+        val laidOut = listState.layoutInfo.visibleItemsInfo.isNotEmpty()
+        // A TOC confirmation belongs to this reader even while its dialog holds focus.
+        val nav = if (laidOut && presenter.isVisible()) {
+            attempt.perf.startNav(computeCurrentPage(listState, pageCount), target, source)
+        } else null
         scope.launch {
-            listState.scrollToItem(index.coerceIn(0, pageCount - 1))
-            wakeChrome()
+            try {
+                listState.scrollToItem(target)
+                // Let the new layout launch its visible requests before settling the navigation.
+                withFrameNanos { }
+                snapshotFlow { listState.isScrollInProgress }.first { !it }
+                if (nav != null) {
+                    if (presenter.isActive() && listState.layoutInfo.visibleItemsInfo.isNotEmpty()) {
+                        attempt.perf.finishNav(nav, computeCurrentPage(listState, pageCount))
+                    } else attempt.perf.finishNav(nav, null, "window_inactive")
+                }
+                wakeChrome()
+            } finally {
+                if (nav != null) attempt.perf.finishNav(nav, null, "interrupted")
+            }
         }
     }
 
@@ -510,11 +668,18 @@ private fun PdfReadingPane(
         val pageWidthPx = computeRenderWidthPx(viewportWidthPx, viewportHeightPx)
         val pageWidthDp = with(density) { pageWidthPx.toDp() }
         // 页位图 LRU 缓存：显式字节上限 + in-use 保护（正在显示的页不会被回收）。
-        val pageCache = remember(source, pageWidthPx) {
-            PdfPageCache(source, pageWidthPx, pageCacheLimitBytes())
+        val pageCache = remember(attempt, pageWidthPx) {
+            PdfPageCache<Bitmap>(
+                byteLimit = pageCacheLimitBytes(),
+                sizeOf = { it.allocationByteCount.toLong() },
+                recycle = Bitmap::recycle,
+                stat = { count, bytes -> Log.i(PERF_TAG, "PBPERF|phase=cache_stat|ms=0|extra=count:" + count + ",bytes:" + bytes) },
+                evicted = { page -> Log.i(PERF_TAG, "PBPERF|phase=cache_evict|ms=0|extra=page:" + page) },
+            )
         }
         DisposableEffect(pageCache) {
-            onDispose { pageCache.clear() }
+            attempt.attachCache(pageCache)
+            onDispose { attempt.retireCache(pageCache) }
         }
         // 系统内存吃紧（TRIM_MEMORY_RUNNING_LOW 起）时主动丢掉缓存里非显示页。
         val appContext = context.applicationContext
@@ -522,12 +687,14 @@ private fun PdfReadingPane(
             val callbacks = object : ComponentCallbacks2 {
                 override fun onTrimMemory(level: Int) {
                     if (level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) {
-                        pageCache.trim(level)
+                        Log.i(PERF_TAG, "PBPERF|phase=cache_trim|ms=0|extra=level:" + level)
+                        pageCache.trim()
                     }
                 }
 
                 override fun onLowMemory() {
-                    pageCache.trim(ComponentCallbacks2.TRIM_MEMORY_COMPLETE)
+                    Log.i(PERF_TAG, "PBPERF|phase=cache_trim|ms=0|extra=level:" + ComponentCallbacks2.TRIM_MEMORY_COMPLETE)
+                    pageCache.trim()
                 }
 
                 override fun onConfigurationChanged(newConfig: Configuration) {
@@ -537,70 +704,33 @@ private fun PdfReadingPane(
             appContext.registerComponentCallbacks(callbacks)
             onDispose { appContext.unregisterComponentCallbacks(callbacks) }
         }
-        // 文本层独立打开（第二个 fd）；延后 600ms 避开首帧渲染，失败只降级不报错。
-        LaunchedEffect(book.filePath) {
+        // 文本层在独立 IO lane 打开，延后 600ms 避开首帧渲染。
+        LaunchedEffect(attempt) {
             val begin = SystemClock.elapsedRealtime()
-            val opened = withContext(Dispatchers.IO) {
-                delay(600)
-                runCatching { PdfTextLayerController.open(appContext, File(book.filePath)) }
-                    .getOrElse { error ->
-                        PdfTextLayerOpenResult.Failure(
-                            reason = app.particlebook.android.reader.pdf.PdfTextFailureReason.OPEN_FAILED,
-                            message = error.message,
-                            cause = error,
-                        )
-                    }
-            }
-            if (!isActive) {
-                (opened as? PdfTextLayerOpenResult.Success)?.controller?.close()
-                return@LaunchedEffect
-            }
-            when (opened) {
-                is PdfTextLayerOpenResult.Success -> {
-                    val controller = opened.controller
-                    // A022-2：扫描版 PDF 的文本层可能“打开成功但没有任何字符”。
-                    // 只探前 2 页，避免把大文件的扫描件逐页加载；探针失败按“有文本层”处理，
-                    // 不因为一次异常就误报。
-                    val hasText = withContext(Dispatchers.IO) {
-                        runCatching {
-                            (0 until minOf(controller.pageCount, 2)).any { page ->
-                                controller.loadPage(page).hasTextLayer
-                            }
-                        }.getOrDefault(true)
-                    }
-                    if (!hasText) {
-                        controller.close()
-                        textLayerUnavailable = true
-                        Log.w(TAG, "pdf text layer empty pages=" + controller.pageCount)
-                    } else {
-                        textLayer = controller
-                        Log.i(
-                            PERF_TAG,
-                            "PBPERF|phase=pdf_text_open|ms=" + (SystemClock.elapsedRealtime() - begin) +
-                                "|extra=pages:" + controller.pageCount,
-                        )
-                    }
-                }
-                is PdfTextLayerOpenResult.Failure -> {
+            try {
+                val controller = attempt.openText(appContext)
+                textLayer = controller
+                if (controller == null) {
                     textLayerUnavailable = true
-                    Log.w(
-                        TAG,
-                        "pdf text layer unavailable reason=" + opened.reason +
-                            " message=" + opened.message,
-                    )
+                } else {
+                    Log.i(PERF_TAG, "PBPERF|phase=pdf_text_open|ms=" + (SystemClock.elapsedRealtime() - begin) +
+                        "|extra=pages:" + controller.pageCount)
                 }
+            } catch (closed: PdfSessionClosed) {
+                // The attempt was disposed while probing.
             }
-        }
-        DisposableEffect(book.filePath) {
-            onDispose { textLayer?.close() }
         }
         // 可见页 ±1；滚动中不重复预载，页面稳定后一次。
         LaunchedEffect(textLayer, currentPage, pageCount, listState.isScrollInProgress) {
             val layer = textLayer ?: return@LaunchedEffect
             if (listState.isScrollInProgress) return@LaunchedEffect
             val begin = SystemClock.elapsedRealtime()
-            val window = withContext(Dispatchers.IO) {
-                runCatching { layer.preloadVisible(currentPage, 1) }.getOrNull()
+            val window = try {
+                attempt.whileOpen { withContext(Dispatchers.IO) { layer.preloadVisible(currentPage, 1) } }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                null
             }
             if (window != null) {
                 Log.i(
@@ -614,14 +744,16 @@ private fun PdfReadingPane(
         // 空闲时预取相邻 2 页；滚动中不插队，避免和当前页渲染抢同一条 PDF 线程。
         LaunchedEffect(pageCache, currentPage, pageCount, listState.isScrollInProgress) {
             if (listState.isScrollInProgress || pageCount <= 1) return@LaunchedEffect
-            pageCache.ensure(currentPage + 1)
-            pageCache.ensure(currentPage - 1)
+            attempt.prefetch(pageCache, pageWidthPx, currentPage + 1)
+            attempt.prefetch(pageCache, pageWidthPx, currentPage - 1)
         }
         val chromeShiftPx = with(density) { 8.dp.roundToPx() }
         val chromeMotion = Motion.enterSpatial<androidx.compose.ui.unit.IntOffset>()
         val chromeFade = Motion.enterFade<Float>()
         val chromeMotionOut = Motion.exitSpatial<androidx.compose.ui.unit.IntOffset>()
         val chromeFadeOut = Motion.exitFade<Float>()
+        // 朗读高亮只交给"正在念的那一页"，其余页传 null：参数不变，LazyColumn 会跳过它们。
+        val ttsHighlightPage = ttsPage?.page ?: -1
 
         LazyColumn(
             state = listState,
@@ -639,9 +771,14 @@ private fun PdfReadingPane(
             items(count = pageCount, key = { index -> index }) { index ->
                 PdfPageItem(
                     cache = pageCache,
+                    attempt = attempt,
+                    presenter = presenter,
+                    listState = listState,
+                    widthPx = pageWidthPx,
                     pageIndex = index,
                     widthDp = pageWidthDp,
                     selectionState = selectionState,
+                    ttsHighlight = if (index == ttsHighlightPage) ttsRects else null,
                 )
             }
         }
@@ -671,8 +808,9 @@ private fun PdfReadingPane(
         ) {
             ReaderTopBar(
                 title = book.title,
-                onBack = onBack,
+                onBack = leaveReader,
                 actions = {
+                    TextButton(onClick = startTts) { Text("朗读") }
                     IconButton(onClick = {
                         bookmark = !bookmark
                         wakeChrome()
@@ -730,10 +868,10 @@ private fun PdfReadingPane(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .padding(top = 88.dp, start = Spacing.md, end = Spacing.md),
-                shape = RoundedCornerShape(Spacing.sm),
+                shape = MaterialTheme.shapes.small,
                 color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.96f),
-                tonalElevation = 4.dp,
-                shadowElevation = 6.dp,
+                tonalElevation = Elevation.level1,
+                shadowElevation = Elevation.level3,
             ) {
                 Text(
                     text = "此 PDF 没有文本层，无法选择文字",
@@ -752,32 +890,61 @@ private fun PdfReadingPane(
                     .padding(bottom = 96.dp),
             )
         }
-        AnimatedVisibility(
-            visible = chromeVisible,
-            enter = fadeIn(chromeFade) + slideInVertically(chromeMotion) { chromeShiftPx },
-            exit = fadeOut(chromeFadeOut) + slideOutVertically(chromeMotionOut) { chromeShiftPx },
-            modifier = Modifier.align(Alignment.BottomCenter),
-        ) {
-            PdfBottomBar(
-                pageCount = pageCount,
-                displayPage = displayPage,
-                sliderValue = sliderValue,
-                onSliderChange = { value ->
-                    sliderDragging = true
-                    sliderValue = value
+        if (ttsState !is TtsPlaybackState.Idle) {
+            // 朗读中底栏换成控制条：同一组件、同一屏底位置（Spacing.md 与悬浮胶囊一致）。
+            // 它不受 chrome 自动隐藏影响 —— 念到一半控件消失，用户就没法暂停或停止。
+            TtsBar(
+                state = ttsState,
+                rate = ttsRate,
+                onPlayPause = {
+                    if (ttsState is TtsPlaybackState.Playing) ttsPlayback.pause() else ttsPlayback.resume()
                 },
-                onSliderFinished = {
-                    val target = sliderValue.roundToInt().coerceIn(0, pageCount - 1)
-                    sliderDragging = false
-                    scope.launch { listState.scrollToItem(target) }
-                    wakeChrome()
+                onPrevious = { ttsPlayback.previous() },
+                onNext = { ttsPlayback.next() },
+                onCycleRate = {
+                    val next = TtsRates[(TtsRates.indexOf(ttsRate) + 1).mod(TtsRates.size)]
+                    ttsRate = next
+                    ttsPlayback.setRate(next)
                 },
-                onOpenToc = {
-                    tocOpen = true
-                    wakeChrome()
-                },
+                onStop = { ttsPlayback.stop() },
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = Spacing.md),
             )
+        } else {
+            AnimatedVisibility(
+                visible = chromeVisible,
+                enter = fadeIn(chromeFade) + slideInVertically(chromeMotion) { chromeShiftPx },
+                exit = fadeOut(chromeFadeOut) + slideOutVertically(chromeMotionOut) { chromeShiftPx },
+                modifier = Modifier.align(Alignment.BottomCenter),
+            ) {
+                PdfBottomBar(
+                    pageCount = pageCount,
+                    displayPage = displayPage,
+                    sliderValue = sliderValue,
+                    onSliderChange = { value ->
+                        sliderDragging = true
+                        sliderValue = value
+                    },
+                    onSliderFinished = {
+                        val target = sliderValue.roundToInt().coerceIn(0, pageCount - 1)
+                        sliderDragging = false
+                        jumpToPage(target, PdfNavSource.SLIDER)
+                    },
+                    onOpenToc = {
+                        tocOpen = true
+                        wakeChrome()
+                    },
+                )
+            }
         }
+        // 朗读/文本层提示走 snackbar：PDF 阅读页没有固定底栏文字区，提示不该长期占正文高度。
+        SnackbarHost(
+            hostState = snackbarHostState,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 96.dp),
+        )
     }
 
     if (tocOpen) {
@@ -823,7 +990,7 @@ private fun PdfReadingPane(
                             selected = index == currentPage,
                             onClick = {
                                 tocOpen = false
-                                jumpToPage(index)
+                                jumpToPage(index, PdfNavSource.TOC)
                             },
                         )
                     }
@@ -869,7 +1036,7 @@ private fun TocPageCell(pageIndex: Int, selected: Boolean, onClick: () -> Unit) 
     }
     Surface(
         color = container,
-        shape = RoundedCornerShape(Spacing.xs),
+        shape = MaterialTheme.shapes.small,
         border = if (selected) BorderStroke(1.dp, MaterialTheme.colorScheme.outline) else null,
         modifier = Modifier
             .fillMaxWidth()
@@ -933,6 +1100,62 @@ private fun PdfBottomBar(
     }
 }
 
+/** Observe input without consuming it. Layout/restoration alone cannot create a navigation. */
+@Composable
+private fun TrackPdfDrag(list: LazyListState, count: Int, attempt: PdfReaderAttempt, window: PdfPresentWindow) {
+    LaunchedEffect(list, attempt, window) {
+        coroutineScope {
+            var drag: DragInteraction.Start? = null
+            var nav: app.particlebook.android.reader.pdf.perf.PdfPerfSession.Nav? = null
+            var settling: Job? = null
+            try {
+                list.interactionSource.interactions.collect { interaction ->
+                    when (interaction) {
+                        is DragInteraction.Start -> {
+                            settling?.cancel()
+                            drag = interaction
+                            nav = if (window.isActive() && list.layoutInfo.visibleItemsInfo.isNotEmpty()) {
+                                attempt.perf.startNav(computeCurrentPage(list, count), null, PdfNavSource.DRAG)
+                            } else null
+                        }
+                        is DragInteraction.Stop -> if (interaction.start === drag) {
+                            drag = null
+                            val active = nav
+                            if (active != null) settling = launch {
+                                try {
+                                    // Let the drag hand off to fling before looking for idle.
+                                    withFrameNanos { }
+                                    snapshotFlow { list.isScrollInProgress }.first { !it }
+                                    if (window.isActive() && list.layoutInfo.visibleItemsInfo.isNotEmpty()) {
+                                        attempt.perf.finishNav(active, computeCurrentPage(list, count))
+                                    } else attempt.perf.finishNav(active, null, "window_inactive")
+                                } finally {
+                                    attempt.perf.finishNav(active, null, "interrupted")
+                                }
+                            }
+                        }
+                        is DragInteraction.Cancel -> if (interaction.start === drag) {
+                            drag = null
+                            nav?.let { attempt.perf.finishNav(it, null, "interrupted") }
+                            nav = null
+                        }
+                    }
+                }
+            } finally {
+                nav?.let { attempt.perf.finishNav(it, null, "interrupted") }
+            }
+        }
+    }
+}
+
+private fun LazyListState.isPdfPageInViewport(page: Int): Boolean {
+    val layout = layoutInfo
+    return layout.visibleItemsInfo.any {
+        it.index == page && it.size > 0 && it.offset < layout.viewportEndOffset &&
+            it.offset + it.size > layout.viewportStartOffset
+    }
+}
+
 private sealed interface PageRender {
     data object Loading : PageRender
     class Ready(val bitmap: Bitmap, val renderBeginMs: Long) : PageRender
@@ -942,33 +1165,46 @@ private sealed interface PageRender {
 /** 单页：缓存命中直接显示，未命中再渲染；未完成显示占位块（不插 spinner），失败给内联错误 + 重试。 */
 @Composable
 private fun PdfPageItem(
-    cache: PdfPageCache,
+    cache: PdfPageCache<Bitmap>,
+    attempt: PdfReaderAttempt,
+    presenter: PdfPresentWindow,
+    listState: LazyListState,
+    widthPx: Int,
     pageIndex: Int,
     widthDp: Dp,
     selectionState: PdfSelectionState? = null,
+    /** 正在朗读的那一句在本页的矩形（归一化）。null 表示本页没有朗读高亮。 */
+    ttsHighlight: List<PdfNormalizedRect>? = null,
 ) {
-    var retry by remember { mutableIntStateOf(0) }
-    // 组合期间给该页位图记 in-use：缓存淘汰 / trim 都会跳过它，避免把正在显示的位图 recycle 掉。
-    DisposableEffect(cache, pageIndex) {
-        cache.acquire(pageIndex)
-        onDispose { cache.release(pageIndex) }
+    var retry by remember(cache, pageIndex) { mutableIntStateOf(0) }
+    val page = remember(cache, presenter, listState, pageIndex, retry) {
+        presenter.newPage(pageIndex, listState::isPdfPageInViewport)
     }
-    val render by produceState<PageRender>(
-        initialValue = PageRender.Loading,
-        cache,
-        pageIndex,
-        retry,
-    ) {
-        if (retry > 0) cache.forget(pageIndex)
+    var render by remember(page) { mutableStateOf<PageRender>(PageRender.Loading) }
+    DisposableEffect(page) {
+        val leased = cache.acquire(pageIndex)
+        page.register()
+        onDispose {
+            page.dispose()
+            if (leased) cache.release(pageIndex)
+        }
+    }
+    LaunchedEffect(page) {
         val began = SystemClock.elapsedRealtime()
-        value = try {
-            val bitmap = cache.render(pageIndex)
-            PageRender.Ready(bitmap, began)
-        } catch (cancellation: CancellationException) {
-            throw cancellation
-        } catch (throwable: Throwable) {
-            Log.e(TAG, "render failed page=" + (pageIndex + 1), throwable)
-            PageRender.Failed(throwable.describe())
+        val origin = if (page.visibleNow()) PdfOrigin.DEMAND else PdfOrigin.LAZY
+        val request = attempt.perf.startRequest(pageIndex, origin) ?: return@LaunchedEffect
+        page.requested(request)
+        render = try {
+            val loaded = attempt.load(cache, widthPx, request)
+            page.ready(request, loaded.producer)
+            PageRender.Ready(loaded.bitmap, began)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (closed: PdfSessionClosed) {
+            PageRender.Loading
+        } catch (error: Exception) {
+            Log.e(TAG, "render failed page=" + (pageIndex + 1), error)
+            PageRender.Failed(error.describe())
         }
     }
 
@@ -976,7 +1212,7 @@ private fun PdfPageItem(
         when (val current = render) {
             is PageRender.Loading -> PagePlaceholder(pageIndex = pageIndex, width = widthDp)
             is PageRender.Ready -> {
-                // 上屏：该页位图第一次真正被画到屏幕上的那一帧（每页只打一次）。
+                // PBPERF 保留旧frame-ready代理。正式PBPDF从下方实际Image draw+commit采集。
                 LaunchedEffect(current) {
                     withFrameNanos { }
                     Log.i(
@@ -993,8 +1229,17 @@ private fun PdfPageItem(
                         contentScale = ContentScale.FillWidth,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(Spacing.xxs)),
+                            .clip(MaterialTheme.shapes.extraSmall)
+                            .then(page.modifier()),
                     )
+                    // 朗读高亮压在图片之上、选区之下的位置：两者共用同一份归一化矩形坐标。
+                    val highlight = ttsHighlight
+                    if (highlight != null && highlight.isNotEmpty()) {
+                        PdfTtsHighlightOverlay(
+                            rects = highlight,
+                            modifier = Modifier.matchParentSize(),
+                        )
+                    }
                     if (selectionState != null) {
                         PdfSelectionOverlay(
                             pageIndex = pageIndex,
@@ -1008,6 +1253,36 @@ private fun PdfPageItem(
                 pageIndex = pageIndex,
                 message = current.message,
                 onRetry = { retry++ },
+            )
+        }
+    }
+}
+
+/**
+ * 朗读中的句子高亮。
+ *
+ * 坐标用的是归一化矩形（0..1，左上原点）乘实测尺寸，和 PdfSelectionOverlay 完全同一套换算，
+ * 所以"高亮"和"选区"不会因为对旋转/裁剪的理解不同而互相错位。
+ *
+ * 只画不接手势：触摸继续落到底层的选区与翻页手势上，朗读期间翻页/选字都不受影响。
+ * 矩形由调用方在 IO 线程算好（PdfTextLayerController.selectionRects 需要先打开文本页），
+ * 这里保持纯绘制，不在 draw 阶段做 I/O。
+ */
+@Composable
+private fun PdfTtsHighlightOverlay(
+    rects: List<PdfNormalizedRect>,
+    modifier: Modifier = Modifier,
+) {
+    val highlightColor = pdfTtsHighlightColor()
+    Canvas(modifier = modifier) {
+        val width = size.width
+        val height = size.height
+        if (width <= 0f || height <= 0f) return@Canvas
+        rects.forEach { rect ->
+            drawRect(
+                color = highlightColor,
+                topLeft = Offset(rect.left * width, rect.top * height),
+                size = Size(rect.width * width, rect.height * height),
             )
         }
     }
@@ -1034,7 +1309,7 @@ private fun PagePlaceholder(pageIndex: Int, width: Dp) {
 private fun PageRenderError(pageIndex: Int, message: String, onRetry: () -> Unit) {
     Surface(
         color = MaterialTheme.colorScheme.errorContainer,
-        shape = RoundedCornerShape(Spacing.sm),
+        shape = MaterialTheme.shapes.small,
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = Spacing.md, vertical = Spacing.xs),
@@ -1163,228 +1438,4 @@ private fun Throwable.describe(): String {
     val text = message
     if (text != null && text.isNotBlank()) return text
     return this::class.java.simpleName
-}
-
-/**
- * 页位图 LRU 缓存（按字节计上限，见 [pageCacheLimitBytes]）。
- * - 正在组合中的页（[acquire] 计数 > 0）不会被淘汰 / 回收，避免 Image 画到 recycled bitmap。
- * - 允许总量暂时超过上限（in-use 页必须保住），页离开组合（[release]）后立刻补做淘汰。
- * - 淘汰时显式 recycle，并打 PBPERF cache_stat / cache_evict 日志。
- */
-private class PdfPageCache(
-    private val source: PdfSource,
-    private val widthPx: Int,
-    private val byteLimit: Int,
-) {
-    private val lock = Any()
-
-    /** accessOrder = true：迭代顺序 = 最近使用顺序，淘汰从最久未用开始。 */
-    private val entries = LinkedHashMap<Int, Bitmap>(8, 0.75f, true)
-    private val inUse = HashMap<Int, Int>()
-    private var totalBytes = 0L
-    private var renderCount = 0
-
-    fun peek(pageIndex: Int): Bitmap? = synchronized(lock) { entries[pageIndex] }
-
-    /** 命中直接返回；未命中渲染并放进缓存。 */
-    suspend fun render(pageIndex: Int): Bitmap {
-        peek(pageIndex)?.let { return it }
-        val began = SystemClock.elapsedRealtime()
-        val bitmap = source.renderPage(pageIndex, widthPx)
-        val renderMs = SystemClock.elapsedRealtime() - began
-        Log.d(
-            TAG,
-            "render ok page=" + (pageIndex + 1) + " size=" + bitmap.width + "x" + bitmap.height +
-                " ms=" + renderMs,
-        )
-        Log.i(
-            PERF_TAG,
-            "PBPERF|phase=page_render|page:" + pageIndex + "|ms=" + renderMs +
-                "|extra=size:" + bitmap.width + "x" + bitmap.height,
-        )
-        return synchronized(lock) {
-            // 并发渲染同一页（例如预取与滚动撞车）：后到的不要覆盖，更不能 recycle 已在显示的位图。
-            val existing = entries[pageIndex]
-            if (existing != null) {
-                existing
-            } else {
-                entries[pageIndex] = bitmap
-                totalBytes += sizeOf(bitmap)
-                renderCount++
-                evictLocked()
-                if (renderCount % 10 == 0) logStatLocked()
-                bitmap
-            }
-        }
-    }
-
-    /** 预取：命中则跳过；失败只记日志，不影响阅读。 */
-    suspend fun ensure(pageIndex: Int) {
-        if (pageIndex < 0 || pageIndex >= source.pageCount) return
-        if (peek(pageIndex) != null) return
-        try {
-            render(pageIndex)
-        } catch (cancellation: CancellationException) {
-            throw cancellation
-        } catch (throwable: Throwable) {
-            Log.w(TAG, "prefetch failed page=" + (pageIndex + 1), throwable)
-        }
-    }
-
-    /** 重试前丢掉这一页的旧位图（不 recycle：上一帧可能还引用它）。 */
-    fun forget(pageIndex: Int) {
-        synchronized(lock) {
-            val removed = entries.remove(pageIndex) ?: return
-            totalBytes -= sizeOf(removed)
-        }
-    }
-
-    fun acquire(pageIndex: Int) {
-        synchronized(lock) { inUse[pageIndex] = (inUse[pageIndex] ?: 0) + 1 }
-    }
-
-    fun release(pageIndex: Int) {
-        synchronized(lock) {
-            val count = (inUse[pageIndex] ?: 1) - 1
-            if (count <= 0) inUse.remove(pageIndex) else inUse[pageIndex] = count
-            evictLocked()
-        }
-    }
-
-    /** 系统内存吃紧：把所有非显示页清掉。 */
-    fun trim(level: Int) {
-        synchronized(lock) {
-            Log.i(PERF_TAG, "PBPERF|phase=cache_trim|ms=0|extra=level:" + level)
-            evictLocked(force = true)
-            logStatLocked()
-        }
-    }
-
-    /** 退出阅读器：清空缓存（显示中的页已随组合销毁，这里全部可回收）。 */
-    fun clear() {
-        synchronized(lock) {
-            evictLocked(force = true)
-            logStatLocked()
-        }
-    }
-
-    private fun evictLocked(force: Boolean = false) {
-        var evicted = false
-        val iterator = entries.entries.iterator()
-        while (iterator.hasNext() && (force || totalBytes > byteLimit)) {
-            val entry = iterator.next()
-            val page = entry.key
-            if (inUse.containsKey(page)) continue
-            iterator.remove()
-            totalBytes -= sizeOf(entry.value)
-            Log.i(PERF_TAG, "PBPERF|phase=cache_evict|ms=0|extra=page:" + page)
-            runCatching { entry.value.recycle() }
-            evicted = true
-        }
-        if (evicted) logStatLocked()
-    }
-
-    private fun logStatLocked() {
-        Log.i(
-            PERF_TAG,
-            "PBPERF|phase=cache_stat|ms=0|extra=count:" + entries.size + ",bytes:" + totalBytes,
-        )
-    }
-
-    private fun sizeOf(bitmap: Bitmap): Long = bitmap.allocationByteCount.toLong()
-}
-
-/**
- * PdfRenderer 的访问壳。
- * PdfRenderer 不是线程安全的，且 PDFium 的 native 调用本身串行：这里固定一条线程，
- * 打开 / 渲染 / 关闭都排在同一条线程上执行，避免跨线程使用导致的静默失败。
- */
-private class PdfSource private constructor(
-    private val renderer: PdfRenderer,
-    private val descriptor: ParcelFileDescriptor,
-    private val executor: ExecutorService,
-    private val dispatcher: CoroutineDispatcher,
-    val pageCount: Int,
-) : Closeable {
-
-    @Volatile
-    private var closed = false
-
-    suspend fun renderPage(pageIndex: Int, targetWidthPx: Int): Bitmap = withContext(dispatcher) {
-        check(!closed) { "PDF 已关闭" }
-        val page = renderer.openPage(pageIndex)
-        try {
-            val pageWidth = page.width.coerceAtLeast(1)
-            val pageHeight = page.height.coerceAtLeast(1)
-            val width = targetWidthPx.coerceAtLeast(1)
-            val scale = width.toFloat() / pageWidth.toFloat()
-            val height = (pageHeight * scale).roundToInt().coerceAtLeast(1)
-            val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-            bitmap.eraseColor(Color.WHITE)
-            page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-            bitmap
-        } finally {
-            runCatching { page.close() }
-        }
-    }
-
-    override fun close() {
-        if (closed) return
-        closed = true
-        runCatching {
-            executor.execute {
-                runCatching { renderer.close() }
-                runCatching { descriptor.close() }
-                runCatching { executor.shutdown() }
-            }
-        }.onFailure {
-            runCatching { executor.shutdownNow() }
-        }
-    }
-
-    companion object {
-        suspend fun open(file: File): PdfSource {
-            require(file.exists()) { "文件不存在：" + file.name }
-            val executor = Executors.newSingleThreadExecutor { runnable ->
-                Thread(runnable, "PB-PdfRenderer").apply { isDaemon = true }
-            }
-            val dispatcher = executor.asCoroutineDispatcher()
-            return try {
-                withContext(dispatcher) {
-                    val descriptor = ParcelFileDescriptor.open(
-                        file,
-                        ParcelFileDescriptor.MODE_READ_ONLY,
-                    )
-                    val renderer = try {
-                        PdfRenderer(descriptor)
-                    } catch (throwable: Throwable) {
-                        runCatching { descriptor.close() }
-                        throw throwable
-                    }
-                    Log.d(
-                        TAG,
-                        "renderer ready pages=" + renderer.pageCount +
-                            " firstPage=" + describeFirstPage(renderer),
-                    )
-                    PdfSource(renderer, descriptor, executor, dispatcher, renderer.pageCount)
-                }
-            } catch (throwable: Throwable) {
-                runCatching { dispatcher.close() }
-                throw throwable
-            }
-        }
-
-        /** 只在创建线程上跑一次，把首页尺寸写进日志（点值，1/72 英寸）。 */
-        private fun describeFirstPage(renderer: PdfRenderer): String {
-            if (renderer.pageCount <= 0) return "none"
-            return runCatching {
-                val page = renderer.openPage(0)
-                try {
-                    page.width.toString() + "x" + page.height
-                } finally {
-                    runCatching { page.close() }
-                }
-            }.getOrElse { throwable -> "error:" + throwable.describe() }
-        }
-    }
 }

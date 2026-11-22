@@ -144,6 +144,33 @@ class EpubReaderControllerTest {
     }
 
     @Test
+    fun blockRangesInPageSplitsByBlockAndDropsParagraphBreak() {
+        EpubReaderController.open(fixture(), FakeMeasurer()).use { controller ->
+            controller.openChapter(0)
+            controller.layoutChapter(EpubLayoutConfig(viewportWidthPx = 100, viewportHeightPx = 20))
+
+            val single = controller.blockRangesInPage(0, 0, 10)
+            assertEquals(1, single.size)
+            assertEquals(0, single[0].blockIndex)
+            assertEquals(0, single[0].startChar)
+            assertEquals(10, single[0].endChar)
+
+            // 0..11 覆盖第一块末尾 + 换行 + 第二块首字符：换行不入区间，第二块只取 1 个字符。
+            val crossed = controller.blockRangesInPage(0, 8, 13)
+            assertEquals(2, crossed.size)
+            assertEquals(0, crossed[0].blockIndex)
+            assertEquals(8, crossed[0].startChar)
+            assertEquals(10, crossed[0].endChar)
+            assertEquals(1, crossed[1].blockIndex)
+            assertEquals(0, crossed[1].startChar)
+            assertEquals(2, crossed[1].endChar)
+
+            assertTrue(controller.blockRangesInPage(0, 5, 5).isEmpty())
+            assertTrue(controller.blockRangesInPage(99, 0, 5).isEmpty())
+        }
+    }
+
+    @Test
     fun chapterSwitchingAndTocTargetsPreserveChapterState() {
         EpubReaderController.open(fixture(), FakeMeasurer()).use { controller ->
             controller.openChapter(0)
