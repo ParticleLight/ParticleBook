@@ -125,7 +125,12 @@ class LibraryDeletionCascadeTest {
     @Test
     fun storeCascadesProgressCoverSeedAndDownloadRecordCleanup() {
         val source = sourceFile("src/main/java/app/particlebook/android/ui/data/LibraryStore.kt")
-        assertTrue("删书要清阅读进度", source.contains("ReadingProgress.clear(context, removedIds)"))
+        assertTrue("正常删书要保留被删书身份", source.contains("clearRemovedProgress(removed)"))
+        assertTrue("静默回收要保留被删书身份", source.contains("clearRemovedProgress(reclaimed)"))
+        assertTrue(
+            "清进度要传原书身份和剩余书架，避免重映射丢删除目标或误删活跃别名",
+            source.contains("ReadingProgress.clear(context, removed) { indexStore.books }"),
+        )
         assertTrue("删书要清封面缓存", source.contains("BookCoverLoader.evict(context, removedIds)"))
         assertTrue("删内置样书要记入删除名单", source.contains("Assets.markSeedDeleted"))
         assertTrue("删书要通知下载记录级联清理", source.contains("LibraryRemovalBus.notifyRemoved(removed)"))
