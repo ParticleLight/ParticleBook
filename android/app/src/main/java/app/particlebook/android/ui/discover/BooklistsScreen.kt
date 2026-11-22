@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.MenuBook
 import androidx.compose.material3.MaterialTheme
@@ -34,7 +33,6 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.particlebook.android.R
-import app.particlebook.android.ui.Radius
 import app.particlebook.android.ui.Spacing
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -240,7 +238,7 @@ private fun BooklistRow(item: BooklistCard, onClick: () -> Unit) {
                     EditorChoiceTag()
                 }
             }
-            Spacer(Modifier.height(2.dp))
+            Spacer(Modifier.height(Spacing.xxs))
             Text(
                 text = item.author.ifBlank { unknownAuthor },
                 style = MaterialTheme.typography.bodySmall,
@@ -265,7 +263,7 @@ private fun BooklistRow(item: BooklistCard, onClick: () -> Unit) {
             }
             val meta = listOfNotNull(booksMeta, viewsMeta, commentsMeta).joinToString(" · ")
             if (meta.isNotEmpty()) {
-                Spacer(Modifier.height(2.dp))
+                Spacer(Modifier.height(Spacing.xxs))
                 Text(
                     text = meta,
                     style = MaterialTheme.typography.bodySmall,
@@ -291,14 +289,14 @@ private fun BooklistRow(item: BooklistCard, onClick: () -> Unit) {
 @Composable
 private fun EditorChoiceTag() {
     Surface(
-        shape = RoundedCornerShape(Radius.chip),
+        shape = MaterialTheme.shapes.small,
         color = MaterialTheme.colorScheme.tertiaryContainer,
     ) {
         Text(
             text = stringResource(R.string.discover_editor_choice),
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onTertiaryContainer,
-            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+            modifier = Modifier.padding(horizontal = Spacing.xs, vertical = Spacing.xxs),
         )
     }
 }
@@ -316,7 +314,7 @@ private fun BooklistsSkeleton(modifier: Modifier = Modifier) {
                 repeat(3) { index ->
                     PulsePlaceholder(
                         modifier = Modifier.size(width = 40.dp, height = 56.dp),
-                        shape = RoundedCornerShape(Radius.chip),
+                        shape = MaterialTheme.shapes.small,
                     )
                     if (index < 2) Spacer(Modifier.size(Spacing.xxs))
                 }
@@ -325,22 +323,22 @@ private fun BooklistsSkeleton(modifier: Modifier = Modifier) {
                     PulsePlaceholder(
                         modifier = Modifier
                             .fillMaxWidth(0.62f)
-                            .height(18.dp),
-                        shape = RoundedCornerShape(Radius.chip),
+                            .height(Spacing.md),
+                        shape = MaterialTheme.shapes.small,
                     )
                     Spacer(Modifier.height(Spacing.xs))
                     PulsePlaceholder(
                         modifier = Modifier
                             .fillMaxWidth(0.4f)
-                            .height(12.dp),
-                        shape = RoundedCornerShape(Radius.chip),
+                            .height(Spacing.sm),
+                        shape = MaterialTheme.shapes.small,
                     )
                     Spacer(Modifier.height(Spacing.xs))
                     PulsePlaceholder(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(12.dp),
-                        shape = RoundedCornerShape(Radius.chip),
+                            .height(Spacing.sm),
+                        shape = MaterialTheme.shapes.small,
                     )
                 }
             }

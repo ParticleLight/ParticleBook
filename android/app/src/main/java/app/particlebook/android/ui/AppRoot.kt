@@ -2,12 +2,12 @@ package app.particlebook.android.ui
 
 import android.content.Context
 import android.net.Uri
-import android.util.Log
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.core.tween
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
@@ -43,6 +43,8 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.outlined.Explore
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.BottomAppBar
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -80,11 +82,10 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import app.particlebook.android.data.CatalogSync
 import app.particlebook.android.data.LibraryRuntime
 import app.particlebook.android.ui.data.Book
 import app.particlebook.android.ui.data.BookFormat
-import app.particlebook.android.ui.data.LibraryCatalogBridge
+import app.particlebook.android.ui.data.ReadingProgress
 import app.particlebook.android.ui.data.LibraryStore
 import app.particlebook.android.ui.discover.BooklistDetailScreen
 import app.particlebook.android.ui.discover.BooklistsScreen
@@ -92,11 +93,8 @@ import app.particlebook.android.ui.discover.CategoriesScreen
 import app.particlebook.android.ui.discover.CategoryListScreen
 import app.particlebook.android.ui.discover.DiscoverRepositoryProvider
 import app.particlebook.android.ui.discover.PopularScreen
-import app.particlebook.android.zlib.ZAccount
-import app.particlebook.android.zlib.ZlibClient
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 /** 导航三个等权目的地：书架 / Z-Library / 设置。阅读器是全屏任务页，不在这里。 */
 private enum class TopLevel(
@@ -177,6 +175,8 @@ private class AppPreferences(context: Context) {
     }
 }
 
+private data class EpubOpenTiming(val bookId: Long, val startedAtNanos: Long)
+
 /**
  * task-21：二级页导航条目。
  *
@@ -239,11 +239,18 @@ fun ParticleBookApp() {
     val themeMode = AppThemeMode.entries.firstOrNull { it.name == themeModeName } ?: AppThemeMode.System
     var tabIndex by rememberSaveable { mutableIntStateOf(0) }
     var openBookId by rememberSaveable { mutableLongStateOf(-1L) }
+    // 路由可以恢复，用户点击的计时只属于当前打开会话。
+    var epubOpenTiming by remember { mutableStateOf<EpubOpenTiming?>(null) }
     var fontSize by rememberSaveable { mutableIntStateOf(preferences.fontSize) }
     var lineHeight by rememberSaveable { mutableFloatStateOf(preferences.lineHeight) }
     var defaultSortName by rememberSaveable { mutableStateOf(preferences.defaultSort) }
-    // 阅读器关闭后 +1，强制书架重算 Hero（SharedPreferences 里的进度不是 Compose 状态）。
+    // 书架显示时订阅进度快照；阅读期间暂停订阅，避免隐藏书架随每次翻页重组。
     var progressEpoch by remember { mutableIntStateOf(0) }
+    var progressReadyBookIds by remember { mutableStateOf<Set<Long>>(emptySet()) }
+    var progressReady by remember { mutableStateOf(false) }
+    var progressLoadFailed by remember { mutableStateOf(false) }
+    var progressRetry by remember { mutableIntStateOf(0) }
+    var readerGeneration by remember { mutableLongStateOf(0L) }
     val defaultSort = LibrarySort.entries.firstOrNull { it.name == defaultSortName }
         ?: LibrarySort.RecentRead
 
@@ -306,20 +313,20 @@ fun ParticleBookApp() {
     }
     val books: List<Book> = store.books
     val openBook = remember(books, openBookId) { books.firstOrNull { it.id == openBookId } }
-    // P1-b：旧书架（books.json）仍是读源；每次书目变化后把行 upsert 进 SQLite，
-    // 让 annotations.book_id 外键有对应 books 行。SQLite 失败不阻断书架。
     val annotationStore = remember(appContext) { LibraryRuntime.lazyAnnotationStore(appContext) }
-    LaunchedEffect(books) {
-        if (books.isEmpty()) return@LaunchedEffect
-        withContext(Dispatchers.IO) {
-            runCatching {
-                LibraryRuntime.ensureCatalogReady(appContext)
-                CatalogSync.syncBooks(
-                    LibraryRuntime.repository(appContext),
-                    LibraryCatalogBridge.bookRows(books),
-                )
-            }.onFailure { Log.w("PBCatalog", "catalog sync failed", it) }
+    LaunchedEffect(books, store.loading, progressRetry) {
+        if (store.loading) return@LaunchedEffect
+        progressLoadFailed = false
+        val initialized = ReadingProgress.initialize(appContext) { store.books }
+        if (initialized) {
+            progressReadyBookIds = books.map { it.id }.toSet()
+            progressReady = true
         }
+        progressLoadFailed = !initialized
+    }
+    LaunchedEffect(openBookId) {
+        if (openBookId >= 0L) return@LaunchedEffect
+        ReadingProgress.snapshots.collect { progressEpoch += 1 }
     }
 
     // 多选状态只在会话内有效（书源本身也还没有持久化）。
@@ -327,8 +334,23 @@ fun ParticleBookApp() {
     var selectedIds by remember { mutableStateOf<Set<Long>>(emptySet()) }
     var deleteDialogOpen by remember { mutableStateOf(false) }
 
-    LaunchedEffect(books, openBookId) {
-        if (openBookId >= 0L && openBook == null) openBookId = -1L
+    fun openReader(book: Book, fromBookClick: Boolean) {
+        readerGeneration += 1L
+        epubOpenTiming = if (fromBookClick && book.format == BookFormat.Epub) {
+            EpubOpenTiming(book.id, System.nanoTime())
+        } else {
+            null
+        }
+        openBookId = book.id
+    }
+
+    fun closeReader() {
+        epubOpenTiming = null
+        openBookId = -1L
+    }
+
+    LaunchedEffect(books, store.loading, openBookId) {
+        if (!store.loading && openBookId >= 0L && openBook == null) closeReader()
     }
 
     fun exitSelection() {
@@ -345,10 +367,10 @@ fun ParticleBookApp() {
                     // task-70：重复导入（同 URI / 同内容）命中已有条目时提示「已在书架」并直接跳过去。
                     if (outcome.alreadyInLibrary) {
                         snackbarHostState.showSnackbar("已在书架：《" + book.title + "》")
-                        openBookId = book.id
+                        openReader(book, fromBookClick = false)
                     } else {
                         snackbarHostState.showSnackbar("已导入《" + book.title + "》")
-                        if (book.format == BookFormat.Pdf) openBookId = book.id
+                        if (book.format == BookFormat.Pdf) openReader(book, fromBookClick = false)
                     }
                 }
                 .onFailure { throwable ->
@@ -412,8 +434,8 @@ fun ParticleBookApp() {
                     selectionMode = selectionMode,
                     selectedIds = selectedIds,
                     onOpenBook = { book ->
+                        openReader(book, fromBookClick = true)
                         exitSelection()
-                        openBookId = book.id
                     },
                     onEnterSelection = { book ->
                         selectionMode = true
@@ -563,7 +585,7 @@ fun ParticleBookApp() {
                                 accountKey = accountViewModel.account?.email
                                     ?: accountViewModel.account?.name,
                                 onBack = { popRoute() },
-                                onOpenBook = { book -> openBookId = book.id },
+                                onOpenBook = { book -> openReader(book, fromBookClick = true) },
                                 onRequireLogin = { openLogin() },
                                 // A12 + task-21：推荐卡压入新的 detail 条目（带新 hash/slug），
                                 // 返回时弹掉本层，自然回到上一本书。
@@ -574,7 +596,7 @@ fun ParticleBookApp() {
                         "downloads" -> ZlibDownloadsScreen(
                             store = store,
                             onBack = { popRoute() },
-                            onOpenBook = { book -> openBookId = book.id },
+                            onOpenBook = { book -> openReader(book, fromBookClick = true) },
                             // D1 A-lite：默认下载目录无法被系统文件管理器直达，压入应用内文件列表页。
                             onOpenDownloadFolder = { pushRoute("downloadFolder") },
                         )
@@ -583,7 +605,7 @@ fun ParticleBookApp() {
                         "downloadFolder" -> ZlibDownloadFolderScreen(
                             store = store,
                             onBack = { popRoute() },
-                            onOpenBook = { book -> openBookId = book.id },
+                            onOpenBook = { book -> openReader(book, fromBookClick = true) },
                             // 下载目录切换仍在设置页：清空二级栈回到主 tab，避免设置页被压在下载页下面。
                             onOpenSettings = {
                                 navStack = emptyList()
@@ -647,8 +669,10 @@ fun ParticleBookApp() {
             modifier = Modifier.fillMaxSize(),
             transitionSpec = {
                 // 无障碍：系统移除动画时只做瞬时切换，不做缩放/位移。
+                // 用 EnterTransition.None / ExitTransition.None 表达「零时长」，
+                // 不写 tween(0)：时长字面量属于动效 token 的地盘（Motion.kt）。
                 if (reduceMotion) {
-                    fadeIn(tween(0)).togetherWith(fadeOut(tween(0)))
+                    EnterTransition.None togetherWith ExitTransition.None
                 } else if (targetState != null) {
                     // 书架 ↔ 阅读器：缩放 + 淡入淡出（SharedTransitionLayout 没有稳定 API，spec 允许的降级方案）。
                     (fadeIn(Motion.enterFade<Float>()) +
@@ -677,14 +701,43 @@ fun ParticleBookApp() {
                             }
                         },
                 ) {
-                    ReaderScreen(
-                        book = readingBook,
-                        annotationStore = annotationStore,
-                        onBack = {
-                            openBookId = -1L
-                            progressEpoch += 1
-                        },
-                    )
+                    if (progressReady && readingBook.id in progressReadyBookIds) {
+                        ReaderScreen(
+                            book = readingBook,
+                            annotationStore = annotationStore,
+                            openStartedAtNanos = epubOpenTiming?.takeIf { it.bookId == readingBook.id }?.startedAtNanos,
+                            onBack = {
+                                val closingGeneration = readerGeneration
+                                scope.launch {
+                                    val saved = ReadingProgress.flush()
+                                    if (openBookId == readingBook.id && readerGeneration == closingGeneration) {
+                                        closeReader()
+                                        progressEpoch += 1
+                                        if (!saved) {
+                                            snackbarHostState.showSnackbar("阅读进度尚未保存，稍后自动重试")
+                                        }
+                                    }
+                                }
+                            },
+                        )
+                    } else {
+                        BackHandler { closeReader() }
+                        Column(
+                            modifier = Modifier.align(Alignment.Center).padding(Spacing.lg),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(Spacing.md),
+                        ) {
+                            if (progressLoadFailed) {
+                                Text("阅读记录加载失败", style = MaterialTheme.typography.titleMedium)
+                                Text("请重试以恢复上次的阅读位置", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                FilledTonalButton(onClick = { progressRetry += 1 }) { Text("重试") }
+                            } else {
+                                CircularProgressIndicator()
+                                Text("正在恢复阅读位置…", style = MaterialTheme.typography.bodyMedium)
+                            }
+                            TextButton(onClick = { closeReader() }) { Text("返回书架") }
+                        }
+                    }
                 }
             } else {
                 Box(Modifier.fillMaxSize())
@@ -886,8 +939,9 @@ private fun NavCapsule(
     } else {
         Modifier.width(Spacing.navCapsuleWidth)
     }
-    val capsuleHeight = if (largeFont) 72.dp else Spacing.navCapsuleHeight
-    val itemHeight = if (largeFont) 64.dp else 48.dp
+    // 72dp = 48dp 命中区 + 24dp 两行排布余量；64dp 是两行排布下的单项高度。
+    val capsuleHeight = if (largeFont) Spacing.minTouchTarget + Spacing.lg else Spacing.navCapsuleHeight
+    val itemHeight = if (largeFont) Spacing.minTouchTarget + Spacing.md else Spacing.minTouchTarget
     Surface(
         modifier = modifier
             .then(widthModifier)
@@ -896,7 +950,8 @@ private fun NavCapsule(
         shape = shape,
         // P1-1：92% 半透明会让下方文字透出（对比 ≈1.9:1）→ 提到 98%，观感接近实底但仍带一点层次。
         color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.98f),
-        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.12f)),
+        // 描边走 outlineVariant：白色描边在浅色方案里等于隐形，深浅两套都要有轮廓。
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
     ) {
         Row(
             modifier = Modifier

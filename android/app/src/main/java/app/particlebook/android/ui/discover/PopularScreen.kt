@@ -15,7 +15,6 @@ import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.TrendingUp
 import androidx.compose.material3.MaterialTheme
@@ -31,7 +30,6 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.particlebook.android.R
-import app.particlebook.android.ui.Radius
 import app.particlebook.android.ui.Spacing
 import app.particlebook.android.ui.parseBookRef
 import kotlinx.coroutines.CancellationException
@@ -235,7 +233,7 @@ private fun PopularCard(item: PopularBook, onClick: () -> Unit) {
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(0.75f),
-            shape = RoundedCornerShape(Radius.cover),
+            shape = MaterialTheme.shapes.medium,
             targetWidth = 180.dp,
         )
         Spacer(Modifier.height(Spacing.xs))
@@ -245,7 +243,7 @@ private fun PopularCard(item: PopularBook, onClick: () -> Unit) {
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
         )
-        Spacer(Modifier.height(2.dp))
+        Spacer(Modifier.height(Spacing.xxs))
         Text(
             text = item.book.author.ifBlank { unknownAuthor },
             style = MaterialTheme.typography.bodySmall,
@@ -277,21 +275,21 @@ private fun PopularSkeleton(modifier: Modifier = Modifier) {
                     modifier = Modifier
                         .fillMaxWidth()
                         .aspectRatio(0.75f),
-                    shape = RoundedCornerShape(Radius.cover),
+                    shape = MaterialTheme.shapes.medium,
                 )
                 Spacer(Modifier.height(Spacing.xs))
                 PulsePlaceholder(
                     modifier = Modifier
                         .fillMaxWidth(0.8f)
-                        .height(14.dp),
-                    shape = RoundedCornerShape(Radius.chip),
+                        .height(Spacing.sm),
+                    shape = MaterialTheme.shapes.small,
                 )
                 Spacer(Modifier.height(Spacing.xs))
                 PulsePlaceholder(
                     modifier = Modifier
                         .fillMaxWidth(0.45f)
-                        .height(12.dp),
-                    shape = RoundedCornerShape(Radius.chip),
+                        .height(Spacing.sm),
+                    shape = MaterialTheme.shapes.small,
                 )
             }
         }

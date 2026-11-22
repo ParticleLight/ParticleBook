@@ -5,7 +5,6 @@ import android.content.Intent
 import android.net.Uri
 import android.util.Log
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -21,7 +20,6 @@ import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -49,17 +47,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.autofill.ContentType
-import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.contentType
 import androidx.compose.ui.semantics.liveRegion
-import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -92,6 +88,9 @@ fun ZlibLoginScreen(
     val busy = viewModel.busy
     val error = viewModel.error
     val canSubmit = email.isNotBlank() && password.isNotEmpty() && !busy
+    // 轻量格式校验：只驱动字段的 isError + supportingText 视觉反馈（M3 表单规范），
+    // 是否真能登录仍由 viewModel.login 的鉴权结果决定，不改提交逻辑。
+    val emailFormatOk = email.isBlank() || email.trim().contains('@')
     // P2-4：openInBrowser 失败（无浏览器 / 系统拒绝）时在入口下方给出可操作提示，不再静默。
     var browserOpenFailed by remember { mutableStateOf(false) }
     // B12 修正（realnet T26，2026-11-04）：站点已无找回密码页（全部线路软 404），
@@ -138,7 +137,7 @@ fun ZlibLoginScreen(
         ) {
             Spacer(Modifier.height(Spacing.xs))
             Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onBack, modifier = Modifier.size(48.dp)) {
+                IconButton(onClick = onBack, modifier = Modifier.size(Spacing.minTouchTarget)) {
                     Icon(
                         imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
                         contentDescription = "返回",
@@ -172,8 +171,18 @@ fun ZlibLoginScreen(
                 placeholder = { Text("you@example.com") },
                 singleLine = true,
                 enabled = !busy,
-                isError = error != null,
-                shape = RoundedCornerShape(Radius.cover),
+                isError = error != null || !emailFormatOk,
+                // M3 表单：支持文案位固定占位——格式错误时给出原因，否则给填写说明。
+                supportingText = {
+                    Text(
+                        text = if (!emailFormatOk) "邮箱格式不正确" else "Z-Library 账号邮箱",
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.semantics {
+                            if (!emailFormatOk) liveRegion = LiveRegionMode.Polite
+                        },
+                    )
+                },
+                shape = MaterialTheme.shapes.medium,
                 keyboardOptions = KeyboardOptions(
                     keyboardType = KeyboardType.Email,
                     imeAction = ImeAction.Next,
@@ -207,7 +216,7 @@ fun ZlibLoginScreen(
                         )
                     }
                 },
-                shape = RoundedCornerShape(Radius.cover),
+                shape = MaterialTheme.shapes.medium,
                 visualTransformation = if (passwordVisible) {
                     VisualTransformation.None
                 } else {
@@ -217,6 +226,8 @@ fun ZlibLoginScreen(
                     IconButton(
                         onClick = { passwordVisible = !passwordVisible },
                         enabled = !busy,
+                        // 48dp 触控：显隐开关是拇指高频目标，不能只靠 24dp 图标范围。
+                        modifier = Modifier.size(Spacing.minTouchTarget),
                     ) {
                         Icon(
                             imageVector = if (passwordVisible) {
@@ -239,9 +250,9 @@ fun ZlibLoginScreen(
                 onClick = { submit() },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(min = 56.dp),
+                    .heightIn(min = Spacing.xxl),
                 enabled = canSubmit,
-                shape = RoundedCornerShape(Radius.cover),
+                shape = MaterialTheme.shapes.medium,
                 colors = ButtonDefaults.buttonColors(
                     containerColor = MaterialTheme.colorScheme.primary,
                     contentColor = MaterialTheme.colorScheme.onPrimary,
@@ -249,15 +260,15 @@ fun ZlibLoginScreen(
             ) {
                 if (busy) {
                     CircularProgressIndicator(
-                        modifier = Modifier.size(18.dp),
+                        modifier = Modifier.size(Spacing.md),
                         strokeWidth = 2.dp,
                         // 登录中按钮是禁用态（灰底），用 primary 才看得见。
                         color = MaterialTheme.colorScheme.primary,
                     )
                     Spacer(Modifier.width(Spacing.xs))
-                    Text("登录中…", fontWeight = FontWeight.Medium)
+                    Text("登录中…")
                 } else {
-                    Text("登录", fontWeight = FontWeight.Medium)
+                    Text("登录")
                 }
             }
             Spacer(Modifier.height(Spacing.md))
@@ -283,7 +294,7 @@ fun ZlibLoginScreen(
                         onClick = {
                             browserOpenFailed = !openInBrowser(context, registrationUrl)
                         },
-                        modifier = Modifier.heightIn(min = 48.dp),
+                        modifier = Modifier.heightIn(min = Spacing.minTouchTarget),
                     ) {
                         Text("注册")
                     }

@@ -3,6 +3,7 @@ package app.particlebook.android.ui
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.Arrangement
@@ -10,8 +11,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
@@ -26,6 +27,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
@@ -136,17 +138,39 @@ fun rememberPdfSelectionState(
 }
 
 /**
+ * PDF 选区高亮色：PDF 纸面是渲染出来的白底位图（深色主题下也不反色），所以不能只挑一个浅色主题能看的角色。
+ *
+ * - 浅色主题：primary 是品牌蓝，低透明度叠在白纸上就是可读的浅蓝选区；
+ * - 深色主题：primary 变成浅蓝（#B0C6FF），压在白纸上几乎不可见，改用 primaryContainer（深蓝）做底。
+ *
+ * 两者都来自 colorScheme，不写 hex，也不用「固定 alpha 黑」那种把纸面压灰的叠色。
+ * 主题明暗按 surface 的亮度判断（深色方案 surface 亮度 < 0.5），不额外读配置。
+ */
+@Composable
+private fun pdfSelectionHighlight(): Color {
+    val scheme = MaterialTheme.colorScheme
+    return if (scheme.surface.luminance() < 0.5f) {
+        scheme.primaryContainer.copy(alpha = 0.45f)
+    } else {
+        scheme.primary.copy(alpha = 0.28f)
+    }
+}
+
+/**
  * 覆盖在单个 PDF 页面上：长按命中一个字符，拖动扩展选区，按行绘制半透明高亮。
  *
  * 调用方把它放进与页面位图同尺寸的 Box 即可；它不绘制页面，也不改变页面缩放。
+ *
+ * @param highlightColor 显式覆盖高亮色（测试/特殊页用）；默认 null 表示按主题取 [pdfSelectionHighlight]。
  */
 @Composable
 fun PdfSelectionOverlay(
     pageIndex: Int,
     state: PdfSelectionState,
     modifier: Modifier = Modifier,
-    highlightColor: Color = MaterialTheme.colorScheme.primary.copy(alpha = 0.30f),
+    highlightColor: Color? = null,
 ) {
+    val selectionColor = highlightColor ?: pdfSelectionHighlight()
     var pageSize by remember { mutableStateOf(IntSize.Zero) }
     val active = state.selection
     Canvas(
@@ -185,7 +209,7 @@ fun PdfSelectionOverlay(
             val height = rect.height.coerceIn(0f, 1f - rect.top.coerceIn(0f, 1f)) * size.height
             if (width <= 0f || height <= 0f) continue
             drawRect(
-                color = highlightColor,
+                color = selectionColor,
                 topLeft = Offset(left, top),
                 size = Size(width, height),
             )
@@ -195,6 +219,9 @@ fun PdfSelectionOverlay(
 
 /**
  * 选区工具条：复制/高亮/笔记。放在阅读屏底部 chrome 上方，由调用方决定对齐和 padding。
+ *
+ * 浮层条按 M3 用 shapes.extraLarge + surfaceContainerHigh + Elevation 档位；
+ * 动作是 M3 TextButton，禁用态（无剪贴板 / 无标注库）走规范值 onSurface.copy(alpha = 0.38f)。
  */
 @Composable
 fun PdfSelectionToolbar(
@@ -205,12 +232,19 @@ fun PdfSelectionToolbar(
     if (active == null || !active.hasText) return
     var noteOpen by remember { mutableStateOf(false) }
     var noteText by remember { mutableStateOf("") }
+    val scheme = MaterialTheme.colorScheme
+    val actionColors = ButtonDefaults.textButtonColors(
+        contentColor = scheme.primary,
+        disabledContentColor = scheme.onSurface.copy(alpha = 0.38f),
+    )
     Surface(
         modifier = modifier,
-        shape = CircleShape,
-        color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.96f),
-        tonalElevation = 4.dp,
-        shadowElevation = 8.dp,
+        shape = MaterialTheme.shapes.extraLarge,
+        color = scheme.surfaceContainerHigh,
+        contentColor = scheme.onSurface,
+        tonalElevation = Elevation.level2,
+        shadowElevation = Elevation.level3,
+        border = BorderStroke(1.dp, scheme.outlineVariant),
     ) {
         Row(
             modifier = Modifier.padding(horizontal = Spacing.xs, vertical = Spacing.xxs),
@@ -219,14 +253,17 @@ fun PdfSelectionToolbar(
             TextButton(
                 onClick = { state.copySelection() },
                 enabled = state.canCopy,
+                colors = actionColors,
             ) { Text("复制") }
             TextButton(
                 onClick = { state.highlight() },
                 enabled = state.canAnnotate,
+                colors = actionColors,
             ) { Text("高亮") }
             TextButton(
                 onClick = { noteOpen = true },
                 enabled = state.canAnnotate,
+                colors = actionColors,
             ) { Text("笔记") }
         }
     }

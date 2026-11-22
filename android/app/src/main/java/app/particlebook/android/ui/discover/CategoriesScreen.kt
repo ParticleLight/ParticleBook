@@ -1,10 +1,7 @@
 package app.particlebook.android.ui.discover
 
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -18,7 +15,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
@@ -45,7 +41,6 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.particlebook.android.R
-import app.particlebook.android.ui.Radius
 import app.particlebook.android.ui.Spacing
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -145,7 +140,7 @@ fun CategoriesScreen(
                 value = query,
                 onValueChange = { query = it },
                 singleLine = true,
-                shape = RoundedCornerShape(28.dp),
+                shape = MaterialTheme.shapes.extraLarge,
                 placeholder = {
                     Text(
                         text = stringResource(R.string.discover_categories_filter_hint),
@@ -158,17 +153,17 @@ fun CategoriesScreen(
                     Icon(
                         imageVector = Icons.Outlined.Search,
                         contentDescription = null,
-                        modifier = Modifier.size(20.dp),
+                        modifier = Modifier.size(Spacing.lg),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 },
                 trailingIcon = {
                     if (query.isNotEmpty()) {
-                        IconButton(onClick = { query = "" }, modifier = Modifier.size(48.dp)) {
+                        IconButton(onClick = { query = "" }, modifier = Modifier.size(Spacing.minTouchTarget)) {
                             Icon(
                                 imageVector = Icons.Filled.Close,
                                 contentDescription = stringResource(R.string.discover_categories_clear_filter),
-                                modifier = Modifier.size(20.dp),
+                                modifier = Modifier.size(Spacing.lg),
                             )
                         }
                     }
@@ -176,7 +171,7 @@ fun CategoriesScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = Spacing.screen)
-                    .heightIn(min = 48.dp),
+                    .heightIn(min = Spacing.minTouchTarget),
             )
 
             when (val current = state) {
@@ -306,7 +301,7 @@ private fun CategoryGroupHeader(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(min = 56.dp)
+                    .heightIn(min = Spacing.xxl)
                     .clickable(onClick = onToggle)
                     .padding(horizontal = Spacing.screen),
                 verticalAlignment = Alignment.CenterVertically,
@@ -333,7 +328,7 @@ private fun CategoryGroupHeader(
                         if (expanded) R.string.common_collapse else R.string.common_expand,
                     ),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(20.dp),
+                    modifier = Modifier.size(Spacing.lg),
                 )
             }
             if (showDivider) {
@@ -357,7 +352,7 @@ private fun CategoryRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .heightIn(min = 48.dp)
+            .heightIn(min = Spacing.minTouchTarget)
             .clickable(
                 enabled = entry.slug.isNotBlank(),
                 onClick = onClick,
@@ -385,7 +380,7 @@ private fun CategoryRow(
             imageVector = Icons.AutoMirrored.Outlined.KeyboardArrowRight,
             contentDescription = null,
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.size(20.dp),
+            modifier = Modifier.size(Spacing.lg),
         )
     }
 }
@@ -397,7 +392,7 @@ private fun RefreshFailureHint(message: String, onRetry: () -> Unit) {
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = Spacing.screen, vertical = Spacing.xs),
-        shape = RoundedCornerShape(Radius.chip),
+        shape = MaterialTheme.shapes.small,
         color = MaterialTheme.colorScheme.errorContainer,
     ) {
         Row(
@@ -437,8 +432,8 @@ private fun CategoriesSkeleton(modifier: Modifier = Modifier) {
             PulsePlaceholder(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(56.dp),
-                shape = RoundedCornerShape(Radius.chip),
+                    .height(Spacing.xxl),
+                shape = MaterialTheme.shapes.small,
             )
             Spacer(Modifier.height(Spacing.xs))
         }

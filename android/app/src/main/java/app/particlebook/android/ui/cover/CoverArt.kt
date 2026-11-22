@@ -2,14 +2,14 @@ package app.particlebook.android.ui.cover
 
 import android.graphics.Bitmap
 import androidx.compose.animation.Crossfade
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.ColorScheme
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -22,6 +22,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
@@ -30,7 +31,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.particlebook.android.ui.Motion
-import app.particlebook.android.ui.Spacing
 import app.particlebook.android.ui.data.Book
 import app.particlebook.android.ui.data.BookCoverLoader
 import kotlin.math.abs
@@ -44,7 +44,7 @@ import kotlin.math.abs
 fun BookCover(
     book: Book,
     modifier: Modifier = Modifier,
-    shape: Shape = RoundedCornerShape(Spacing.coverCornerLarge),
+    shape: Shape = MaterialTheme.shapes.medium,
     compact: Boolean = false,
 ) {
     val context = LocalContext.current
@@ -63,6 +63,7 @@ fun BookCover(
         modifier = modifier.clip(shape),
     ) { image ->
         if (image != null) {
+            // 装饰性图片：书名由调用方的卡片/行语义节点朗读，这里再报一次会重复。
             Image(
                 bitmap = image.asImageBitmap(),
                 contentDescription = null,
@@ -83,25 +84,47 @@ fun BookCover(
     }
 }
 
-/** §17.1.1 的 6 组程序化封面渐变（暖沙 / 雾蓝 / 藕紫 / 苔绿 / 陶粉 / 石灰）。 */
-private val CoverPalettes: List<Pair<Color, Color>> = listOf(
-    Color(0xFFF6D6B8) to Color(0xFFE9A36B),
-    Color(0xFFD9E4F5) to Color(0xFF8FA9D0),
-    Color(0xFFE8D7E9) to Color(0xFFB98FC0),
-    Color(0xFFDDE9D5) to Color(0xFF8FB183),
-    Color(0xFFF3DADB) to Color(0xFFCC9296),
-    Color(0xFFE7E1D6) to Color(0xFFA79C8B),
-)
-
-/** 书名 hash 稳定取一组渐变（同书每次同色）。 */
-fun coverPalette(book: Book): Pair<Color, Color> {
-    val seed = (book.title + "|" + (book.author ?: "")).hashCode()
-    val index = abs(seed) % CoverPalettes.size
-    return CoverPalettes[index]
+/**
+ * 一组封面配色：容器 role + 与它**配对**的内容 role。
+ * 渐变第二档由两者混合得出，所以文字/水印只许取 [onContainer]——不会出现
+ * 「primaryContainer 底 + onSurfaceVariant 字」这种跨配对组合。
+ */
+data class CoverTint(val container: Color, val onContainer: Color) {
+    /** 同族深一档（向配对内容色混合 38%），用作渐变终点；色相不跑偏，明度不塌。 */
+    val deeper: Color get() = lerp(container, onContainer, 0.38f)
 }
 
 /**
- * 程序化渐变封面：135° 双色渐变 + 12% 黑遮罩 + 衬线首字（96sp、白 22%、右下裁切）。
+ * 六组配色 = 当前主题的六个语义容器家族：雾蓝 / 暖沙 / 陶粉 / 石灰 / 墨色 / 中褐。
+ *
+ * 这里不再写死 hex：浅色与深色主题各取各的容器角色，
+ * 「按书封生成柔和底色」的意图保留，配色随主题走；调色板增删只改这一个列表。
+ */
+internal fun coverTintFamilies(scheme: ColorScheme): List<CoverTint> = listOf(
+    CoverTint(scheme.primaryContainer, scheme.onPrimaryContainer),
+    CoverTint(scheme.secondaryContainer, scheme.onSecondaryContainer),
+    CoverTint(scheme.tertiaryContainer, scheme.onTertiaryContainer),
+    CoverTint(scheme.surfaceVariant, scheme.onSurfaceVariant),
+    CoverTint(scheme.inverseSurface, scheme.inverseOnSurface),
+    CoverTint(scheme.secondary, scheme.onSecondary),
+)
+
+/** 书名 hash 稳定取一组配色（同书每次同色）。 */
+fun coverTint(book: Book, scheme: ColorScheme): CoverTint {
+    val families = coverTintFamilies(scheme)
+    val seed = (book.title + "|" + (book.author ?: "")).hashCode()
+    return families[abs(seed) % families.size]
+}
+
+/** 组合期取配色：跟随主题（切换深浅色即刻重算），同书同色。 */
+@Composable
+fun rememberCoverTint(book: Book): CoverTint {
+    val scheme = MaterialTheme.colorScheme
+    return remember(book.id, book.title, book.author, scheme) { coverTint(book, scheme) }
+}
+
+/**
+ * 程序化渐变封面：双色渐变 + 12% scrim 遮罩 + 衬线首字（96sp、18%、右下裁切）。
  * 禁止使用通用书本图标（§17.1.1 不变量）。
  */
 @Composable
@@ -110,26 +133,31 @@ fun GradientCover(
     modifier: Modifier = Modifier,
     compact: Boolean = false,
 ) {
-    val palette = remember(book.id, book.title, book.author) { coverPalette(book) }
-    Box(modifier = modifier.background(Brush.linearGradient(listOf(palette.first, palette.second)))) {
-        // 12% 黑遮罩：左下压深、右上透气，制造体积。
+    val tint = rememberCoverTint(book)
+    val scrim = MaterialTheme.colorScheme.scrim
+    Box(
+        modifier = modifier.background(
+            Brush.linearGradient(listOf(tint.container, tint.deeper)),
+        ),
+    ) {
+        // 12% scrim：左下压深、右上透气，制造体积。scrim 是 M3 的「压暗」语义角色。
         Box(
             Modifier
                 .fillMaxSize()
                 .background(
                     Brush.linearGradient(
                         colors = listOf(
-                            Color.Black.copy(alpha = 0.12f),
+                            scrim.copy(alpha = 0.12f),
                             Color.Transparent,
-                            Color.Black.copy(alpha = 0.12f),
+                            scrim.copy(alpha = 0.12f),
                         ),
                     ),
                 ),
         )
-        // 首字：白 22%，右下裁切（compact 缩略图按比例缩）。
+        // 首字水印：取配对内容色 18%，右下裁切（compact 缩略图按比例缩）。
         Text(
             text = book.title.take(1),
-            color = Color.White.copy(alpha = 0.22f),
+            color = tint.onContainer.copy(alpha = 0.18f),
             fontFamily = FontFamily.Serif,
             fontWeight = FontWeight.Bold,
             fontSize = if (compact) 44.sp else 96.sp,
@@ -143,30 +171,33 @@ fun GradientCover(
     }
 }
 
-/** 空书架装饰：三本叠放的渐变封面（不用通用书本图标）。 */
+/** 空书架装饰：三本叠放的渐变封面（不用通用书本图标；纯装饰，无 contentDescription）。 */
 @Composable
 fun GeneratedCoverStack(modifier: Modifier = Modifier) {
-    Box(modifier.size(width = 148.dp, height = 108.dp)) {
+    val scheme = MaterialTheme.colorScheme
+    val families = coverTintFamilies(scheme)
+    val corner = MaterialTheme.shapes.medium
+    Box(modifier = modifier.size(width = 148.dp, height = 108.dp)) {
         Box(
             Modifier
                 .align(Alignment.BottomStart)
                 .size(width = 66.dp, height = 88.dp)
-                .clip(RoundedCornerShape(12.dp))
-                .background(Brush.linearGradient(listOf(CoverPalettes[1].first, CoverPalettes[1].second))),
+                .clip(corner)
+                .background(Brush.linearGradient(listOf(families[1].container, families[1].deeper))),
         )
         Box(
             Modifier
                 .align(Alignment.BottomCenter)
                 .size(width = 66.dp, height = 96.dp)
-                .clip(RoundedCornerShape(12.dp))
-                .background(Brush.linearGradient(listOf(CoverPalettes[0].first, CoverPalettes[0].second))),
+                .clip(corner)
+                .background(Brush.linearGradient(listOf(families[0].container, families[0].deeper))),
         )
         Box(
             Modifier
                 .align(Alignment.BottomEnd)
                 .size(width = 66.dp, height = 82.dp)
-                .clip(RoundedCornerShape(12.dp))
-                .background(Brush.linearGradient(listOf(CoverPalettes[3].first, CoverPalettes[3].second))),
+                .clip(corner)
+                .background(Brush.linearGradient(listOf(families[3].container, families[3].deeper))),
         )
     }
 }

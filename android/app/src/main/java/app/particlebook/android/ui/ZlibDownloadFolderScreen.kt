@@ -2,7 +2,6 @@ package app.particlebook.android.ui
 
 import android.text.format.DateUtils
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -24,7 +23,6 @@ import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material.icons.outlined.InsertDriveFile
 import androidx.compose.material.icons.outlined.Refresh
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -51,7 +49,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -137,7 +134,7 @@ fun ZlibDownloadFolderScreen(
                     )
                 },
                 navigationIcon = {
-                    IconButton(onClick = onBack, modifier = Modifier.size(48.dp)) {
+                    IconButton(onClick = onBack, modifier = Modifier.size(Spacing.minTouchTarget)) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
                             contentDescription = "返回",
@@ -148,7 +145,7 @@ fun ZlibDownloadFolderScreen(
                 actions = {
                     IconButton(
                         onClick = { refreshTick++ },
-                        modifier = Modifier.size(48.dp),
+                        modifier = Modifier.size(Spacing.minTouchTarget),
                     ) {
                         Icon(
                             imageVector = Icons.Outlined.Refresh,
@@ -171,23 +168,33 @@ fun ZlibDownloadFolderScreen(
             val loaded = entries
             when {
                 // P2-3：冷启时书架还没读完，不能让所有文件先显示「未导入」。
+                // P2-3：冷启时书架还没读完，不能让所有文件先显示「未导入」；统一走状态面板。
                 loaded == null || libraryLoading -> Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .weight(1f),
                     contentAlignment = Alignment.Center,
                 ) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(32.dp),
-                        strokeWidth = 3.dp,
+                    ZlibDownloadStatePane(
+                        icon = Icons.Outlined.FolderOpen,
+                        title = "正在加载文件列表…",
+                        message = "正在读取下载目录与书架状态",
+                        loading = true,
                     )
                 }
 
-                loaded.isEmpty() -> EmptyDownloadFolder(
+                loaded.isEmpty() -> Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .weight(1f),
-                )
+                    contentAlignment = Alignment.Center,
+                ) {
+                    ZlibDownloadStatePane(
+                        icon = Icons.Outlined.FolderOpen,
+                        title = "下载文件夹为空",
+                        message = "在 Z-Library 下载的书籍会保存在这里，下载完成后可回到下载记录导入书架",
+                    )
+                }
 
                 else -> LazyColumn(
                     modifier = Modifier
@@ -240,34 +247,6 @@ fun ZlibDownloadFolderScreen(
 }
 
 @Composable
-private fun EmptyDownloadFolder(modifier: Modifier = Modifier) {
-    Column(
-        modifier = modifier.padding(horizontal = Spacing.xl),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Icon(
-            imageVector = Icons.Outlined.FolderOpen,
-            contentDescription = null,
-            modifier = Modifier.size(64.dp),
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Spacer(Modifier.height(Spacing.md))
-        Text(
-            text = "下载文件夹为空",
-            style = AppType.sectionTitle,
-            color = MaterialTheme.colorScheme.onSurface,
-        )
-        Spacer(Modifier.height(Spacing.xs))
-        Text(
-            text = "在 Z-Library 下载的书籍会保存在这里，下载完成后可回到下载记录导入书架",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-    }
-}
-
-@Composable
 private fun DownloadFolderRow(
     entry: DownloadFolderEntry,
     inLibrary: Boolean,
@@ -276,7 +255,7 @@ private fun DownloadFolderRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .heightIn(min = 64.dp)
+            .heightIn(min = Spacing.minTouchTarget)
             .clickable(onClick = onClick)
             .padding(vertical = Spacing.sm),
         verticalAlignment = Alignment.CenterVertically,
@@ -284,7 +263,7 @@ private fun DownloadFolderRow(
         Icon(
             imageVector = Icons.Outlined.InsertDriveFile,
             contentDescription = null,
-            modifier = Modifier.size(24.dp),
+            modifier = Modifier.size(Spacing.lg),
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Spacer(Modifier.width(Spacing.sm))
@@ -296,7 +275,7 @@ private fun DownloadFolderRow(
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
-            Spacer(Modifier.height(2.dp))
+            Spacer(Modifier.height(Spacing.xxs))
             Text(
                 text = folderEntryMeta(entry),
                 style = MaterialTheme.typography.bodySmall,
@@ -346,7 +325,7 @@ private fun DownloadFolderFooter(
             )
             TextButton(
                 onClick = onOpenSettings,
-                modifier = Modifier.heightIn(min = 48.dp),
+                modifier = Modifier.heightIn(min = Spacing.minTouchTarget),
             ) {
                 Text("切换下载目录")
             }

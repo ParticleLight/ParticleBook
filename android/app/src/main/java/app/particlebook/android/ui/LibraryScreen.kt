@@ -1,7 +1,6 @@
 package app.particlebook.android.ui
 
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -38,7 +37,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -474,26 +472,48 @@ fun LibraryScreen(
                 )
                 LibrarySort.entries.forEach { option ->
                     val enabled = option != LibrarySort.Rating
-                    ListItem(
-                        headlineContent = {
-                            Text(
-                                text = option.label + if (enabled) "" else "（后续版本）",
-                                color = if (enabled) {
-                                    MaterialTheme.colorScheme.onSurface
-                                } else {
-                                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
-                                },
-                            )
+                    val checked = sort == option
+                    // 选中态用 secondaryContainer / onSecondaryContainer：容器与内容色成对，
+                    // 不靠「文字变色」这种单通道暗示；RadioButton 只承担控件语义。
+                    Surface(
+                        color = if (checked) {
+                            MaterialTheme.colorScheme.secondaryContainer
+                        } else {
+                            Color.Transparent
                         },
-                        leadingContent = {
-                            RadioButton(
-                                selected = sort == option,
-                                onClick = null,
-                                enabled = enabled,
-                            )
+                        contentColor = if (checked) {
+                            MaterialTheme.colorScheme.onSecondaryContainer
+                        } else {
+                            MaterialTheme.colorScheme.onSurface
                         },
-                        modifier = Modifier.clickable(enabled = enabled) { sort = option },
-                    )
+                        shape = MaterialTheme.shapes.small,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = Spacing.xs)
+                            .clickable(enabled = enabled) { sort = option },
+                    ) {
+                        ListItem(
+                            headlineContent = {
+                                Text(
+                                    text = option.label + if (enabled) "" else "（后续版本）",
+                                    // ListItem 默认文字色来自 ColorScheme（不透传 Surface.contentColor），
+                                    // 因此选中/禁用两态显式给配对角色色。
+                                    color = when {
+                                        !enabled -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
+                                        checked -> MaterialTheme.colorScheme.onSecondaryContainer
+                                        else -> MaterialTheme.colorScheme.onSurface
+                                    },
+                                )
+                            },
+                            leadingContent = {
+                                RadioButton(
+                                    selected = checked,
+                                    onClick = null,
+                                    enabled = enabled,
+                                )
+                            },
+                        )
+                    }
                 }
                 Text(
                     text = "格式",
@@ -593,7 +613,7 @@ private fun ShelfTitleBlock(bookCount: Int, readingCount: Int) {
         Modifier.padding(top = Spacing.xs, bottom = Spacing.xxs),
     ) {
         Text("书架", style = AppType.pageTitle)
-        Spacer(Modifier.height(2.dp))
+        Spacer(Modifier.height(Spacing.xxs))
         Text(
             text = bookCount.toString() + " 本书 · " + readingCount + " 本在读",
             style = MaterialTheme.typography.labelSmall,
@@ -622,7 +642,7 @@ private fun ShelfHeroCard(
     val progressText = if (finished) "已读完" else percentLabel
     val ctaLabel = if (finished) "重新阅读" else "继续阅读 →"
     val heroTitle = mainTitleOf(book.title)
-    val shape = RoundedCornerShape(Spacing.heroCorner)
+    val shape = MaterialTheme.shapes.extraLarge
     // V2：默认字号严格 176dp（462px），大字号才允许撑到 240dp，避免文字被裁同时又不能超验收高度。
     val largeFont = LocalDensity.current.fontScale >= 1.3f
     val heroHeight = if (largeFont) {
@@ -631,6 +651,10 @@ private fun ShelfHeroCard(
     } else {
         Modifier.height(Spacing.heroHeight)
     }
+    // 遮罩恒为深色（压在封面上），所以内容色固定用白色：M3 没有 onScrim 角色，scrim 的配对内容色即白。
+    // 遮罩本身走 colorScheme.scrim（「压暗」语义角色），不再写死 Color.Black。
+    val scrim = MaterialTheme.colorScheme.scrim
+    val onScrim = Color.White
     Box(
         modifier = modifier
             .fillMaxWidth()
@@ -655,13 +679,13 @@ private fun ShelfHeroCard(
                 compact = true,
             )
         }
-        // 深色主题下模糊封面会发灰，再叠一层 40% 黑，保证 Hero 文字区仍是深底（V 验收 B3）。
+        // 深色主题下模糊封面会发灰，再叠一层 scrim，保证 Hero 文字区仍是深底（V 验收 B3）。
         if (MaterialTheme.colorScheme.surface.luminance() < 0.5f) {
-            // 深色下模糊封面会泛灰白：45% 黑压暗 + 10% surface 调色，让文字区回到深底。
+            // 深色下模糊封面会泛灰白：45% scrim 压暗 + 10% surface 调色，让文字区回到深底。
             Box(
                 Modifier
                     .matchParentSize()
-                    .background(Color.Black.copy(alpha = 0.45f)),
+                    .background(scrim.copy(alpha = 0.45f)),
             )
             Box(
                 Modifier
@@ -669,15 +693,15 @@ private fun ShelfHeroCard(
                     .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.10f)),
             )
         }
-        // 60% 深色渐变遮罩（保证白字对比度）。
+        // 60% scrim 竖向渐变遮罩（保证白字对比度）。
         Box(
             Modifier
                 .matchParentSize()
                 .background(
                     Brush.verticalGradient(
                         listOf(
-                            Color.Black.copy(alpha = 0.30f),
-                            Color.Black.copy(alpha = 0.68f),
+                            scrim.copy(alpha = 0.30f),
+                            scrim.copy(alpha = 0.68f),
                         ),
                     ),
                 ),
@@ -688,27 +712,28 @@ private fun ShelfHeroCard(
                 .padding(Spacing.md),
         ) {
             Column(Modifier.weight(1f)) {
+                // 药丸标签：容器 + 配对内容色成对取自 tertiary 家族。
                 Surface(
                     shape = CircleShape,
                     color = MaterialTheme.colorScheme.tertiaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
                 ) {
                     Text(
                         text = chipLabel,
                         style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onTertiaryContainer,
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                        modifier = Modifier.padding(horizontal = Spacing.sm, vertical = Spacing.xxs),
                     )
                 }
-                Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.height(Spacing.xs))
                 Text(
                     text = heroTitle,
                     style = AppType.heroTitle,
-                    color = Color.White,
+                    color = onScrim,
                     // 主标题通常一行；大字号（Hero 最长 260dp）允许两行，避免长标题被截。
                     maxLines = if (largeFont) 2 else 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(Spacing.xs))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     LinearProgressIndicator(
                         progress = { fraction },
@@ -717,13 +742,13 @@ private fun ShelfHeroCard(
                             .height(4.dp)
                             .clip(CircleShape),
                         color = MaterialTheme.colorScheme.tertiary,
-                        trackColor = Color.White.copy(alpha = 0.24f),
+                        trackColor = onScrim.copy(alpha = 0.24f),
                     )
                     Spacer(Modifier.width(Spacing.xs))
                     Text(
                         text = progressText,
                         style = MaterialTheme.typography.labelSmall,
-                        color = Color.White.copy(alpha = 0.9f),
+                        color = onScrim.copy(alpha = 0.9f),
                         maxLines = 1,
                     )
                 }
@@ -731,8 +756,8 @@ private fun ShelfHeroCard(
                 FilledTonalButton(
                     onClick = onOpen,
                     // 触控与可读性下限：大字号下也不允许被挤成细条。
-                    modifier = Modifier.heightIn(min = 48.dp),
-                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                    modifier = Modifier.heightIn(min = Spacing.minTouchTarget),
+                    contentPadding = PaddingValues(horizontal = Spacing.md, vertical = Spacing.xs),
                 ) {
                     Text(ctaLabel, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
@@ -743,7 +768,7 @@ private fun ShelfHeroCard(
                 modifier = Modifier
                     .width(Spacing.heroCoverWidth)
                     .height(Spacing.heroCoverHeight),
-                shape = RoundedCornerShape(Radius.thumb),
+                shape = MaterialTheme.shapes.small,
             )
         }
     }
@@ -755,6 +780,8 @@ private fun RecentBookRow(
     books: List<Book>,
     onOpenBook: (Book) -> Unit,
 ) {
+    val largeFont = LocalDensity.current.fontScale >= 1.3f
+    val coverShape = MaterialTheme.shapes.large
     LazyRow(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
         lazyItems(books, key = { it.id }) { book ->
             Column(
@@ -762,7 +789,7 @@ private fun RecentBookRow(
                     .width(Spacing.recentCardWidth)
                     .clickable { onOpenBook(book) }
                     .semantics(mergeDescendants = true) {
-                        contentDescription = "《" + book.title + "》，" + book.authorLabel
+                        contentDescription = "《" + book.title + "》，" + book.authorLabel + "，打开"
                     },
             ) {
                 BookCover(
@@ -770,20 +797,21 @@ private fun RecentBookRow(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(Spacing.recentCoverHeight),
-                    shape = RoundedCornerShape(Radius.card),
+                    shape = coverShape,
                 )
                 Spacer(Modifier.height(Spacing.xs))
                 Text(
                     text = book.title,
                     style = AppType.bookTitle,
-                    maxLines = 1,
+                    // 200% 字号允许两行，横滑卡不因放大而截断书名。
+                    maxLines = if (largeFont) 2 else 1,
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
                     text = book.authorLabel,
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
+                    maxLines = if (largeFont) 2 else 1,
                     overflow = TextOverflow.Ellipsis,
                 )
             }
@@ -905,30 +933,40 @@ private fun SearchTopBar(
     }
 }
 
+/**
+ * 生效中的筛选 chip：点 chip 改条件，右侧独立 IconButton 清除。
+ *
+ * 清除动作不再塞进 chip 的 trailingIcon——18dp 图标可点等于触控目标不足 48dp；
+ * 单独一个 IconButton 给足 [Spacing.minTouchTarget]，读屏标签固定为「清除筛选」。
+ */
 @Composable
 internal fun FilterActiveChip(
     label: String,
     onEdit: () -> Unit,
     onClear: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
-    Row(Modifier.fillMaxWidth().padding(bottom = Spacing.xs)) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(bottom = Spacing.xs),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
         FilterChip(
             selected = true,
             onClick = onEdit,
             label = { Text(label) },
             leadingIcon = {
-                Icon(Icons.Filled.Check, contentDescription = null, modifier = Modifier.size(18.dp))
-            },
-            trailingIcon = {
-                Icon(
-                    imageVector = Icons.Filled.Close,
-                    contentDescription = "清除筛选",
-                    modifier = Modifier
-                        .size(18.dp)
-                        .clickable(onClick = onClear),
-                )
+                // 装饰：chip 文案本身已说明「格式：EPUB」这类生效条件。
+                Icon(Icons.Filled.Check, contentDescription = null)
             },
         )
+        IconButton(
+            onClick = onClear,
+            modifier = Modifier.size(Spacing.minTouchTarget),
+        ) {
+            Icon(Icons.Filled.Close, contentDescription = "清除筛选")
+        }
     }
 }
 

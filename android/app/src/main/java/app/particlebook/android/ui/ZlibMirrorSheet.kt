@@ -13,15 +13,20 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -54,8 +59,9 @@ fun ZlibMirrorSheet(
     var loadError by remember { mutableStateOf<String?>(null) }
     var switchingUrl by remember { mutableStateOf<String?>(null) }
     var switchError by remember { mutableStateOf<String?>(null) }
+    var reloadTick by remember { mutableIntStateOf(0) }
 
-    LaunchedEffect(Unit) {
+    LaunchedEffect(reloadTick) {
         runCatching {
             withContext(Dispatchers.IO) { client.mirrorRows() }
         }
@@ -77,11 +83,34 @@ fun ZlibMirrorSheet(
             Spacer(Modifier.height(Spacing.xxs))
             val loaded = rows
             when {
-                loadError != null -> Text(
-                    text = loadError ?: "",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.error,
-                )
+                // 错误态：图标 + 文案 + 重试，不只靠红字表意。
+                loadError != null -> Column {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Outlined.ErrorOutline,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.size(Spacing.md),
+                        )
+                        Spacer(Modifier.width(Spacing.xs))
+                        Text(
+                            text = loadError ?: "",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                    Spacer(Modifier.height(Spacing.xs))
+                    TextButton(
+                        onClick = {
+                            loadError = null
+                            reloadTick++
+                        },
+                        modifier = Modifier.heightIn(min = Spacing.minTouchTarget),
+                    ) {
+                        Text("重试")
+                    }
+                }
 
                 loaded == null -> Row(
                     modifier = Modifier
@@ -89,7 +118,7 @@ fun ZlibMirrorSheet(
                         .padding(vertical = Spacing.lg),
                     horizontalArrangement = Arrangement.Center,
                 ) {
-                    CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                    CircularProgressIndicator(Modifier.size(Spacing.lg), strokeWidth = 2.dp)
                 }
 
                 else -> {
@@ -107,11 +136,20 @@ fun ZlibMirrorSheet(
                     Spacer(Modifier.height(Spacing.xs))
                     // T17：切换失败只做行内提示，不替换整列表（否则用户无法改选）；提示出现时列表仍可点。
                     switchError?.let { message ->
-                        Text(
-                            text = message,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.error,
-                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Outlined.ErrorOutline,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.size(Spacing.md),
+                            )
+                            Spacer(Modifier.width(Spacing.xs))
+                            Text(
+                                text = message,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error,
+                            )
+                        }
                         Spacer(Modifier.height(Spacing.xs))
                     }
                     loaded.forEach { item ->
@@ -120,7 +158,7 @@ fun ZlibMirrorSheet(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .heightIn(min = 48.dp)
+                                .heightIn(min = Spacing.minTouchTarget)
                                 .selectable(
                                     selected = selected,
                                     enabled = switchingUrl == null,

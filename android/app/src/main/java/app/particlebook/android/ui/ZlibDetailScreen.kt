@@ -11,11 +11,11 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -26,7 +26,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.BrokenImage
@@ -51,25 +50,22 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import app.particlebook.android.ui.data.Book
 import app.particlebook.android.ui.data.LibraryStore
 import app.particlebook.android.zlib.ZBookDetail
@@ -168,7 +164,7 @@ fun ZlibDetailScreen(
                     )
                 },
                 navigationIcon = {
-                    IconButton(onClick = onBack, modifier = Modifier.size(48.dp)) {
+                    IconButton(onClick = onBack, modifier = Modifier.size(Spacing.minTouchTarget)) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
                             contentDescription = "返回",
@@ -224,7 +220,7 @@ private fun BoxLoading(modifier: Modifier = Modifier) {
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        CircularProgressIndicator(modifier = Modifier.size(32.dp), strokeWidth = 3.dp)
+        CircularProgressIndicator(modifier = Modifier.size(Spacing.xl), strokeWidth = 3.dp)
         Spacer(Modifier.height(Spacing.sm))
         Text(
             text = "正在加载详情…",
@@ -249,7 +245,7 @@ private fun BoxError(
         Icon(
             imageVector = Icons.Outlined.BrokenImage,
             contentDescription = null,
-            modifier = Modifier.size(64.dp),
+            modifier = Modifier.size(Spacing.xxl),
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Spacer(Modifier.height(Spacing.md))
@@ -267,8 +263,8 @@ private fun BoxError(
         Spacer(Modifier.height(Spacing.lg))
         Button(
             onClick = onRetry,
-            shape = RoundedCornerShape(Radius.cover),
-            modifier = Modifier.heightIn(min = 48.dp),
+            shape = MaterialTheme.shapes.medium,
+            modifier = Modifier.heightIn(min = Spacing.minTouchTarget),
         ) {
             Text("重试")
         }
@@ -521,7 +517,7 @@ private fun ZlibDetailDescription(text: String?) {
         Spacer(Modifier.height(Spacing.xs))
         Text(
             text = text,
-            style = MaterialTheme.typography.bodyMedium.copy(fontSize = 15.sp, lineHeight = 25.5.sp),
+            style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = if (expanded) Int.MAX_VALUE else 8,
             overflow = TextOverflow.Ellipsis,
@@ -534,7 +530,7 @@ private fun ZlibDetailDescription(text: String?) {
         if (hasOverflow || expanded) {
             TextButton(
                 onClick = { expanded = !expanded },
-                modifier = Modifier.heightIn(min = 48.dp),
+                modifier = Modifier.heightIn(min = Spacing.minTouchTarget),
             ) {
                 Text(if (expanded) "收起" else "更多")
             }
@@ -546,15 +542,14 @@ private fun ZlibDetailDescription(text: String?) {
 private fun PropertyChip(label: String) {
     // P2-6：属性 chip 高度 ≥28dp，触控/读数都更稳。
     Surface(
-        modifier = Modifier.heightIn(min = 28.dp),
-        shape = RoundedCornerShape(Radius.chip),
+        shape = MaterialTheme.shapes.small,
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
     ) {
         Text(
             text = label,
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+            modifier = Modifier.padding(horizontal = Spacing.xs, vertical = Spacing.xxs),
         )
     }
 }
@@ -583,7 +578,7 @@ private fun RecommendationCard(
     Column(
         modifier = Modifier
             .width(104.dp)
-            .clip(RoundedCornerShape(Radius.cover))
+            .clip(MaterialTheme.shapes.medium)
             .clickable { onOpenDetail(recommendation.hash, recommendation.slug) },
     ) {
         ZlibCoverImage(
@@ -637,7 +632,6 @@ private fun DownloadAction(
                         progress = { progress },
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(4.dp),
                     )
                     Spacer(Modifier.height(Spacing.xs))
                     Text(
@@ -654,7 +648,6 @@ private fun DownloadAction(
                     LinearProgressIndicator(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(4.dp),
                     )
                     Spacer(Modifier.height(Spacing.xs))
                     Text(
@@ -679,7 +672,7 @@ private fun DownloadAction(
                         TextButton(
                             onClick = { ZlibDownloadManager.cancel(activeTask.id) },
                             enabled = !activeTask.cancelling,
-                            modifier = Modifier.heightIn(min = 48.dp),
+                            modifier = Modifier.heightIn(min = Spacing.minTouchTarget),
                         ) {
                             Text(if (activeTask.cancelling) "正在取消…" else "取消")
                         }
@@ -705,8 +698,8 @@ private fun DownloadAction(
                     Button(
                         onClick = { ZlibDownloadManager.retry(cancelledTask.id, store) },
                         enabled = !cancelledTask.cancelling,
-                        shape = RoundedCornerShape(Radius.cover),
-                        modifier = Modifier.heightIn(min = 48.dp),
+                        shape = MaterialTheme.shapes.medium,
+                        modifier = Modifier.heightIn(min = Spacing.minTouchTarget),
                     ) {
                         Text(if (cancelledTask.cancelling) "正在取消…" else "续传")
                     }
@@ -714,7 +707,7 @@ private fun DownloadAction(
                     TextButton(
                         onClick = { ZlibDownloadManager.discard(cancelledTask.id) },
                         enabled = !cancelledTask.cancelling,
-                        modifier = Modifier.heightIn(min = 48.dp),
+                        modifier = Modifier.heightIn(min = Spacing.minTouchTarget),
                     ) {
                         Text("删除")
                     }
@@ -749,8 +742,8 @@ private fun DownloadAction(
                                         forceRedownload = true,
                                     )
                                 },
-                                shape = RoundedCornerShape(Radius.cover),
-                                modifier = Modifier.heightIn(min = 48.dp),
+                                shape = MaterialTheme.shapes.medium,
+                                modifier = Modifier.heightIn(min = Spacing.minTouchTarget),
                             ) {
                                 Text("重新下载")
                             }
@@ -767,7 +760,7 @@ private fun DownloadAction(
                                         ZlibDownloadManager.start(detail, store, onAlreadyInLibrary)
                                     }
                                 },
-                                modifier = Modifier.heightIn(min = 48.dp),
+                                modifier = Modifier.heightIn(min = Spacing.minTouchTarget),
                             ) {
                                 Text("重新导入")
                             }
@@ -775,8 +768,8 @@ private fun DownloadAction(
 
                         needsLogin && !loggedIn -> Button(
                             onClick = onRequireLogin,
-                            shape = RoundedCornerShape(Radius.cover),
-                            modifier = Modifier.heightIn(min = 48.dp),
+                            shape = MaterialTheme.shapes.medium,
+                            modifier = Modifier.heightIn(min = Spacing.minTouchTarget),
                         ) {
                             Text("去登录")
                         }
@@ -786,8 +779,8 @@ private fun DownloadAction(
                                 // start() 会重置失败任务（含重启后从历史里恢复的失败记录）。
                                 ZlibDownloadManager.start(detail, store, onAlreadyInLibrary)
                             },
-                            shape = RoundedCornerShape(Radius.cover),
-                            modifier = Modifier.heightIn(min = 48.dp),
+                            shape = MaterialTheme.shapes.medium,
+                            modifier = Modifier.heightIn(min = Spacing.minTouchTarget),
                         ) {
                             Text("重试")
                         }
@@ -817,16 +810,16 @@ private fun DownloadAction(
                     if (book != null && action == ZlibDetailCompletedAction.OPEN) {
                         Button(
                             onClick = { onOpenBook(book) },
-                            shape = RoundedCornerShape(Radius.cover),
+                            shape = MaterialTheme.shapes.medium,
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .heightIn(min = 56.dp),
+                                .heightIn(min = Spacing.xxl),
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = MaterialTheme.colorScheme.secondaryContainer,
                                 contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
                             ),
                         ) {
-                            Text("已下载 · 打开", fontWeight = FontWeight.Medium)
+                            Text("已下载 · 打开", )
                         }
                     } else {
                         Text(
@@ -851,10 +844,10 @@ private fun DownloadAction(
                             // 只重跑检查，不触发下载；避免 provider 临时读失败时清掉唯一完成记录。
                             OutlinedButton(
                                 onClick = onRetryCheck,
-                                shape = RoundedCornerShape(Radius.cover),
+                                shape = MaterialTheme.shapes.medium,
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .heightIn(min = 48.dp),
+                                    .heightIn(min = Spacing.minTouchTarget),
                             ) {
                                 Text("重试检查")
                             }
@@ -872,10 +865,10 @@ private fun DownloadAction(
                                             action == ZlibDetailCompletedAction.REDOWNLOAD,
                                     )
                                 },
-                                shape = RoundedCornerShape(Radius.cover),
+                                shape = MaterialTheme.shapes.medium,
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .heightIn(min = 48.dp),
+                                    .heightIn(min = Spacing.minTouchTarget),
                             ) {
                                 Text(
                                     if (action == ZlibDetailCompletedAction.REIMPORT) {
@@ -894,16 +887,15 @@ private fun DownloadAction(
         else -> {
             Button(
                 onClick = { ZlibDownloadManager.start(detail, store, onAlreadyInLibrary) },
-                shape = RoundedCornerShape(Radius.cover),
+                shape = MaterialTheme.shapes.medium,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(min = 56.dp),
+                    .heightIn(min = Spacing.xxl),
             ) {
                 val suffix = detail.fileSize?.takeIf { it.isNotBlank() }
                 Text(
                     text = if (suffix != null) "下载 · " + suffix else "下载",
-                    fontWeight = FontWeight.Medium,
-                )
+                    )
             }
         }
     }
@@ -1018,20 +1010,19 @@ private fun ReaderAction(
                 }
             },
             enabled = zlibReaderActionEnabled(state),
-            shape = RoundedCornerShape(Radius.cover),
+            shape = MaterialTheme.shapes.medium,
             modifier = Modifier
                 .fillMaxWidth()
-                .heightIn(min = 48.dp),
+                .heightIn(min = Spacing.minTouchTarget),
         ) {
             if (state is ZlibReaderLaunchState.Loading) {
-                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                CircularProgressIndicator(modifier = Modifier.size(Spacing.md), strokeWidth = 2.dp)
                 Spacer(Modifier.width(Spacing.xs))
                 Text(zlibReaderActionLabel(state))
             } else {
                 Text(
                     text = zlibReaderActionLabel(state),
-                    fontWeight = FontWeight.Medium,
-                )
+                    )
             }
         }
         Spacer(Modifier.height(Spacing.xs))

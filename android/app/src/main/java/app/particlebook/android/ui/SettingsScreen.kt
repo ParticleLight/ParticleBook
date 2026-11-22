@@ -22,13 +22,15 @@ import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.selection.selectable
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -40,6 +42,7 @@ import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -53,10 +56,12 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -121,11 +126,19 @@ fun SettingsScreen(
     val settingsExportFile = remember { SettingsExportFile(context.filesDir) }
     val client = remember { ZlibClient.get(context.applicationContext) }
     var mirrorInfo by remember { mutableStateOf<ZMirrorInfo?>(null) }
+    // 线路信息是网络请求：null 既可能是"没查到"也可能是"还没查完"，界面上必须分开表达，
+    // 否则用户看到的是永久「—」，分不清是空还是失败。
+    var mirrorReady by remember { mutableStateOf(false) }
     var mirrorSheetOpen by rememberSaveable { mutableStateOf(false) }
     var logoutDialogOpen by rememberSaveable { mutableStateOf(false) }
     // P1c：下载目录可在默认目录与用户选择的 SAF 文件夹之间切换（选择结果持久化在 DownloadLocation）。
     var downloadLabel by remember {
         mutableStateOf(DownloadLocation.summary(context.applicationContext))
+    }
+    // 自定义下载目录是二态设置：关 = 默认目录，开 = 用户选的 SAF 文件夹。
+    // 开关只是 DownloadLocation 既有状态的镜像，写入仍走 setTree / reset 两条原路径。
+    var customDownloadDir by remember {
+        mutableStateOf(DownloadLocation.isCustom(context.applicationContext))
     }
     val treeLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocumentTree(),
@@ -134,6 +147,7 @@ fun SettingsScreen(
         // P2-2：只有授权 + 可写校验都通过才保存；失败时目录不变，提示也必须说清「未更改」。
         val accepted = DownloadLocation.setTree(context.applicationContext, uri)
         downloadLabel = DownloadLocation.summary(context.applicationContext)
+        customDownloadDir = DownloadLocation.isCustom(context.applicationContext)
         scope.launch {
             snackbarHostState.showSnackbar(
                 if (accepted) {
@@ -153,6 +167,7 @@ fun SettingsScreen(
         mirrorInfo = withContext(Dispatchers.IO) {
             runCatching { client.mirrorInfo() }.getOrNull()
         }
+        mirrorReady = true
     }
     val versionName = remember {
         runCatching {
@@ -160,6 +175,8 @@ fun SettingsScreen(
         }.getOrNull() ?: "—"
     }
     var storageBytes by remember { mutableLongStateOf(0L) }
+    // 目录遍历是 IO：读完才敢说"0 MB"，否则「0.0 MB」会被当成"没占用"。
+    var storageReady by remember { mutableStateOf(false) }
     var fontSheetOpen by rememberSaveable { mutableStateOf(false) }
     var lineHeightSheetOpen by rememberSaveable { mutableStateOf(false) }
     var sortSheetOpen by rememberSaveable { mutableStateOf(false) }
@@ -172,6 +189,7 @@ fun SettingsScreen(
                 .filter { it.isFile }
                 .sumOf { it.length() }
         }
+        storageReady = true
     }
     val storageLabel = if (storageBytes <= 0L) {
         "—"
@@ -249,13 +267,13 @@ fun SettingsScreen(
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .heightIn(min = 56.dp)
+                                        .heightIn(min = Spacing.minTouchTarget)
                                         .selectable(
                                             selected = themeMode == mode,
                                             role = Role.RadioButton,
                                             onClick = { onThemeModeChange(mode) },
                                         )
-                                        .padding(horizontal = 20.dp),
+                                        .padding(horizontal = RowHorizontalPadding),
                                     verticalAlignment = Alignment.CenterVertically,
                                 ) {
                                     RadioButton(selected = themeMode == mode, onClick = null)
@@ -271,12 +289,18 @@ fun SettingsScreen(
                         SingleChoiceSegmentedButtonRow(
                             Modifier
                                 .fillMaxWidth()
-                                .padding(start = 20.dp, end = 20.dp, bottom = Spacing.md),
+                                .padding(
+                                    start = RowHorizontalPadding,
+                                    end = RowHorizontalPadding,
+                                    bottom = Spacing.md,
+                                ),
                         ) {
                             AppThemeMode.entries.forEachIndexed { index, mode ->
                                 SegmentedButton(
                                     selected = themeMode == mode,
                                     onClick = { onThemeModeChange(mode) },
+                                    // M3 分段按钮默认 40dp 高，这里补到 minTouchTarget。
+                                    modifier = Modifier.heightIn(min = Spacing.minTouchTarget),
                                     shape = SegmentedButtonDefaults.itemShape(
                                         index = index,
                                         count = AppThemeMode.entries.size,
@@ -303,8 +327,13 @@ fun SettingsScreen(
                         showChevron = true,
                         onClick = onImportClick,
                     )
-                    SettingsRow(title = "存储占用", value = storageLabel)
-                    SettingsRow(title = "书源管理", support = "后续版本")
+                    SettingsRow(
+                        title = "存储占用",
+                        value = if (storageReady) storageLabel else null,
+                        loading = !storageReady,
+                    )
+                    // 后续版本：行保留在信息层级里，但明确按禁用态渲染，不做成"点了没反应"。
+                    SettingsRow(title = "书源管理", support = "后续版本", enabled = false)
                 }
             }
 
@@ -331,26 +360,37 @@ fun SettingsScreen(
                             }
                         },
                     )
+                    // 二态设置用 Switch 表达：开 = 自己选目录，关 = 默认目录。
+                    // 关掉时不弹确认框——目录只是回到默认位置，已下载的书不受影响。
+                    SettingsSwitchRow(
+                        title = "使用自定义下载目录",
+                        support = if (customDownloadDir) {
+                            "当前：" + downloadLabel
+                        } else {
+                            "默认目录：" + DownloadLocation.defaultDir(context.applicationContext)
+                                .absolutePath
+                        },
+                        checked = customDownloadDir,
+                        onCheckedChange = { useCustom ->
+                            if (useCustom) {
+                                treeLauncher.launch(null)
+                            } else {
+                                DownloadLocation.reset(context.applicationContext)
+                                downloadLabel =
+                                    DownloadLocation.summary(context.applicationContext)
+                                customDownloadDir = false
+                                scope.launch {
+                                    snackbarHostState.showSnackbar("已恢复默认下载目录")
+                                }
+                            }
+                        },
+                    )
                     SettingsRow(
-                        title = "下载目录",
+                        title = "选择文件夹",
                         support = downloadLabel,
                         showChevron = true,
                         onClick = { treeLauncher.launch(null) },
                     )
-                    if (DownloadLocation.isCustom(context.applicationContext)) {
-                        SettingsRow(
-                            title = "恢复默认目录",
-                            support = DownloadLocation.defaultDir(context.applicationContext)
-                                .absolutePath,
-                            onClick = {
-                                DownloadLocation.reset(context.applicationContext)
-                                downloadLabel = DownloadLocation.summary(context.applicationContext)
-                                scope.launch {
-                                    snackbarHostState.showSnackbar("已恢复默认下载目录")
-                                }
-                            },
-                        )
-                    }
                     SettingsRow(
                         title = "下载记录",
                         showChevron = true,
@@ -358,7 +398,9 @@ fun SettingsScreen(
                     )
                     SettingsRow(
                         title = "线路",
-                        value = mirrorInfo?.let { "线路 " + it.index + " / " + it.total } ?: "—",
+                        value = mirrorInfo?.let { "线路 " + it.index + " / " + it.total }
+                            ?: if (mirrorReady) "未检测到" else null,
+                        loading = !mirrorReady,
                         showChevron = true,
                         onClick = { mirrorSheetOpen = true },
                     )
@@ -413,7 +455,7 @@ fun SettingsScreen(
                             }
                         },
                     )
-                    SettingsRow(title = "阅读统计", support = "后续版本")
+                    SettingsRow(title = "阅读统计", support = "后续版本", enabled = false)
                     SettingsRow(
                         title = "清除阅读记录",
                         support = "移除所有书籍的阅读进度",
@@ -426,8 +468,8 @@ fun SettingsScreen(
             item {
                 SettingsGroup(title = "关于") {
                     SettingsRow(title = "版本", value = versionName)
-                    SettingsRow(title = "更新日志", support = "后续版本")
-                    SettingsRow(title = "开源许可", support = "后续版本")
+                    SettingsRow(title = "更新日志", support = "后续版本", enabled = false)
+                    SettingsRow(title = "开源许可", support = "后续版本", enabled = false)
                 }
             }
         }
@@ -443,8 +485,24 @@ fun SettingsScreen(
                     .fillMaxWidth()
                     .padding(horizontal = Spacing.screen),
             ) {
-                Text("字号", style = MaterialTheme.typography.titleLarge)
-                Spacer(Modifier.size(Spacing.xs))
+                // 标题行同时给出当前值：滑块本身不标刻度，不给数字用户就不知道停在几 sp。
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = Spacing.minTouchTarget),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = "字号",
+                        style = MaterialTheme.typography.titleLarge,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Text(
+                        text = fontSize.toString() + " sp",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
                 Text(
                     text = "故乡的河里，有一条小小的船……",
                     style = MaterialTheme.typography.bodyLarge.copy(
@@ -458,8 +516,18 @@ fun SettingsScreen(
                 Slider(
                     value = fontSize.toFloat(),
                     onValueChange = { onFontSizeChange(it.roundToInt()) },
-                    valueRange = 14f..26f,
-                    steps = 11,
+                    valueRange = FontSizeRange,
+                    steps = FontSizeSteps,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = Spacing.minTouchTarget)
+                        // 滑块无刻度文案，读屏必须能读到范围与当前值。
+                        .semantics {
+                            contentDescription = "字号"
+                            stateDescription = fontSize.toString() + " sp，范围 " +
+                                FontSizeRange.start.roundToInt() + " 到 " +
+                                FontSizeRange.endInclusive.roundToInt() + " sp"
+                        },
                 )
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -494,24 +562,27 @@ fun SettingsScreen(
                 )
                 Spacer(Modifier.size(Spacing.xs))
                 LineHeightOptions.forEach { option ->
-                    Row(
+                    ListItem(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .heightIn(min = 48.dp)
+                            .heightIn(min = Spacing.minTouchTarget)
                             .selectable(
                                 selected = lineHeight == option,
                                 role = Role.RadioButton,
                                 onClick = { onLineHeightChange(option) },
-                            ),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        RadioButton(selected = lineHeight == option, onClick = null)
-                        Spacer(Modifier.size(Spacing.sm))
-                        Text(
-                            text = formatLineHeight(option) + " 倍",
-                            style = MaterialTheme.typography.bodyLarge,
-                        )
-                    }
+                            )
+                            .padding(horizontal = RowExtraHorizontalPadding),
+                        colors = settingsRowColors(),
+                        headlineContent = {
+                            Text(
+                                text = formatLineHeight(option) + " 倍",
+                                style = MaterialTheme.typography.bodyLarge,
+                            )
+                        },
+                        trailingContent = {
+                            RadioButton(selected = lineHeight == option, onClick = null)
+                        },
+                    )
                 }
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -538,30 +609,38 @@ fun SettingsScreen(
                 Spacer(Modifier.size(Spacing.xs))
                 LibrarySort.entries.forEach { option ->
                     val enabled = option != LibrarySort.Rating
-                    Row(
+                    ListItem(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .heightIn(min = 48.dp)
+                            .heightIn(min = Spacing.minTouchTarget)
                             .selectable(
                                 selected = defaultSort == option,
                                 enabled = enabled,
                                 role = Role.RadioButton,
                                 onClick = { onDefaultSortChange(option) },
-                            ),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        RadioButton(selected = defaultSort == option, onClick = null, enabled = enabled)
-                        Spacer(Modifier.size(Spacing.sm))
-                        Text(
-                            text = option.label + if (enabled) "" else "（后续版本）",
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = if (enabled) {
-                                MaterialTheme.colorScheme.onSurface
-                            } else {
-                                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
-                            },
-                        )
-                    }
+                            )
+                            .padding(horizontal = RowExtraHorizontalPadding),
+                        colors = settingsRowColors(),
+                        headlineContent = {
+                            Text(
+                                text = option.label + if (enabled) "" else "（后续版本）",
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = if (enabled) {
+                                    MaterialTheme.colorScheme.onSurface
+                                } else {
+                                    MaterialTheme.colorScheme.onSurface
+                                        .copy(alpha = DisabledContentAlpha)
+                                },
+                            )
+                        },
+                        trailingContent = {
+                            RadioButton(
+                                selected = defaultSort == option,
+                                onClick = null,
+                                enabled = enabled,
+                            )
+                        },
+                    )
                 }
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -628,13 +707,32 @@ fun SettingsScreen(
                     mirrorInfo = withContext(Dispatchers.IO) {
                         runCatching { client.mirrorInfo() }.getOrNull()
                     }
+                    mirrorReady = true
                 }
             },
         )
     }
 }
 
-/** 分组容器（§17.4）：28dp 圆角 + 1dp outlineVariant 边框，内部行之间不用分割线。 */
+/** M3 禁用态内容透明度（规范：on* 角色 38%）。 */
+private const val DisabledContentAlpha = 0.38f
+
+/** 行左右内边距：与分组容器 20dp 对齐（列表行不贴边框）。 */
+private val RowHorizontalPadding = 20.dp
+
+/** M3 ListItem 自带的左右内边距（1.4.0 内部常量，非构造参数）。 */
+private val ListItemInnerPadding = 16.dp
+
+/**
+ * ListItem 的左右内边距是私有常量（javap 1.4.0 aar：ListItemStartPadding/EndPadding = 16dp），
+ * 构造参数里没有 contentPadding，外面补 4dp 正好到 20dp，和分组容器对齐。
+ */
+private val RowExtraHorizontalPadding = RowHorizontalPadding - ListItemInnerPadding
+
+/**
+ * 分组容器（§17.4）：M3 extraLarge 圆角（28dp）+ 1dp outlineVariant 边框，行之间不用分割线。
+ * 段标题用 titleSmall + primary：M3 里"章节名"落在 title 档，比 labelLarge 更有层级感。
+ */
 @Composable
 private fun SettingsGroup(
     title: String,
@@ -643,22 +741,42 @@ private fun SettingsGroup(
     Column(Modifier.fillMaxWidth().padding(horizontal = Spacing.screen)) {
         Text(
             text = title,
-            style = MaterialTheme.typography.labelLarge,
+            style = MaterialTheme.typography.titleSmall,
             color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.padding(start = 4.dp, top = Spacing.lg, bottom = Spacing.xs),
+            modifier = Modifier.padding(
+                start = Spacing.xxs,
+                top = Spacing.lg,
+                bottom = Spacing.xs,
+            ),
         )
         Surface(
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(Radius.group),
+            shape = MaterialTheme.shapes.extraLarge,
             color = MaterialTheme.colorScheme.surfaceContainerLow,
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
         ) {
-            Column(Modifier.padding(vertical = 4.dp), content = content)
+            Column(Modifier.padding(vertical = Spacing.xxs), content = content)
         }
     }
 }
 
-/** 设置行（§17.4）：高 ≥64dp、左右 20dp，标题 bodyLarge、说明 bodySmall、值 bodyMedium + 20dp chevron。 */
+/**
+ * 行容器色：分组容器已经铺了 surfaceContainerLow，行再刷一层同色即可，
+ * 不用裸 transparent——保持"颜色只从语义角色来"这条规则。
+ */
+@Composable
+private fun settingsRowColors() = ListItemDefaults.colors(
+    containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+)
+
+/**
+ * 设置行（§17.4）：M3 [ListItem] 承载信息层级——标题 bodyLarge、说明 bodySmall（onSurfaceVariant）、
+ * 当前值 bodyMedium + chevron。命中区 ≥ [Spacing.minTouchTarget]（48dp），两行内容自然更高。
+ *
+ * 状态齐备：
+ * - [enabled] = false：按 M3 禁用内容色渲染，且不挂 clickable（不做成"点了没反应"）；
+ * - [loading] = true：行尾换成 16dp 进度指示，代替"没查完就先写 0"的假值。
+ */
 @Composable
 private fun SettingsRow(
     title: String,
@@ -666,43 +784,144 @@ private fun SettingsRow(
     value: String? = null,
     showChevron: Boolean = false,
     destructive: Boolean = false,
+    enabled: Boolean = true,
+    loading: Boolean = false,
     onClick: (() -> Unit)? = null,
 ) {
-    Row(
+    val scheme = MaterialTheme.colorScheme
+    val titleColor = when {
+        !enabled -> scheme.onSurface.copy(alpha = DisabledContentAlpha)
+        destructive -> scheme.error
+        else -> scheme.onSurface
+    }
+    ListItem(
         modifier = Modifier
             .fillMaxWidth()
-            .heightIn(min = if (support == null) 60.dp else 64.dp)
-            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
-            .padding(horizontal = 20.dp, vertical = Spacing.xs),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(Modifier.weight(1f)) {
+            .heightIn(min = Spacing.minTouchTarget)
+            .then(
+                if (onClick != null && enabled) Modifier.clickable(onClick = onClick) else Modifier,
+            )
+            .padding(horizontal = RowExtraHorizontalPadding),
+        colors = settingsRowColors(),
+        headlineContent = {
             Text(
                 text = title,
                 style = MaterialTheme.typography.bodyLarge,
-                color = if (destructive) {
-                    MaterialTheme.colorScheme.error
-                } else {
-                    MaterialTheme.colorScheme.onSurface
-                },
+                color = titleColor,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            if (support != null) {
+        },
+        supportingContent = if (support != null) {
+            {
                 Text(
                     text = support,
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = scheme.onSurfaceVariant,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-        }
+        } else {
+            null
+        },
+        trailingContent = if (loading) {
+            { SettingsRowSpinner() }
+        } else if (value != null || showChevron) {
+            { SettingsRowValue(value = value, showChevron = showChevron, enabled = enabled) }
+        } else {
+            null
+        },
+    )
+}
+
+/**
+ * 二态设置行：M3 [ListItem] + 行尾 [Switch]。
+ *
+ * 整行 [toggleable]：点标题与点开关是同一个动作（M3 的 switch-row 语义），
+ * 命中区 = 整行（≥ [Spacing.minTouchTarget]），不依赖 Switch 本体那点拇指区域。
+ * Switch 的 onCheckedChange 传 null，避免同一手势触发两次。
+ */
+@Composable
+private fun SettingsSwitchRow(
+    title: String,
+    support: String?,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    enabled: Boolean = true,
+) {
+    val scheme = MaterialTheme.colorScheme
+    ListItem(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = Spacing.minTouchTarget)
+            .toggleable(
+                value = checked,
+                enabled = enabled,
+                role = Role.Switch,
+                onValueChange = onCheckedChange,
+            )
+            .padding(horizontal = RowExtraHorizontalPadding),
+        colors = settingsRowColors(),
+        headlineContent = {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodyLarge,
+                color = if (enabled) {
+                    scheme.onSurface
+                } else {
+                    scheme.onSurface.copy(alpha = DisabledContentAlpha)
+                },
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        },
+        supportingContent = if (support != null) {
+            {
+                Text(
+                    text = support,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = scheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        } else {
+            null
+        },
+        trailingContent = {
+            Switch(
+                checked = checked,
+                onCheckedChange = null,
+                enabled = enabled,
+            )
+        },
+    )
+}
+
+/** 行尾加载态：16dp 进度指示，和 bodyMedium 的值同高，不改变行高。 */
+@Composable
+private fun SettingsRowSpinner() {
+    CircularProgressIndicator(
+        modifier = Modifier.size(Spacing.md),
+        strokeWidth = 2.dp,
+    )
+}
+
+/** 行尾「当前值 + chevron」；值缺失时只留 chevron。 */
+@Composable
+private fun SettingsRowValue(value: String?, showChevron: Boolean, enabled: Boolean) {
+    val tint = if (enabled) {
+        MaterialTheme.colorScheme.onSurfaceVariant
+    } else {
+        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = DisabledContentAlpha)
+    }
+    Row(verticalAlignment = Alignment.CenterVertically) {
         if (value != null) {
             Text(
                 text = value,
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = tint,
                 maxLines = 1,
             )
         }
@@ -711,12 +930,16 @@ private fun SettingsRow(
             Icon(
                 imageVector = Icons.Outlined.ChevronRight,
                 contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                tint = tint,
                 modifier = Modifier.size(20.dp),
             )
         }
     }
 }
+
+/** 字号滑块范围与档数（14–26sp，1sp 一档）。 */
+private val FontSizeRange = 14f..26f
+private const val FontSizeSteps = 11
 
 /** 行距可选项：4 档，够用且不会在 200% 字号下溢出。 */
 private val LineHeightOptions = listOf(1.3f, 1.5f, 1.7f, 2.0f)

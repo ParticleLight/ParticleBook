@@ -1,7 +1,6 @@
 package app.particlebook.android.ui
 
 import android.provider.Settings
-import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -32,7 +31,6 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.MenuBook
 import androidx.compose.material.icons.filled.Check
@@ -49,27 +47,29 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.particlebook.android.ui.cover.BookCover
-import app.particlebook.android.ui.cover.coverPalette
+import app.particlebook.android.ui.cover.rememberCoverTint
 import app.particlebook.android.ui.cover.GeneratedCoverStack
 import app.particlebook.android.ui.data.Book
 import app.particlebook.android.ui.data.ReadingProgress
 
 /**
- * 2026 网格卡（§17.3 #5）：3:4 封面（16dp 圆角 + 封面彩色投影）+ 卡下 3 行文字。
+ * 2026 网格卡（§17.3 #5）：3:4 封面（MaterialTheme.shapes.medium 圆角 + 封面彩色投影）+ 卡下 3 行文字。
  * 卡本身无底色、无边框、无 elevation——封面即视觉主体；格式信息并入元数据行。
  */
 @OptIn(ExperimentalFoundationApi::class)
@@ -86,8 +86,11 @@ fun BookGridItem(
     // spec §2.1.3 / §7.3：视觉上无进度只显示格式（不写「未读」），TalkBack 末位才补「未读」。
     val progressLabel = ReadingProgress.percentLabel(context, book.id)
     val a11yStatus = progressLabel ?: "未读"
-    val coverShape = RoundedCornerShape(Spacing.coverCornerLarge)
-    val shadowTint = remember(book.id, book.title) { coverPalette(book).first }
+    // 200% 字号：书名/作者/元数据允许多行——宁可卡片变高，也不在放大字号时截断文字。
+    val largeFont = LocalDensity.current.fontScale >= 1.3f
+    val coverShape = MaterialTheme.shapes.medium
+    // 封面色投影跟随封面配色（容器角色），不再是独立调色板。
+    val shadowTint = rememberCoverTint(book).container
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
     val pressScale by animateFloatAsState(
@@ -99,7 +102,7 @@ fun BookGridItem(
         modifier = modifier
             .scale(pressScale)
             .semantics(mergeDescendants = true) {
-                contentDescription = book.a11yLabel(a11yStatus)
+                contentDescription = book.a11yLabel(a11yStatus, selectionMode, selected)
             },
     ) {
         Box(
@@ -119,21 +122,23 @@ fun BookGridItem(
             BookCover(book = book, modifier = Modifier.fillMaxSize(), shape = coverShape)
             if (selectionMode) {
                 if (selected) {
+                    // 选中态用 secondaryContainer 承载「已选择」语义（与角标同族，不再用 primary*）。
                     Box(
                         Modifier
                             .matchParentSize()
-                            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.32f)),
+                            .background(MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.32f)),
                     )
                 }
                 Box(
                     modifier = Modifier
                         .align(Alignment.TopStart)
                         .padding(Spacing.xs)
+                        // 视觉角标 24dp；真正的手势目标是整张卡片（≫48dp），角标本身不可点。
                         .size(24.dp)
                         .clip(CircleShape)
                         .background(
                             if (selected) {
-                                MaterialTheme.colorScheme.primaryContainer
+                                MaterialTheme.colorScheme.secondaryContainer
                             } else {
                                 MaterialTheme.colorScheme.surface.copy(alpha = 0.85f)
                             },
@@ -141,7 +146,7 @@ fun BookGridItem(
                         .border(
                             width = 2.dp,
                             color = if (selected) {
-                                MaterialTheme.colorScheme.primaryContainer
+                                MaterialTheme.colorScheme.secondaryContainer
                             } else {
                                 MaterialTheme.colorScheme.outline
                             },
@@ -152,8 +157,9 @@ fun BookGridItem(
                     if (selected) {
                         Icon(
                             imageVector = Icons.Filled.Check,
+                            // 装饰：选中状态已写进卡片语义（a11yLabel 追加「已选中」）。
                             contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                            tint = MaterialTheme.colorScheme.onSecondaryContainer,
                             modifier = Modifier.size(16.dp),
                         )
                     }
@@ -166,18 +172,18 @@ fun BookGridItem(
             text = book.title,
             style = AppType.bookTitle,
             color = MaterialTheme.colorScheme.onSurface,
-            maxLines = 1,
+            maxLines = if (largeFont) 3 else 1,
             overflow = TextOverflow.Ellipsis,
         )
-        Spacer(Modifier.height(2.dp))
+        Spacer(Modifier.height(Spacing.xxs))
         Text(
             text = book.authorLabel,
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 1,
+            maxLines = if (largeFont) 2 else 1,
             overflow = TextOverflow.Ellipsis,
         )
-        Spacer(Modifier.height(2.dp))
+        Spacer(Modifier.height(Spacing.xxs))
         Text(
             // 一行元数据：格式 · 进度（§17.1.2：不再把格式/进度拆成多行小字）。
             text = if (progressLabel == null) {
@@ -187,18 +193,20 @@ fun BookGridItem(
             },
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 1,
+            maxLines = if (largeFont) 2 else 1,
             overflow = TextOverflow.Ellipsis,
         )
     }
 }
 
-private fun Book.a11yLabel(progress: String): String {
+private fun Book.a11yLabel(progress: String, selectionMode: Boolean, selected: Boolean): String {
     // progress 已保证非空：「已读 45%」或「未读」。
     val builder = StringBuilder("《").append(title).append("》")
     builder.append("，").append(authorLabel)
     builder.append("，").append(format.label)
     builder.append("，").append(progress)
+    // 多选态：视觉上是角标，读屏只能靠文字，必须把「已选中/未选中」补进描述。
+    if (selectionMode) builder.append(if (selected) "，已选中" else "，未选中")
     return builder.toString()
 }
 
@@ -228,6 +236,61 @@ fun SectionHeader(
     }
 }
 
+/**
+ * 状态骨架（空态 / 无匹配 / 错误 / 阅读器提示共用）：
+ * 可选插画或图标 → 标题 → 说明 → 动作。
+ *
+ * 排版、字级、间距只在这里定义一次；各状态只差文案与动作，避免三处各写一套留白。
+ * 颜色一律由调用方成对传入容器 + on* 角色（或留 Unspecified 继承 Surface 的 contentColor）。
+ */
+@Composable
+private fun StateBlock(
+    title: String,
+    message: String,
+    modifier: Modifier = Modifier,
+    centered: Boolean = true,
+    icon: ImageVector? = null,
+    leadingArt: (@Composable () -> Unit)? = null,
+    titleStyle: TextStyle = MaterialTheme.typography.titleMedium,
+    titleColor: Color = Color.Unspecified,
+    messageColor: Color = Color.Unspecified,
+    iconTint: Color = Color.Unspecified,
+    action: (@Composable () -> Unit)? = null,
+) {
+    Column(
+        modifier = modifier,
+        horizontalAlignment = if (centered) Alignment.CenterHorizontally else Alignment.Start,
+        verticalArrangement = if (centered) Arrangement.Center else Arrangement.Top,
+    ) {
+        if (leadingArt != null) {
+            leadingArt()
+            Spacer(Modifier.height(Spacing.lg))
+        }
+        if (icon != null) {
+            Icon(
+                imageVector = icon,
+                // 装饰：状态含义由下面的标题与说明承载，图标不单独朗读。
+                contentDescription = null,
+                tint = iconTint,
+                modifier = Modifier.size(Spacing.xxl),
+            )
+            Spacer(Modifier.height(if (centered) Spacing.md else Spacing.xs))
+        }
+        Text(text = title, style = titleStyle, color = titleColor)
+        Spacer(Modifier.height(Spacing.xs))
+        Text(
+            text = message,
+            style = MaterialTheme.typography.bodyMedium,
+            color = messageColor,
+            textAlign = if (centered) TextAlign.Center else TextAlign.Start,
+        )
+        if (action != null) {
+            Spacer(Modifier.height(Spacing.lg))
+            action()
+        }
+    }
+}
+
 /** 空书架：主动作导入，次动作打开「支持的格式」说明 dialog。 */
 @Composable
 fun EmptyLibrary(
@@ -235,92 +298,62 @@ fun EmptyLibrary(
     onFormats: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Column(
+    StateBlock(
+        title = "书架是空的",
+        message = "从手机里导入 EPUB / PDF，就会出现在这里。",
         modifier = modifier
             .fillMaxSize()
             .padding(Spacing.xl),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-    ) {
-        GeneratedCoverStack()
-        Spacer(Modifier.height(Spacing.lg))
-        Text("书架是空的", style = MaterialTheme.typography.headlineSmall)
-        Spacer(Modifier.height(Spacing.xs))
-        Text(
-            text = "从手机里导入 EPUB / PDF，就会出现在这里。",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center,
-        )
-        Spacer(Modifier.height(Spacing.lg))
-        FilledTonalButton(onClick = onImport) { Text("导入") }
-        Spacer(Modifier.height(Spacing.xs))
-        TextButton(onClick = onFormats) { Text("支持的格式") }
-    }
+        titleStyle = MaterialTheme.typography.headlineSmall,
+        messageColor = MaterialTheme.colorScheme.onSurfaceVariant,
+        leadingArt = { GeneratedCoverStack() },
+        action = {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                FilledTonalButton(onClick = onImport) { Text("导入") }
+                TextButton(onClick = onFormats) { Text("支持的格式") }
+            }
+        },
+    )
 }
 
 /** 有书但被搜索/筛选清空。 */
 @Composable
 fun NoMatches(onClear: () -> Unit, modifier: Modifier = Modifier) {
-    Column(
+    StateBlock(
+        title = "没有匹配的书",
+        message = "换个关键词，或清除筛选条件",
         modifier = modifier
             .fillMaxSize()
             .padding(Spacing.xl),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-    ) {
-        Icon(
-            imageVector = Icons.Outlined.SearchOff,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.size(48.dp),
-        )
-        Spacer(Modifier.height(Spacing.md))
-        Text("没有匹配的书", style = MaterialTheme.typography.titleMedium)
-        Spacer(Modifier.height(Spacing.xs))
-        Text(
-            text = "换个关键词，或清除筛选条件",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center,
-        )
-        Spacer(Modifier.height(Spacing.lg))
-        TextButton(onClick = onClear) { Text("清除筛选") }
-    }
+        icon = Icons.Outlined.SearchOff,
+        iconTint = MaterialTheme.colorScheme.onSurfaceVariant,
+        messageColor = MaterialTheme.colorScheme.onSurfaceVariant,
+        action = { TextButton(onClick = onClear) { Text("清除筛选") } },
+    )
 }
 
-/** 内联错误块（不是全屏错误页），保留周围上下文。 */
+/** 内联错误块（不是全屏错误页），保留周围上下文；颜色成对走 errorContainer / onErrorContainer。 */
 @Composable
 fun LibraryError(message: String?, onRetry: () -> Unit, modifier: Modifier = Modifier) {
     Surface(
-        shape = RoundedCornerShape(Spacing.coverCorner),
+        shape = MaterialTheme.shapes.medium,
         color = MaterialTheme.colorScheme.errorContainer,
+        contentColor = MaterialTheme.colorScheme.onErrorContainer,
         modifier = modifier
             .fillMaxWidth()
             .padding(Spacing.screen),
     ) {
-        Column(Modifier.padding(Spacing.md)) {
-            Icon(
-                imageVector = Icons.Outlined.ErrorOutline,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onErrorContainer,
-                modifier = Modifier.size(24.dp),
-            )
-            Spacer(Modifier.height(Spacing.xs))
-            Text(
-                text = "书架加载失败",
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onErrorContainer,
-            )
-            Spacer(Modifier.height(Spacing.xxs))
-            Text(
-                text = message ?: "未知错误",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onErrorContainer,
-            )
-            Spacer(Modifier.height(Spacing.sm))
-            FilledTonalButton(onClick = onRetry) { Text("重试") }
-        }
+        StateBlock(
+            title = "书架加载失败",
+            message = message ?: "未知错误",
+            modifier = Modifier.padding(Spacing.md),
+            centered = false,
+            icon = Icons.Outlined.ErrorOutline,
+            titleColor = MaterialTheme.colorScheme.onErrorContainer,
+            messageColor = MaterialTheme.colorScheme.onErrorContainer,
+            iconTint = MaterialTheme.colorScheme.onErrorContainer,
+            action = { FilledTonalButton(onClick = onRetry) { Text("重试") } },
+        )
     }
 }
 
@@ -368,7 +401,7 @@ fun LibrarySkeleton(modifier: Modifier = Modifier) {
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(Spacing.heroHeight),
-                shape = RoundedCornerShape(Spacing.heroCorner),
+                shape = MaterialTheme.shapes.extraLarge,
                 alpha = alpha,
             )
         }
@@ -378,7 +411,7 @@ fun LibrarySkeleton(modifier: Modifier = Modifier) {
                 modifier = Modifier
                     .width(132.dp)
                     .height(30.dp),
-                shape = RoundedCornerShape(Spacing.xs),
+                shape = MaterialTheme.shapes.small,
                 alpha = alpha,
             )
         }
@@ -391,7 +424,7 @@ fun LibrarySkeleton(modifier: Modifier = Modifier) {
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(Spacing.recentCoverHeight),
-                            shape = RoundedCornerShape(Radius.card),
+                            shape = MaterialTheme.shapes.large,
                             alpha = alpha,
                         )
                         Spacer(Modifier.height(Spacing.xs))
@@ -399,7 +432,7 @@ fun LibrarySkeleton(modifier: Modifier = Modifier) {
                             modifier = Modifier
                                 .fillMaxWidth(0.78f)
                                 .height(14.dp),
-                            shape = RoundedCornerShape(Spacing.xxs),
+                            shape = MaterialTheme.shapes.extraSmall,
                             alpha = alpha,
                         )
                     }
@@ -412,7 +445,7 @@ fun LibrarySkeleton(modifier: Modifier = Modifier) {
                 modifier = Modifier
                     .width(112.dp)
                     .height(28.dp),
-                shape = RoundedCornerShape(Spacing.xs),
+                shape = MaterialTheme.shapes.small,
                 alpha = alpha,
             )
         }
@@ -440,7 +473,7 @@ private fun SkeletonCard(alpha: Float) {
             Modifier
                 .fillMaxWidth()
                 .aspectRatio(3f / 4f)
-                .clip(RoundedCornerShape(Spacing.coverCornerLarge))
+                .clip(MaterialTheme.shapes.medium)
                 .background(MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = alpha)),
         )
         Spacer(Modifier.height(Spacing.coverToTitle))
@@ -448,7 +481,7 @@ private fun SkeletonCard(alpha: Float) {
             Modifier
                 .fillMaxWidth(0.82f)
                 .height(14.dp)
-                .clip(RoundedCornerShape(Spacing.xxs))
+                .clip(MaterialTheme.shapes.extraSmall)
                 .background(MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = alpha)),
         )
         Spacer(Modifier.height(Spacing.xxs))
@@ -456,13 +489,13 @@ private fun SkeletonCard(alpha: Float) {
             Modifier
                 .fillMaxWidth(0.45f)
                 .height(12.dp)
-                .clip(RoundedCornerShape(Spacing.xxs))
+                .clip(MaterialTheme.shapes.extraSmall)
                 .background(MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = alpha)),
         )
     }
 }
 
-/** 阅读器通用状态块（居中图标 + 标题 + 说明 + 动作）。 */
+/** 阅读器通用状态块（居中图标 + 标题 + 说明 + 动作）；与书架空态/错误态共用 [StateBlock]。 */
 @Composable
 fun ReaderMessage(
     title: String,
@@ -471,24 +504,20 @@ fun ReaderMessage(
     onAction: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
-    Column(
+    val label = actionLabel
+    val callback = onAction
+    val action: (@Composable () -> Unit)? = if (label != null && callback != null) {
+        { Button(onClick = callback) { Text(label) } }
+    } else {
+        null
+    }
+    StateBlock(
+        title = title,
+        message = message,
         modifier = modifier
             .fillMaxSize()
             .padding(Spacing.xl),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-    ) {
-        Text(title, style = MaterialTheme.typography.titleMedium)
-        Spacer(Modifier.height(Spacing.xs))
-        Text(
-            text = message,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center,
-        )
-        if (actionLabel != null && onAction != null) {
-            Spacer(Modifier.height(Spacing.lg))
-            Button(onClick = onAction) { Text(actionLabel) }
-        }
-    }
+        messageColor = MaterialTheme.colorScheme.onSurfaceVariant,
+        action = action,
+    )
 }

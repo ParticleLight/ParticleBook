@@ -6,8 +6,18 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.size
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Cancel
+import androidx.compose.material.icons.outlined.CheckCircle
+import androidx.compose.material.icons.outlined.Download
+import androidx.compose.material.icons.outlined.ErrorOutline
+import androidx.compose.material.icons.outlined.Sync
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -16,12 +26,74 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlin.math.roundToInt
 
 /** U6：全局叠层最多同时显示 2 张卡片，其余收进「查看全部」（下载记录页）。 */
 private const val MAX_OVERLAY_CARDS = 2
+
+/**
+ * 下载相关页统一状态面板（空态 / 加载态 / 错误态）：图标 + 标题 + 说明 + 可选动作。
+ *
+ * 下载记录页与下载文件夹页共用，避免两页各写一套空态。加载态用 spinner 替代图标，
+ * 错误态给 [actionLabel]（如「重试」），空态只给文案。文案始终存在，不靠颜色单独表意。
+ */
+@Composable
+fun ZlibDownloadStatePane(
+    icon: ImageVector,
+    title: String,
+    message: String,
+    modifier: Modifier = Modifier,
+    loading: Boolean = false,
+    actionLabel: String? = null,
+    onAction: (() -> Unit)? = null,
+) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = Spacing.xl, vertical = Spacing.lg),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        if (loading) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(Spacing.xl),
+                strokeWidth = 3.dp,
+            )
+        } else {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                modifier = Modifier.size(Spacing.xxl),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Spacer(Modifier.height(Spacing.md))
+        Text(
+            text = title,
+            style = AppType.sectionTitle,
+            textAlign = TextAlign.Center,
+        )
+        Spacer(Modifier.height(Spacing.xs))
+        Text(
+            text = message,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+        )
+        if (actionLabel != null && onAction != null) {
+            Spacer(Modifier.height(Spacing.md))
+            FilledTonalButton(
+                onClick = onAction,
+                modifier = Modifier.heightIn(min = Spacing.minTouchTarget),
+            ) {
+                Text(actionLabel)
+            }
+        }
+    }
+}
 
 /**
  * U6/U9/U3：全局下载卡片叠层，由 AppRoot 只在主 tab（书架/发现/设置）渲染。
@@ -46,8 +118,8 @@ fun ZlibDownloadCardsOverlay(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            // spec §4.4：卡片宽 fill - 24dp（左右各 12）。
-            .padding(horizontal = 12.dp),
+            // spec §4.4：卡片宽 fill - 24dp（左右各 12，即 Spacing.sm）。
+            .padding(horizontal = Spacing.sm),
         verticalArrangement = Arrangement.spacedBy(Spacing.xs),
     ) {
         ordered.take(MAX_OVERLAY_CARDS).forEach { task ->
@@ -123,7 +195,16 @@ private fun zlibDownloadCardRank(task: ZlibDownloadTask): Int = when {
     else -> 4
 }
 
-/** 单张下载卡片（spec §4.4）：标题 + 进度/文案 + 3dp 进度条 + 按状态收敛的动作。 */
+/** 状态图标：形状 + 文案双重表意，不只靠颜色区分（图标本身是装饰，状态文案在 [statusLine]）。 */
+private fun zlibDownloadStatusIcon(task: ZlibDownloadTask): ImageVector = when {
+    task.cancelling || task.importing -> Icons.Outlined.Sync
+    task.isActive -> Icons.Outlined.Download
+    task.status == ZlibDownloadStatus.FAILED -> Icons.Outlined.ErrorOutline
+    task.status == ZlibDownloadStatus.CANCELLED -> Icons.Outlined.Cancel
+    else -> Icons.Outlined.CheckCircle
+}
+
+/** 单张下载卡片（spec §4.4）：状态图标 + 标题 + 进度/文案 + M3 进度条 + 按状态收敛的动作。 */
 @Composable
 private fun ZlibDownloadCard(
     task: ZlibDownloadTask,
@@ -143,20 +224,32 @@ private fun ZlibDownloadCard(
         ZlibDownloadStatus.FAILED -> "下载失败 · " + task.fileName
         ZlibDownloadStatus.CANCELLED -> "已取消 · " + task.fileName
     }
-    // 出错/取消类文案用错误色；导入中保持常规色。
-    val lineColor = when {
-        task.status == ZlibDownloadStatus.FAILED && !task.cancelling -> MaterialTheme.colorScheme.error
-        task.status == ZlibDownloadStatus.CANCELLED -> MaterialTheme.colorScheme.onSurfaceVariant
-        else -> MaterialTheme.colorScheme.onSurfaceVariant
+    // 出错类文案用错误色；取消/常规态用次要文字色。颜色只做强调，状态仍由文案给出。
+    val lineColor = if (task.status == ZlibDownloadStatus.FAILED && !task.cancelling) {
+        MaterialTheme.colorScheme.error
+    } else {
+        MaterialTheme.colorScheme.onSurfaceVariant
+    }
+    val iconTint = if (task.status == ZlibDownloadStatus.FAILED) {
+        MaterialTheme.colorScheme.error
+    } else {
+        MaterialTheme.colorScheme.primary
     }
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(Radius.cover),
+        shape = MaterialTheme.shapes.medium,
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
-        tonalElevation = 3.dp,
     ) {
         Column(Modifier.padding(horizontal = Spacing.md, vertical = Spacing.sm)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = zlibDownloadStatusIcon(task),
+                    contentDescription = null,
+                    modifier = Modifier
+                        .padding(end = Spacing.sm)
+                        .size(Spacing.lg),
+                    tint = iconTint,
+                )
                 Column(Modifier.weight(1f)) {
                     Text(
                         text = title,
@@ -164,7 +257,7 @@ private fun ZlibDownloadCard(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
-                    Spacer(Modifier.height(2.dp))
+                    Spacer(Modifier.height(Spacing.xxs))
                     Text(
                         text = statusLine(task),
                         style = MaterialTheme.typography.bodySmall,
@@ -181,16 +274,10 @@ private fun ZlibDownloadCard(
                 if (progress != null) {
                     LinearProgressIndicator(
                         progress = { progress },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(3.dp),
+                        modifier = Modifier.fillMaxWidth(),
                     )
                 } else {
-                    LinearProgressIndicator(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(3.dp),
-                    )
+                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                 }
             }
             cardActions(task = task, onCancel = onCancel, onRetry = onRetry, onDismiss = onDismiss, onDiscard = onDiscard, onReimport = onReimport, onLogin = onLogin)

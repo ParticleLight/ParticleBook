@@ -6,8 +6,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -26,8 +26,8 @@ import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -177,7 +177,7 @@ fun BooklistDetailScreen(
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
-                            Spacer(Modifier.height(2.dp))
+                            Spacer(Modifier.height(Spacing.xxs))
                             Text(
                                 text = stringResource(
                                     R.string.discover_booklist_meta_format,
@@ -223,7 +223,7 @@ fun BooklistDetailScreen(
                                     )
                                     TextButton(
                                         onClick = { sortSheetOpen = true },
-                                        modifier = Modifier.heightIn(min = 48.dp),
+                                        modifier = Modifier.heightIn(min = Spacing.minTouchTarget),
                                     ) {
                                         Text(
                                             text = stringResource(
@@ -348,7 +348,7 @@ private fun SortOptionRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .heightIn(min = 48.dp)
+            .heightIn(min = Spacing.minTouchTarget)
             .clickable(onClick = onClick)
             .padding(horizontal = Spacing.screen),
         verticalAlignment = Alignment.CenterVertically,

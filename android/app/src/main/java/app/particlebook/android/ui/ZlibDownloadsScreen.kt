@@ -3,7 +3,6 @@ package app.particlebook.android.ui
 import android.net.Uri
 import android.text.format.DateUtils
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -18,7 +17,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Cancel
@@ -34,6 +32,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarDuration
@@ -55,16 +54,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.particlebook.android.ui.data.Book
 import app.particlebook.android.ui.data.DownloadLocation
 import app.particlebook.android.ui.data.LibraryStore
+import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.io.File
 
 /**
  * 下载记录页（P1b §4.5，全屏 route settings/downloads）。
@@ -140,7 +138,7 @@ fun ZlibDownloadsScreen(
                     )
                 },
                 navigationIcon = {
-                    IconButton(onClick = onBack, modifier = Modifier.size(48.dp)) {
+                    IconButton(onClick = onBack, modifier = Modifier.size(Spacing.minTouchTarget)) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
                             contentDescription = "返回",
@@ -151,7 +149,7 @@ fun ZlibDownloadsScreen(
                 actions = {
                     IconButton(
                         onClick = openFolder,
-                        modifier = Modifier.size(48.dp),
+                        modifier = Modifier.size(Spacing.minTouchTarget),
                     ) {
                         Icon(
                             imageVector = Icons.Outlined.FolderOpen,
@@ -167,18 +165,20 @@ fun ZlibDownloadsScreen(
         },
     ) { innerPadding ->
         if (!historyLoaded) {
-            LoadingDownloads(
+            DownloadsStatePane(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(innerPadding)
                     .bottomBarPadding(),
+                loading = true,
             )
         } else if (records.isEmpty()) {
-            EmptyDownloads(
+            DownloadsStatePane(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(innerPadding)
                     .bottomBarPadding(),
+                loading = false,
             )
         } else {
             LazyColumn(
@@ -425,51 +425,27 @@ fun ZlibDownloadsScreen(
     }
 }
 
+/**
+ * 空态 / 冷启加载态共用的居中面板，复用 [ZlibDownloadStatePane]，
+ * 与下载文件夹页用同一套「图标 + 标题 + 说明」结构。
+ *
+ * 冷启读盘中的占位不显示「还没有下载记录」（会让人以为记录丢了）。
+ */
 @Composable
-private fun EmptyDownloads(modifier: Modifier = Modifier) {
-    Column(
-        modifier = modifier.padding(horizontal = Spacing.xl),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Icon(
-            imageVector = Icons.Outlined.Download,
-            contentDescription = null,
-            modifier = Modifier.size(64.dp),
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Spacer(Modifier.height(Spacing.md))
-        Text(
-            text = "还没有下载记录",
-            style = AppType.sectionTitle,
-            color = MaterialTheme.colorScheme.onSurface,
-        )
-        Spacer(Modifier.height(Spacing.xs))
-        Text(
-            text = "在 Z-Library 搜索并下载的书籍会出现在这里",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-    }
-}
-
-/** 冷启读盘中的占位：历史还没加载完时不要显示「还没有下载记录」（会让人以为记录丢了）。 */
-@Composable
-private fun LoadingDownloads(modifier: Modifier = Modifier) {
-    Column(
-        modifier = modifier.padding(horizontal = Spacing.xl),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        CircularProgressIndicator(
-            modifier = Modifier.size(32.dp),
-            strokeWidth = 3.dp,
-        )
-        Spacer(Modifier.height(Spacing.md))
-        Text(
-            text = "正在加载下载记录…",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+private fun DownloadsStatePane(
+    modifier: Modifier = Modifier,
+    loading: Boolean,
+) {
+    Box(modifier = modifier, contentAlignment = Alignment.Center) {
+        ZlibDownloadStatePane(
+            icon = Icons.Outlined.Download,
+            title = if (loading) "正在加载下载记录…" else "还没有下载记录",
+            message = if (loading) {
+                "正在读取本地下载记录与文件状态"
+            } else {
+                "在 Z-Library 搜索并下载的书籍会出现在这里"
+            },
+            loading = loading,
         )
     }
 }
@@ -535,7 +511,7 @@ private fun DownloadRecordRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .heightIn(min = 72.dp)
+            .heightIn(min = Spacing.minTouchTarget)
             .then(if (clickable) Modifier.clickable(onClick = onOpen) else Modifier)
             .padding(vertical = Spacing.sm),
         verticalAlignment = Alignment.CenterVertically,
@@ -551,7 +527,7 @@ private fun DownloadRecordRow(
                 recordCancelled -> "已取消"
                 else -> "下载失败"
             },
-            modifier = Modifier.size(24.dp),
+            modifier = Modifier.size(Spacing.lg),
             tint = when {
                 recordCompleted -> MaterialTheme.colorScheme.tertiary
                 recordCancelled -> MaterialTheme.colorScheme.onSurfaceVariant
@@ -568,7 +544,7 @@ private fun DownloadRecordRow(
                 overflow = TextOverflow.Ellipsis,
             )
             if (!largeFont) {
-                Spacer(Modifier.height(2.dp))
+                Spacer(Modifier.height(Spacing.xxs))
                 Text(
                     text = record.fileName,
                     style = MaterialTheme.typography.bodySmall,
@@ -577,7 +553,7 @@ private fun DownloadRecordRow(
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-            Spacer(Modifier.height(2.dp))
+            Spacer(Modifier.height(Spacing.xxs))
             Text(
                 text = recordMetaLine(record, recordCompleted),
                 style = MaterialTheme.typography.labelSmall,
@@ -585,12 +561,21 @@ private fun DownloadRecordRow(
                 maxLines = if (largeFont) 2 else 1,
                 overflow = TextOverflow.Ellipsis,
             )
+            // 未完成且已知总字节数时给出 M3 进度条：进度不只靠「未完成」三个字表达。
+            val progress = zlibRecordProgress(record)
+            if (progress != null) {
+                Spacer(Modifier.height(Spacing.xs))
+                LinearProgressIndicator(
+                    progress = { progress },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
         }
         when {
             importing -> CircularProgressIndicator(
                 modifier = Modifier
                     .padding(horizontal = Spacing.sm)
-                    .size(20.dp),
+                    .size(Spacing.lg),
                 strokeWidth = 2.dp,
             )
 
@@ -659,7 +644,7 @@ private fun DownloadRecordRow(
         }
         // D8：单行「在文件夹中打开」+「删除记录」。
         Box {
-            IconButton(onClick = onMenuClick, modifier = Modifier.size(48.dp)) {
+            IconButton(onClick = onMenuClick, modifier = Modifier.size(Spacing.minTouchTarget)) {
                 Icon(
                     imageVector = Icons.Outlined.MoreVert,
                     contentDescription = "更多操作",
@@ -700,6 +685,13 @@ internal fun bookReferencesDownloadFile(books: List<Book>, destPath: String): Bo
     if (destPath.isBlank()) return false
     return books.any { it.filePath == destPath }
 }
+
+/**
+ * 记录行的字节进度（0..1）：只在「未完成 + 已知总量 + 已收到字节」时给出。
+ * 完成记录不再画满格进度条（状态已由图标 + 文案表达）。
+ */
+private fun zlibRecordProgress(record: ZlibDownloadTask): Float? =
+    if (record.status == ZlibDownloadStatus.COMPLETED) null else record.progress
 
 private fun recordMetaLine(record: ZlibDownloadTask, completed: Boolean): String {
     val size = formatDownloadBytes(if (record.received > 0) record.received else record.total)

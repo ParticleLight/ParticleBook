@@ -3,7 +3,6 @@ package app.particlebook.android.ui
 import android.content.Context
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -29,7 +28,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -37,9 +35,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.MenuBook
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.outlined.Category
-import androidx.compose.material.icons.outlined.Leaderboard
 import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.Leaderboard
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.SearchOff
@@ -74,12 +72,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
@@ -88,7 +87,6 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import app.particlebook.android.R
 import app.particlebook.android.zlib.ZAccount
-import app.particlebook.android.zlib.ZBook
 import app.particlebook.android.zlib.ZlibClient
 import app.particlebook.android.zlib.ZlibSearchFilters
 import app.particlebook.android.zlib.ZlibSortOrder
@@ -184,7 +182,7 @@ fun DiscoverScreen(
             Row(verticalAlignment = Alignment.Top) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text("Z-Library", style = AppType.pageTitle)
-                    Spacer(Modifier.height(2.dp))
+                    Spacer(Modifier.height(Spacing.xxs))
                     Text(
                         text = stringResource(R.string.find_header_subtitle),
                         style = MaterialTheme.typography.labelSmall,
@@ -225,7 +223,7 @@ fun DiscoverScreen(
                 value = query,
                 onValueChange = { query = it },
                 singleLine = true,
-                shape = RoundedCornerShape(28.dp),
+                shape = MaterialTheme.shapes.extraLarge,
                 placeholder = {
                     Text(
                         text = stringResource(R.string.find_search_hint),
@@ -240,12 +238,12 @@ fun DiscoverScreen(
                         if (query.isNotEmpty() && state !is ZlibSearchState.Loading) {
                             IconButton(
                                 onClick = { query = "" },
-                                modifier = Modifier.size(48.dp),
+                                modifier = Modifier.size(Spacing.minTouchTarget),
                             ) {
                                 Icon(
                                     imageVector = Icons.Filled.Close,
                                     contentDescription = stringResource(R.string.common_clear),
-                                    modifier = Modifier.size(20.dp),
+                                    modifier = Modifier.size(Spacing.lg),
                                 )
                             }
                         }
@@ -254,11 +252,11 @@ fun DiscoverScreen(
                         IconButton(
                             onClick = runSearch,
                             enabled = enabled,
-                            modifier = Modifier.size(48.dp),
+                            modifier = Modifier.size(Spacing.minTouchTarget),
                         ) {
                             if (loading) {
                                 CircularProgressIndicator(
-                                    modifier = Modifier.size(20.dp),
+                                    modifier = Modifier.size(Spacing.lg),
                                     strokeWidth = 2.dp,
                                     color = MaterialTheme.colorScheme.primary,
                                 )
@@ -266,7 +264,7 @@ fun DiscoverScreen(
                                 Icon(
                                     imageVector = Icons.Outlined.Search,
                                     contentDescription = stringResource(R.string.find_search_action),
-                                    modifier = Modifier.size(24.dp),
+                                    modifier = Modifier.size(Spacing.lg),
                                     tint = if (enabled) {
                                         MaterialTheme.colorScheme.primary
                                     } else {
@@ -281,7 +279,7 @@ fun DiscoverScreen(
                 keyboardActions = KeyboardActions(onSearch = { runSearch() }),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(min = 56.dp),
+                    .heightIn(min = Spacing.xxl),
             )
             // 删掉整宽按钮后，搜索框与「热门分类」之间只留这一个自然间距。
             Spacer(Modifier.height(Spacing.sm))
@@ -312,10 +310,10 @@ fun DiscoverScreen(
                             Icon(
                                 imageVector = Icons.Outlined.Tune,
                                 contentDescription = null,
-                                modifier = Modifier.size(18.dp),
+                                modifier = Modifier.size(Spacing.md),
                             )
                         },
-                        modifier = Modifier.heightIn(min = 32.dp),
+                        modifier = Modifier.heightIn(min = Spacing.xl),
                     )
                     Text(
                         text = if (filters.isActive) {
@@ -333,7 +331,7 @@ fun DiscoverScreen(
                         TextButton(
                             onClick = { viewModel.clearFilters() },
                             contentPadding = PaddingValues(horizontal = Spacing.xs),
-                            modifier = Modifier.heightIn(min = 32.dp),
+                            modifier = Modifier.heightIn(min = Spacing.xl),
                         ) {
                             Text(
                                 text = stringResource(R.string.common_clear),
@@ -361,7 +359,7 @@ fun DiscoverScreen(
                     TextButton(
                         onClick = { viewModel.clearFilters() },
                         contentPadding = PaddingValues(horizontal = Spacing.xs),
-                        modifier = Modifier.heightIn(min = 32.dp),
+                        modifier = Modifier.heightIn(min = Spacing.xl),
                     ) {
                         Text(
                             text = stringResource(R.string.common_clear),
@@ -523,7 +521,7 @@ fun DiscoverScreen(
                                     contentAlignment = Alignment.Center,
                                 ) {
                                     CircularProgressIndicator(
-                                        modifier = Modifier.size(20.dp),
+                                        modifier = Modifier.size(Spacing.lg),
                                         strokeWidth = 2.dp,
                                     )
                                 }
@@ -638,7 +636,7 @@ private fun AccountArea(
     if (account == null) {
         TextButton(
             onClick = onLoginClick,
-            modifier = Modifier.heightIn(min = 48.dp),
+            modifier = Modifier.heightIn(min = Spacing.minTouchTarget),
         ) {
             Text(stringResource(R.string.find_login))
         }
@@ -648,7 +646,7 @@ private fun AccountArea(
     val prefix = account.email?.substringBefore('@')?.take(24)?.takeIf { it.isNotBlank() }
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.heightIn(min = 48.dp),
+        modifier = Modifier.heightIn(min = Spacing.minTouchTarget),
     ) {
         if (prefix != null) {
             Text(
@@ -661,18 +659,27 @@ private fun AccountArea(
             )
         }
         Box {
-            Surface(
+            // 触控区 48dp（IconButton），视觉头像仍是 32dp（Spacing.xl）：只看大小不牺牲可达性。
+            IconButton(
                 onClick = { menuOpen = true },
-                shape = CircleShape,
-                color = MaterialTheme.colorScheme.primaryContainer,
-                modifier = Modifier.size(32.dp),
+                modifier = Modifier.size(Spacing.minTouchTarget),
             ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Text(
-                        text = prefix?.firstOrNull()?.uppercaseChar()?.toString() ?: "?",
-                        style = MaterialTheme.typography.titleSmall,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer,
-                    )
+                Surface(
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    modifier = Modifier
+                        .size(Spacing.xl)
+                        .clearAndSetSemantics {
+                            contentDescription = prefix ?: "账号"
+                        },
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Text(
+                            text = prefix?.firstOrNull()?.uppercaseChar()?.toString() ?: "?",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        )
+                    }
                 }
             }
             DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
@@ -705,7 +712,7 @@ private fun TopOverflowMenu(
     Box {
         IconButton(
             onClick = { open = true },
-            modifier = Modifier.size(48.dp),
+            modifier = Modifier.size(Spacing.minTouchTarget),
         ) {
             Icon(
                 imageVector = Icons.Outlined.MoreVert,
@@ -739,7 +746,7 @@ private fun TopOverflowMenu(
 @Composable
 private fun NoMirrorBanner(onRetry: () -> Unit, onSwitchLines: () -> Unit) {
     Surface(
-        shape = RoundedCornerShape(Radius.card),
+        shape = MaterialTheme.shapes.large,
         color = MaterialTheme.colorScheme.errorContainer,
         modifier = Modifier.fillMaxWidth(),
     ) {
@@ -756,7 +763,7 @@ private fun NoMirrorBanner(onRetry: () -> Unit, onSwitchLines: () -> Unit) {
                     imageVector = Icons.Outlined.ErrorOutline,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.onErrorContainer,
-                    modifier = Modifier.size(20.dp),
+                    modifier = Modifier.size(Spacing.lg),
                 )
                 Spacer(Modifier.size(Spacing.xs))
                 Text(
@@ -852,7 +859,7 @@ private fun DiscoverEntryRow(
                     subtitleMaxLines = Int.MAX_VALUE,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .heightIn(min = 48.dp),
+                        .heightIn(min = Spacing.minTouchTarget),
                 )
             }
         }
@@ -868,7 +875,7 @@ private fun DiscoverEntryCard(
     Surface(
         onClick = entry.onClick,
         modifier = modifier,
-        shape = RoundedCornerShape(Radius.card),
+        shape = MaterialTheme.shapes.large,
         color = MaterialTheme.colorScheme.surfaceContainerLow,
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
     ) {
@@ -877,7 +884,7 @@ private fun DiscoverEntryCard(
                 imageVector = entry.icon,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(22.dp),
+                modifier = Modifier.size(Spacing.lg),
             )
             Spacer(Modifier.height(Spacing.xs))
             Text(
@@ -886,7 +893,7 @@ private fun DiscoverEntryCard(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            Spacer(Modifier.height(2.dp))
+            Spacer(Modifier.height(Spacing.xxs))
             Text(
                 text = stringResource(entry.subtitleRes),
                 style = MaterialTheme.typography.labelSmall,
@@ -938,7 +945,7 @@ private fun IdleContent(
                             maxLines = 1,
                         )
                     },
-                    modifier = Modifier.heightIn(min = 32.dp),
+                    modifier = Modifier.heightIn(min = Spacing.xl),
                 )
             }
         }
@@ -954,7 +961,7 @@ private fun IdleContent(
 
         Spacer(Modifier.height(Spacing.lg))
         Surface(
-            shape = RoundedCornerShape(Radius.card),
+            shape = MaterialTheme.shapes.large,
             color = MaterialTheme.colorScheme.surfaceContainerLow,
             modifier = Modifier.fillMaxWidth(),
         ) {
@@ -966,7 +973,7 @@ private fun IdleContent(
                     imageVector = Icons.Outlined.Info,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(20.dp),
+                    modifier = Modifier.size(Spacing.lg),
                 )
                 Spacer(Modifier.size(Spacing.xs))
                 Column {
@@ -1017,7 +1024,7 @@ private fun EmptyResult(
                 imageVector = Icons.Outlined.SearchOff,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(48.dp),
+                modifier = Modifier.size(Spacing.minTouchTarget),
             )
             Spacer(Modifier.height(Spacing.sm))
             Text(
@@ -1053,7 +1060,7 @@ private fun EmptyResult(
                                 maxLines = 1,
                             )
                         },
-                        modifier = Modifier.heightIn(min = 32.dp),
+                        modifier = Modifier.heightIn(min = Spacing.xl),
                     )
                 }
             }
@@ -1083,7 +1090,7 @@ private fun SearchError(
             imageVector = Icons.Outlined.ErrorOutline,
             contentDescription = null,
             tint = MaterialTheme.colorScheme.error,
-            modifier = Modifier.size(48.dp),
+            modifier = Modifier.size(Spacing.minTouchTarget),
         )
         Spacer(Modifier.height(Spacing.sm))
         Text(stringResource(R.string.find_error_title), style = MaterialTheme.typography.titleMedium)
@@ -1274,7 +1281,7 @@ private fun FilterChipGroup(
                         maxLines = 1,
                     )
                 },
-                modifier = Modifier.heightIn(min = 32.dp),
+                modifier = Modifier.heightIn(min = Spacing.xl),
             )
         }
     }
@@ -1325,7 +1332,7 @@ private fun SearchFilterSheet(
                 stringResource(R.string.find_filter_sheet_title),
                 style = MaterialTheme.typography.titleMedium,
             )
-            Spacer(Modifier.height(2.dp))
+            Spacer(Modifier.height(Spacing.xxs))
             Text(
                 text = stringResource(R.string.find_filter_sheet_hint),
                 style = MaterialTheme.typography.bodySmall,

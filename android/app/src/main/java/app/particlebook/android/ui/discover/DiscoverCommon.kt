@@ -21,7 +21,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.grid.LazyGridState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.ErrorOutline
@@ -41,6 +40,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -58,7 +58,6 @@ import androidx.compose.ui.unit.dp
 import app.particlebook.android.R
 import app.particlebook.android.ui.AppType
 import app.particlebook.android.ui.Motion
-import app.particlebook.android.ui.Radius
 import app.particlebook.android.ui.Spacing
 import app.particlebook.android.ui.ZlibCoverCache
 import app.particlebook.android.ui.bottomBarPadding
@@ -103,7 +102,7 @@ internal fun DiscoverPageScaffold(
                     )
                 },
                 navigationIcon = {
-                    IconButton(onClick = onBack, modifier = Modifier.size(48.dp)) {
+                    IconButton(onClick = onBack, modifier = Modifier.size(Spacing.minTouchTarget)) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
                             contentDescription = stringResource(R.string.common_back),
@@ -137,7 +136,7 @@ internal fun DiscoverLoading(message: String, modifier: Modifier = Modifier) {
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        CircularProgressIndicator(modifier = Modifier.size(32.dp), strokeWidth = 3.dp)
+        CircularProgressIndicator(modifier = Modifier.size(Spacing.xl), strokeWidth = 3.dp)
         Spacer(Modifier.height(Spacing.sm))
         Text(
             text = message,
@@ -167,7 +166,7 @@ internal fun DiscoverErrorState(
             imageVector = Icons.Outlined.ErrorOutline,
             contentDescription = null,
             tint = MaterialTheme.colorScheme.error,
-            modifier = Modifier.size(48.dp),
+            modifier = Modifier.size(Spacing.minTouchTarget),
         )
         Spacer(Modifier.height(Spacing.sm))
         Text(stringResource(R.string.discover_error_title), style = MaterialTheme.typography.titleMedium)
@@ -213,7 +212,7 @@ internal fun DiscoverEmptyState(
             imageVector = icon,
             contentDescription = null,
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.size(48.dp),
+            modifier = Modifier.size(Spacing.minTouchTarget),
         )
         Spacer(Modifier.height(Spacing.sm))
         Text(title, style = MaterialTheme.typography.titleMedium, textAlign = TextAlign.Center)
@@ -243,7 +242,7 @@ internal fun DiscoverListFooter(
                 .padding(Spacing.md),
             contentAlignment = Alignment.Center,
         ) {
-            CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+            CircularProgressIndicator(modifier = Modifier.size(Spacing.lg), strokeWidth = 2.dp)
         }
 
         loadMoreError != null -> Column(
@@ -277,7 +276,7 @@ internal fun DiscoverListFooter(
 @Composable
 internal fun PulsePlaceholder(
     modifier: Modifier = Modifier,
-    shape: Shape = RoundedCornerShape(Radius.chip),
+    shape: Shape = MaterialTheme.shapes.small,
 ) {
     val reduced = Motion.isReducedMotion(LocalContext.current)
     val alpha = if (reduced) {
@@ -354,7 +353,7 @@ internal fun AsyncZlibCover(
     coverUrl: String?,
     cacheKey: String,
     modifier: Modifier = Modifier,
-    shape: Shape = RoundedCornerShape(Radius.chip),
+    shape: Shape = MaterialTheme.shapes.small,
     targetWidth: Dp = 96.dp,
 ) {
     val context = LocalContext.current.applicationContext

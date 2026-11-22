@@ -34,6 +34,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
@@ -48,7 +49,13 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-/** 高亮/笔记颜色。key 持久化到 ReaderAnnotation.color；argb 由渲染层直接画。 */
+/**
+ * 高亮/笔记颜色。key 持久化到 ReaderAnnotation.color；argb 由渲染层直接画。
+ *
+ * 这里是**内容色**而不是界面色：argb 会落进 EpubHighlight 交给排版层在非 Composable 的绘制阶段落笔，
+ * 且必须跨主题/跨会话稳定（同一本书的高亮不能换个主题就变色）。因此它不能读 colorScheme，
+ * 也不能换成 M3 语义角色；界面 chrome 的颜色一律走 colorScheme，二者不混用。
+ */
 internal data class EpubAnnotationColor(
     val key: String,
     val label: String,
@@ -182,16 +189,24 @@ internal fun EpubSelectionToolbar(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Spacer(Modifier.width(Spacing.sm))
+        // 4 色色点在 64dp 底栏里：横向宽度受底栏限制（还要给「已选 n 字」和两个动作让位），
+        // 所以色点 24dp（Spacing.lg）、命中区纵向撑满 48dp（Spacing.minTouchTarget）；
+        // 色点本身用内容色（有意图的持久化色），命中区不留裸 hex。
         EpubAnnotationPalette.colors.forEach { color ->
             Box(
                 modifier = Modifier
-                    .padding(horizontal = 3.dp)
-                    .size(28.dp)
-                    .clip(CircleShape)
-                    .background(composeArgb(color.argb))
-                    .clickable { onHighlight(color.key) }
+                    .size(width = Spacing.xl, height = Spacing.minTouchTarget)
+                    .clickable(role = Role.Button) { onHighlight(color.key) }
                     .semantics { contentDescription = color.label + "高亮" },
-            )
+                contentAlignment = Alignment.Center,
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(Spacing.lg)
+                        .clip(CircleShape)
+                        .background(composeArgb(color.argb)),
+                )
+            }
         }
         TextButton(onClick = onNote) { Text("笔记") }
         TextButton(onClick = onCopy) { Text("复制") }
@@ -213,6 +228,9 @@ internal fun EpubAnnotationSheet(
         onDismissRequest = onDismiss,
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
         contentWindowInsets = { WindowInsets(0) },
+        // M3 浮层：extraLarge 顶部圆角 + surfaceContainerLow 底，和阅读器其它浮层同档。
+        shape = MaterialTheme.shapes.extraLarge,
+        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
     ) {
         ImmersiveDialogWindow()
         Column(
@@ -275,12 +293,13 @@ private fun AnnotationRow(
             .fillMaxWidth()
             .clickable(onClick = onJump)
             .padding(horizontal = Spacing.lg, vertical = Spacing.sm),
-        verticalArrangement = Arrangement.spacedBy(2.dp),
+        verticalArrangement = Arrangement.spacedBy(Spacing.xxs),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
+            // 颜色圆点只是标注类型的视觉索引（真实颜色见上方内容色说明），尺寸走 token。
             Box(
                 modifier = Modifier
-                    .size(10.dp)
+                    .size(Spacing.xs)
                     .clip(CircleShape)
                     .background(composeArgb(EpubAnnotationPalette.argbFor(annotation.color))),
             )
