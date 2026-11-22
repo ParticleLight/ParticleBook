@@ -81,7 +81,7 @@ object PdfiumAndroidTextSource {
             try {
                 document.close()
             } finally {
-                if (closeDescriptor) closeQuietly(descriptor)
+                if (closeDescriptor) descriptor.close()
             }
         }
     }

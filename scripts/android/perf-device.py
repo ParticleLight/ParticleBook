@@ -36,6 +36,16 @@ import time
 import zipfile
 from xml.etree import ElementTree as ET
 
+try:
+    import perf_epub
+except ImportError:  # pragma: no cover - direct script path
+    import importlib.util
+    _perf_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "perf_epub.py")
+    _spec = importlib.util.spec_from_file_location("perf_epub", _perf_path)
+    perf_epub = importlib.util.module_from_spec(_spec)
+    sys.modules[_spec.name] = perf_epub
+    _spec.loader.exec_module(perf_epub)
+
 PKG = "app.particlebook"
 ACT = "app.particlebook/.android.MobileActivity"
 DEFAULT_EVIDENCE = os.path.join("docs", "android-port", "p0", "evidence")
@@ -57,8 +67,12 @@ def _resolve_adb():
 
 ADB = _resolve_adb()
 
+# Every adb command inside a measurement segment is bounded by the 120 s host
+# budget; a single call may never consume more than the 30 s confirmation slice.
+ADB_SECONDS = 30
 
-def adb(serial, *args, timeout=180):
+
+def adb(serial, *args, timeout=ADB_SECONDS):
     cmd = [ADB]
     if serial:
         cmd += ["-s", serial]
@@ -71,7 +85,7 @@ def adb(serial, *args, timeout=180):
         return ""
 
 
-def sh(serial, *args, timeout=180):
+def sh(serial, *args, timeout=ADB_SECONDS):
     return adb(serial, "shell", *args, timeout=timeout)
 
 
@@ -149,7 +163,8 @@ def app_info(serial):
         "versionName": grab("versionName"),
         "versionCode": mvc.group(1) if mvc else vc,
         "lastUpdateTime": grab("lastUpdateTime"),
-        "debuggable": ("DEBUGGABLE" in (flags.group(1) if flags else "")),
+        # Missing flags must stay unknown, never silently "not debuggable".
+        "debuggable": None if flags is None else ("DEBUGGABLE" in flags.group(1)),
         "apk_path": apk,
         "installed_sha256": sha,
     }
@@ -158,7 +173,7 @@ def app_info(serial):
 # ---------- memory ----------
 
 def meminfo(serial):
-    out = sh(serial, "dumpsys", "meminfo", PKG, timeout=180)
+    out = sh(serial, "dumpsys", "meminfo", PKG, timeout=ADB_SECONDS)
     vals = {}
     for key in ("TOTAL", "Java Heap", "Native Heap", "Graphics", "Code", "Stack", "Private Other", "System"):
         m = re.search(r"^\s*" + re.escape(key) + r":?\s+([0-9]+)", out, re.M)
@@ -193,7 +208,7 @@ def cmd_coldstart(serial, n, settle, json_out, apk_note=None):
         sh(serial, "am", "force-stop", PKG)
         time.sleep(0.6)
         sh(serial, "logcat", "-c")
-        out = sh(serial, "am", "start", "-W", "-n", ACT, timeout=120)
+        out = sh(serial, "am", "start", "-W", "-n", ACT, timeout=ADB_SECONDS)
         m = re.search(r"TotalTime:\s*([0-9]+)", out)
         w = re.search(r"WaitTime:\s*([0-9]+)", out)
         ls = re.search(r"LaunchState:\s*(\w+)", out)
@@ -355,10 +370,11 @@ def cmd_jank(serial, mode, scenario, swipes, json_out, settle=1.0, book=""):
 
 # ---------- ui automation (PDF scenario) ----------
 
-def ui_dump(serial):
+def ui_dump(serial, adb_call=None):
+    call = adb_call or (lambda *args, **kw: adb(serial, *args, **kw))
     last = ""
     for _ in range(3):
-        out = adb(serial, "exec-out", "uiautomator", "dump", "/dev/tty", timeout=60)
+        out = call("exec-out", "uiautomator", "dump", "/dev/tty", timeout=ADB_SECONDS)
         s = out or ""
         i = s.rfind("</hierarchy>")
         if i > 0:
@@ -368,7 +384,10 @@ def ui_dump(serial):
     nodes = []
     try:
         root = ET.fromstring(last)
-        for n in root.iter("node"):
+        elements = list(root.iter("node"))
+        indices = {element: index for index, element in enumerate(elements)}
+        parents = {child: parent for parent in root.iter() for child in parent}
+        for n in elements:
             b = n.get("bounds") or ""
             m = re.match(r"\[(\d+),(\d+)\]\[(\d+),(\d+)\]", b)
             nodes.append({
@@ -376,6 +395,9 @@ def ui_dump(serial):
                 "desc": (n.get("content-desc") or "").strip(),
                 "cls": n.get("class") or "",
                 "clickable": n.get("clickable") == "true",
+                "enabled": n.get("enabled") != "false",
+                "scrollable": n.get("scrollable") == "true",
+                "parent": indices.get(parents.get(n)),
                 "rect": [int(x) for x in m.groups()] if m else None,
             })
     except Exception:
@@ -426,6 +448,118 @@ def perf_events(serial):
             d["page"] = m.group(1)
         ev.append(d)
     return ev
+
+
+class PerfEpubDevice:
+    """Audited adb adapter: raw command failures always make the report FAIL."""
+
+    def __init__(self, serial):
+        self.serial = serial
+        self._center = None
+        self.command_log = []
+        self.command_failures = []
+
+    def adb(self, *args, timeout=ADB_SECONDS):
+        cmd = [ADB] + (["-s", self.serial] if self.serial else []) + list(args)
+        entry = {"args": list(args), "timestamp": now_iso()}
+        try:
+            out = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8",
+                                 errors="replace", timeout=timeout)
+            entry.update(exit_code=out.returncode, stdout=out.stdout or "", stderr=out.stderr or "")
+            # pidof's exit1 is the expected proof after a force-stop.
+            expected_no_pid = (args == ("shell", "pidof", PKG) and out.returncode == 1 and
+                               not out.stdout.strip() and not out.stderr.strip())
+            if out.returncode != 0 and not expected_no_pid:
+                self.command_failures.append(entry)
+        except (subprocess.TimeoutExpired, OSError) as exc:
+            entry.update(exit_code=None, stdout="", stderr=str(exc))
+            self.command_failures.append(entry)
+        self.command_log.append(entry)
+        return entry["stdout"]
+
+    def sh(self, *args, timeout=ADB_SECONDS):
+        return self.adb("shell", *args, timeout=timeout)
+
+    def ui_dump(self):
+        return ui_dump(self.serial, adb_call=self.adb)
+
+    def screenshot_png(self, path):
+        """Save binary screencap output once and audit its raw-file reference."""
+        args = ("exec-out", "screencap", "-p")
+        cmd = [ADB] + (["-s", self.serial] if self.serial else []) + list(args)
+        entry = {"args": list(args), "timestamp": now_iso(), "path": os.path.abspath(path)}
+        try:
+            out = subprocess.run(cmd, capture_output=True, timeout=ADB_SECONDS)
+            data = out.stdout or b""
+            entry.update(exit_code=out.returncode, stdout_bytes=len(data),
+                         stdout_sha256=hashlib.sha256(data).hexdigest(),
+                         stderr=(out.stderr or b"").decode("utf-8", errors="replace"))
+            os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+            with open(path, "xb") as handle:
+                handle.write(data)
+            if out.returncode != 0:
+                raise ValueError("screencap failed with exit %s" % out.returncode)
+            return perf_epub.png_evidence(path)
+        except (OSError, ValueError, subprocess.SubprocessError) as exc:
+            entry["error"] = str(exc)
+            self.command_failures.append(entry)
+            raise
+        finally:
+            self.command_log.append(entry)
+
+    def app_info(self):
+        out = self.sh("dumpsys", "package", PKG)
+        path = self.sh("pm", "path", PKG).strip()
+        apk = path.split(":", 1)[1] if path.startswith("package:") else ""
+        sha = self.sh("sha256sum", apk).split() if apk else []
+        flags = re.search(r"flags=\[([^\]]*)\]", out)
+        version = re.search(r"versionName=([^\n]+)", out)
+        code = re.search(r"versionCode=([0-9]+)", out)
+        return {"installed_sha256": sha[0] if sha else None, "apk_path": apk,
+                "debuggable": None if flags is None else "DEBUGGABLE" in flags.group(1),
+                "versionName": version.group(1).strip() if version else None,
+                "versionCode": code.group(1) if code else None, "raw_package": out}
+
+    def device_info(self):
+        display = self.sh("dumpsys", "display")
+        return {"serial": self.adb("get-serialno").strip(),
+                "model": self.sh("getprop", "ro.product.model").strip(),
+                "sdk": self.sh("getprop", "ro.build.version.sdk").strip(),
+                "release": self.sh("getprop", "ro.build.version.release").strip(),
+                "abi": self.sh("getprop", "ro.product.cpu.abi").strip(),
+                "fingerprint": self.sh("getprop", "ro.build.fingerprint").strip(),
+                "device_time": now_iso(), "raw_display": display,
+                "refresh_rate_hz": perf_epub.parse_refresh_rate(display)}
+
+    def foreground_state(self):
+        out = self.sh("dumpsys", "activity", "activities")
+        match = re.search(r"(?:mResumedActivity|topResumedActivity)[^\n]*", out)
+        return match.group(0).strip() if match else ""
+
+    def app_pid(self):
+        out = self.sh("pidof", PKG).strip()
+        return int(out) if re.fullmatch(r"[0-9]+", out) else None
+
+    def perf_lines(self):
+        # -d only; never clear the shared device logcat buffer.
+        out = self.sh("logcat", "-v", "threadtime", "-d", "-s", "PBPERF:I", "*:S", timeout=ADB_SECONDS)
+        return [line for line in out.splitlines() if line.strip()]
+
+    def gfxinfo_report(self):
+        return self.sh("dumpsys", "gfxinfo", PKG, timeout=ADB_SECONDS)
+
+    def framestats_text(self):
+        return self.sh("dumpsys", "gfxinfo", PKG, "framestats", timeout=ADB_SECONDS)
+
+    def screen_center(self):
+        if not self._center:
+            out = self.sh("wm", "size").strip()
+            matches = re.findall(r"(\d+)x(\d+)", out)
+            if not matches:
+                raise ValueError("wm size is missing; navigation coordinates are unknown")
+            width, height = (int(value) for value in matches[-1])
+            self._center = (width // 2, height // 2)
+        return self._center
 
 
 def open_pdf_book(serial, book, settle=2.0):
@@ -533,7 +667,7 @@ def cmd_battery(serial, mode, seconds, json_out):
         print("battery: reset+window done（%ss 冒烟，不作验收）" % seconds)
         dump_json(json_out, res)
         return
-    out = sh(serial, "dumpsys", "batterystats", "--charged", PKG, timeout=180)
+    out = sh(serial, "dumpsys", "batterystats", "--charged", PKG, timeout=ADB_SECONDS)
     m = re.search(r"Uid u0a[0-9]+:.*?\n", out)
     res = {"cmd": "battery", "device": device_info(serial), "app": app_info(serial), "raw_head": out[:4000]}
     print(out[:1200])
@@ -814,6 +948,45 @@ def main():
     p = sub.add_parser("libs")
     p.add_argument("--apk", default="android/app/build/outputs/apk/debug/app-debug.apk")
 
+    p = sub.add_parser("epub", help="P1-EPUB 03: cold first chapter (PBPERF + gfxinfo)")
+    p.add_argument("--epub", default="", help="host EPUB (fixture provenance; Moby SHA 4f0a70ca...)")
+    p.add_argument("--book-title", required=True, help="shelf title, e.g. QA Moby Dick (p1/books)")
+    p.add_argument("--chapter", type=int, required=True, help="0-based spine index (Moby I: Loomings = 6)")
+    p.add_argument("--page", "--start-page", dest="page", type=int, default=1, help="1-based page inside chapter")
+    p.add_argument("--cold", type=int, default=5, help="cold reader entries; acceptance requires 5")
+    p.add_argument("--apk", default="", help="local APK whose sha256 must match installed base.apk")
+    p.add_argument("--book-id", type=int, default=201, help="fixed QA Moby book_id=201")
+    p.add_argument("--release-evidence", required=True, help="signed release/source-tree evidence JSON")
+    p.add_argument("--fixture-evidence", required=True, help="QA201 raw private-file binding and retained install-r evidence JSON")
+    p.add_argument("--toc-match", default="", help="TOC title, e.g. I: Loomings")
+    p.add_argument("--screenshot-dir", default="", help="per-cold PNG directory; defaults beside json-out")
+    p.add_argument("--run-dir", default="", help="staged run directory; enables --stage instead of one-shot")
+    p.add_argument("--stage", choices=["init", "step", "finish"], default="",
+                   help="bounded stage: init binds, one step collects exactly one unit")
+    p.add_argument("--json-out", default="")
+
+    p = sub.add_parser("epub-turn", help="P1-EPUB 04: forward page turns x rounds")
+    p.add_argument("--epub", default="", help="host EPUB (fixture provenance)")
+    p.add_argument("--book-title", required=True, help="shelf title, e.g. QA Moby Dick (p1/books)")
+    p.add_argument("--chapter", type=int, required=True, help="0-based spine index (Moby LIV = 59)")
+    p.add_argument("--page", "--start-page", dest="page", type=int, default=1, help="1-based start page")
+    p.add_argument("--turns", type=int, default=20, help="forward new pages per round; acceptance 20")
+    p.add_argument("--rounds", type=int, default=3, help="rounds; acceptance 3")
+    p.add_argument("--turn-mode", choices=["forward", "pingpong"], default="forward",
+                   help="forward = new adjacent pages (required for 04); pingpong only for short chapters")
+    p.add_argument("--apk", default="", help="local APK whose sha256 must match installed base.apk")
+    p.add_argument("--book-id", type=int, default=201, help="fixed QA Moby book_id=201")
+    p.add_argument("--release-evidence", required=True, help="signed release/source-tree evidence JSON")
+    p.add_argument("--fixture-evidence", required=True, help="QA201 raw private-file binding and retained install-r evidence JSON")
+    p.add_argument("--toc-match", default="", help="TOC title, e.g. LIV: The Town-Ho's Story")
+    p.add_argument("--run-dir", default="", help="staged run directory; enables --stage instead of one-shot")
+    p.add_argument("--stage", choices=["init", "step", "finish"], default="",
+                   help="bounded stage: init binds, one step collects exactly one unit")
+    p.add_argument("--json-out", default="")
+
+    import perf_pdf
+    perf_pdf.add_arguments(sub.add_parser("pdf-page", help="strict bounded PBPDF v1 five-round collection"))
+
     p = sub.add_parser("m0")
     p.add_argument("--epub", required=True)
     p.add_argument("--chapter", type=int, default=0)
@@ -840,6 +1013,9 @@ def main():
     elif a.cmd == "jank":
         mode = "reset" if a.reset else ("report" if a.report else "auto")
         cmd_jank(serial, mode, a.scenario, a.swipes, a.json_out, book=a.book)
+    elif a.cmd == "pdf-page":
+        a.serial = serial
+        return perf_pdf.dispatch(a)
     elif a.cmd == "pdf":
         cmd_pdf(serial, a.book, a.json_out, settle_exit=a.settle_exit)
     elif a.cmd == "perfetto":
@@ -850,9 +1026,43 @@ def main():
         cmd_libs(serial, a.apk)
     elif a.cmd == "m0":
         cmd_m0(serial, a.epub, a.chapter, a.cold, a.warm, a.json_out)
+    elif a.cmd in ("epub", "epub-turn") and getattr(a, "stage", ""):
+        payload = dict(vars(a))
+        payload["serial"] = serial or perf_epub.PRIMARY_SERIAL
+        payload["adb"] = ADB
+        stage_args = {"dump_parser": (lambda call: ui_dump(payload["serial"], adb_call=call))}
+        result, code = perf_epub.run_stage(a.cmd, a.stage, payload, **stage_args)
+        print(json.dumps(result, ensure_ascii=False, indent=2, allow_nan=False, default=str))
+        return code
+    elif a.cmd in ("epub", "epub-turn"):
+        a.json_out = a.json_out or os.path.join(
+            "docs", "android-port", "p1", "device",
+            "evidence-%s-%s.json" % (a.cmd.replace("-", "_"), time.strftime("%Y%m%d-%H%M%S")))
+        dev = PerfEpubDevice(serial)
+        fn = perf_epub.run_epub if a.cmd == "epub" else perf_epub.run_epub_turns
+        try:
+            res = fn(dev, vars(a))
+        except (OSError, ValueError, subprocess.SubprocessError) as exc:
+            res = {"cmd": a.cmd, "args": vars(a), "pass": False, "verdict": "FAIL",
+                   "failures": [{"code": "COLLECTOR_ERROR", "message": str(exc)}], "diagnostics": []}
+        res["raw_commands"] = dev.command_log
+        if dev.command_failures:
+            res.update({"pass": False, "verdict": "FAIL"})
+            res.setdefault("failures", []).append({"code": "ADB_COMMAND_FAILED",
+                                                     "message": "%d adb commands failed" % len(dev.command_failures)})
+            res["failed_commands"] = dev.command_failures
+        print("verdict=%s pass=%s failures=%s diagnostics=%s" % (
+            res.get("verdict"), res.get("pass"),
+            len(res.get("failures", [])), len(res.get("diagnostics", []))))
+        for f in res.get("failures", []):
+            print("FAIL %s: %s" % (f.get("code"), f.get("message")))
+        for d in res.get("diagnostics", []):
+            print("DIAG %s: %s" % (d.get("code"), d.get("message")))
+        dump_json(a.json_out, res)
+        return 0 if res.get("pass") else (2 if res.get("verdict") == "DIAGNOSTIC" else 1)
     elif a.cmd == "baseline":
         cmd_baseline(serial, [s.strip() for s in a.sections.split(",") if s.strip()], a.json_out, a.settle, a.book)
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

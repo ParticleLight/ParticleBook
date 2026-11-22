@@ -1,0 +1,590 @@
+{
+  "aggregate_source": {
+    "copied_fields": [
+      "frame_duration",
+      "janky_frames",
+      "janky_percent",
+      "window_frame_count",
+      "failures",
+      "verdict"
+    ],
+    "source": "epub04.json"
+  },
+  "bundle": {
+    "bytes": 394092,
+    "file": "captures.json.gz",
+    "gzip_level": 9,
+    "gzip_mtime": 0,
+    "gzip_original_filename": "",
+    "sha256": "81d23a6951d327d347a1c519d166ea2a1a93f955e8cb33fe39f2bcf4fc15eb7d",
+    "uncompressed_bytes": 2529838,
+    "uncompressed_sha256": "212ed2995a47fe4044b261d3042a026945887b40f52bbcecec2d8c2fcb648494"
+  },
+  "canonical_json": "UTF-8, ensure_ascii=False, sort_keys=True, compact separators, trailing LF",
+  "captures": [
+    {
+      "copied_fields": [
+        "pid",
+        "events",
+        "raw_framestats",
+        "gfx_text",
+        "verdict",
+        "failures"
+      ],
+      "dumps": [
+        {
+          "payload_pointer": "/cold/0/raw_framestats/0",
+          "sha256": "46417d3b14e5b7cbf8bbb7c29674b781870efb94e91f105e7e43ba482651fed6",
+          "source_pointer": "/runs/0/raw_framestats/0",
+          "utf8_bytes": 18858
+        }
+      ],
+      "payload_pointer": "/cold/0",
+      "source": "epub03.json",
+      "source_pointer": "/runs/0"
+    },
+    {
+      "copied_fields": [
+        "pid",
+        "events",
+        "raw_framestats",
+        "gfx_text",
+        "verdict",
+        "failures"
+      ],
+      "dumps": [
+        {
+          "payload_pointer": "/cold/1/raw_framestats/0",
+          "sha256": "e87c85c511f6d14836d854c5bfafc5bfc43683c881b6ead571d08e7ae51e3f2f",
+          "source_pointer": "/runs/1/raw_framestats/0",
+          "utf8_bytes": 18481
+        }
+      ],
+      "payload_pointer": "/cold/1",
+      "source": "epub03.json",
+      "source_pointer": "/runs/1"
+    },
+    {
+      "copied_fields": [
+        "pid",
+        "events",
+        "raw_framestats",
+        "gfx_text",
+        "verdict",
+        "failures"
+      ],
+      "dumps": [
+        {
+          "payload_pointer": "/cold/2/raw_framestats/0",
+          "sha256": "8f8278717b87d5289f3430a6226ed0eb2a6c8aeab03d20497a6ec6a6576e9d8f",
+          "source_pointer": "/runs/2/raw_framestats/0",
+          "utf8_bytes": 18884
+        }
+      ],
+      "payload_pointer": "/cold/2",
+      "source": "epub03.json",
+      "source_pointer": "/runs/2"
+    },
+    {
+      "copied_fields": [
+        "pid",
+        "events",
+        "raw_framestats",
+        "gfx_text",
+        "verdict",
+        "failures"
+      ],
+      "dumps": [
+        {
+          "payload_pointer": "/cold/3/raw_framestats/0",
+          "sha256": "70db40c93cfbef47e8cb111950f6ee97c49fb29154dad3ab6ecb1cde62bd9547",
+          "source_pointer": "/runs/3/raw_framestats/0",
+          "utf8_bytes": 18884
+        }
+      ],
+      "payload_pointer": "/cold/3",
+      "source": "epub03.json",
+      "source_pointer": "/runs/3"
+    },
+    {
+      "copied_fields": [
+        "pid",
+        "events",
+        "raw_framestats",
+        "gfx_text",
+        "verdict",
+        "failures"
+      ],
+      "dumps": [
+        {
+          "payload_pointer": "/cold/4/raw_framestats/0",
+          "sha256": "3b7a5a545741c1523593c18ed7e21f9cbcfcea8e77c3cdca486e1ed05faf2baf",
+          "source_pointer": "/runs/4/raw_framestats/0",
+          "utf8_bytes": 18905
+        }
+      ],
+      "payload_pointer": "/cold/4",
+      "source": "epub03.json",
+      "source_pointer": "/runs/4"
+    },
+    {
+      "copied_fields": [
+        "pid",
+        "events",
+        "raw_framestats",
+        "gfx_text",
+        "verdict",
+        "failures",
+        "gfx",
+        "frame_duration"
+      ],
+      "dumps": [
+        {
+          "payload_pointer": "/rounds/0/raw_framestats/0",
+          "sha256": "a8508d48c36a2aed11b4108fc8344e229fb907b0703b86d08f5f7cd19e6bf512",
+          "source_pointer": "/rounds/0/raw_framestats/0",
+          "utf8_bytes": 19047
+        },
+        {
+          "payload_pointer": "/rounds/0/raw_framestats/1",
+          "sha256": "2594b9ffc27442d51533f325c149184146f545d77eb67c47e703adf3c904cd99",
+          "source_pointer": "/rounds/0/raw_framestats/1",
+          "utf8_bytes": 33944
+        },
+        {
+          "payload_pointer": "/rounds/0/raw_framestats/2",
+          "sha256": "187d034a865a38df1a3995ca0719eeee56d33f2f069136445dfbfd210c6e0a23",
+          "source_pointer": "/rounds/0/raw_framestats/2",
+          "utf8_bytes": 39140
+        },
+        {
+          "payload_pointer": "/rounds/0/raw_framestats/3",
+          "sha256": "27587562a5b350e275b7aeabd467788b6595a75aa076cdbe0afd12b025b95334",
+          "source_pointer": "/rounds/0/raw_framestats/3",
+          "utf8_bytes": 39140
+        },
+        {
+          "payload_pointer": "/rounds/0/raw_framestats/4",
+          "sha256": "22a85247db306a33da19132e0e84c5fd5763e61c57d28f2673293acc87940126",
+          "source_pointer": "/rounds/0/raw_framestats/4",
+          "utf8_bytes": 39126
+        },
+        {
+          "payload_pointer": "/rounds/0/raw_framestats/5",
+          "sha256": "5b65161b6b30339707c823f91012fc366254a8f90ed691b590e75618e743ea81",
+          "source_pointer": "/rounds/0/raw_framestats/5",
+          "utf8_bytes": 39126
+        },
+        {
+          "payload_pointer": "/rounds/0/raw_framestats/6",
+          "sha256": "c02891357db41819d3ce342f9d36ac883c4f56299954f231c40620d6b6176e17",
+          "source_pointer": "/rounds/0/raw_framestats/6",
+          "utf8_bytes": 39130
+        },
+        {
+          "payload_pointer": "/rounds/0/raw_framestats/7",
+          "sha256": "1a7c549aeb058ec8ae886be96de79df617299d26b8dbfde8d2b5a5d060c9a443",
+          "source_pointer": "/rounds/0/raw_framestats/7",
+          "utf8_bytes": 39131
+        },
+        {
+          "payload_pointer": "/rounds/0/raw_framestats/8",
+          "sha256": "0feefa6652b8a4a7a0131175ea86618f0600e9f1ec357e74bed8d59c9974fbf0",
+          "source_pointer": "/rounds/0/raw_framestats/8",
+          "utf8_bytes": 39135
+        },
+        {
+          "payload_pointer": "/rounds/0/raw_framestats/9",
+          "sha256": "1efc01838be0f4bcb569e84fdcdb3901d44fc60fd9fa2ff53866c681c80d0f72",
+          "source_pointer": "/rounds/0/raw_framestats/9",
+          "utf8_bytes": 39135
+        },
+        {
+          "payload_pointer": "/rounds/0/raw_framestats/10",
+          "sha256": "2faaf545e37920dd4464912554266d0850785cf55ff9cce731aa3b1944e4babc",
+          "source_pointer": "/rounds/0/raw_framestats/10",
+          "utf8_bytes": 39137
+        },
+        {
+          "payload_pointer": "/rounds/0/raw_framestats/11",
+          "sha256": "b38b9f32f6ef859f1871130bd5be10086f8b01cb234dea9ba7b8281e42ac4651",
+          "source_pointer": "/rounds/0/raw_framestats/11",
+          "utf8_bytes": 39137
+        },
+        {
+          "payload_pointer": "/rounds/0/raw_framestats/12",
+          "sha256": "5da058ffa2f784499da4098d4e36c80100437c73dee1f80a6b53ce7e1453d970",
+          "source_pointer": "/rounds/0/raw_framestats/12",
+          "utf8_bytes": 39137
+        },
+        {
+          "payload_pointer": "/rounds/0/raw_framestats/13",
+          "sha256": "d15195067a02064442f832b04320cdc592d6c2ee2426167ab2761980a958aca9",
+          "source_pointer": "/rounds/0/raw_framestats/13",
+          "utf8_bytes": 39152
+        },
+        {
+          "payload_pointer": "/rounds/0/raw_framestats/14",
+          "sha256": "e7f350757a14484c41f02cc3dd846cafce78c6b9325f548e9e81d7ac7736dbc9",
+          "source_pointer": "/rounds/0/raw_framestats/14",
+          "utf8_bytes": 39154
+        },
+        {
+          "payload_pointer": "/rounds/0/raw_framestats/15",
+          "sha256": "623a3fb224e1d75432c9812bedab79e2c4cee3bba3fba138b49b3e082c0327ae",
+          "source_pointer": "/rounds/0/raw_framestats/15",
+          "utf8_bytes": 39156
+        },
+        {
+          "payload_pointer": "/rounds/0/raw_framestats/16",
+          "sha256": "1e31fc409cbceb4a48e70fbd8b00c921910a70588186e6b895b01012984bd6eb",
+          "source_pointer": "/rounds/0/raw_framestats/16",
+          "utf8_bytes": 39156
+        },
+        {
+          "payload_pointer": "/rounds/0/raw_framestats/17",
+          "sha256": "2a2affcc03cf88c1e16b888f2e09169608fc0fc58c273054eab985447df13ba8",
+          "source_pointer": "/rounds/0/raw_framestats/17",
+          "utf8_bytes": 39142
+        },
+        {
+          "payload_pointer": "/rounds/0/raw_framestats/18",
+          "sha256": "6d50ae0309eea41490f89f808dff703bedc43ed321dfe5743ccb3f459ae542f0",
+          "source_pointer": "/rounds/0/raw_framestats/18",
+          "utf8_bytes": 39146
+        },
+        {
+          "payload_pointer": "/rounds/0/raw_framestats/19",
+          "sha256": "285fa5aa4d3cda02be6afd105c1caaf6ec034fef2ae162e78f54907ef3e59647",
+          "source_pointer": "/rounds/0/raw_framestats/19",
+          "utf8_bytes": 39160
+        },
+        {
+          "payload_pointer": "/rounds/0/raw_framestats/20",
+          "sha256": "753fa099c6429f49b75e74b0c7a2f1c110d187af09ad29c16eb85b04c9ce0ece",
+          "source_pointer": "/rounds/0/raw_framestats/20",
+          "utf8_bytes": 39160
+        }
+      ],
+      "original_frames_projection": {
+        "canonical_json_sha256": "a7178200fd2ec5968f91f5af19ce28c8958e11c1c84f6ed65d18b7376412e27c",
+        "source_pointer": "/rounds/0/frames"
+      },
+      "payload_pointer": "/rounds/0",
+      "source": "epub04.json",
+      "source_pointer": "/rounds/0"
+    },
+    {
+      "copied_fields": [
+        "pid",
+        "events",
+        "raw_framestats",
+        "gfx_text",
+        "verdict",
+        "failures",
+        "gfx",
+        "frame_duration"
+      ],
+      "dumps": [
+        {
+          "payload_pointer": "/rounds/1/raw_framestats/0",
+          "sha256": "4d9ed3bbab749dded705760312a7559b40046148e17ccda877e3fbbfd11a102f",
+          "source_pointer": "/rounds/1/raw_framestats/0",
+          "utf8_bytes": 19624
+        },
+        {
+          "payload_pointer": "/rounds/1/raw_framestats/1",
+          "sha256": "aeb929143be42a7c525264ac1f68a5832357a109a0625567bbeeee2fdcc72773",
+          "source_pointer": "/rounds/1/raw_framestats/1",
+          "utf8_bytes": 33886
+        },
+        {
+          "payload_pointer": "/rounds/1/raw_framestats/2",
+          "sha256": "1a8e5cc1fd8f3b861554b5f251e3fe05ec695dd88ca0910e98f17dc1e3df90d6",
+          "source_pointer": "/rounds/1/raw_framestats/2",
+          "utf8_bytes": 37624
+        },
+        {
+          "payload_pointer": "/rounds/1/raw_framestats/3",
+          "sha256": "29a9b43d2b12159002f112cdbf0cdbbb6456c7ba4afc95dd18b9ee982440a724",
+          "source_pointer": "/rounds/1/raw_framestats/3",
+          "utf8_bytes": 37604
+        },
+        {
+          "payload_pointer": "/rounds/1/raw_framestats/4",
+          "sha256": "158391f5f15366b7214a6bc0fdbfce7f2d5135f90373ee0bf4e91ffefabf1025",
+          "source_pointer": "/rounds/1/raw_framestats/4",
+          "utf8_bytes": 37619
+        },
+        {
+          "payload_pointer": "/rounds/1/raw_framestats/5",
+          "sha256": "eeaa37e44fae37b5f4e921651b888b93a4c59ee8818ad879cf18f588933f68eb",
+          "source_pointer": "/rounds/1/raw_framestats/5",
+          "utf8_bytes": 37619
+        },
+        {
+          "payload_pointer": "/rounds/1/raw_framestats/6",
+          "sha256": "c4c61c22d819a09c06a6485e8d4734cced3921835b3de5db1ab2ab2f30c7756f",
+          "source_pointer": "/rounds/1/raw_framestats/6",
+          "utf8_bytes": 37618
+        },
+        {
+          "payload_pointer": "/rounds/1/raw_framestats/7",
+          "sha256": "22c9da05c6966dcf5f0e57b3db025e7859f4c4adb2adf69dea33b5fab9e94df8",
+          "source_pointer": "/rounds/1/raw_framestats/7",
+          "utf8_bytes": 37618
+        },
+        {
+          "payload_pointer": "/rounds/1/raw_framestats/8",
+          "sha256": "ac1905fb09abbe41dca892bbfbd63a43a093b6c5b5c6cf393a8cb38178732452",
+          "source_pointer": "/rounds/1/raw_framestats/8",
+          "utf8_bytes": 37604
+        },
+        {
+          "payload_pointer": "/rounds/1/raw_framestats/9",
+          "sha256": "6155bfc2a212c52b2c755c78215d75a23c6edb8e2f940cdb56f9eb26a3e93203",
+          "source_pointer": "/rounds/1/raw_framestats/9",
+          "utf8_bytes": 37604
+        },
+        {
+          "payload_pointer": "/rounds/1/raw_framestats/10",
+          "sha256": "a8d54a52716107d3431260db6ec57cfb4bca9579b1483fcc1a009fb601e5db25",
+          "source_pointer": "/rounds/1/raw_framestats/10",
+          "utf8_bytes": 37626
+        },
+        {
+          "payload_pointer": "/rounds/1/raw_framestats/11",
+          "sha256": "b31c8f6aaee767d5260d419f4e6b4fe7957b2cc0533d718db83c35a0c173ce2d",
+          "source_pointer": "/rounds/1/raw_framestats/11",
+          "utf8_bytes": 37626
+        },
+        {
+          "payload_pointer": "/rounds/1/raw_framestats/12",
+          "sha256": "20f6459e34e1236af645ef22e10e25865f5d6043885369b72e1516ac4715e7e8",
+          "source_pointer": "/rounds/1/raw_framestats/12",
+          "utf8_bytes": 37613
+        },
+        {
+          "payload_pointer": "/rounds/1/raw_framestats/13",
+          "sha256": "8409e60d58fc27dc64cbe1199d8c0319e02f0afa78a1d980b476f72bca946a97",
+          "source_pointer": "/rounds/1/raw_framestats/13",
+          "utf8_bytes": 37617
+        },
+        {
+          "payload_pointer": "/rounds/1/raw_framestats/14",
+          "sha256": "ae7e5d6be8580e60b44f2908169fb0c776795866e319216422f1f7ea0d011b0a",
+          "source_pointer": "/rounds/1/raw_framestats/14",
+          "utf8_bytes": 37617
+        },
+        {
+          "payload_pointer": "/rounds/1/raw_framestats/15",
+          "sha256": "7d7ededf8ba2af6cbf260bc7ef62d55106f2a136798a8d0b809d384764205d1b",
+          "source_pointer": "/rounds/1/raw_framestats/15",
+          "utf8_bytes": 37618
+        },
+        {
+          "payload_pointer": "/rounds/1/raw_framestats/16",
+          "sha256": "913dc752372030ab11572304773c7d1d92be079c1dd58ae7b1bb6fe76298f051",
+          "source_pointer": "/rounds/1/raw_framestats/16",
+          "utf8_bytes": 37633
+        },
+        {
+          "payload_pointer": "/rounds/1/raw_framestats/17",
+          "sha256": "6541f75d10321a1a5cc565602f39bf5f162a3b5b303fa9837cdc0ff2ae874d83",
+          "source_pointer": "/rounds/1/raw_framestats/17",
+          "utf8_bytes": 37634
+        },
+        {
+          "payload_pointer": "/rounds/1/raw_framestats/18",
+          "sha256": "d4ba876aa1c8e3dad380bb502e7188c424247f0818e188f9df8ec5559605825c",
+          "source_pointer": "/rounds/1/raw_framestats/18",
+          "utf8_bytes": 37622
+        },
+        {
+          "payload_pointer": "/rounds/1/raw_framestats/19",
+          "sha256": "c67a917bdc71dedd8f692e9fba4e2c66b560e82fbf5c767760ee54b0f1ee6448",
+          "source_pointer": "/rounds/1/raw_framestats/19",
+          "utf8_bytes": 37626
+        },
+        {
+          "payload_pointer": "/rounds/1/raw_framestats/20",
+          "sha256": "b495689485a6192c91e4ebbc8a056b1f1b6a5c6d261cf0f70ec88364e5a4ddb1",
+          "source_pointer": "/rounds/1/raw_framestats/20",
+          "utf8_bytes": 37626
+        }
+      ],
+      "original_frames_projection": {
+        "canonical_json_sha256": "cd70037779407cf9ab2cd85450c03dd179b171e58816a7815f43b69fbed797a8",
+        "source_pointer": "/rounds/1/frames"
+      },
+      "payload_pointer": "/rounds/1",
+      "source": "epub04.json",
+      "source_pointer": "/rounds/1"
+    },
+    {
+      "copied_fields": [
+        "pid",
+        "events",
+        "raw_framestats",
+        "gfx_text",
+        "verdict",
+        "failures",
+        "gfx",
+        "frame_duration"
+      ],
+      "dumps": [
+        {
+          "payload_pointer": "/rounds/2/raw_framestats/0",
+          "sha256": "6eaa38679af7a1c21b07a153e9a9696fbe4ec376082399ad08f32f6a4e34a24c",
+          "source_pointer": "/rounds/2/raw_framestats/0",
+          "utf8_bytes": 19623
+        },
+        {
+          "payload_pointer": "/rounds/2/raw_framestats/1",
+          "sha256": "9ce990fd5790ff3482c69a28c469bb73c8199dff3af6b0e188058007d31cb021",
+          "source_pointer": "/rounds/2/raw_framestats/1",
+          "utf8_bytes": 33875
+        },
+        {
+          "payload_pointer": "/rounds/2/raw_framestats/2",
+          "sha256": "d18c121d2d042174695f410b96761af575dc7924bd37f0a54ac70c6634cf2059",
+          "source_pointer": "/rounds/2/raw_framestats/2",
+          "utf8_bytes": 37616
+        },
+        {
+          "payload_pointer": "/rounds/2/raw_framestats/3",
+          "sha256": "73ee9de9eb366c45d9117196e6a3e0234e58cd0ea62efbe5db5b8e5c623e21a8",
+          "source_pointer": "/rounds/2/raw_framestats/3",
+          "utf8_bytes": 37604
+        },
+        {
+          "payload_pointer": "/rounds/2/raw_framestats/4",
+          "sha256": "e717a74744f1f1988cc4ec3ce3489245f5b6605048be5d93aa64ddc7a34e8f95",
+          "source_pointer": "/rounds/2/raw_framestats/4",
+          "utf8_bytes": 37605
+        },
+        {
+          "payload_pointer": "/rounds/2/raw_framestats/5",
+          "sha256": "b157cefef6f1661ace1312a15a13e4a55b31e2b82e1bd708e0e5256be04e1e4a",
+          "source_pointer": "/rounds/2/raw_framestats/5",
+          "utf8_bytes": 37605
+        },
+        {
+          "payload_pointer": "/rounds/2/raw_framestats/6",
+          "sha256": "9ce93a5ff0d22b17549594678d9ecae042387edd8e1d48c7a3a2803af459128b",
+          "source_pointer": "/rounds/2/raw_framestats/6",
+          "utf8_bytes": 37604
+        },
+        {
+          "payload_pointer": "/rounds/2/raw_framestats/7",
+          "sha256": "ccca0c99287e5be0cea81c59658aef50d4c210425b93f6ef12fc1e83d1053c15",
+          "source_pointer": "/rounds/2/raw_framestats/7",
+          "utf8_bytes": 37604
+        },
+        {
+          "payload_pointer": "/rounds/2/raw_framestats/8",
+          "sha256": "aafc2f3caea529c5d0d79b6e8a55921b64945e1beb3f3c50cd85c121857cfdb1",
+          "source_pointer": "/rounds/2/raw_framestats/8",
+          "utf8_bytes": 37603
+        },
+        {
+          "payload_pointer": "/rounds/2/raw_framestats/9",
+          "sha256": "138d02d80019d5bc63ccf9038db529259a0f2c3917bcab07276e83718a13f3a3",
+          "source_pointer": "/rounds/2/raw_framestats/9",
+          "utf8_bytes": 37609
+        },
+        {
+          "payload_pointer": "/rounds/2/raw_framestats/10",
+          "sha256": "2a72c09ffd4cc71037ced156203904f18741eaa843693287535335de3d3ef1be",
+          "source_pointer": "/rounds/2/raw_framestats/10",
+          "utf8_bytes": 37615
+        },
+        {
+          "payload_pointer": "/rounds/2/raw_framestats/11",
+          "sha256": "3c35e9f86ac39b9d8f8cfc70ca464a45b8ade59359cbfb1bd648a071c7f60065",
+          "source_pointer": "/rounds/2/raw_framestats/11",
+          "utf8_bytes": 37619
+        },
+        {
+          "payload_pointer": "/rounds/2/raw_framestats/12",
+          "sha256": "3db830416e7a6aeb773bedfb72b8b02f5e02bf98d6e402548b0dc5a7ef95366d",
+          "source_pointer": "/rounds/2/raw_framestats/12",
+          "utf8_bytes": 37618
+        },
+        {
+          "payload_pointer": "/rounds/2/raw_framestats/13",
+          "sha256": "0ba95e2cf821703e39e2bd4a5a09037b617ba76829807fd39f71d307e8601f4b",
+          "source_pointer": "/rounds/2/raw_framestats/13",
+          "utf8_bytes": 37619
+        },
+        {
+          "payload_pointer": "/rounds/2/raw_framestats/14",
+          "sha256": "c107ad505c3022cd4239b397e699a90638ca23bf8a13727d847455563b273560",
+          "source_pointer": "/rounds/2/raw_framestats/14",
+          "utf8_bytes": 37619
+        },
+        {
+          "payload_pointer": "/rounds/2/raw_framestats/15",
+          "sha256": "7717f8e67832446933ed2c84249824bfb1e7da35f6d9855a12ffd5ec1cfa16b7",
+          "source_pointer": "/rounds/2/raw_framestats/15",
+          "utf8_bytes": 37634
+        },
+        {
+          "payload_pointer": "/rounds/2/raw_framestats/16",
+          "sha256": "db57cea426c029b29981522349ec6e453c9688b7927af458eebeb9e5d6459cda",
+          "source_pointer": "/rounds/2/raw_framestats/16",
+          "utf8_bytes": 37636
+        },
+        {
+          "payload_pointer": "/rounds/2/raw_framestats/17",
+          "sha256": "56bbcb8159dc4db6fe25a37a8015186b93093ed7af71b393d491cdbe960a589a",
+          "source_pointer": "/rounds/2/raw_framestats/17",
+          "utf8_bytes": 37624
+        },
+        {
+          "payload_pointer": "/rounds/2/raw_framestats/18",
+          "sha256": "9063812ab5c8438b3e9e60b823bd7fed6d5691aa6878abb2633fa995ecd67f27",
+          "source_pointer": "/rounds/2/raw_framestats/18",
+          "utf8_bytes": 37626
+        },
+        {
+          "payload_pointer": "/rounds/2/raw_framestats/19",
+          "sha256": "5e7c4434ce4919fe293d64f8eb4325104b7bdc9aee5f89b011bb6d5dc3489efb",
+          "source_pointer": "/rounds/2/raw_framestats/19",
+          "utf8_bytes": 37626
+        },
+        {
+          "payload_pointer": "/rounds/2/raw_framestats/20",
+          "sha256": "99ba9fa21944c73280daf4afbaed8490cfa96c74c3cb6f0a4beaa21a0902fe90",
+          "source_pointer": "/rounds/2/raw_framestats/20",
+          "utf8_bytes": 37626
+        }
+      ],
+      "original_frames_projection": {
+        "canonical_json_sha256": "2e3b76eaa1819d4e8f2473b6d71e74d8183d4bde2babd63c86f737383f0dad11",
+        "source_pointer": "/rounds/2/frames"
+      },
+      "payload_pointer": "/rounds/2",
+      "source": "epub04.json",
+      "source_pointer": "/rounds/2"
+    }
+  ],
+  "purpose": "Offline replay only; original formal FAIL reports remain unchanged.",
+  "refresh_rate_source": {
+    "pointer": "/device/refresh_rate_hz",
+    "source": "epub04.json"
+  },
+  "schema_version": 1,
+  "sources": {
+    "epub03.json": {
+      "bytes": 4730748,
+      "path": "docs/android-port/p1/device/evidence-resume-20261120/epub03.json",
+      "sha256": "fd664e089b67ed4a7a1d9c39a7949da1b0bf21092d643b820c3a2856cbc390c8"
+    },
+    "epub04.json": {
+      "bytes": 16996891,
+      "path": "docs/android-port/p1/device/evidence-resume-20261120/epub04.json",
+      "sha256": "50cb20d5e5f5bebc00a0e7b10b00904a68930854cfc79579b24013fc93dacdf7"
+    }
+  }
+}

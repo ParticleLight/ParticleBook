@@ -52,6 +52,7 @@ class PdfTextLayerController internal constructor(
     private val cache = PdfTextPageCache(maxPages, maxBytes)
     private var visibleWindow: IntRange? = null
     private var closed = false
+    private var closeResult: Boolean? = null
 
     /**
      * 供 ReaderScreen 渲染层复用。PdfRenderer 与 PDFium 各自持有独立的 fd，
@@ -141,20 +142,15 @@ class PdfTextLayerController internal constructor(
 
     internal fun visibleWindowForTest(): IntRange? = synchronized(lock) { visibleWindow }
 
-    override fun close() {
-        synchronized(lock) {
-            if (closed) return
-            closed = true
-            cache.clear()
-            try {
-                source.close()
-            } catch (_: Throwable) {
-            }
-            try {
-                rendererHandle?.close()
-            } catch (_: Throwable) {
-            }
-        }
+    override fun close() { closeWithReceipt() }
+
+    internal fun closeWithReceipt(): Boolean = synchronized(lock) {
+        closeResult?.let { return@synchronized it }
+        closed = true
+        cache.clear()
+        val sourceClosed = runCatching { source.closeWithReceipt() }.getOrDefault(false)
+        val rendererClosed = runCatching { rendererHandle?.close() }.isSuccess
+        (sourceClosed && rendererClosed).also { closeResult = it }
     }
 
     private fun loadPageLocked(page: Int): PdfPageText {

@@ -78,6 +78,8 @@ class PdfTextSource private constructor(
     private val cacheLimit: Int = cacheLimit.coerceAtLeast(1)
     private val cache = LinkedHashMap<Int, PdfTextPageHandle>(this.cacheLimit, 0.75f, true)
     private var closed = false
+    private var closeResult: Boolean? = null
+    private var cleanupFailed = false
 
     val pageCount: Int
         get() = synchronized(lock) {
@@ -114,7 +116,7 @@ class PdfTextSource private constructor(
             if (!iterator.hasNext()) return
             val eldest = iterator.next()
             iterator.remove()
-            closeQuietly(eldest.value)
+            closeAndRecord(eldest.value)
         }
     }
 
@@ -159,7 +161,7 @@ class PdfTextSource private constructor(
             failure = t
             throw PdfTextSourceException("failed to read text page " + pageIndex, t)
         } finally {
-            closeQuietly(textPage)
+            closeAndRecord(textPage)
             if (failure != null) evict(pageIndex, page)
         }
     }
@@ -168,27 +170,36 @@ class PdfTextSource private constructor(
         if (cache[pageIndex] === page) {
             cache.remove(pageIndex)
         }
-        closeQuietly(page)
+        closeAndRecord(page)
     }
 
     /** 释放某页的 native 句柄；命中缓存返回 true。控制器用它落实可见页窗口。 */
     internal fun releasePage(pageIndex: Int): Boolean = synchronized(lock) {
         val page = cache.remove(pageIndex) ?: return false
-        closeQuietly(page)
+        closeAndRecord(page)
         true
     }
 
     /** 仅供单测和诊断使用。 */
     internal fun cachedPageCount(): Int = synchronized(lock) { cache.size }
 
-    override fun close() {
-        synchronized(lock) {
-            if (closed) return
-            closed = true
-            for (page in cache.values) closeQuietly(page)
-            cache.clear()
-            closeQuietly(document)
+    override fun close() { closeWithReceipt() }
+
+    internal fun closeWithReceipt(): Boolean = synchronized(lock) {
+        closeResult?.let { return@synchronized it }
+        closed = true
+        var ok = !cleanupFailed
+        for (page in cache.values) {
+            if (runCatching { page.close() }.isFailure) ok = false
         }
+        cache.clear()
+        if (runCatching { document.close() }.isFailure) ok = false
+        closeResult = ok
+        ok
+    }
+
+    private fun closeAndRecord(handle: AutoCloseable) {
+        if (runCatching { handle.close() }.isFailure) cleanupFailed = true
     }
 
     companion object {

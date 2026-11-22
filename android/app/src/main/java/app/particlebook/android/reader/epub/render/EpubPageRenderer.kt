@@ -21,6 +21,7 @@ import app.particlebook.android.reader.epub.layout.EpubChapterLayout
 import app.particlebook.android.reader.epub.layout.EpubLayoutConfig
 import app.particlebook.android.reader.epub.layout.MeasuredBlock
 import app.particlebook.android.reader.epub.layout.Page
+import app.particlebook.android.reader.epub.layout.StaticLineMetrics
 import java.io.Closeable
 import kotlin.math.max
 import kotlin.math.min
@@ -29,7 +30,7 @@ import kotlin.math.roundToInt
 /**
  * 把 [EpubChapterLayout] 的 [Page] 画到 Canvas。
  *
- * 文本：按 MeasuredBlock 的块内容重建 StaticLayout，复用布局层的行切片和行几何；
+ * 文本：复用测量阶段的 StaticLayout；兼容 metrics 在绑定章节时准备，绘制只读；
  * 图片：按页面显示尺寸采样，单章累计预算 [EpubImageBudget]（默认 24MB），超限/失败画占位；
  * 表格/hr：按 M1 最小保真绘制。
  *
@@ -45,7 +46,7 @@ class EpubPageRenderer(
     private val imageBudget = EpubImageBudget(maxImageBytes)
     private val bitmapCache = HashMap<String, Bitmap?>()
     private val bitmapBytes = HashMap<String, Long>()
-    private val textLayouts = HashMap<Int, StaticLayout?>()
+    private val textLayouts = HashMap<Int, StaticLayout>()
     private val blocks = HashMap<Int, MeasuredBlock>()
 
     private var chapter: EpubChapterLayout? = null
@@ -83,15 +84,24 @@ class EpubPageRenderer(
             previous.chapterHref == layout.chapterHref &&
             previous.config == layout.config &&
             previous.pages === layout.pages
-        if (!sameChapter) {
-            clearImages()
+        if (!sameChapter) clearImages()
+        if (previous !== layout) {
             textLayouts.clear()
+            for (measured in layout.measuredBlocks) {
+                if (measured.lines == null) continue
+                val textLayout = (measured.lines as? StaticLineMetrics)?.layout
+                    ?: buildTextLayout(measured, layout.config)
+                if (textLayout != null) textLayouts[measured.blockIndex] = textLayout
+            }
         }
         chapter = layout
         this.resolver = resolver
         blocks.clear()
         for (block in layout.measuredBlocks) blocks[block.blockIndex] = block
     }
+
+    /** 绑定时已准备的布局；正文绘制与字符几何必须读取同一对象。 */
+    internal fun textLayoutFor(blockIndex: Int): StaticLayout? = textLayouts[blockIndex]
 
     fun draw(canvas: Canvas, page: Page) {
         val layout = chapter ?: return
@@ -154,7 +164,7 @@ class EpubPageRenderer(
         for (slice in page.slices) {
             if (!slice.isTextSlice) continue
             val measured = blocks[slice.blockIndex] ?: continue
-            val static = textLayouts.getOrPut(slice.blockIndex) { buildTextLayout(measured, config) } ?: continue
+            val static = textLayoutFor(slice.blockIndex) ?: continue
             val metrics = measured.lines ?: continue
             val sliceTop = pageTop + slice.topPx
             for (line in slice.lineStart until slice.lineEnd) {
@@ -213,7 +223,7 @@ class EpubPageRenderer(
         val config = chapter?.config ?: return
         val metrics = measured.lines ?: return
         if (lineStart !in 0 until metrics.lineCount) return
-        val static = textLayouts.getOrPut(measured.blockIndex) { buildTextLayout(measured, config) } ?: return
+        val static = textLayoutFor(measured.blockIndex) ?: return
         val sliceHeight = height.coerceAtLeast(1)
         val left = config.horizontalPaddingPx.toFloat()
         canvas.save()

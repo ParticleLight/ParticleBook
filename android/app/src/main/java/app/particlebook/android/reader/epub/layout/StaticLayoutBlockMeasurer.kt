@@ -18,15 +18,13 @@ import kotlin.math.roundToInt
 /**
  * Android StaticLayout 适配器：把 EpubBlock 量成 [MeasuredBlock]。
  *
- * 只在设备/仪器测试里使用；纯 JVM 分页测试用 fake MeasuredBlock。
+ * 生产章节测量与渲染共用结果；纯 JVM 分页测试用 fake MeasuredBlock。
  * density 用于 dp->px，scaledDensity 用于 sp->px（受系统字体缩放影响）。
  */
 class StaticLayoutBlockMeasurer(
     private val density: Float = 1f,
     private val scaledDensity: Float = density,
 ) : EpubBlockMeasurer {
-
-    private val paint = TextPaint(Paint.ANTI_ALIAS_FLAG)
 
     override fun measure(block: EpubBlock, blockIndex: Int, config: EpubLayoutConfig): MeasuredBlock {
         val style = block.style
@@ -126,10 +124,13 @@ class StaticLayoutBlockMeasurer(
         val fontSizePx = ((style.fontSizeSp ?: config.baseTextSizeSp) * headingScale * scaledDensity)
             .coerceAtLeast(1f)
         val textColor = style.color ?: config.defaultTextColor
-        paint.textSize = fontSizePx
-        paint.color = textColor
-        paint.typeface = Typeface.DEFAULT
-        paint.isAntiAlias = true
+        // StaticLayout 会保留 paint；每个块独占它，后续测量不改已发布的绘制属性。
+        val paint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+            textSize = fontSizePx
+            color = textColor
+            typeface = Typeface.DEFAULT
+            isAntiAlias = true
+        }
 
         val spannable = SpannableString(text)
         val bold = style.bold || defaultBold
@@ -187,7 +188,7 @@ class StaticLayoutBlockMeasurer(
  * lineStart/lineEnd 的字符级结果由 p15 在设备/instrumentation 用例中对照
  * StaticLayout.getLineStart/getLineEnd 断言。
  */
-internal class StaticLineMetrics(private val layout: StaticLayout) : EpubCharLineMetrics {
+internal class StaticLineMetrics(internal val layout: StaticLayout) : EpubCharLineMetrics {
     override val lineCount: Int
         get() = layout.lineCount
 

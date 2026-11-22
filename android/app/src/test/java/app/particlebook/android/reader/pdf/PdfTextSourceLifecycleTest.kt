@@ -101,10 +101,47 @@ class PdfTextSourceLifecycleTest {
         assertEquals("ab", page.text)
     }
 
+    @Test
+    fun closeReceiptKeepsDocumentAndCachedPageFailuresAndRunsAllClosesOnce() {
+        val document = FakeDocument(pageCount = 2, failPageClose = true, failDocumentClose = true)
+        val source = (PdfTextSource.open({ document }) as PdfTextOpenResult.Success).source
+        source.page(0)
+        source.page(1)
+        assertFalse(source.closeWithReceipt())
+        assertFalse(source.closeWithReceipt())
+        assertEquals(1, document.closeCount)
+        assertEquals(listOf(1, 1), document.pages.map { it.closeCount })
+        assertEquals(0, source.cachedPageCount())
+    }
+
+    @Test
+    fun closeReceiptRetainsEarlierPageReleaseFailure() {
+        val document = FakeDocument(pageCount = 2, failPageClose = true)
+        val source = (PdfTextSource.open({ document }) as PdfTextOpenResult.Success).source
+        source.page(0)
+        assertTrue(source.releasePage(0))
+        assertFalse(source.closeWithReceipt())
+        assertEquals(1, document.pages.single().closeCount)
+        assertEquals(1, document.closeCount)
+    }
+
+    @Test
+    fun closeReceiptRetainsEarlierTextHandleFailure() {
+        val document = FakeDocument(pageCount = 1, failTextClose = true)
+        val source = (PdfTextSource.open({ document }) as PdfTextOpenResult.Success).source
+        assertEquals("ab", source.page(0).text)
+        assertFalse(source.closeWithReceipt())
+        assertEquals(1, document.pages.single().closeCount)
+        assertEquals(1, document.closeCount)
+    }
+
     private class FakeDocument(
         override val pageCount: Int,
         private val failFirstPage: Boolean = false,
         private val validCharBox: Boolean = true,
+        private val failPageClose: Boolean = false,
+        private val failTextClose: Boolean = false,
+        private val failDocumentClose: Boolean = false,
     ) : PdfTextDocumentHandle {
         val pages = ArrayList<FakePage>()
         var closed = false
@@ -112,7 +149,7 @@ class PdfTextSourceLifecycleTest {
 
         override fun openPage(pageIndex: Int): PdfTextPageHandle {
             if (pageIndex == 0 && failFirstPage) throw IllegalStateException("bad page")
-            val page = FakePage(pageIndex, validCharBox)
+            val page = FakePage(pageIndex, validCharBox, failPageClose, failTextClose)
             pages.add(page)
             return page
         }
@@ -120,6 +157,7 @@ class PdfTextSourceLifecycleTest {
         override fun close() {
             closed = true
             closeCount++
+            if (failDocumentClose) error("fake document close failure")
         }
     }
 
@@ -135,21 +173,26 @@ class PdfTextSourceLifecycleTest {
     private class FakePage(
         val pageIndex: Int,
         private val validCharBox: Boolean,
+        private val failClose: Boolean = false,
+        private val failTextClose: Boolean = false,
     ) : PdfTextPageHandle {
         var closed = false
+        var closeCount = 0
         override val widthPoints: Int = 200
         override val heightPoints: Int = 300
         override val cropBox: PdfBox? = PdfBox(10f, 20f, 190f, 280f)
         override val rotationDegrees: Int = 90
 
-        override fun openTextPage(): PdfTextTextHandle = FakeText(validCharBox)
+        override fun openTextPage(): PdfTextTextHandle = FakeText(validCharBox, failTextClose)
 
         override fun close() {
             closed = true
+            closeCount++
+            if (failClose) error("fake page close failure")
         }
     }
 
-    private class FakeText(private val validCharBox: Boolean) : PdfTextTextHandle {
+    private class FakeText(private val validCharBox: Boolean, private val failClose: Boolean = false) : PdfTextTextHandle {
         override val charCount: Int = 2
 
         override fun charAt(index: Int): Char = if (index == 0) 'a' else 'b'
@@ -161,6 +204,7 @@ class PdfTextSourceLifecycleTest {
         override fun text(): String = "ab"
 
         override fun close() {
+            if (failClose) error("fake text close failure")
         }
     }
 

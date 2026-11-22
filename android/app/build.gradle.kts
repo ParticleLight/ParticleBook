@@ -15,6 +15,7 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "2.2.1-p0"
+        testInstrumentationRunner = "app.particlebook.android.reader.epub.EpubLayoutInstrumentation"
         ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
     }
 

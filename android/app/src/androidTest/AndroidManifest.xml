@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Instrumentation APK identity.
+
+  AGP 8 no longer stamps android:testOnly="true" on the androidTest manifest, so
+  the built test APK advertises a normal debuggable application. The device
+  stage refuses such an APK: device-prep/validators.py:40 requires the actual
+  installed test package to be testOnly and to live in its own package.
+  Declaring the flag here keeps the generated manifest honest without aapt
+  post-processing.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application android:testOnly="true" />
+</manifest>
