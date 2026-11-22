@@ -56,6 +56,16 @@ internal class TestLibraryRepository : LibraryRepository {
 
     override fun progress(bookId: Long): ProgressRow? = progressMap[bookId]
 
+    override fun progressAll(): List<ProgressRow> = progressMap.values.toList()
+
+    override fun deleteProgress(bookIds: Set<Long>): Int = bookIds.count { progressMap.remove(it) != null }
+
+    private var progressBackfillMarker = false
+
+    override fun progressBackfillComplete(): Boolean = progressBackfillMarker
+
+    override fun markProgressBackfillComplete() { progressBackfillMarker = true }
+
     override fun saveProgress(row: ProgressRow) {
         require(bookMap.containsKey(row.bookId)) { "book 不存在: " + row.bookId }
         progressMap[row.bookId] = row
@@ -131,6 +141,7 @@ internal class TestLibraryRepository : LibraryRepository {
         val bookSnapshot = LinkedHashMap(bookMap)
         val tagSnapshot = tagMap.mapValues { (_, value) -> LinkedHashSet(value) }.toMutableMap()
         val progressSnapshot = LinkedHashMap(progressMap)
+        val progressMarkerSnapshot = progressBackfillMarker
         val annotationSnapshot = LinkedHashMap(annotationMap)
         val downloadSnapshot = LinkedHashMap(downloadMap)
         val searchSnapshot = LinkedHashMap(searchMap)
@@ -140,6 +151,7 @@ internal class TestLibraryRepository : LibraryRepository {
             bookMap.clear(); bookMap.putAll(bookSnapshot)
             tagMap.clear(); tagMap.putAll(tagSnapshot)
             progressMap.clear(); progressMap.putAll(progressSnapshot)
+            progressBackfillMarker = progressMarkerSnapshot
             annotationMap.clear(); annotationMap.putAll(annotationSnapshot)
             downloadMap.clear(); downloadMap.putAll(downloadSnapshot)
             searchMap.clear(); searchMap.putAll(searchSnapshot)

@@ -25,6 +25,10 @@ interface TagDao {
 
 interface ProgressDao {
     fun get(bookId: Long): ProgressRow?
+    fun all(): List<ProgressRow>
+    fun delete(bookIds: Set<Long>): Int
+    fun backfillComplete(): Boolean
+    fun markBackfillComplete()
     fun save(row: ProgressRow)
 
     /** 显式 upsert 语义；默认等价于 save（SQLite 实现用 INSERT OR REPLACE）。 */
@@ -209,24 +213,63 @@ class SqliteTagDao(private val db: SQLiteDatabase) : TagDao {
 }
 
 class SqliteProgressDao(private val db: SQLiteDatabase) : ProgressDao {
+    override fun all(): List<ProgressRow> = db.rawQuery(
+        "SELECT * FROM progress ORDER BY book_id", null,
+    ).use { cursor -> buildList { while (cursor.moveToNext()) add(mapProgress(cursor)) } }
+
+    override fun delete(bookIds: Set<Long>): Int {
+        if (bookIds.isEmpty()) return 0
+        db.beginTransaction()
+        return try {
+            val removed = bookIds.toList().chunked(256).sumOf { ids ->
+                db.delete(
+                    LibrarySchema.TABLE_PROGRESS,
+                    "book_id IN (" + ids.joinToString(",") { "?" } + ")",
+                    ids.map { it.toString() }.toTypedArray(),
+                )
+            }
+            db.setTransactionSuccessful()
+            removed
+        } finally {
+            db.endTransaction()
+        }
+    }
+
+    override fun backfillComplete(): Boolean = db.rawQuery(
+        "SELECT value FROM settings WHERE key = ?", arrayOf(LEGACY_BACKFILL_KEY),
+    ).use { it.moveToFirst() && it.getString(0) == "1" }
+
+    override fun markBackfillComplete() {
+        val values = ContentValues().apply {
+            put("key", LEGACY_BACKFILL_KEY)
+            put("value", "1")
+            put("updated_at", System.currentTimeMillis())
+        }
+        check(db.insertWithOnConflict(
+            LibrarySchema.TABLE_SETTINGS, null, values, SQLiteDatabase.CONFLICT_REPLACE,
+        ) >= 0) { "progress backfill marker write failed" }
+    }
+
+    private fun mapProgress(cursor: Cursor) = ProgressRow(
+        bookId = cursor.long("book_id"),
+        locatorJson = cursor.string("locator_json").orEmpty(),
+        page = cursor.intOrNull("page"),
+        totalPages = cursor.intOrNull("total_pages"),
+        percent = cursor.doubleOrNull("percent"),
+        updatedAt = cursor.long("updated_at"),
+        finishedAt = cursor.longOrNull("finished_at"),
+    )
+
+    companion object {
+        const val LEGACY_BACKFILL_KEY = "progress.prefs_backfilled.v1"
+    }
+
     override fun get(bookId: Long): ProgressRow? {
         return db.rawQuery(
             "SELECT * FROM progress WHERE book_id = ?",
             arrayOf(bookId.toString()),
         ).use { cursor ->
-            if (!cursor.moveToFirst()) {
-                null
-            } else {
-                ProgressRow(
-                    bookId = bookId,
-                    locatorJson = cursor.string("locator_json").orEmpty(),
-                    page = cursor.intOrNull("page"),
-                    totalPages = cursor.intOrNull("total_pages"),
-                    percent = cursor.doubleOrNull("percent"),
-                    updatedAt = cursor.long("updated_at"),
-                    finishedAt = cursor.longOrNull("finished_at"),
-                )
-            }
+            if (cursor.moveToFirst()) mapProgress(cursor) else null
         }
     }
 
@@ -240,7 +283,9 @@ class SqliteProgressDao(private val db: SQLiteDatabase) : ProgressDao {
             put("updated_at", row.updatedAt)
             putLongOrNull("finished_at", row.finishedAt)
         }
-        db.insertWithOnConflict(LibrarySchema.TABLE_PROGRESS, null, values, SQLiteDatabase.CONFLICT_REPLACE)
+        check(db.insertWithOnConflict(
+            LibrarySchema.TABLE_PROGRESS, null, values, SQLiteDatabase.CONFLICT_REPLACE,
+        ) >= 0) { "progress write failed for book " + row.bookId }
     }
 
     override fun saveAll(rows: List<ProgressRow>) {

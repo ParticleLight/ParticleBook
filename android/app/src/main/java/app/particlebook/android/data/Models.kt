@@ -182,6 +182,8 @@ data class LegacyProgress(
     val page: Int?,
     val totalPages: Int?,
     val lastReadAt: Long?,
+    /** null = 旧键缺失；空串或损坏值也原样保留，供恢复兜底与诊断。 */
+    val locatorRaw: String? = null,
 )
 
 data class LegacyDownload(

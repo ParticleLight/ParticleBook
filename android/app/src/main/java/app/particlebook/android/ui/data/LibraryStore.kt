@@ -418,6 +418,12 @@ class LibraryStore(
                 val removal = indexStore.removeWithSnapshot(ids)
                 val removed = removal.removed
                 if (removed.isNotEmpty()) {
+                    // The committed Book identities must reach progress before any later suspend point.
+                    val removedIds = removed.mapTo(ArrayList(removed.size)) { it.id }
+                    withContext(NonCancellable) {
+                        runCatching { clearRemovedProgress(removed) }
+                            .onFailure { Log.w(TAG, "clear reading progress failed ids=" + removedIds, it) }
+                    }
                     if (notifyRemovalBus) {
                         // task-98 P1-2：bus 必须早于删文件/指纹哈希。下载管理器的 bookId 墓碑是在 bus
                         // 回调里写的；若先做最多 8MiB×N 的 SHA-256，窗口内完成回调 adopt 的新条目会躲过
@@ -444,10 +450,7 @@ class LibraryStore(
                         // task-108 P1-1：只回收「不在删前快照」的新 id，删前就有的重复条目不陪葬。
                         reclaimAdoptedDuringRemoval(removed, removal.preexistingIds)
                     }
-                    // P3-4：删书级联清进度/封面。清理失败只记日志，不能把「书已删除」误报成失败。
-                    val removedIds = removed.mapTo(ArrayList(removed.size)) { it.id }
-                    runCatching { ReadingProgress.clear(context, removedIds) }
-                        .onFailure { Log.w(TAG, "clear reading progress failed ids=" + removedIds, it) }
+                    // P3-4：清理失败只记日志，避免把已提交的删除误报成失败。
                     runCatching { BookCoverLoader.evict(context, removedIds) }
                         .onFailure { Log.w(TAG, "evict cover cache failed ids=" + removedIds, it) }
                     markDeletedSeeds(removed)
@@ -491,6 +494,11 @@ class LibraryStore(
             .onFailure { Log.w(TAG, "reclaim adopted books after removal failed", it) }
             .getOrDefault(emptyList())
         if (reclaimed.isEmpty()) return
+        val reclaimedIds = reclaimed.mapTo(ArrayList(reclaimed.size)) { it.id }
+        withContext(NonCancellable) {
+            runCatching { clearRemovedProgress(reclaimed) }
+                .onFailure { Log.w(TAG, "clear reclaimed reading progress failed ids=" + reclaimedIds, it) }
+        }
         reclaimed.forEach { book ->
             val file = File(book.filePath)
             if (file.parentFile?.name == LIBRARY_DIR_NAME) {
@@ -498,13 +506,15 @@ class LibraryStore(
             }
         }
         rememberDeletedFileTombstones(reclaimed)
-        val reclaimedIds = reclaimed.mapTo(ArrayList(reclaimed.size)) { it.id }
-        runCatching { ReadingProgress.clear(context, reclaimedIds) }
-            .onFailure { Log.w(TAG, "clear reclaimed reading progress failed ids=" + reclaimedIds, it) }
         runCatching { BookCoverLoader.evict(context, reclaimedIds) }
             .onFailure { Log.w(TAG, "evict reclaimed cover cache failed ids=" + reclaimedIds, it) }
         markDeletedSeeds(reclaimed)
         Log.i(TAG, "reclaimed books adopted during removal count=" + reclaimed.size)
+    }
+
+    /** Pass committed stable identity and all remaining aliases, including before progress initializes. */
+    private suspend fun clearRemovedProgress(removed: List<Book>) {
+        ReadingProgress.clear(context, removed) { indexStore.books }
     }
 
     /** P3-5：删掉内置样书时记下文件名，之后启动不再复制、fixtures 也不再合并回书架。 */

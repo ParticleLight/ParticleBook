@@ -479,15 +479,21 @@ class LibraryIndexStoreTest {
     @Test
     fun missingIndexIsHealedFromValidBadBackup() = runBlocking {
         val dir = newTempDir("bad-heal")
-        val seed = LibraryIndexStore(dir, TestIndexCodec())
+        val now = 2_000_000L
+        val seed = LibraryIndexStore(dir, TestIndexCodec(), now = { now })
         seed.load { it }
         val book = seed.registerFile(bookFile(dir, "healed.epub"), "healed", null, listOf("t")).getOrThrow()
         val original = File(dir, "books.json").readText()
-        File(dir, "books.json.bad").writeText(original)
+        val bad = File(dir, "books.json.bad").apply { writeText(original) }
+        // Make .bad newer explicitly; equal mtimes intentionally prefer bak1.
+        assertTrue(File(dir, "books.json.bak1").setLastModified(now - 2_000L))
+        assertTrue(bad.setLastModified(now - 1_000L))
         File(dir, "books.json").delete()
 
         val logs = Collections.synchronizedList(mutableListOf<String>())
-        val store = LibraryIndexStore(dir, TestIndexCodec(), log = { message, _ -> logs += message })
+        val store = LibraryIndexStore(
+            dir, TestIndexCodec(), log = { message, _ -> logs += message }, now = { now },
+        )
 
         val loaded = store.load { it }
 

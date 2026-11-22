@@ -19,6 +19,11 @@ interface LibraryRepository {
     fun addTag(bookId: Long, tagName: String)
 
     fun progress(bookId: Long): ProgressRow?
+    fun progressAll(): List<ProgressRow>
+    fun deleteProgress(bookIds: Set<Long>): Int
+    fun progressBackfillComplete(): Boolean
+    /** Must be committed in the same transaction as the legacy progress rows. */
+    fun markProgressBackfillComplete()
     fun saveProgress(row: ProgressRow)
     fun upsertProgress(row: ProgressRow) = saveProgress(row)
     fun saveProgressBatch(rows: List<ProgressRow>) = rows.forEach { saveProgress(it) }
@@ -69,6 +74,14 @@ class SqliteLibraryRepository(private val db: SQLiteDatabase) : LibraryRepositor
     }
 
     override fun progress(bookId: Long): ProgressRow? = progressDao.get(bookId)
+
+    override fun progressAll(): List<ProgressRow> = progressDao.all()
+
+    override fun deleteProgress(bookIds: Set<Long>): Int = progressDao.delete(bookIds)
+
+    override fun progressBackfillComplete(): Boolean = progressDao.backfillComplete()
+
+    override fun markProgressBackfillComplete() = progressDao.markBackfillComplete()
 
     override fun saveProgress(row: ProgressRow) = progressDao.save(row)
 

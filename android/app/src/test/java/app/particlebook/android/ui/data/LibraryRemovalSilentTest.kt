@@ -38,9 +38,14 @@ class LibraryRemovalSilentTest {
         val internalBody = functionBody(source, "private suspend fun removeBooksInternal(")
         assertTrue(
             "静默回收必须复用同一套级联清理（进度/封面/样书）",
-            internalBody.contains("ReadingProgress.clear(context, removedIds)") &&
+            internalBody.contains("clearRemovedProgress(removed)") &&
                 internalBody.contains("BookCoverLoader.evict(context, removedIds)") &&
                 internalBody.contains("markDeletedSeeds(removed)"),
+        )
+        val progressBody = functionBody(source, "private suspend fun clearRemovedProgress(")
+        assertTrue(
+            "进度级联要传被删书与剩余别名，首次初始化前也可解析canonical身份",
+            progressBody.contains("ReadingProgress.clear(context, removed) { indexStore.books }"),
         )
         assertTrue("bus 只在 notifyRemovalBus 为真时触发", internalBody.contains("if (notifyRemovalBus) {"))
     }

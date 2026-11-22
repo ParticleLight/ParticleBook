@@ -64,7 +64,12 @@ class LegacyLibraryReader(private val parser: LegacyJsonParser = OrgJsonParser()
     }
 
     fun readProgress(prefs: Map<String, Any?>): List<LegacyProgress> {
-        data class Acc(var page: Int? = null, var total: Int? = null, var lastRead: Long? = null)
+        data class Acc(
+            var page: Int? = null,
+            var total: Int? = null,
+            var lastRead: Long? = null,
+            var locatorRaw: String? = null,
+        )
         val acc = LinkedHashMap<Long, Acc>()
         for ((key, value) in prefs) {
             when {
@@ -80,6 +85,11 @@ class LegacyLibraryReader(private val parser: LegacyJsonParser = OrgJsonParser()
                     val total = asInt(value) ?: continue
                     acc.getOrPut(bookId) { Acc() }.total = total
                 }
+                key.startsWith("locator_") -> {
+                    val bookId = key.removePrefix("locator_").toLongOrNull() ?: continue
+                    if (bookId <= 0 || value !is String) continue
+                    acc.getOrPut(bookId) { Acc() }.locatorRaw = value
+                }
                 key.startsWith("last_read_") -> {
                     val bookId = key.removePrefix("last_read_").toLongOrNull() ?: continue
                     if (bookId <= 0) continue
@@ -89,7 +99,7 @@ class LegacyLibraryReader(private val parser: LegacyJsonParser = OrgJsonParser()
             }
         }
         return acc.map { (bookId, value) ->
-            LegacyProgress(bookId, value.page, value.total, value.lastRead)
+            LegacyProgress(bookId, value.page, value.total, value.lastRead, value.locatorRaw)
         }
     }
 

@@ -97,6 +97,25 @@ class LibraryMigrationTest {
     }
 
     @Test
+    fun duplicateEpubProgressKeepsOneWholeNewerRawSnapshot() {
+        val books = listOf(
+            LegacyBook(42, "Book", "A", "epub", "/a.epub", 100, null, listOf("zlib:1")),
+            LegacyBook(43, "Book", "A", "epub", "/b.epub", 100, null, listOf("zlib:1")),
+        )
+        val older = LegacyProgress(42, 9, 20, 100, "epub|b2xkLnhodG1s|0|4")
+        val raw = "epub|Y2gwNi54aHRtbA|5|23"
+        val newer = LegacyProgress(43, 2, 10, 200, raw)
+        for (progress in listOf(listOf(older, newer), listOf(newer, older))) {
+            val plan = LibraryMigrator().buildPlan(LegacySnapshot(books, progress, emptyList()))
+            val row = plan.progress.single()
+            assertEquals(raw, row.locatorJson)
+            assertEquals(2, row.page)
+            assertEquals(10, row.totalPages)
+            assertEquals(200L, row.updatedAt)
+        }
+    }
+
+    @Test
     fun duplicateIdWithDifferentStableKeysGetsSyntheticId() {
         val sha = StableKey.sha256Hex("second")
         val books = listOf(

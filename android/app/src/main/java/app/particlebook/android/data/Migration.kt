@@ -120,7 +120,7 @@ class LibraryMigrator(
         }
 
         val booksById = finalBooks.associateBy { it.id }
-        val progressById = LinkedHashMap<Long, ProgressRow>()
+        val selectedProgress = LinkedHashMap<Long, LegacyProgress>()
         for (legacy in snapshot.progress) {
             val canonicalId = idRemap[legacy.bookId]
             if (canonicalId == null || booksById[canonicalId] == null) {
@@ -130,26 +130,26 @@ class LibraryMigrator(
             }
             val page = legacy.page?.takeIf { it >= 0 }
             val total = legacy.totalPages?.takeIf { it > 0 }
-            if (page == null && total == null) {
+            if (page == null && total == null && legacy.locatorRaw == null) {
                 stats.skippedProgress++
                 continue
             }
-            val book = booksById.getValue(canonicalId)
-            val updatedAt = legacy.lastReadAt?.takeIf { it > 0 } ?: now()
-            val candidate = ProgressRow(
-                bookId = canonicalId,
-                locatorJson = locatorJson(book.format, page, total),
+            val candidate = legacy.copy(bookId = canonicalId, page = page, totalPages = total)
+            val previous = selectedProgress[canonicalId]
+            selectedProgress[canonicalId] = if (previous == null) candidate else selectLegacyProgress(previous, candidate)
+        }
+        val progressById = selectedProgress.mapValues { (id, selected) ->
+            val book = booksById.getValue(id)
+            val page = selected.page
+            val total = selected.totalPages
+            ProgressRow(
+                bookId = id,
+                locatorJson = selected.locatorRaw ?: locatorJson(book.format, page, total),
                 page = page,
                 totalPages = total,
-                percent = if (page != null && total != null && total > 0) {
-                    (page.toDouble() / total.toDouble()).coerceIn(0.0, 1.0)
-                } else {
-                    null
-                },
-                updatedAt = updatedAt,
+                percent = if (page != null && total != null) (page.toDouble() / total).coerceIn(0.0, 1.0) else null,
+                updatedAt = selected.lastReadAt?.takeIf { it > 0 } ?: 0L,
             )
-            val previous = progressById[canonicalId]
-            progressById[canonicalId] = if (previous == null) candidate else mergeProgress(previous, candidate)
         }
 
         val zlibKeyToBookId = finalBooks.mapNotNull { book ->
@@ -333,22 +333,6 @@ class LibraryMigrator(
             sourceId = old.sourceId ?: StableKey.zlibId(acc.tags.toList())?.toString(),
             addedAt = minPositive(old.addedAt, StableKey.parseEpochMillis(legacy.addedAtRaw)),
             updatedAt = now(),
-        )
-    }
-
-    private fun mergeProgress(previous: ProgressRow, candidate: ProgressRow): ProgressRow {
-        val newer = if (candidate.updatedAt >= previous.updatedAt) candidate else previous
-        val page = maxOf(previous.page ?: -1, candidate.page ?: -1).takeIf { it >= 0 }
-        val total = newer.totalPages ?: previous.totalPages
-        return newer.copy(
-            page = page,
-            totalPages = total,
-            locatorJson = locatorJson("pdf", page, total),
-            percent = if (page != null && total != null && total > 0) {
-                (page.toDouble() / total.toDouble()).coerceIn(0.0, 1.0)
-            } else {
-                newer.percent
-            },
         )
     }
 

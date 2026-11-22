@@ -13,12 +13,30 @@ object CatalogSync {
      * 返回本次实际处理的非空 stable_key 行数（含新增与更新）。
      * 空 stable_key 行跳过，避免写入无法认领的脏数据。
      */
-    fun syncBooks(repository: LibraryRepository, rows: List<BookRow>): Int {
+    fun syncBooks(repository: LibraryRepository, rows: List<BookRow>): Int = sync(repository, rows) { _, _ -> }
+
+    /** Reading progress is keyed by the SQLite id even when a legacy shelf id is an alias. */
+    fun syncBookIds(repository: LibraryRepository, rows: List<BookRow>): Map<Long, Long> =
+        buildMap { sync(repository, rows) { uiId, dbId -> put(uiId, dbId) } }
+
+    /** Resolve existing identities only; a deleted UI id must never be guessed to be a SQLite id. */
+    fun resolveBookIds(repository: LibraryRepository, rows: Collection<BookRow>): Map<Long, Long> {
+        val existing = repository.books().associateBy { it.stableKey }
+        return buildMap {
+            rows.forEach { row ->
+                val key = row.stableKey.trim()
+                if (key.isNotEmpty()) existing[key]?.let { put(row.id, it.id) }
+            }
+        }
+    }
+
+    private fun sync(repository: LibraryRepository, rows: List<BookRow>, onSynced: (Long, Long) -> Unit): Int {
         if (rows.isEmpty()) return 0
         val existingByKey = repository.books()
             .filter { it.stableKey.isNotBlank() }
             .associateBy { it.stableKey }
             .toMutableMap()
+        val occupiedIds = existingByKey.values.mapTo(HashSet()) { it.id }
         var synced = 0
         rows.forEach { incoming ->
             val stableKey = incoming.stableKey.trim()
@@ -26,10 +44,14 @@ object CatalogSync {
             val normalized = if (incoming.stableKey == stableKey) incoming else incoming.copy(stableKey = stableKey)
             val existing = existingByKey[stableKey]
             val merged = merge(existing, normalized)
-            val id = repository.saveBook(merged)
+            // An occupied id with a different stable key belongs to another book.
+            val row = if (existing == null && merged.id in occupiedIds) merged.copy(id = 0) else merged
+            val id = repository.saveBook(row)
             if (id > 0) {
                 synced += 1
-                existingByKey[stableKey] = merged.copy(id = id)
+                occupiedIds += id
+                existingByKey[stableKey] = row.copy(id = id)
+                onSynced(incoming.id, id)
             }
         }
         return synced

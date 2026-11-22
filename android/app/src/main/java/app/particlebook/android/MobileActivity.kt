@@ -10,6 +10,11 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import app.particlebook.android.data.LibraryRuntime
 import app.particlebook.android.ui.ParticleBookApp
+import app.particlebook.android.ui.data.ReadingProgress
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import app.particlebook.android.zlib.ZlibClient
 
 /**
@@ -36,6 +41,15 @@ class MobileActivity : ComponentActivity() {
         }
     }
 
+    override fun onStop() {
+        super.onStop()
+        progressFlushScope.launch {
+            if (!ReadingProgress.flush()) {
+                Log.w("PBProgress", "progress flush incomplete; pending writes retained")
+            }
+        }
+    }
+
     /**
      * DEBUG 专用：允许用 intent extra 固定镜像基址（离线 mock 服务或排查某一个镜像）。
      *
@@ -54,6 +68,8 @@ class MobileActivity : ComponentActivity() {
     }
 
     private companion object {
+        // Activity/Compose 销毁不取消停止时的落库屏障；进程退出后随进程回收。
+        val progressFlushScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         const val PERF_TAG = "PBPERF"
         const val EXTRA_ZLIB_MIRROR = "pb_zlib_mirror"
     }

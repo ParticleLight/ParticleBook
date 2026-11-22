@@ -10,7 +10,7 @@ import java.util.UUID
  * books.json → schema v1 的一次性迁移执行器。
  *
  * 顺序（任何一步失败都不改名原文件）：
- * 1. 读 filesDir/books.json、filesDir/zlib_downloads.json、SharedPreferences("pb_reading")；
+ * 1. 读 filesDir/books.json、filesDir/zlib_downloads.json；仅进度未回填时读 SharedPreferences("pb_reading")；
  * 2. LegacyLibraryLoader 解析 → LibraryMigrator.buildPlan；
  * 3. 在一个 SQLite 事务内：确认 books 为空 → apply → verify → 写 migration_state=completed；
  * 4. 事务提交且 verify 通过后，才把 books.json 改名为 books.json.migrated。
@@ -71,7 +71,7 @@ class LegacyMigrationRunner(
             warnings = warnings,
         )
         val preferences = try {
-            readPreferences()
+            if (store.progressBackfillComplete()) emptyMap() else readPreferences()
         } catch (error: Throwable) {
             warnings += "读取 pb_reading 失败，进度跳过: " + (error.message ?: error.javaClass.simpleName)
             emptyMap()
@@ -239,10 +239,9 @@ class LegacyMigrationRunner(
             preserveSource: Boolean = false,
         ): LegacyMigrationRunner {
             val appContext = context.applicationContext
-            val prefs = appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             return LegacyMigrationRunner(
                 dataDir = appContext.filesDir,
-                readPreferences = { HashMap(prefs.all) },
+                readPreferences = { appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).all },
                 store = SqliteLegacyMigrationStore(database.writableDatabase),
                 preserveSource = preserveSource,
             )
@@ -288,6 +287,7 @@ enum class LegacyMigrationFailureStage {
  */
 interface LegacyMigrationStore {
     fun readState(): MigrationStateRow?
+    fun progressBackfillComplete(): Boolean
     fun bookCount(): Int
     fun apply(plan: MigrationPlan): MigrationApplyResult
     fun verify(plan: MigrationPlan): MigrationVerification
@@ -314,6 +314,8 @@ class SqliteLegacyMigrationStore(private val db: SQLiteDatabase) : LegacyMigrati
             )
         }
     }
+
+    override fun progressBackfillComplete(): Boolean = SqliteProgressDao(db).backfillComplete()
 
     override fun bookCount(): Int = db.rawQuery("SELECT COUNT(*) FROM books", null).use { cursor ->
         if (cursor.moveToFirst()) cursor.getInt(0) else 0

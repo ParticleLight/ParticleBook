@@ -40,6 +40,8 @@ class LegacyMigrationRunnerTest {
 
         override fun readState(): MigrationStateRow? = state
 
+        override fun progressBackfillComplete(): Boolean = repository.progressBackfillComplete()
+
         override fun bookCount(): Int = repository.bookCount()
 
         override fun apply(plan: MigrationPlan): MigrationApplyResult {
@@ -139,6 +141,39 @@ class LegacyMigrationRunnerTest {
         val migrated = File(result.migratedPath)
         assertTrue(migrated.isFile)
         assertEquals(original, migrated.readText())
+    }
+
+    @Test
+    fun progressBackfillMarkerSkipsOldPrefsEvenIfBooksJsonAppearsLater() {
+        val dir = tempDir()
+        try {
+            val store = FakeMigrationStore()
+            val stalePrefs = mapOf("page_1" to 3, "pages_1" to 100, "locator_1" to "old locator")
+            var runnerPrefsReads = 0
+            val migration = runner(dir, store, prefs = {
+                runnerPrefsReads++
+                stalePrefs
+            })
+            assertTrue(migration.run() is LegacyMigrationResult.NoSource)
+            assertTrue(ProgressBootstrap.load(store.repository, { stalePrefs }).isEmpty())
+            assertTrue(store.repository.progressBackfillComplete())
+            assertNull(store.state)
+
+            writeSource(dir)
+            File(dir, LegacyMigrationRunner.DOWNLOADS_FILE_NAME).writeText(sampleDownloadsJson())
+            val result = migration.run()
+
+            assertTrue(result.toString(), result is LegacyMigrationResult.Completed)
+            assertEquals(0, runnerPrefsReads)
+            assertEquals(0, (result as LegacyMigrationResult.Completed).applied.progress)
+            assertEquals(2, store.repository.bookCount())
+            assertEquals(listOf("读书"), store.repository.tagsForBook(1))
+            assertEquals(1, store.repository.downloads().size)
+            assertTrue(store.repository.progressAll().isEmpty())
+            assertTrue(store.repository.progressBackfillComplete())
+        } finally {
+            dir.deleteRecursively()
+        }
     }
 
     @Test
