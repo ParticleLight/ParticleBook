@@ -57,6 +57,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -84,7 +85,11 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.particlebook.android.data.LibraryRuntime
+import app.particlebook.android.data.ReadingSessionRecorder
 import app.particlebook.android.reader.ReaderLocator
+import app.particlebook.android.ui.about.AboutJson
+import app.particlebook.android.ui.about.ChangelogScreen
+import app.particlebook.android.ui.about.LicensesScreen
 import app.particlebook.android.ui.data.Book
 import app.particlebook.android.ui.data.BookFormat
 import app.particlebook.android.ui.data.ReadingProgress
@@ -95,8 +100,11 @@ import app.particlebook.android.ui.discover.CategoriesScreen
 import app.particlebook.android.ui.discover.CategoryListScreen
 import app.particlebook.android.ui.discover.DiscoverRepositoryProvider
 import app.particlebook.android.ui.discover.PopularScreen
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /** 导航三个等权目的地：书架 / Z-Library / 设置。阅读器是全屏任务页，不在这里。 */
 private enum class TopLevel(
@@ -258,6 +266,10 @@ fun ParticleBookApp() {
     var pendingJumpLocator by remember { mutableStateOf<Pair<Long, String>?>(null) }
     // 全文搜索覆盖层：压在 tab 之上、阅读器之下；命中后随开书一起关闭。
     var searchOpen by rememberSaveable { mutableStateOf(false) }
+    // 阅读统计 / 关于组覆盖层：同一层级，互斥使用（设置页一次只会点开一个）。
+    var statsOpen by rememberSaveable { mutableStateOf(false) }
+    var changelogOpen by rememberSaveable { mutableStateOf(false) }
+    var licensesOpen by rememberSaveable { mutableStateOf(false) }
     val defaultSort = LibrarySort.entries.firstOrNull { it.name == defaultSortName }
         ?: LibrarySort.RecentRead
 
@@ -277,6 +289,27 @@ fun ParticleBookApp() {
     // 跨书全文搜索：查的是 search_documents（书被打开过一次后由 EpubSearchIndexing 建索引）。
     val searchViewModel = remember(scope, appContext) {
         SearchViewModel(scope, { LibraryRuntime.repository(appContext) })
+    }
+    // 阅读统计：页码只在 ReadingProgress 的落库路径汇总，记录器订阅那一个观察点，
+    // 三个阅读器都不用改。会话随「打开/关闭书」开始与结束，期间每 60s 落一段，
+    // 进程被杀最多丢一分钟；写库一律离开主线程（仓库契约是同步的）。
+    val sessionRecorder = remember(appContext) {
+        ReadingSessionRecorder(repositoryProvider = { LibraryRuntime.repository(appContext) })
+    }
+    DisposableEffect(sessionRecorder) {
+        ReadingProgress.pageObserver = { _, page -> sessionRecorder.onPageChanged(page) }
+        onDispose {
+            ReadingProgress.pageObserver = null
+            sessionRecorder.cancel()
+        }
+    }
+    val statsViewModel = remember(scope, appContext) {
+        StatsViewModel(scope, { LibraryRuntime.repository(appContext) })
+    }
+    // 只在覆盖层打开时重算：VM 在应用启动时就构造过一次（那时还没有会话行），
+    // 不刷新会一直显示打开应用那一刻的空态。
+    LaunchedEffect(statsOpen) {
+        if (statsOpen) statsViewModel.refresh()
     }
     LaunchedEffect(appContext) { ZlibDownloadManager.init(appContext) }
     // P1.5 §11.7：二级页返回栈。空 = 主 tab 外壳；push/pop 只增删栈顶，
@@ -325,6 +358,26 @@ fun ParticleBookApp() {
     val books: List<Book> = store.books
     val openBook = remember(books, openBookId) { books.firstOrNull { it.id == openBookId } }
     val annotationStore = remember(appContext) { LibraryRuntime.lazyAnnotationStore(appContext) }
+
+    DisposableEffect(openBook?.id) {
+        val book = openBook
+        if (book != null) {
+            sessionRecorder.start(book.id, ReadingProgress.savedPage(appContext, book.id))
+        }
+        onDispose {
+            if (book != null) {
+                scope.launch(Dispatchers.IO) { sessionRecorder.stop() }
+            }
+        }
+    }
+    LaunchedEffect(openBook?.id) {
+        if (openBook == null) return@LaunchedEffect
+        while (true) {
+            delay(60_000L)
+            withContext(Dispatchers.IO) { sessionRecorder.flushIfDue() }
+        }
+    }
+
     LaunchedEffect(books, store.loading, progressRetry) {
         if (store.loading) return@LaunchedEffect
         progressLoadFailed = false
@@ -520,6 +573,9 @@ fun ParticleBookApp() {
                     onLoginClick = { openLogin() },
                     onLogout = { accountViewModel.logout() },
                     onDownloadsClick = { pushRoute("downloads") },
+                    onReadingStatsClick = { statsOpen = true },
+                    onChangelogClick = { changelogOpen = true },
+                    onLicensesClick = { licensesOpen = true },
                     onSettingsRestored = {
                         // 设置恢复只覆盖 37 个全局键；字号/行高在 AppRoot 里另有
                         // rememberSaveable 状态，必须从 SettingsStore 重新读取。
@@ -711,6 +767,49 @@ fun ParticleBookApp() {
                         }
                     },
                 )
+            }
+        }
+
+        // 阅读统计 / 更新日志 / 开源许可：三个全屏覆盖层，与搜索层同构（不透明背景 + 拦截输入 +
+        // BackHandler），关闭即从组合移除，下次打开重新读资产与统计。
+        if (statsOpen) {
+            val closeStats: () -> Unit = { statsOpen = false }
+            BackHandler(onBack = closeStats)
+            FullScreenOverlay(onDismiss = closeStats) {
+                StatsScreen(
+                    state = statsViewModel.state,
+                    onBack = closeStats,
+                    onRetry = statsViewModel::refresh,
+                )
+            }
+        }
+        if (changelogOpen) {
+            val closeChangelog: () -> Unit = { changelogOpen = false }
+            val entries = remember(appContext) {
+                AboutJson.parseChangelog(readAsset(appContext, "about/changelog.json"))
+            }
+            val versionName = remember(appContext) {
+                runCatching {
+                    appContext.packageManager.getPackageInfo(appContext.packageName, 0).versionName
+                }.getOrNull().orEmpty()
+            }
+            BackHandler(onBack = closeChangelog)
+            FullScreenOverlay(onDismiss = closeChangelog) {
+                ChangelogScreen(
+                    entries = entries,
+                    currentVersion = versionName,
+                    onBack = closeChangelog,
+                )
+            }
+        }
+        if (licensesOpen) {
+            val closeLicenses: () -> Unit = { licensesOpen = false }
+            val entries = remember(appContext) {
+                AboutJson.parseLicenses(readAsset(appContext, "about/licenses.json"))
+            }
+            BackHandler(onBack = closeLicenses)
+            FullScreenOverlay(onDismiss = closeLicenses) {
+                LicensesScreen(entries = entries, onBack = closeLicenses)
             }
         }
 
@@ -1081,6 +1180,35 @@ private fun NavCapsule(
         }
     }
 }
+
+/**
+ * 全屏覆盖层容器：不透明背景 + 吞掉所有指针事件。
+ *
+ * 只做「盖住 + 拦住」，不持有业务状态：统计 / 更新日志 / 开源许可三页共用，
+ * 关闭即从组合移除，下次打开重新读资产与统计（与搜索层同构）。
+ */
+@Composable
+private fun FullScreenOverlay(onDismiss: () -> Unit, content: @Composable () -> Unit) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+            .pointerInput(onDismiss) {
+                awaitPointerEventScope {
+                    while (true) {
+                        awaitPointerEvent()
+                    }
+                }
+            },
+    ) {
+        content()
+    }
+}
+
+/** 读 assets 里的关于页数据；缺失或读失败返回空串，解析层按空表处理，页面走空态。 */
+private fun readAsset(context: Context, path: String): String = runCatching {
+    context.assets.open(path).bufferedReader(Charsets.UTF_8).use { it.readText() }
+}.getOrNull().orEmpty()
 
 /**
  * 多选底栏，按 2026-11 的 docked toolbar 形态实现：baseline BottomAppBar 已废弃

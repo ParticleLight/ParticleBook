@@ -61,12 +61,29 @@ object ReadingProgress {
 
     fun a11yStatus(context: Context, bookId: Long): String = percentLabel(context, bookId) ?: "未读"
 
+    /**
+     * 页码观察者：每次进度落库前回调一次 (bookId, page)，page 为 0 基。
+     *
+     * 阅读统计需要「翻了几页」，而页码只在这里汇总（EPUB 章节内页、PDF 文档页都走
+     * [saveEpubProgress] / [savePdfProgress]）。与其在三个阅读器里各加一个回调，
+     * 不如在这一条收口；记录器自己做去重（同一页重复保存不算翻页）。
+     * 只允许一个订阅者（AppRoot 的会话记录器），置 null 即注销。
+     */
+    @Volatile
+    var pageObserver: ((bookId: Long, page: Int) -> Unit)? = null
+
     fun saveEpubProgress(context: Context, bookId: Long, locator: ReaderLocator, page: Int, pages: Int) {
-        if (locator is ReaderLocator.Epub) save(bookId, locator, page, pages)
+        if (locator is ReaderLocator.Epub) {
+            pageObserver?.invoke(bookId, page)
+            save(bookId, locator, page, pages)
+        }
     }
 
     fun savePdfProgress(context: Context, bookId: Long, page: Int, pages: Int) {
-        if (pages > 0) save(bookId, ReaderLocator.Pdf(page.coerceIn(0, pages - 1)), page, pages)
+        if (pages > 0) {
+            pageObserver?.invoke(bookId, page)
+            save(bookId, ReaderLocator.Pdf(page.coerceIn(0, pages - 1)), page, pages)
+        }
     }
 
     private fun save(bookId: Long, locator: ReaderLocator, page: Int, pages: Int) {

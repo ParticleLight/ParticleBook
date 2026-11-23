@@ -107,6 +107,11 @@ fun SettingsScreen(
     onLoginClick: () -> Unit,
     onLogout: () -> Unit,
     onDownloadsClick: () -> Unit,
+    // 统计 / 更新日志 / 开源许可：三个页面各自是全屏覆盖层，由 AppRoot 承载，
+    // 设置页只负责入口，回调默认空实现以便既有无参数调用点（预览/测试）继续编译。
+    onReadingStatsClick: () -> Unit = {},
+    onChangelogClick: () -> Unit = {},
+    onLicensesClick: () -> Unit = {},
     // A023-5：恢复设置后把 AppRoot 的 rememberSaveable 状态重新读一遍，
     // 否则当前页仍显示恢复前的字号/行高（prefs 已更新，但 Compose 状态没变）。
     onSettingsRestored: () -> Unit = {},
@@ -414,7 +419,12 @@ fun SettingsScreen(
                             }
                         },
                     )
-                    SettingsRow(title = "阅读统计", support = "后续版本", enabled = false)
+                    SettingsRow(
+                        title = "阅读统计",
+                        support = "阅读时长、连续天数与最近 7 天分布",
+                        showChevron = true,
+                        onClick = onReadingStatsClick,
+                    )
                     SettingsRow(
                         title = "清除阅读记录",
                         support = "移除所有书籍的阅读进度",
@@ -427,8 +437,18 @@ fun SettingsScreen(
             item {
                 SettingsGroup(title = "关于") {
                     SettingsRow(title = "版本", value = versionName)
-                    SettingsRow(title = "更新日志", support = "后续版本", enabled = false)
-                    SettingsRow(title = "开源许可", support = "后续版本", enabled = false)
+                    SettingsRow(
+                        title = "更新日志",
+                        support = "安卓版每个版本的改动",
+                        showChevron = true,
+                        onClick = onChangelogClick,
+                    )
+                    SettingsRow(
+                        title = "开源许可",
+                        support = "使用的第三方库与许可",
+                        showChevron = true,
+                        onClick = onLicensesClick,
+                    )
                 }
             }
         }
