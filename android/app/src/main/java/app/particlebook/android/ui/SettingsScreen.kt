@@ -37,9 +37,6 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
@@ -86,6 +83,11 @@ import kotlin.math.roundToInt
 /**
  * 设置（§17.4）：34sp Serif 大标题 + 分组容器（28dp 圆角 / 1dp outlineVariant 边框 / 行高 ≥64dp），
  * 行内不用 Card、不用 leading 图标，跳转行右侧是「当前值 + chevron」。修改即时生效，没有保存按钮。
+ *
+ * 2026-11 组件基线：Segmented button 已废弃（component-selection.md「Deprecated map」、
+ * m3-expressive.md「Deprecated baselines」），替代品 connected button group 在 material3 1.4.0
+ * 没有公开组件；「互斥且全部可见」的选择按同一份 reference 的「Selection and toggles」首选
+ * RadioButton。主题选择因此是单选列表，不再有分段按钮分支。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -196,7 +198,8 @@ fun SettingsScreen(
     } else {
         String.format(Locale.US, "%.1f MB", storageBytes / 1024.0 / 1024.0)
     }
-    // 字体放大到 1.4 倍以上时，三段按钮的三个中文 label 会横向放不下 → 换单选列表。
+    // 字体放大到 1.4 倍以上时底部胶囊变高（72dp），列表留白按 large 档取。
+    // 注意：这与主题选择控件无关——主题始终是单选列表，不再有「大字号才降级」的分支。
     val largeFontScale = LocalDensity.current.fontScale >= 1.4f
     // P0-1 / P2-8：设置页没有 bottomBar：内容直接到屏底，底留白须自己盖过胶囊上沿（124dp；200% 132dp）。
     val bottomInset = if (largeFontScale) 140.dp else Spacing.listBottomInset + Spacing.xs
@@ -260,61 +263,16 @@ fun SettingsScreen(
                         title = "主题",
                         support = "深色模式跟随系统，或手动指定",
                     )
-                    // 200% 字号下三段按钮放不下（label 换行会溢出胶囊），降级为单选列表行（§14.5 硬性要求）。
-                    if (largeFontScale) {
-                        Column(Modifier.fillMaxWidth()) {
-                            AppThemeMode.entries.forEach { mode ->
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .heightIn(min = Spacing.minTouchTarget)
-                                        .selectable(
-                                            selected = themeMode == mode,
-                                            role = Role.RadioButton,
-                                            onClick = { onThemeModeChange(mode) },
-                                        )
-                                        .padding(horizontal = RowHorizontalPadding),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    RadioButton(selected = themeMode == mode, onClick = null)
-                                    Spacer(Modifier.size(Spacing.sm))
-                                    Text(
-                                        text = mode.label,
-                                        style = MaterialTheme.typography.bodyLarge,
-                                    )
-                                }
-                            }
-                        }
-                    } else {
-                        SingleChoiceSegmentedButtonRow(
-                            Modifier
-                                .fillMaxWidth()
-                                .padding(
-                                    start = RowHorizontalPadding,
-                                    end = RowHorizontalPadding,
-                                    bottom = Spacing.md,
-                                ),
-                        ) {
-                            AppThemeMode.entries.forEachIndexed { index, mode ->
-                                SegmentedButton(
-                                    selected = themeMode == mode,
-                                    onClick = { onThemeModeChange(mode) },
-                                    // M3 分段按钮默认 40dp 高，这里补到 minTouchTarget。
-                                    modifier = Modifier.heightIn(min = Spacing.minTouchTarget),
-                                    shape = SegmentedButtonDefaults.itemShape(
-                                        index = index,
-                                        count = AppThemeMode.entries.size,
-                                    ),
-                                ) {
-                                    Text(
-                                        text = mode.label,
-                                        maxLines = 1,
-                                        softWrap = false,
-                                        overflow = TextOverflow.Ellipsis,
-                                    )
-                                }
-                            }
-                        }
+                    // 2026-11 组件基线：Segmented button 已废弃，替代品 connected button group 在
+                    // material3 1.4.0 没有公开组件；「互斥且全部可见」的选择按 component-selection.md
+                    // 的「Selection and toggles」首选 RadioButton。因此这里不再按字号分叉——
+                    // 任何字号（含 200%）都用同一份单选列表，标题与说明都允许换行，不做截断。
+                    AppThemeMode.entries.forEach { mode ->
+                        ThemeModeRow(
+                            mode = mode,
+                            selected = themeMode == mode,
+                            onSelect = { onThemeModeChange(mode) },
+                        )
                     }
                 }
             }
@@ -768,6 +726,57 @@ private fun SettingsGroup(
 private fun settingsRowColors() = ListItemDefaults.colors(
     containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
 )
+
+/**
+ * 主题单选行（2026-11 基线）：整行 [selectable] + [Role.RadioButton]，行尾 [RadioButton] 只做视觉，
+ * onSelect 由整行触发——命中区是整行（≥ [Spacing.minTouchTarget]），不依赖 20dp 的小圆点。
+ *
+ * - 标题 + 说明都不设 maxLines：200% 字号时宁可换行长高，也不 ellipsis 截断（§14.5）。
+ * - 单选点放行尾，与同组 Switch / chevron 共用一条右侧控制列，扫描时是一列控件而不是一列圆点。
+ */
+@Composable
+private fun ThemeModeRow(
+    mode: AppThemeMode,
+    selected: Boolean,
+    onSelect: () -> Unit,
+) {
+    ListItem(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = Spacing.minTouchTarget)
+            .selectable(
+                selected = selected,
+                role = Role.RadioButton,
+                onClick = onSelect,
+            )
+            .padding(horizontal = RowExtraHorizontalPadding),
+        colors = settingsRowColors(),
+        headlineContent = {
+            Text(
+                text = mode.label,
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+        },
+        supportingContent = {
+            Text(
+                text = themeModeSupport(mode),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        },
+        trailingContent = {
+            RadioButton(selected = selected, onClick = null)
+        },
+    )
+}
+
+/** 主题三档的说明：讲清「跟不跟随系统」，避免用户把「浅色」理解成「跟随系统但当前是浅色」。 */
+private fun themeModeSupport(mode: AppThemeMode): String = when (mode) {
+    AppThemeMode.System -> "跟随系统设置自动切换深浅色"
+    AppThemeMode.Light -> "始终使用浅色，不随系统切换"
+    AppThemeMode.Dark -> "始终使用深色，不随系统切换"
+}
 
 /**
  * 设置行（§17.4）：M3 [ListItem] 承载信息层级——标题 bodyLarge、说明 bodySmall（onSurfaceVariant）、

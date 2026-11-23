@@ -157,7 +157,6 @@
     <string name="discover_booklist_sort_format">Sort: %1$s</string>
     <string name="discover_sort_newest">Newest first</string>
     <string name="discover_sort_oldest">Oldest first</string>
-    <string name="discover_sort_title">Sort</string>
     <string name="discover_booklist_empty_title">No books in this booklist yet</string>
     <string name="discover_booklist_empty_message">This booklist has no books to show yet.</string>
 </resources>

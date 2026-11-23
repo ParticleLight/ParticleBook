@@ -24,7 +24,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
 
-/** 外观三选一。label 直接作为 SegmentedButton 文案。 */
+/** 外观三选一。label 由设置页的单选列表（ThemeModeRow）渲染，不再作为 SegmentedButton 文案。 */
 enum class AppThemeMode(val label: String) {
     System("跟随系统"),
     Light("浅色"),
@@ -32,8 +32,15 @@ enum class AppThemeMode(val label: String) {
 }
 
 /**
- * M3 高度 token：规范五档（0 / 1 / 3 / 6 / 8 / 12）。
- * 组件优先用组件自带的 elevation 参数；只有自绘浮层才引用这里，不要写裸数字。
+ * 自绘浮层的阴影深度档（0 / 1 / 3 / 6 / 8 / 12dp）。
+ *
+ * M3 已不用「+1 到 +5 的 elevation 层级」表达层次：层次由 surface / surfaceContainer* 的色调角色、
+ * 间距与分割线承担，surface 角色也不再绑定 elevation 数值。所以这里不是语义阶梯，
+ * 只是「真正悬浮」的元素（菜单、sheet、浮动工具条、拖拽中对象、FAB）可用的阴影深度：
+ * - 组件优先用自带的 elevation 参数；只有自绘浮层才引用这里，不要写裸数字。
+ * - 不要给每张卡片加阴影；也不要用阴影和色调抬升同一层（双重抬升）。
+ * - 状态间保持一致：hover 可以抬起，pressed 不要抬起。
+ * - 深色模式下阴影几乎不可见，浮层必须同时靠色调与描边分离。
  */
 object Elevation {
     val level0 = 0.dp
@@ -103,9 +110,11 @@ fun AppSnackbarHost(
 /**
  * 应用主题（Material 3 Expressive）。
  *
- * 三个子系统走主题：colorScheme / typography（M3 15 个基础字级）/ shapes（规范阶梯 4·8·12·16·28）。
- * 动效由 [Motion] 的 expressive 等价 token 提供——material3 1.4.0 的 `MaterialTheme.motionScheme`
- * 与 `MotionScheme.expressive()` 都是 internal（1.5.0 才公开），见 `docs/android-port/m3/audit.md`。
+ * 三个子系统走主题：colorScheme / typography（M3 15 个基础字级，emphasized 见 [AppTypography]）
+ * / shapes（10 档阶梯 0·4·8·12·16·20·28·32·48·full，见 [ShapeTokens]）。
+ * 动效由 [Motion] 的 expressive 等价 token 提供：1.4.0 的 `MaterialTheme.motionScheme` 可读，
+ * 但取 expressive 实例的 `MotionScheme.expressive()` 是 internal（实测 `expressive$material3`），
+ * 所以 expressive 手感只能在 [Motion] 里手写等价 spring/tween，见 `docs/android-port/m3/audit.md`。
  * 组件不要自己拼 spring/tween 或圆角字面量。
  *
  * @param dynamicColor M3 动态取色（Android 12+）；设计规范默认关闭，保留开关，不暴露给用户。
@@ -144,7 +153,7 @@ fun ParticleBookTheme(
     MaterialTheme(
         colorScheme = colorScheme,
         typography = AppTypography,
-        shapes = AppShapes,
+        shapes = AppShapes.materialTheme,
         content = content,
     )
 }

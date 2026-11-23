@@ -157,7 +157,6 @@
     <string name="discover_booklist_sort_format">排序：%1$s</string>
     <string name="discover_sort_newest">新→旧</string>
     <string name="discover_sort_oldest">旧→新</string>
-    <string name="discover_sort_title">排序</string>
     <string name="discover_booklist_empty_title">书单里还没有书</string>
     <string name="discover_booklist_empty_message">这个书单暂时没有可展示的书籍。</string>
 </resources>

@@ -1,33 +1,28 @@
 package app.particlebook.android.ui.discover
 
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.MenuBook
-import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.RadioButton
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -40,6 +35,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.particlebook.android.R
@@ -109,7 +106,6 @@ private class BooklistDetailViewModel(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BooklistDetailScreen(
     repository: DiscoverRepository,
@@ -121,9 +117,9 @@ fun BooklistDetailScreen(
     val scope = rememberCoroutineScope()
     val viewModel = remember(scope, repository) { BooklistDetailViewModel(scope, repository) }
     val state = viewModel.state
-    // C11 / P15-V11：200% 字号下 SegmentedButton 会挤压 → 退化为「排序：新→旧」单行 + 底部 sheet。
+    // C11 / P15-V11：字号放大后「书籍」与排序触发件不再挤同一行——触发件换到下一行独占宽度，
+    // 文案只换行、不截断（旧实现把整组控件换成底部 sheet，现已由下拉菜单取代）。
     val largeFont = LocalDensity.current.fontScale >= 1.3f
-    var sortSheetOpen by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(href) { viewModel.load(href) }
     val fallbackTitle = stringResource(R.string.discover_booklists_title)
     val unknownAuthor = stringResource(R.string.common_unknown_author)
@@ -210,8 +206,29 @@ fun BooklistDetailScreen(
                                 }
                             }
                             Spacer(Modifier.height(Spacing.sm))
+                            // 2026-11 组件基线：Segmented button 已废弃（component-selection.md 的
+                            // Deprecated map / m3-expressive.md 的 Deprecated baselines），替代品
+                            // connected button group 在 material3 1.4.0 没有公开组件。书单排序是
+                            // 「命令 + 两个方向」，用文本按钮 + 下拉菜单表达（选中项带 check）。
+                            val onSortSelected: (Boolean) -> Unit = { reversed ->
+                                if (reversed != current.reversed) viewModel.toggleSort()
+                            }
                             if (largeFont) {
-                                // 单行触发 + sheet：控件高度 ≥48dp，文字不裁切、不与「书籍」抢宽度。
+                                // 大字号：标题与触发件上下排，触发件独占一行宽度，
+                                // 「排序：新→旧」不与「书籍」抢位置，也不靠 ellipsis 收尾。
+                                Column(Modifier.fillMaxWidth()) {
+                                    Text(
+                                        text = stringResource(R.string.discover_booklist_books_header),
+                                        style = MaterialTheme.typography.titleSmall,
+                                    )
+                                    BooklistSortMenu(
+                                        reversed = current.reversed,
+                                        newestLabel = newestFirst,
+                                        oldestLabel = oldestFirst,
+                                        onSelect = onSortSelected,
+                                    )
+                                }
+                            } else {
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
                                     verticalAlignment = Alignment.CenterVertically,
@@ -221,41 +238,12 @@ fun BooklistDetailScreen(
                                         style = MaterialTheme.typography.titleSmall,
                                         modifier = Modifier.weight(1f),
                                     )
-                                    TextButton(
-                                        onClick = { sortSheetOpen = true },
-                                        modifier = Modifier.heightIn(min = Spacing.minTouchTarget),
-                                    ) {
-                                        Text(
-                                            text = stringResource(
-                                                R.string.discover_booklist_sort_format,
-                                                if (current.reversed) oldestFirst else newestFirst,
-                                            ),
-                                            maxLines = 1,
-                                        )
-                                    }
-                                }
-                            } else {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                ) {
-                                    Text(
-                                        text = stringResource(R.string.discover_booklist_books_header),
-                                        style = MaterialTheme.typography.titleSmall,
+                                    BooklistSortMenu(
+                                        reversed = current.reversed,
+                                        newestLabel = newestFirst,
+                                        oldestLabel = oldestFirst,
+                                        onSelect = onSortSelected,
                                     )
-                                    SingleChoiceSegmentedButtonRow {
-                                        SegmentedButton(
-                                            selected = !current.reversed,
-                                            onClick = { if (current.reversed) viewModel.toggleSort() },
-                                            shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
-                                        ) { Text(newestFirst, maxLines = 1) }
-                                        SegmentedButton(
-                                            selected = current.reversed,
-                                            onClick = { if (!current.reversed) viewModel.toggleSort() },
-                                            shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
-                                        ) { Text(oldestFirst, maxLines = 1) }
-                                    }
                                 }
                             }
                         }
@@ -290,71 +278,98 @@ fun BooklistDetailScreen(
                         // 降级（spec §6）：加载更多接口未抓包 → 只展示首屏 21 本，不渲染“加载更多”。
                     }
                 }
-
-                // C11：200% 字号下用底部 sheet 承担排序，避免 SegmentedButton 在窄行里挤压。
-                if (sortSheetOpen) {
-                    val sheetState = rememberModalBottomSheetState()
-                    ModalBottomSheet(
-                        onDismissRequest = { sortSheetOpen = false },
-                        sheetState = sheetState,
-                        contentWindowInsets = { WindowInsets(0, 0, 0, 0) },
-                        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-                    ) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .navigationBarsPadding()
-                                .padding(bottom = Spacing.sm),
-                        ) {
-                            Text(
-                                text = stringResource(R.string.discover_sort_title),
-                                style = MaterialTheme.typography.titleSmall,
-                                modifier = Modifier.padding(
-                                    horizontal = Spacing.screen,
-                                    vertical = Spacing.xs,
-                                ),
-                            )
-                            SortOptionRow(
-                                label = newestFirst,
-                                selected = !current.reversed,
-                                onClick = {
-                                    if (current.reversed) viewModel.toggleSort()
-                                    sortSheetOpen = false
-                                },
-                            )
-                            SortOptionRow(
-                                label = oldestFirst,
-                                selected = current.reversed,
-                                onClick = {
-                                    if (!current.reversed) viewModel.toggleSort()
-                                    sortSheetOpen = false
-                                },
-                            )
-                        }
-                    }
-                }
             }
         }
     }
 }
 
-/** 200% 字号排序 sheet 的单选项：整行 ≥48dp 可点，左侧单选圆点。 */
+/**
+ * 书单排序触发件（2026-11 基线）：「排序：新→旧 ▾」文本按钮 + 两项下拉菜单。
+ *
+ * 弃用理由：Segmented button 已在 component-selection.md 的 Deprecated map 与 m3-expressive.md 的
+ * Deprecated baselines 里标为「不再推荐」，替代品 connected button group 在 material3 1.4.0 里
+ * 没有公开组件（Kotlin 侧不可引用）。这里只有两个方向，且它是一次「命令」而不是筛选条件，
+ * 菜单比按钮组更贴语义；选中项用 check + selected 语义标出，点当前项只收起菜单、不翻转。
+ */
 @Composable
-private fun SortOptionRow(
+private fun BooklistSortMenu(
+    reversed: Boolean,
+    newestLabel: String,
+    oldestLabel: String,
+    onSelect: (reversed: Boolean) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var menuOpen by remember { mutableStateOf(false) }
+    val triggerLabel = stringResource(
+        R.string.discover_booklist_sort_format,
+        if (reversed) oldestLabel else newestLabel,
+    )
+    Box(modifier) {
+        TextButton(
+            onClick = { menuOpen = true },
+            modifier = Modifier.heightIn(min = Spacing.minTouchTarget),
+        ) {
+            Text(text = triggerLabel)
+            Icon(
+                imageVector = Icons.Filled.ArrowDropDown,
+                // 装饰：按钮文案已经是「排序：新→旧」，读屏不必再念一遍箭头。
+                contentDescription = null,
+            )
+        }
+        DropdownMenu(
+            expanded = menuOpen,
+            onDismissRequest = { menuOpen = false },
+        ) {
+            SortMenuItem(
+                label = newestLabel,
+                selected = !reversed,
+                onClick = {
+                    menuOpen = false
+                    onSelect(false)
+                },
+            )
+            SortMenuItem(
+                label = oldestLabel,
+                selected = reversed,
+                onClick = {
+                    menuOpen = false
+                    onSelect(true)
+                },
+            )
+        }
+    }
+}
+
+/**
+ * 菜单里的一个排序方向。
+ *
+ * - 选中态视觉：前置 check 图标（M3 单选菜单的惯例）；未选中项用同宽占位，两行文案左缘才对齐。
+ * - 选中态读屏：selected = true 语义，TalkBack 会念「已选择」，不必为它新增字符串资源。
+ */
+@Composable
+private fun SortMenuItem(
     label: String,
     selected: Boolean,
     onClick: () -> Unit,
 ) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .heightIn(min = Spacing.minTouchTarget)
-            .clickable(onClick = onClick)
-            .padding(horizontal = Spacing.screen),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        RadioButton(selected = selected, onClick = null)
-        Spacer(Modifier.width(Spacing.sm))
-        Text(text = label, style = MaterialTheme.typography.bodyLarge)
-    }
+    DropdownMenuItem(
+        text = { Text(text = label) },
+        onClick = onClick,
+        modifier = if (selected) Modifier.semantics { this.selected = true } else Modifier,
+        leadingIcon = {
+            if (selected) {
+                Icon(
+                    imageVector = Icons.Filled.Check,
+                    // 装饰：选中语义已由 selected 语义承担，图标不重复播报。
+                    contentDescription = null,
+                )
+            } else {
+                // 占位：24dp 是 M3 菜单前置图标尺寸，只为对齐，不是间距节奏，故不进 Spacing。
+                Spacer(Modifier.size(SortMenuIconSlot))
+            }
+        },
+    )
 }
+
+/** 菜单前置图标占位（M3 菜单图标 24dp）。 */
+private val SortMenuIconSlot = 24.dp
