@@ -33,7 +33,7 @@ class ZlibReimportDecisionTest {
 
     @Test
     fun zeroByteTargetIsRejected() {
-        val file = createTempFile("pb-reimport-zero", ".pdf")
+        val file = File.createTempFile("pb-reimport-zero", ".pdf")
         try {
             assertEquals(0L, file.length())
             assertEquals(
@@ -122,7 +122,7 @@ class ZlibReimportDecisionTest {
     fun existingFileValidatorRejectsTruncatedShelfCopy() {
         val complete = tempPdf(complete = true)
         val truncated = tempPdf(complete = false)
-        val zero = createTempFile("pb-reimport-shelf-zero", ".pdf")
+        val zero = File.createTempFile("pb-reimport-shelf-zero", ".pdf")
         try {
             assertTrue(zlibExistingFileValidator(complete.length())(complete))
             assertFalse("截断的旧书架副本不能命中幂等", zlibExistingFileValidator(truncated.length())(truncated))
@@ -166,7 +166,7 @@ class ZlibReimportDecisionTest {
         if (complete) {
             "%%EOF\n".toByteArray(Charsets.ISO_8859_1).copyInto(bytes, bytes.size - 6)
         }
-        return createTempFile("pb-reimport", ".pdf").apply { writeBytes(bytes) }
+        return File.createTempFile("pb-reimport", ".pdf").apply { writeBytes(bytes) }
     }
 
     private fun sourceFile(relative: String): String {

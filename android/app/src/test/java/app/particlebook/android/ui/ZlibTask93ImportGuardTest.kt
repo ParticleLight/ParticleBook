@@ -154,7 +154,7 @@ class ZlibTask93ImportGuardTest {
         val bytes = ByteArray(2_048)
         "%PDF-1.7\n".toByteArray(Charsets.ISO_8859_1).copyInto(bytes)
         "%%EOF\n".toByteArray(Charsets.ISO_8859_1).copyInto(bytes, bytes.size - 6)
-        return createTempFile("pb-task93", ".pdf").apply { writeBytes(bytes) }
+        return File.createTempFile("pb-task93", ".pdf").apply { writeBytes(bytes) }
     }
 
     private fun sourceFile(relative: String): String {

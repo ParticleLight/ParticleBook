@@ -65,7 +65,7 @@ class ZlibInspectTempCleanupTest {
     }
 
     private fun tempDir(): File {
-        val file = createTempFile("pb-inspect-clean", "")
+        val file = File.createTempFile("pb-inspect-clean", "")
         assertTrue(file.delete())
         assertTrue(file.mkdirs())
         return file

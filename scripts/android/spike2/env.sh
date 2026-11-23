@@ -3,7 +3,8 @@
 export SDK="${SDK:-/g/Android/sdk}"
 export ADB="${ADB:-$SDK/platform-tools/adb.exe}"
 export SERIAL="${SERIAL:-emulator-5554}"
-export GRADLE="${GRADLE:-/g/Android/gradle-8.11.1/bin/gradle}"
+# Gradle 9 是 AGP 9 的硬要求（AGP 9.5 起 Kotlin 支持内建）；8.11.1 只留给旧分支复现。
+export GRADLE="${GRADLE:-/g/Android/gradle-9.8.2/bin/gradle}"
 export GRADLE_USER_HOME="${GRADLE_USER_HOME:-/g/Android/gradle-home}"
 export JAVA_HOME="${JAVA_HOME:-/c/Program Files/Microsoft/JDK21}"
 export WT="${WT:-/f/VScode/Read/.agents/worktrees/dsh-2998e44b-11d5}"
