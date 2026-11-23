@@ -92,8 +92,8 @@ import app.particlebook.android.ui.about.ChangelogScreen
 import app.particlebook.android.ui.about.LicensesScreen
 import app.particlebook.android.ui.data.Book
 import app.particlebook.android.ui.data.BookFormat
-import app.particlebook.android.ui.data.ReadingProgress
 import app.particlebook.android.ui.data.LibraryStore
+import app.particlebook.android.ui.data.ReadingProgress
 import app.particlebook.android.ui.discover.BooklistDetailScreen
 import app.particlebook.android.ui.discover.BooklistsScreen
 import app.particlebook.android.ui.discover.CategoriesScreen
@@ -270,6 +270,8 @@ fun ParticleBookApp() {
     var statsOpen by rememberSaveable { mutableStateOf(false) }
     var changelogOpen by rememberSaveable { mutableStateOf(false) }
     var licensesOpen by rememberSaveable { mutableStateOf(false) }
+    // 书源管理：与统计/关于三页同构的全屏覆盖层，持有自己的探测状态。
+    var zlibSourcesOpen by rememberSaveable { mutableStateOf(false) }
     val defaultSort = LibrarySort.entries.firstOrNull { it.name == defaultSortName }
         ?: LibrarySort.RecentRead
 
@@ -566,7 +568,18 @@ fun ParticleBookApp() {
                     onImportClick = launchImport,
                     onClearReadingRecords = {
                         scope.launch {
-                            snackbarHostState.showSnackbar("已清除本会话的阅读记录")
+                            // 真清数据：progress 表 + reading_sessions 表（失败保留快照，可直接重试）。
+                            val cleared = withContext(Dispatchers.IO) {
+                                runCatching { ReadingProgress.clearAll(appContext) }.getOrDefault(false)
+                            }
+                            if (cleared) {
+                                // 书架进度条与统计页都读同一批数据：清完立刻重算，别等下次打开。
+                                progressEpoch += 1
+                                statsViewModel.refresh()
+                                snackbarHostState.showSnackbar("已清除所有阅读记录")
+                            } else {
+                                snackbarHostState.showSnackbar("清除失败，阅读记录未改动")
+                            }
                         }
                     },
                     account = accountViewModel.account,
@@ -576,6 +589,7 @@ fun ParticleBookApp() {
                     onReadingStatsClick = { statsOpen = true },
                     onChangelogClick = { changelogOpen = true },
                     onLicensesClick = { licensesOpen = true },
+                    onZlibSourcesClick = { zlibSourcesOpen = true },
                     onSettingsRestored = {
                         // 设置恢复只覆盖 37 个全局键；字号/行高在 AppRoot 里另有
                         // rememberSaveable 状态，必须从 SettingsStore 重新读取。
@@ -810,6 +824,14 @@ fun ParticleBookApp() {
             BackHandler(onBack = closeLicenses)
             FullScreenOverlay(onDismiss = closeLicenses) {
                 LicensesScreen(entries = entries, onBack = closeLicenses)
+            }
+        }
+
+        if (zlibSourcesOpen) {
+            val closeSources: () -> Unit = { zlibSourcesOpen = false }
+            BackHandler(onBack = closeSources)
+            FullScreenOverlay(onDismiss = closeSources) {
+                ZlibSourcesScreen(onBack = closeSources)
             }
         }
 

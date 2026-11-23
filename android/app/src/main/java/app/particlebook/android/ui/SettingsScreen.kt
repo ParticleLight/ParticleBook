@@ -112,6 +112,8 @@ fun SettingsScreen(
     onReadingStatsClick: () -> Unit = {},
     onChangelogClick: () -> Unit = {},
     onLicensesClick: () -> Unit = {},
+    // 书源管理：线路从「线路」行的弹层升级为分层管理页，由 AppRoot 承载全屏覆盖层。
+    onZlibSourcesClick: () -> Unit = {},
     // A023-5：恢复设置后把 AppRoot 的 rememberSaveable 状态重新读一遍，
     // 否则当前页仍显示恢复前的字号/行高（prefs 已更新，但 Compose 状态没变）。
     onSettingsRestored: () -> Unit = {},
@@ -296,8 +298,6 @@ fun SettingsScreen(
                         value = if (storageReady) storageLabel else null,
                         loading = !storageReady,
                     )
-                    // 后续版本：行保留在信息层级里，但明确按禁用态渲染，不做成"点了没反应"。
-                    SettingsRow(title = "书源管理", support = "后续版本", enabled = false)
                 }
             }
 
@@ -369,6 +369,12 @@ fun SettingsScreen(
                         onClick = { mirrorSheetOpen = true },
                     )
                     SettingsRow(
+                        title = "书源管理",
+                        support = "查看全部线路、探测可用性与手动切换",
+                        showChevron = true,
+                        onClick = onZlibSourcesClick,
+                    )
+                    SettingsRow(
                         title = "说明",
                         support = "下载的书籍会自动导入书架；线路不通时可手动切换。",
                     )
@@ -427,7 +433,7 @@ fun SettingsScreen(
                     )
                     SettingsRow(
                         title = "清除阅读记录",
-                        support = "移除所有书籍的阅读进度",
+                        support = "移除所有书籍的阅读进度与阅读统计",
                         destructive = true,
                         onClick = { clearDialogOpen = true },
                     )
@@ -636,7 +642,7 @@ fun SettingsScreen(
         AlertDialog(
             onDismissRequest = { clearDialogOpen = false },
             title = { Text("清除阅读记录？") },
-            text = { Text("会移除所有书籍的阅读进度，此操作不可撤销。") },
+            text = { Text("会移除所有书籍的阅读进度、阅读时长与翻页记录，此操作不可撤销。") },
             confirmButton = {
                 TextButton(
                     onClick = {
