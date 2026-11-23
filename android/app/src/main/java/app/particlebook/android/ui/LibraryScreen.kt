@@ -55,7 +55,7 @@ import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.LinearWavyProgressIndicator
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -739,7 +739,7 @@ private fun ShelfHeroCard(
                 )
                 Spacer(Modifier.height(Spacing.xs))
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    LinearProgressIndicator(
+                    LinearWavyProgressIndicator(
                         progress = { fraction },
                         modifier = Modifier
                             .weight(1f)

@@ -25,11 +25,12 @@ import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.outlined.List
 import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.LinearWavyProgressIndicator
+import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
@@ -891,6 +892,7 @@ fun EpubReaderScreen(
     }
 }
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun EpubContent(
     controller: EpubReaderController,
@@ -1011,11 +1013,10 @@ private fun EpubContent(
         }
 
         if (layoutLoading && layout != null) {
-            CircularProgressIndicator(
+            LoadingIndicator(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .padding(top = Spacing.sm),
-                strokeWidth = 2.dp,
             )
         }
     }
@@ -1041,7 +1042,7 @@ private fun ReaderBottomBar(
             modifier = Modifier.fillMaxSize(),
             verticalArrangement = Arrangement.Center,
         ) {
-            LinearProgressIndicator(
+            LinearWavyProgressIndicator(
                 progress = { overallPercent.coerceIn(0f, 1f) },
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1083,12 +1084,13 @@ private fun ReaderBottomBar(
     }
 }
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun CenterMessage(text: String, showProgress: Boolean = false) {
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             if (showProgress) {
-                CircularProgressIndicator()
+                LoadingIndicator()
                 Spacer(Modifier.height(Spacing.md))
             }
             Text(text, color = MaterialTheme.colorScheme.onSurfaceVariant)

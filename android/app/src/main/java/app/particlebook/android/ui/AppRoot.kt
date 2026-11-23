@@ -44,9 +44,10 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.outlined.Explore
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationRail
 import androidx.compose.material3.NavigationRailItem
@@ -232,6 +233,7 @@ internal val NavStackSaver: Saver<List<NavEntry>, Any> = listSaver(
  * App 根：竖屏 = 悬浮胶囊导航（书架 / 设置 / 导入）；手机横屏 = 左侧 NavigationRail（A2 几何不变）。
  * 打开书籍时全屏进入阅读器（不带导航），返回时刷新 Hero 的「最近阅读」。
  */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun ParticleBookApp() {
     val context = LocalContext.current
@@ -785,7 +787,7 @@ fun ParticleBookApp() {
                                 Text("请重试以恢复上次的阅读位置", color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 FilledTonalButton(onClick = { progressRetry += 1 }) { Text("重试") }
                             } else {
-                                CircularProgressIndicator()
+                                LoadingIndicator()
                                 Text("正在恢复阅读位置…", style = MaterialTheme.typography.bodyMedium)
                             }
                             TextButton(onClick = { closeReader() }) { Text("返回书架") }

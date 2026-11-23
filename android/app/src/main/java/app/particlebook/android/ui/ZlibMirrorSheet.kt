@@ -15,9 +15,10 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ErrorOutline
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.RadioButton
@@ -35,7 +36,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.dp
 import app.particlebook.android.zlib.ZMirrorItem
 import app.particlebook.android.zlib.ZlibClient
 import kotlinx.coroutines.Dispatchers
@@ -47,7 +47,7 @@ import kotlinx.coroutines.withContext
  * 每行除 host 外展示分层 / 探测 rank / 延迟 / 上次成功 / 降权状态；行序、host、current 全部来自同一快照，
  * 后台刷新重排也不会「点 A 切 B」。切换结果回传实际切换到的 URL（onSwitched）。
  */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun ZlibMirrorSheet(
     client: ZlibClient,
@@ -118,7 +118,7 @@ fun ZlibMirrorSheet(
                         .padding(vertical = Spacing.lg),
                     horizontalArrangement = Arrangement.Center,
                 ) {
-                    CircularProgressIndicator(Modifier.size(Spacing.lg), strokeWidth = 2.dp)
+                    LoadingIndicator(modifier = Modifier.size(Spacing.lg))
                 }
 
                 else -> {

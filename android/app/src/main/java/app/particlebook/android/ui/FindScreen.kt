@@ -44,14 +44,15 @@ import androidx.compose.material.icons.outlined.SearchOff
 import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
@@ -99,7 +100,7 @@ import kotlinx.coroutines.launch
  * 网络层由 zlib 包提供（ZlibClient.search 阻塞，ViewModel 内部放 IO 线程）；
  * 本页只做输入/状态机/列表，不造假书籍、不加载网络封面（结果用主色占位块 + 书名首字）。
  */
-@OptIn(ExperimentalLayoutApi::class)
+@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun DiscoverScreen(
     account: ZAccount?,
@@ -255,9 +256,8 @@ fun DiscoverScreen(
                             modifier = Modifier.size(Spacing.minTouchTarget),
                         ) {
                             if (loading) {
-                                CircularProgressIndicator(
+                                LoadingIndicator(
                                     modifier = Modifier.size(Spacing.lg),
-                                    strokeWidth = 2.dp,
                                     color = MaterialTheme.colorScheme.primary,
                                 )
                             } else {
@@ -394,7 +394,7 @@ fun DiscoverScreen(
                     contentAlignment = Alignment.Center,
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        CircularProgressIndicator()
+                        LoadingIndicator()
                         Spacer(Modifier.height(Spacing.sm))
                         Text(
                             text = stringResource(R.string.find_loading_title),
@@ -520,10 +520,7 @@ fun DiscoverScreen(
                                         .padding(Spacing.md),
                                     contentAlignment = Alignment.Center,
                                 ) {
-                                    CircularProgressIndicator(
-                                        modifier = Modifier.size(Spacing.lg),
-                                        strokeWidth = 2.dp,
-                                    )
+                                    LoadingIndicator(modifier = Modifier.size(Spacing.lg))
                                 }
     
                                 current.loadMoreError != null -> Column(

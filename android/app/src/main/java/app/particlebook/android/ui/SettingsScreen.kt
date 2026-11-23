@@ -26,12 +26,13 @@ import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
+import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.RadioButton
@@ -909,12 +910,10 @@ private fun SettingsSwitchRow(
 }
 
 /** 行尾加载态：16dp 进度指示，和 bodyMedium 的值同高，不改变行高。 */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun SettingsRowSpinner() {
-    CircularProgressIndicator(
-        modifier = Modifier.size(Spacing.md),
-        strokeWidth = 2.dp,
-    )
+    LoadingIndicator(modifier = Modifier.size(Spacing.md))
 }
 
 /** 行尾「当前值 + chevron」；值缺失时只留 chevron。 */

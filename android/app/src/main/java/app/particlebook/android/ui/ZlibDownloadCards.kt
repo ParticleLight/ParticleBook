@@ -15,10 +15,11 @@ import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.Sync
-import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
-import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.LinearWavyProgressIndicator
+import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -29,7 +30,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.dp
 import kotlin.math.roundToInt
 
 /** U6：全局叠层最多同时显示 2 张卡片，其余收进「查看全部」（下载记录页）。 */
@@ -41,6 +41,7 @@ private const val MAX_OVERLAY_CARDS = 2
  * 下载记录页与下载文件夹页共用，避免两页各写一套空态。加载态用 spinner 替代图标，
  * 错误态给 [actionLabel]（如「重试」），空态只给文案。文案始终存在，不靠颜色单独表意。
  */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun ZlibDownloadStatePane(
     icon: ImageVector,
@@ -58,10 +59,7 @@ fun ZlibDownloadStatePane(
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         if (loading) {
-            CircularProgressIndicator(
-                modifier = Modifier.size(Spacing.xl),
-                strokeWidth = 3.dp,
-            )
+            LoadingIndicator(modifier = Modifier.size(Spacing.xl))
         } else {
             Icon(
                 imageVector = icon,
@@ -272,12 +270,14 @@ private fun ZlibDownloadCard(
                 Spacer(Modifier.height(Spacing.xs))
                 val progress = task.progress
                 if (progress != null) {
-                    LinearProgressIndicator(
+                    LinearWavyProgressIndicator(
                         progress = { progress },
                         modifier = Modifier.fillMaxWidth(),
                     )
                 } else {
-                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                    // 无进度值：保留同一条轨道（wavy 的 indeterminate 重载），
+                    // 换成 LoadingIndicator 会把 4dp 轨道变成 48dp 容器。
+                    LinearWavyProgressIndicator(modifier = Modifier.fillMaxWidth())
                 }
             }
             cardActions(task = task, onCancel = onCancel, onRetry = onRetry, onDismiss = onDismiss, onDiscard = onDiscard, onReimport = onReimport, onLogin = onLogin)

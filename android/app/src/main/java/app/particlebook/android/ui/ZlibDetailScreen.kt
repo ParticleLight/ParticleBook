@@ -31,11 +31,12 @@ import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.BrokenImage
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.LinearWavyProgressIndicator
+import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
@@ -213,6 +214,7 @@ fun ZlibDetailScreen(
     }
 }
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun BoxLoading(modifier: Modifier = Modifier) {
     Column(
@@ -220,7 +222,7 @@ private fun BoxLoading(modifier: Modifier = Modifier) {
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        CircularProgressIndicator(modifier = Modifier.size(Spacing.xl), strokeWidth = 3.dp)
+        LoadingIndicator(modifier = Modifier.size(Spacing.xl))
         Spacer(Modifier.height(Spacing.sm))
         Text(
             text = "正在加载详情…",
@@ -628,7 +630,7 @@ private fun DownloadAction(
             Column(modifier = Modifier.fillMaxWidth()) {
                 val progress = activeTask.progress
                 if (progress != null) {
-                    LinearProgressIndicator(
+                    LinearWavyProgressIndicator(
                         progress = { progress },
                         modifier = Modifier
                             .fillMaxWidth()
@@ -645,9 +647,10 @@ private fun DownloadAction(
                         color = MaterialTheme.colorScheme.onSurface,
                     )
                 } else {
-                    LinearProgressIndicator(
-                        modifier = Modifier
-                            .fillMaxWidth()
+                    // 无进度值：同一条轨道位置用 wavy 的 indeterminate 重载，避免换成
+                    // LoadingIndicator 后固定 48dp 容器把「准备下载…」这一行撑高。
+                    LinearWavyProgressIndicator(
+                        modifier = Modifier.fillMaxWidth(),
                     )
                     Spacer(Modifier.height(Spacing.xs))
                     Text(
@@ -916,6 +919,7 @@ private fun DownloadAction(
  * task-43 P2-2：URL 成功交给浏览器后调用 [ZlibReaderViewModel.consumeReady] 复位 Idle，
  * 下次点击重新解析，不复用可能过期或属于旧账号的票据。
  */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun ReaderAction(
     bookHash: String,
@@ -1016,7 +1020,7 @@ private fun ReaderAction(
                 .heightIn(min = Spacing.minTouchTarget),
         ) {
             if (state is ZlibReaderLaunchState.Loading) {
-                CircularProgressIndicator(modifier = Modifier.size(Spacing.md), strokeWidth = 2.dp)
+                LoadingIndicator(modifier = Modifier.size(Spacing.md))
                 Spacer(Modifier.width(Spacing.xs))
                 Text(zlibReaderActionLabel(state))
             } else {

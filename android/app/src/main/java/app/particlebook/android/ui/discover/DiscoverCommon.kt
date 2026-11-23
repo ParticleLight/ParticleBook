@@ -24,11 +24,12 @@ import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.ErrorOutline
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -129,6 +130,7 @@ internal fun DiscoverPageScaffold(
 }
 
 /** 首次加载：居中 spinner + 文案（分类首屏用全屏骨架，其它页用这个）。 */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 internal fun DiscoverLoading(message: String, modifier: Modifier = Modifier) {
     Column(
@@ -136,7 +138,7 @@ internal fun DiscoverLoading(message: String, modifier: Modifier = Modifier) {
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        CircularProgressIndicator(modifier = Modifier.size(Spacing.xl), strokeWidth = 3.dp)
+        LoadingIndicator(modifier = Modifier.size(Spacing.xl))
         Spacer(Modifier.height(Spacing.sm))
         Text(
             text = message,
@@ -227,6 +229,7 @@ internal fun DiscoverEmptyState(
 }
 
 /** 分页尾部三态：加载中 / 失败重试 / 已经到底了。都不满足时不占高度。 */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 internal fun DiscoverListFooter(
     loadingMore: Boolean,
@@ -242,7 +245,7 @@ internal fun DiscoverListFooter(
                 .padding(Spacing.md),
             contentAlignment = Alignment.Center,
         ) {
-            CircularProgressIndicator(modifier = Modifier.size(Spacing.lg), strokeWidth = 2.dp)
+            LoadingIndicator(modifier = Modifier.size(Spacing.lg))
         }
 
         loadMoreError != null -> Column(

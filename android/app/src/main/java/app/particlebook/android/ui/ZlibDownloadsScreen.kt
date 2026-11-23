@@ -26,13 +26,14 @@ import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.LinearWavyProgressIndicator
+import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarDuration
@@ -55,7 +56,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.dp
 import app.particlebook.android.ui.data.Book
 import app.particlebook.android.ui.data.DownloadLocation
 import app.particlebook.android.ui.data.LibraryStore
@@ -470,6 +470,7 @@ internal fun deleteHistoryMessage(result: ZlibHistoryDeleteResult): String = whe
     ZlibHistoryDeleteResult.FILE_IN_USE_RECORD_ONLY -> "该书的下载仍在进行，仅删除记录"
 }
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun DownloadRecordRow(
     record: ZlibDownloadTask,
@@ -565,18 +566,17 @@ private fun DownloadRecordRow(
             val progress = zlibRecordProgress(record)
             if (progress != null) {
                 Spacer(Modifier.height(Spacing.xs))
-                LinearProgressIndicator(
+                LinearWavyProgressIndicator(
                     progress = { progress },
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
         }
         when {
-            importing -> CircularProgressIndicator(
+            importing -> LoadingIndicator(
                 modifier = Modifier
                     .padding(horizontal = Spacing.sm)
                     .size(Spacing.lg),
-                strokeWidth = 2.dp,
             )
 
             // T23/D3：取消态给「续传」；中断记录给「重试」——两者都走 resumeCancelled 从历史恢复。

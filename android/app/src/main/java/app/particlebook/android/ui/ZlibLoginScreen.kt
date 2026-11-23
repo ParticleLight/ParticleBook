@@ -29,9 +29,10 @@ import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
@@ -60,7 +61,6 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
-import androidx.compose.ui.unit.dp
 import app.particlebook.android.zlib.ZMirrorItem
 import app.particlebook.android.zlib.ZlibClient
 import java.net.URI
@@ -72,6 +72,7 @@ import kotlinx.coroutines.withContext
  *
  * 密码不做持久化、不打日志；错误显示在按钮上方且失败不关闭页面。
  */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun ZlibLoginScreen(
     viewModel: ZlibAccountViewModel,
@@ -259,9 +260,8 @@ fun ZlibLoginScreen(
                 ),
             ) {
                 if (busy) {
-                    CircularProgressIndicator(
+                    LoadingIndicator(
                         modifier = Modifier.size(Spacing.md),
-                        strokeWidth = 2.dp,
                         // 登录中按钮是禁用态（灰底），用 primary 才看得见。
                         color = MaterialTheme.colorScheme.primary,
                     )

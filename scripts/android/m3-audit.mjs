@@ -4,13 +4,13 @@
  *
  * 规范钉在 2026-11 的 Material 3（含 M3 Expressive），两个来源缺一不可：
  *   设计侧  skill material-design-3-ui（2026-11 版）references/*.md，逐条写在 RULES[].spec
- *   实现侧  androidx.compose.material3 1.4.0（android/app/build.gradle.kts:67），
+ *   实现侧  androidx.compose.material3 1.5.0（android/app/build.gradle.kts:75），
  *           库侧缺口与 departure 见 docs/android-port/m3/README.md「规范版本钉住」
  *
  * 只读扫描 android/app/src/main/java 下的 Kotlin 源码，不编译、不接触 Gradle，
  * 用于 CI 与本地门禁：命中数超过阈值（默认 0）时以退出码 1 结束。
  *
- * 规则（9 条）——spec 列是这条规则凭什么成立，不是团队习惯
+ * 规则（10 条）——spec 列是这条规则凭什么成立，不是团队习惯
  *   bare-color               Color(0x...) 硬编码颜色                   color-system.md
  *   literal-shape            RoundedCornerShape(<数字>.dp) 字面量       shape-and-elevation.md#corner-radius-scale
  *   bare-motion              裸 spring()（未走 Motion token）           motion.md#spring-tokens
@@ -19,6 +19,7 @@
  *   small-touch-target       <48dp 且可点击的触控目标                  accessibility.md
  *   deprecated-segmented     SegmentedButton / *SegmentedButtonRow      m3-expressive.md#deprecated-baselines
  *   deprecated-baseline-appbar Medium/Large TopAppBar + BottomAppBar（基线形态）  m3-expressive.md#deprecated-baselines
+ *   deprecated-progress-indicator  Circular/LinearProgressIndicator（旧进度组件）  m3-expressive.md#deprecated-baselines
  *   spacing-4dp-base         注释里仍声称 4dp 基准 / 4dp 网格          spacing-and-layout.md#the-spacing-system
  *
  * 为什么 bare-motion 只管 spring、时长曲线单列一条：
@@ -132,6 +133,15 @@ const RULES = [
     exclude: [],
   },
   {
+    id: 'deprecated-progress-indicator',
+    title: '旧进度组件 Circular/LinearProgressIndicator',
+    hint: '不确定等待换 LoadingIndicator(modifier, color)；确定进度换 Linear/CircularWavyProgressIndicator(progress = { ... })',
+    spec: 'references/m3-expressive.md#deprecated-baselines（separate circular/linear progress token sets → unified progress indicator）',
+    scope: 'code',
+    // 无文件级豁免：进度组件的迁移已收口，规则对全仓全量生效。
+    exclude: [],
+  },
+  {
     id: 'spacing-4dp-base',
     title: '注释声称 4dp 基准 / 4dp 网格',
     hint: 'Spacing 是 8dp 基准 + 嵌档 2/4/6/10；改注释或改值',
@@ -151,6 +161,8 @@ const BARE_SPRING = /(?:^|[^\w.])(spring)\s*\(/g;
 const DURATION_SPEC_CALL = /(?:^|[^\w.])(tween|keyframes|CubicBezierEasing)\s*(?:<[^<>]*>)?\s*[({]/g;
 const EASING_SINGLETON = /(?:^|[^\w.])(FastOutSlowInEasing|LinearOutSlowInEasing|FastOutLinearInEasing|LinearEasing)\b/g;
 const EASING_LAMBDA = /(?:^|[^\w.])Easing\s*\{/g;
+/** 旧进度组件：必须跟左圆括号，避免命中 Wavy/Loading 变体与 KDoc 引用。 */
+const DEPRECATED_PROGRESS = /(?:^|[^\w.])(CircularProgressIndicator|LinearProgressIndicator)\s*\(/g;
 /** 废弃组件。 */
 const SEGMENTED = /(?:^|[^\w.])(SegmentedButton|SegmentedButtonDefaults|SingleChoiceSegmentedButtonRow|MultiChoiceSegmentedButtonRow)\b/g;
 const BASELINE_APPBAR = /(?:^|[^\w.])(MediumTopAppBar|LargeTopAppBar|MediumTopAppBarDefaults|LargeTopAppBarDefaults|BottomAppBar|BottomAppBarDefaults)\b/g;
@@ -347,6 +359,14 @@ function detectorDeprecatedBaselineAppBar(ctx) {
   return hits;
 }
 
+function detectorDeprecatedProgress(ctx) {
+  const hits = [];
+  for (const m of ctx.masked.matchAll(DEPRECATED_PROGRESS)) {
+    hits.push(ctx.hit('deprecated-progress-indicator', m.index + m[0].indexOf(m[1])));
+  }
+  return hits;
+}
+
 const ICON_BUTTON_CALL = /(?:^|[^\w.])(IconButton|FilledIconButton|FilledTonalIconButton|OutlinedIconButton|IconToggleButton)\s*\(/g;
 
 function detectorIconLabel(ctx) {
@@ -448,6 +468,7 @@ const DETECTORS = [
   ['small-touch-target', detectorSmallTouch],
   ['deprecated-segmented', detectorDeprecatedSegmented],
   ['deprecated-baseline-appbar', detectorDeprecatedBaselineAppBar],
+  ['deprecated-progress-indicator', detectorDeprecatedProgress],
   ['spacing-4dp-base', detectorSpacingBase],
 ];
 
@@ -620,7 +641,7 @@ function printHuman(result, opts, exitCode) {
     const list = result.byRule.get(rule.id);
     const fileCount = new Set(list.map((h) => h.file)).size;
     const status = opts.ignoreRules.has(rule.id) ? '（已忽略）' : '';
-    out.push('  ' + padCell(rule.id, 28) + padCell(list.length + ' 处 / ' + fileCount + ' 个文件', 18) + rule.title + status);
+    out.push('  ' + padCell(rule.id, 32) + padCell(list.length + ' 处 / ' + fileCount + ' 个文件', 18) + rule.title + status);
   }
   out.push('');
   out.push('合计 ' + result.hits.length + ' 处命中'
@@ -629,25 +650,25 @@ function printHuman(result, opts, exitCode) {
   if (result.noReason.length) {
     out.push('  ' + result.noReason.length + ' 处 m3-audit-ignore 没写原因（已按命中计）:');
     for (const item of result.noReason) {
-      out.push('    ' + padCell(item.rule, 28) + item.file + ':' + item.line + '  ' + item.snippet);
+      out.push('    ' + padCell(item.rule, 32) + item.file + ':' + item.line + '  ' + item.snippet);
     }
   }
   if (result.hits.length) {
     out.push('');
     out.push('明细（rule file:line）:');
     for (const hit of result.hits) {
-      out.push('  ' + padCell(hit.rule, 28) + hit.file + ':' + hit.line + '  ' + hit.snippet);
+      out.push('  ' + padCell(hit.rule, 32) + hit.file + ':' + hit.line + '  ' + hit.snippet);
     }
   }
   out.push('');
   out.push('规范锚点（每条规则凭什么成立）:');
-  for (const rule of RULES) out.push('  ' + padCell(rule.id, 28) + rule.spec);
+  for (const rule of RULES) out.push('  ' + padCell(rule.id, 32) + rule.spec);
   console.log(out.join('\n'));
 }
 
 function printHelp() {
   console.log([
-    'm3-audit — 安卓 M3 规范 / 可访问性门禁（规范钉在 2026-11 的 M3 + material3 1.4.0）',
+    'm3-audit — 安卓 M3 规范 / 可访问性门禁（规范钉在 2026-11 的 M3 + material3 1.5.0）',
     '',
     '用法: node scripts/android/m3-audit.mjs [选项]',
     '',
@@ -754,6 +775,17 @@ const SELF_TEST_FILES = {
     '    )',
     '}',
   ].join('\n'),
+  'fixture/Progress.kt': [
+    'package fixture',
+    '',
+    'fun progressDemo(progress: () -> Float) {',
+    '    CircularProgressIndicator(modifier = Modifier) // <<deprecated-progress-indicator>>',
+    '    LinearProgressIndicator(progress = progress) // <<deprecated-progress-indicator>>',
+    '    LinearWavyProgressIndicator(progress = progress)',
+    '    CircularWavyProgressIndicator(progress = progress)',
+    '    LoadingIndicator(modifier = Modifier)',
+    '}',
+  ].join('\n'),
   'fixture/Palette.kt': [
     'package fixture',
     '',
@@ -827,15 +859,15 @@ async function runSelfTest(opts) {
       out.push('m3-audit 自检（合成样本，逐规则断言命中位置）');
       out.push('');
       for (const c of cases) {
-        out.push('  ' + padCell(c.rule, 28) + padCell(c.actual + ' / ' + c.expected + ' 处', 14) + (c.ok ? 'OK' : 'FAIL'));
+        out.push('  ' + padCell(c.rule, 32) + padCell(c.actual + ' / ' + c.expected + ' 处', 14) + (c.ok ? 'OK' : 'FAIL'));
         for (const miss of c.missing) out.push('      缺: ' + miss);
         for (const extra of c.unexpected) out.push('      多: ' + extra);
       }
       out.push('');
-      out.push('  ' + padCell('行内抑制', 28) + padCell(actualSuppressed.length + ' / ' + suppressed.length + ' 处', 14)
+      out.push('  ' + padCell('行内抑制', 32) + padCell(actualSuppressed.length + ' / ' + suppressed.length + ' 处', 14)
         + (suppressedOk ? 'OK' : 'FAIL'));
       out.push('');
-      out.push('结果: ' + (ok ? '9 条规则全部按预期命中 / 通过' : '自检失败（规则与样本不一致）'));
+      out.push('结果: ' + (ok ? RULES.length + ' 条规则全部按预期命中 / 通过' : '自检失败（规则与样本不一致）'));
       console.log(out.join('\n'));
     }
     return ok ? 0 : 1;
