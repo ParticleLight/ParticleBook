@@ -8,6 +8,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 
@@ -35,6 +37,15 @@ object EpubSearchIndexing {
     /** bookId -> 运行中标记；只用于去重，不放任何索引状态。 */
     private val inFlight = ConcurrentHashMap<Long, Boolean>()
 
+    /**
+     * 串行闸门：一次只跑一本。
+     *
+     * 索引写入是「删旧行 + 写正文 + 写 checkpoint」的整本事务，多本并发时每个事务都要
+     * 抢 SQLite 的写锁；批量导入/书架连点会同时排进几十本，靠 WAL + busy_timeout 兜底
+     * 只会把失败推迟。排队比并发更便宜：索引是后台派生数据，晚几秒不可感知。
+     */
+    private val gate = Semaphore(permits = 1)
+
     fun request(context: Context, bookId: Long, file: File) {
         if (bookId <= 0L) {
             Log.d(TAG, "skip index request for invalid book id " + bookId)
@@ -46,15 +57,17 @@ object EpubSearchIndexing {
         }
         val appContext = context.applicationContext
         scope.launch {
-            try {
-                val indexer = EpubSearchIndexer(LibraryRuntime.searchIndexStore(appContext))
-                Log.i(TAG, "epub index " + bookId + ": " + describe(indexer.index(bookId, file)))
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (error: Throwable) {
-                Log.w(TAG, "epub index failed for book " + bookId + "; reading is unaffected", error)
-            } finally {
-                inFlight.remove(bookId)
+            gate.withPermit {
+                try {
+                    val indexer = EpubSearchIndexer(LibraryRuntime.searchIndexStore(appContext))
+                    Log.i(TAG, "epub index " + bookId + ": " + describe(indexer.index(bookId, file)))
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: Throwable) {
+                    Log.w(TAG, "epub index failed for book " + bookId + "; reading is unaffected", error)
+                } finally {
+                    inFlight.remove(bookId)
+                }
             }
         }
     }
