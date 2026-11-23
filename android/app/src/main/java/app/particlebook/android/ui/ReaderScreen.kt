@@ -52,13 +52,14 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Slider
@@ -208,12 +209,21 @@ fun ReaderScreen(
     onBack: () -> Unit,
     annotationStore: AnnotationStore? = null,
     openStartedAtNanos: Long? = null,
-    /** 全文搜索命中位置；PDF 暂无页级跳转，传 null 即可（EPUB 由 EpubReaderScreen 消费）。 */
+    /**
+     * 全文搜索命中位置：PDF 由 PdfReadingPane 按页落位（见 [initialPdfPage]），
+     * EPUB 由 EpubReaderScreen 按章/块落位。两边都只消费一次：打开期优先于上次阅读位置，
+     * 重试或重组不会把用户拽回命中处。
+     */
     initialLocator: ReaderLocator? = null,
 ) {
     BackHandler(onBack = onBack)
     when (book.format) {
-        BookFormat.Pdf -> PdfReaderScreen(book = book, onBack = onBack, annotationStore = annotationStore)
+        BookFormat.Pdf -> PdfReaderScreen(
+            book = book,
+            onBack = onBack,
+            annotationStore = annotationStore,
+            initialLocator = initialLocator as? ReaderLocator.Pdf,
+        )
         BookFormat.Epub -> EpubReaderScreen(
             book = book,
             onBack = onBack,
@@ -287,6 +297,8 @@ private fun PdfReaderScreen(
     book: Book,
     onBack: () -> Unit,
     annotationStore: AnnotationStore? = null,
+    /** 搜索命中页：打开期优先于上次阅读位置，只消费一次（见 PdfReadingPane 的 pendingJump）。 */
+    initialLocator: ReaderLocator.Pdf? = null,
 ) {
     ImmersiveSystemBars()
     var reloadTick by remember(book.id, book.filePath) { mutableIntStateOf(0) }
@@ -332,6 +344,7 @@ private fun PdfReaderScreen(
                             pageCount = current.pageCount,
                             onBack = onBack,
                             annotationStore = annotationStore,
+                            initialLocator = initialLocator,
                         )
                     }
                 }
@@ -340,6 +353,8 @@ private fun PdfReaderScreen(
     }
 }
 
+/** 打开 PDF 时的等待态：用 material3 1.5.0 统一的 LoadingIndicator（形状变形替代旧圆环）。 */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun PdfLoading() {
     Column(
@@ -347,7 +362,10 @@ private fun PdfLoading() {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        CircularProgressIndicator()
+        LoadingIndicator(
+            modifier = Modifier.size(Spacing.xl),
+            color = MaterialTheme.colorScheme.primary,
+        )
         Spacer(Modifier.height(Spacing.md))
         Text(
             text = "正在打开…",
@@ -397,6 +415,8 @@ private fun PdfReadingPane(
     pageCount: Int,
     onBack: () -> Unit,
     annotationStore: AnnotationStore? = null,
+    /** 全文搜索命中页；页数对不上（页数变了/换了文件）就当没有，交回原有恢复逻辑。 */
+    initialLocator: ReaderLocator.Pdf? = null,
 ) {
     val context = LocalContext.current
     val restoredProgress = remember(book.id) { ReadingProgress.snapshot(book.id) }
@@ -405,9 +425,18 @@ private fun PdfReadingPane(
         restoredProgress?.locatorJson != null &&
             (restoredLocator == null || restoredLocator.page !in 0 until pageCount)
     }
+    // 命中页只属于「这本书的这一次打开」：remember(book.filePath) 存住，首帧布局后置空。
+    // 不能每次重组都拿它当起点，否则用户往下翻会被拽回命中处。
+    var pendingJump by remember(book.filePath) {
+        mutableStateOf(initialLocator?.takeIf { it.page in 0 until pageCount })
+    }
     val startPage = remember(book.id, pageCount) {
-        (restoredLocator?.page ?: ReadingProgress.savedPage(context, book.id) ?: 0)
-            .coerceIn(0, pageCount - 1)
+        initialPdfPage(
+            jump = pendingJump,
+            restored = restoredLocator,
+            savedPage = ReadingProgress.savedPage(context, book.id),
+            pageCount = pageCount,
+        )
     }
     val listState = rememberLazyListState(initialFirstVisibleItemIndex = startPage)
     val view = LocalView.current
@@ -417,7 +446,10 @@ private fun PdfReadingPane(
         onDispose { presenter.close() }
     }
     TrackPdfDrag(listState, pageCount, attempt, presenter)
-    val progressState = remember(book.id) { PdfProgressState(preserveUnrestoredLocator) }
+    // 有命中页时这次打开本身就是一次显式导航：别让「失效的恢复位置」保护拦住跳转后的进度落盘。
+    val progressState = remember(book.id) {
+        PdfProgressState(preserveUnrestoredLocator && pendingJump == null)
+    }
     fun beginProgressNavigation() {
         progressState.navigationStarted(
             if (listState.layoutInfo.visibleItemsInfo.isNotEmpty()) computeCurrentPage(listState, pageCount) else null,
@@ -432,6 +464,7 @@ private fun PdfReadingPane(
     var tocOpen by remember { mutableStateOf(false) }
     var moreMenuOpen by remember { mutableStateOf(false) }
     var detailsOpen by remember { mutableStateOf(false) }
+    var pageJumpOpen by remember { mutableStateOf(false) }
     var bookmark by rememberSaveable(book.id) { mutableStateOf(false) }
     var sliderDragging by remember { mutableStateOf(false) }
     var sliderValue by remember { mutableFloatStateOf(0f) }
@@ -618,6 +651,13 @@ private fun PdfReadingPane(
             if (laidOut) saveProgress(page)
         }
     }
+    // 命中页已经通过 initialFirstVisibleItemIndex 落位，这里只负责「消费掉」：
+    // 首帧布局完成后清空，之后的滚动、重组、换页都不会再把它当起点。
+    LaunchedEffect(listState, book.filePath) {
+        if (pendingJump == null) return@LaunchedEffect
+        snapshotFlow { listState.layoutInfo.visibleItemsInfo.isNotEmpty() }.first { it }
+        pendingJump = null
+    }
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner, book.id, listState, pageCount) {
         val observer = LifecycleEventObserver { _, event ->
@@ -626,8 +666,8 @@ private fun PdfReadingPane(
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
-    LaunchedEffect(chromeVisible, chromeTick, tocOpen, moreMenuOpen, detailsOpen, sliderDragging) {
-        if (chromeVisible && !tocOpen && !moreMenuOpen && !detailsOpen && !sliderDragging) {
+    LaunchedEffect(chromeVisible, chromeTick, tocOpen, moreMenuOpen, detailsOpen, pageJumpOpen, sliderDragging) {
+        if (chromeVisible && !tocOpen && !moreMenuOpen && !detailsOpen && !pageJumpOpen && !sliderDragging) {
             delay(CHROME_AUTO_HIDE_MS)
             chromeVisible = false
         }
@@ -938,6 +978,10 @@ private fun PdfReadingPane(
                         tocOpen = true
                         wakeChrome()
                     },
+                    onOpenPageJump = {
+                        pageJumpOpen = true
+                        wakeChrome()
+                    },
                 )
             }
         }
@@ -1023,6 +1067,20 @@ private fun PdfReadingPane(
             },
         )
     }
+
+    if (pageJumpOpen) {
+        PdfPageJumpDialog(
+            pageCount = pageCount,
+            currentPage = currentPage.coerceIn(0, pageCount - 1),
+            onDismiss = { pageJumpOpen = false },
+            onConfirm = { page ->
+                pageJumpOpen = false
+                // 与底栏 slider 一样是显式页码导航：复用现有进度通道与导航结束钩子
+                // （perf 里也沿用 slider 源，不为一次跳转新增枚举）。
+                jumpToPage(page - 1, PdfNavSource.SLIDER)
+            },
+        )
+    }
 }
 
 @Composable
@@ -1070,6 +1128,8 @@ private fun PdfBottomBar(
     onSliderChange: (Float) -> Unit,
     onSliderFinished: () -> Unit,
     onOpenToc: () -> Unit,
+    /** 点页码（"n / m"）打开「跳到第 N 页」输入框。 */
+    onOpenPageJump: () -> Unit,
 ) {
     ReaderBottomPill {
         IconButton(onClick = onOpenToc) {
@@ -1078,13 +1138,21 @@ private fun PdfBottomBar(
                 contentDescription = "目录",
             )
         }
-        Text(
-            text = (displayPage + 1).toString() + " / " + pageCount,
-            style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.onSurface,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.widthIn(min = 64.dp),
-        )
+        // 页码本身就是跳转入口：48dp 触控高度对齐两侧图标按钮，滚动条与胶囊节奏不变。
+        Box(
+            modifier = Modifier
+                .height(48.dp)
+                .widthIn(min = 64.dp)
+                .clip(MaterialTheme.shapes.small)
+                .clickable(onClickLabel = "跳到指定页", onClick = onOpenPageJump),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = (displayPage + 1).toString() + " / " + pageCount,
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+        }
         if (pageCount > 1) {
             Spacer(Modifier.width(Spacing.xs))
             Slider(
