@@ -64,10 +64,16 @@ import java.time.LocalDate
  * - 触控目标：唯一的按钮是返回，size = [Spacing.minTouchTarget]（48dp）。
  *
  * ## 数字的字体
- * 数字沿用 TypeTokens 里已有的 slot（hero = displaySmall 36sp 衬线，汇总 = titleMedium，
- * 柱标 = labelSmall），不在本文件自造 TextStyle：TypeTokens 目前没有等宽 / tabular 档，
- * 真正的等宽数字需要先在 ui/TypeTokens.kt 增档（本任务 write scope 之外），
- * 所以这里靠「数值不变化时右对齐无意义 + 每格只放一个数」来避免抖动。
+ * 三处会变的数字走 TypeTokens 的数值档（tabular figures，tnum）：hero 主数字 = [AppType.heroNumber]
+ * （displaySmall 36sp 衬线），汇总三宫格 = [AppType.summaryNumber]（titleMedium），
+ * 柱顶 = [AppType.tickNumber]（labelSmall）。这三档都是「源 slot + tnum」派生，
+ * 字号/行高/字重/字距与原来的 typography slot 逐项相同，本页只是把数字换成等宽字形：
+ * 9 → 10、45 → 100 这类变化不再改行宽，柱顶居中数字与汇总格不再左右抖。
+ * 不在本文件自造 TextStyle，也不换字号——换字号会重排柱状图列宽。
+ *
+ * 边界：hero 副行「今天 X · 连续 N 天」与「统计范围为最近 N 天」是整句文案（数字夹在句子里，
+ * 不是可对齐的计数列），继续用 bodyMedium / labelSmall 的比例数字；它们变化频率低，
+ * 且换成等宽要另立 body 级数值档，收益不抵多一档维护成本。
  *
  * ## 时区
  * 页面不做任何日期推算：`ReadingStats.days` 已经由数据层按系统时区切好自然日，
@@ -282,7 +288,7 @@ private fun StatsHeroCard(stats: ReadingStats, modifier: Modifier = Modifier) {
             Spacer(Modifier.height(Spacing.xs))
             Text(
                 text = formatDurationOrZero(weekMillis),
-                style = MaterialTheme.typography.displaySmall,
+                style = AppType.heroNumber,
             )
             Spacer(Modifier.height(Spacing.xs))
             Text(
@@ -349,7 +355,7 @@ private fun WeekBarChart(days: List<ReadingDay>, modifier: Modifier = Modifier) 
                 days.forEachIndexed { index, day ->
                     Text(
                         text = chartMinuteLabel(day.millis),
-                        style = MaterialTheme.typography.labelSmall,
+                        style = AppType.tickNumber,
                         color = if (index == days.lastIndex) {
                             MaterialTheme.colorScheme.onSurface
                         } else {
@@ -472,7 +478,7 @@ private fun SummaryCell(value: String, label: String, modifier: Modifier = Modif
     ) {
         Text(
             text = value,
-            style = MaterialTheme.typography.titleMedium,
+            style = AppType.summaryNumber,
             color = MaterialTheme.colorScheme.onSurface,
             textAlign = TextAlign.Center,
         )

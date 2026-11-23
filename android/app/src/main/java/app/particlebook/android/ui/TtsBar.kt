@@ -47,6 +47,9 @@ internal val TtsRates = listOf(0.8f, 1.0f, 1.2f, 1.5f)
  * - 图标一律带随状态变化的 contentDescription（播放/暂停/上一句/下一句/停止/语速），
  *   语速按钮额外用 semantics 播报「语速 x，点按切换」。
  * - 禁用色按规范取 onSurface.copy(alpha = 0.38f)（当前回调恒可用，但颜色契约先立好）。
+ * - 会变的数字走 TypeTokens 的数值档：进度「本页 n / m」用 [AppType.compactNumber]（labelMedium + tnum），
+ *   语速「1.2x」用 [AppType.inlineNumber]（labelLarge + tnum，与 TextButton 默认文字档同高）。
+ *   两档都是「源 slot + tnum」派生，尺寸与原来逐项相同，只是数字等宽，位宽变化不再推挤同一行。
  *
  * 无状态组件：所有动作都由上层回调驱动。仓内没有 @Preview（全仓没有 Compose 预览），
  * 拆成这样是为了不拉起 TTS 引擎也能断言按钮与进度文案。
@@ -120,7 +123,7 @@ internal fun TtsBar(
             }
             Text(
                 text = progressLabel,
-                style = MaterialTheme.typography.labelMedium,
+                style = AppType.compactNumber,
                 color = scheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -138,7 +141,8 @@ internal fun TtsBar(
                 contentPadding = PaddingValues(horizontal = Spacing.xs, vertical = Spacing.xxs),
                 colors = textButtonColors,
             ) {
-                Text(rateLabel)
+                // 语速是循环切换的会变数字，必须等宽：1x → 1.2x → 1.5x 时按钮宽度不能跟着跳。
+                Text(rateLabel, style = AppType.inlineNumber)
             }
             IconButton(
                 onClick = onStop,
