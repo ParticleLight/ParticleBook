@@ -63,6 +63,12 @@ internal class TestLibraryRepository : LibraryRepository {
 
     override fun deleteProgress(bookIds: Set<Long>): Int = bookIds.count { progressMap.remove(it) != null }
 
+    override fun deleteAllProgress(): Int {
+        val removed = progressMap.size
+        progressMap.clear()
+        return removed
+    }
+
     private var progressBackfillMarker = false
 
     override fun progressBackfillComplete(): Boolean = progressBackfillMarker
@@ -130,6 +136,12 @@ internal class TestLibraryRepository : LibraryRepository {
         sessionList
             .filter { it.endedAt >= sinceMillis }
             .sortedWith(compareBy({ it.startedAt }, { it.id }))
+
+    override fun deleteAllReadingSessions(): Int {
+        val removed = sessionList.size
+        sessionList.clear()
+        return removed
+    }
 
     override fun saveSearchDocument(bookId: Long, docType: String, locator: String, rawText: String) {
         require(bookMap.containsKey(bookId)) { "book 不存在: " + bookId }

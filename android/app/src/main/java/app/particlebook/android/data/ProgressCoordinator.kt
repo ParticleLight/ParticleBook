@@ -26,6 +26,9 @@ class ProgressCoordinator(
     private sealed interface Command {
         data class Put(val snapshot: ProgressSnapshot) : Command
         data class Delete(val ids: Set<Long>) : Command
+
+        /** 整表清空；排在它之前的 Put 会先落盘，再由它一并删掉。 */
+        data class ClearAll(val done: CompletableDeferred<Boolean>) : Command
         data class Flush(val done: CompletableDeferred<Boolean>) : Command
     }
 
@@ -38,7 +41,11 @@ class ProgressCoordinator(
     private var aliases = bookIds?.entries?.groupBy({ it.value }, { it.key })
     private var closing: CompletableDeferred<Boolean>? = null
     private val channel = Channel<Command>(Channel.UNLIMITED, onUndeliveredElement = {
-        if (it is Command.Flush) it.done.complete(false)
+        when (it) {
+            is Command.Flush -> it.done.complete(false)
+            is Command.ClearAll -> it.done.complete(false)
+            is Command.Put, is Command.Delete -> Unit
+        }
     })
     val snapshots: StateFlow<Map<Long, ProgressSnapshot>> = snapshotSink.asStateFlow()
 
@@ -89,6 +96,41 @@ class ProgressCoordinator(
     /** Clear progress but let a subsequently accepted write for this book win. */
     fun enqueueDelete(bookIds: Set<Long>): Boolean = synchronized(lock) {
         delete(bookIds.mapNotNull(::databaseId).toSet())
+    }
+
+    /**
+     * 全清所有书的进度（「清除阅读记录」），并作废排队中的写入。
+     *
+     * 与 [forgetBooks] / [enqueueDelete] 的分工：那两个是「某几本书从书架移除」的定向删除，只认传入
+     * 的 id；这里是用户主动的**全清**，与书架无关，也不动 retired。先入队的 Put 仍会照常落盘，
+     * 但清空命令排在它们之后，所以最终库里一行不剩；清完之后新的 Put 可以照常重建进度。
+     *
+     * 内存快照在发命令的同时就归零（界面立刻清空）；落库失败时把清除前的快照放回去，
+     * 不让一次失败的清除把用户看得见的进度也弄丢。
+     *
+     * @return true 表示库里已经空；写者已关闭、命令没送达或落库失败返回 false。
+     */
+    suspend fun clearAll(): Boolean {
+        val done = CompletableDeferred<Boolean>()
+        val previous = synchronized(lock) {
+            if (closing != null || !channel.trySend(Command.ClearAll(done)).isSuccess) return false
+            val current = snapshotSink.value
+            rows.clear()
+            publishAll()
+            current
+        }
+        val cleared = done.await()
+        if (!cleared) {
+            synchronized(lock) {
+                // 恢复清除前的快照，但不覆盖失败窗口里新写入的位置（那些更新、更真）。
+                previous.forEach { (uiId, snapshot) ->
+                    val dbId = databaseId(uiId) ?: return@forEach
+                    rows.putIfAbsent(dbId, snapshot.copy(bookId = dbId))
+                }
+                publishAll()
+            }
+        }
+        return cleared
     }
 
     /** The committed shelf can be newer than the last initialize() catalog refresh. */
@@ -178,6 +220,16 @@ class ProgressCoordinator(
             when (command) {
                 is Command.Put -> applyPut(command.snapshot)
                 is Command.Delete -> applyDelete(command.ids)
+                is Command.ClearAll -> {
+                    var cleared = false
+                    try {
+                        cleared = attempt { store.clearAll() }
+                        // 清空成功后没有可重试的旧意图：那些行已经不存在了。
+                        if (cleared) failed.clear()
+                    } finally {
+                        command.done.complete(cleared)
+                    }
+                }
                 is Command.Flush -> {
                     var success = false
                     try {

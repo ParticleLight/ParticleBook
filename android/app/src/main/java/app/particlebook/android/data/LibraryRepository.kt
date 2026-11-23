@@ -21,6 +21,16 @@ interface LibraryRepository {
     fun progress(bookId: Long): ProgressRow?
     fun progressAll(): List<ProgressRow>
     fun deleteProgress(bookIds: Set<Long>): Int
+
+    /**
+     * 删除全部进度行，返回删除行数（「清除阅读记录」的全清语义）。
+     *
+     * 只删行，**不碰** `progress.prefs_backfilled.v1` 回填标记：标记保真必须和删除处在同一个事务里，
+     * 由 [SqliteProgressStore.clearAll] 统一负责。直接调本方法而不同时写标记，会让旧 prefs 在下次
+     * 冷启被 [ProgressBootstrap.load] 重新灌回来。
+     */
+    fun deleteAllProgress(): Int
+
     fun progressBackfillComplete(): Boolean
     /** Must be committed in the same transaction as the legacy progress rows. */
     fun markProgressBackfillComplete()
@@ -45,6 +55,9 @@ interface LibraryRepository {
      * 同步执行，调用方负责 IO dispatcher（统计页只读一次近 60 天）。
      */
     fun readingSessionsSince(sinceMillis: Long): List<ReadingSessionRow>
+
+    /** 阅读统计：删除全部会话行，返回删除行数（「清除阅读记录」）。同步执行，调用方负责 IO dispatcher。 */
+    fun deleteAllReadingSessions(): Int
 
     fun saveSearchDocument(bookId: Long, docType: String, locator: String, rawText: String)
     fun saveSearchDocuments(bookId: Long, documents: List<SearchDocumentInput>) {
@@ -109,6 +122,8 @@ class SqliteLibraryRepository(private val db: SQLiteDatabase) : LibraryRepositor
 
     override fun deleteProgress(bookIds: Set<Long>): Int = progressDao.delete(bookIds)
 
+    override fun deleteAllProgress(): Int = progressDao.deleteAll()
+
     override fun progressBackfillComplete(): Boolean = progressDao.backfillComplete()
 
     override fun markProgressBackfillComplete() = progressDao.markBackfillComplete()
@@ -139,6 +154,8 @@ class SqliteLibraryRepository(private val db: SQLiteDatabase) : LibraryRepositor
 
     override fun readingSessionsSince(sinceMillis: Long): List<ReadingSessionRow> =
         readingSessionDao.since(sinceMillis)
+
+    override fun deleteAllReadingSessions(): Int = readingSessionDao.deleteAll()
 
     override fun saveSearchDocument(bookId: Long, docType: String, locator: String, rawText: String) {
         searchDao.replaceDocument(bookId, docType, locator, rawText, SearchTokenizer.indexText(rawText))

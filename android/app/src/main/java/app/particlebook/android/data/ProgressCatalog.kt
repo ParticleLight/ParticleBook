@@ -73,6 +73,31 @@ internal class ProgressCatalog(
         }
     }
 
+    /**
+     * 全清所有书的进度（「清除阅读记录」），返回是否成功。
+     *
+     * 与 [clear] 的分工：[clear] 是书架提交后的**定向**删除——按 stable_key 解析别名、只删被移除的
+     * 书、还要和 pendingRemovals / retired 对齐；这里是用户主动的**全清**，不关心书架、不动 retired。
+     *
+     * 为什么走写者队列而不是直接开事务：进度写入是单写者模型，只有排在队列里才能保证
+     * 「先入队的 Put 先落盘、清空最后执行」，最终库里一行不剩。写者还没建（首次 [initialize]
+     * 之前）时没有排队中的数据，用一个临时 [SqliteProgressStore] 做同一条事务即可。
+     *
+     * 失败时（打不开库、DELETE 抛错）异常向上抛；若有写者，[ProgressCoordinator.clearAll] 会把
+     * 内存快照恢复成清除前的样子。
+     */
+    suspend fun clearAll(repository: () -> LibraryRepository): Boolean = withContext(NonCancellable + io) {
+        mutex.withLock {
+            val writer = coordinator
+            if (writer != null) {
+                writer.clearAll()
+            } else {
+                SqliteProgressStore(repository()).clearAll()
+                true
+            }
+        }
+    }
+
     private suspend fun applyRemovals(repo: LibraryRepository, remaining: List<BookRow>, writer: ProgressCoordinator?) {
         if (pendingRemovals.isEmpty()) return
         val deleted = pendingRemovals.keys.toSet()

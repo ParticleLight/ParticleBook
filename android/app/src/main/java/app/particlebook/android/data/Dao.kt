@@ -27,6 +27,15 @@ interface ProgressDao {
     fun get(bookId: Long): ProgressRow?
     fun all(): List<ProgressRow>
     fun delete(bookIds: Set<Long>): Int
+
+    /**
+     * 删除全部进度行，返回删除行数（「清除阅读记录」的全清语义）。
+     *
+     * 只删行，不碰 `progress.prefs_backfilled.v1` 标记：「标记保持为真」由
+     * [SqliteProgressStore.clearAll] 的同一事务负责，理由见那里的注释。
+     */
+    fun deleteAll(): Int
+
     fun backfillComplete(): Boolean
     fun markBackfillComplete()
     fun save(row: ProgressRow)
@@ -62,8 +71,9 @@ interface DownloadDao {
 /**
  * reading_sessions 的追加与按时间窗读取（阅读统计，PB 统计页）。
  *
- * 只追加：一段会话落盘后就是不可变事实，没有 update/delete——回翻由新的 pages_delta 表达，
- * 而不是改写旧行。级联删除交给 books 的外键（ON DELETE CASCADE）。
+ * 只有一种常规写：追加。一段会话落盘后就是不可变事实，没有 update、没有按行 delete——回翻由新的
+ * pages_delta 表达，而不是改写旧行。级联删除交给 books 的外键（ON DELETE CASCADE）；
+ * 唯一的整体删除是用户主动的「清除阅读记录」（[deleteAll]）。
  */
 interface ReadingSessionDao {
     /** 追加一行，返回自增 id。 */
@@ -71,6 +81,9 @@ interface ReadingSessionDao {
 
     /** ended_at >= sinceMillis 的会话，按 started_at、id 升序，供聚合器按时间顺序消费。 */
     fun since(sinceMillis: Long): List<ReadingSessionRow>
+
+    /** 删除全部会话行，返回删除行数；单条 DELETE 本身原子。 */
+    fun deleteAll(): Int
 }
 
 interface SearchDao {
@@ -271,6 +284,9 @@ class SqliteProgressDao(private val db: SQLiteDatabase) : ProgressDao {
             db.endTransaction()
         }
     }
+
+    /** 整表清空：单条 DELETE 就是原子的，事务边界由调用方（[SqliteProgressStore.clearAll]）决定。 */
+    override fun deleteAll(): Int = db.delete(LibrarySchema.TABLE_PROGRESS, null, null)
 
     override fun backfillComplete(): Boolean = db.rawQuery(
         "SELECT value FROM settings WHERE key = ?", arrayOf(LEGACY_BACKFILL_KEY),
@@ -501,6 +517,8 @@ class SqliteReadingSessionDao(private val db: SQLiteDatabase) : ReadingSessionDa
             while (cursor.moveToNext()) add(mapSession(cursor))
         }
     }
+
+    override fun deleteAll(): Int = db.delete(LibrarySchema.TABLE_READING_SESSIONS, null, null)
 
     private fun mapSession(cursor: Cursor): ReadingSessionRow = ReadingSessionRow(
         id = cursor.long("id"),

@@ -60,6 +60,21 @@ interface ProgressStore {
     suspend fun saveAll(snapshots: Collection<ProgressSnapshot>)
     suspend fun delete(bookIds: Set<Long>)
     suspend fun flush()
+
+    /**
+     * 删除全部进度行，返回删除行数（「清除阅读记录」的全清语义，见 [ProgressCatalog.clearAll]）。
+     *
+     * 与 [delete] 的区别：[delete] 是按 id 的定向删除；这里是整表清空，且实现方必须保证
+     * 「回填标记仍为真」，否则用户清空后重启会被旧 prefs 灌回来。
+     * 默认实现按 [snapshots] 的键逐批删，只给不落 SQLite 的测试替身兜底；
+     * 返回值按「快照条数」估算（替身看不到真实受影响行数），生产实现必须覆写成 DELETE 的返回值。
+     */
+    suspend fun clearAll(): Int {
+        val ids = snapshots().keys
+        if (ids.isEmpty()) return 0
+        delete(ids)
+        return ids.size
+    }
 }
 
 /** SQLite 缓存只记已持久化结果；UI 的乐观状态由 ProgressCoordinator 单独管理。 */
@@ -139,5 +154,28 @@ class SqliteProgressStore(
 
     override suspend fun flush() {
         writeMutex.withLock { }
+    }
+
+    /**
+     * 全清：一次事务里删掉 progress 的全部行，并把 `progress.prefs_backfilled.v1` 标记保持为真。
+     *
+     * 标记为什么必须为真：冷启时 [ProgressBootstrap.load] 只在标记为假时才读旧 `pb_reading`
+     * 并把页码回填进 progress（ProgressBackfill.kt），`LegacyMigrationRunner` 也只在标记为假时
+     * 才把 prefs 里的页码放进迁移计划。清掉标记等于允许旧数据把用户刚清空的进度原样灌回来。
+     *
+     * 标记若还没写过（首次清除早于首次回填），在同一事务里补写成真 —— 语义等价于
+     * 「旧 prefs 已合并，合并结果为空」。删除和标记必须同事务：否则删完崩在写标记之前，
+     * 下次启动照样会被回填。
+     *
+     * [hydrated] 不重置：清空后库就是空的，再 hydrate 也只是读到空表。
+     */
+    override suspend fun clearAll(): Int = writeMutex.withLock {
+        val removed = repository.transaction { tx ->
+            val count = tx.deleteAllProgress()
+            if (!tx.progressBackfillComplete()) tx.markProgressBackfillComplete()
+            count
+        }
+        cache = emptyMap()
+        removed
     }
 }
