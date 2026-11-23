@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
@@ -45,7 +46,6 @@ import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.BottomAppBar
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationRail
@@ -83,6 +83,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.particlebook.android.data.LibraryRuntime
+import app.particlebook.android.reader.ReaderLocator
 import app.particlebook.android.ui.data.Book
 import app.particlebook.android.ui.data.BookFormat
 import app.particlebook.android.ui.data.ReadingProgress
@@ -251,6 +252,10 @@ fun ParticleBookApp() {
     var progressLoadFailed by remember { mutableStateOf(false) }
     var progressRetry by remember { mutableIntStateOf(0) }
     var readerGeneration by remember { mutableLongStateOf(0L) }
+    // 全文搜索命中位置：随本次打开一起交给阅读器，关闭阅读器即清空（重开同一本书不回到命中处）。
+    var pendingJumpLocator by remember { mutableStateOf<Pair<Long, String>?>(null) }
+    // 全文搜索覆盖层：压在 tab 之上、阅读器之下；命中后随开书一起关闭。
+    var searchOpen by rememberSaveable { mutableStateOf(false) }
     val defaultSort = LibrarySort.entries.firstOrNull { it.name == defaultSortName }
         ?: LibrarySort.RecentRead
 
@@ -267,6 +272,10 @@ fun ParticleBookApp() {
     }
     // P1.5 发现面：数据源由 discover 包提供（zlib 落地前是“接入中”占位，不造假数据）。
     val discoverRepository = remember(appContext) { DiscoverRepositoryProvider.create(appContext) }
+    // 跨书全文搜索：查的是 search_documents（书被打开过一次后由 EpubSearchIndexing 建索引）。
+    val searchViewModel = remember(scope, appContext) {
+        SearchViewModel(scope, { LibraryRuntime.repository(appContext) })
+    }
     LaunchedEffect(appContext) { ZlibDownloadManager.init(appContext) }
     // P1.5 §11.7：二级页返回栈。空 = 主 tab 外壳；push/pop 只增删栈顶，
     // 栈内页面全部保持组合（见下方渲染），因此返回不重建父页、滚动位置/已加载页/展开态都不丢。
@@ -346,6 +355,7 @@ fun ParticleBookApp() {
 
     fun closeReader() {
         epubOpenTiming = null
+        pendingJumpLocator = null
         openBookId = -1L
     }
 
@@ -460,6 +470,7 @@ fun ParticleBookApp() {
                         selectedIds = emptySet()
                     },
                     onImportClick = launchImport,
+                    onCrossBookSearch = { searchOpen = true },
                     onRetry = { scope.launch { store.reload() } },
                     defaultSort = defaultSort,
                     progressEpoch = progressEpoch,
@@ -662,6 +673,45 @@ fun ParticleBookApp() {
             }
         }
 
+        // 全文搜索：全屏覆盖层。命中后把 locator 交给阅读器（pendingJumpLocator），
+        // 搜索层自身不持有业务状态，关闭即清词，重开不会看到上一轮的残留结果。
+        if (searchOpen) {
+            val closeSearch: () -> Unit = {
+                searchOpen = false
+                searchViewModel.updateQuery("")
+                searchViewModel.dispose()
+            }
+            BackHandler(onBack = closeSearch)
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.background)
+                    .pointerInput(Unit) {
+                        awaitPointerEventScope {
+                            while (true) {
+                                awaitPointerEvent()
+                            }
+                        }
+                    },
+            ) {
+                SearchScreen(
+                    state = searchViewModel.state,
+                    onQueryChange = searchViewModel::updateQuery,
+                    onBack = closeSearch,
+                    onOpenHit = { hit ->
+                        val target = books.firstOrNull { it.id == hit.bookId }
+                        if (target == null) {
+                            scope.launch { snackbarHostState.showSnackbar("这本书已经不在书架里") }
+                        } else {
+                            pendingJumpLocator = target.id to hit.locator
+                            closeSearch()
+                            openReader(target, fromBookClick = false)
+                        }
+                    },
+                )
+            }
+        }
+
         // 阅读器：全屏覆盖层（主外壳 + 返回栈保持组合）。用 AnimatedContent 的 target 值兜住
         // 退出动画期间的最后一本书，避免退回书架时内容闪空。
         AnimatedContent(
@@ -705,6 +755,9 @@ fun ParticleBookApp() {
                         ReaderScreen(
                             book = readingBook,
                             annotationStore = annotationStore,
+                            initialLocator = pendingJumpLocator
+                                ?.takeIf { it.first == readingBook.id }
+                                ?.let { ReaderLocator.decode(it.second) },
                             openStartedAtNanos = epubOpenTiming?.takeIf { it.bookId == readingBook.id }?.startedAtNanos,
                             onBack = {
                                 val closingGeneration = readerGeneration
@@ -1027,14 +1080,30 @@ private fun NavCapsule(
     }
 }
 
-/** 多选底栏：书柜/更多是 P1 占位（禁用），删除是主操作。 */
+/**
+ * 多选底栏，按 2026-11 的 docked toolbar 形态实现：baseline BottomAppBar 已废弃
+ * （docs/android-port/m3/README.md §4），这里用 Surface + Row 保留同样的容器色调、
+ * 最小触控高度与左右 16dp 内边距；窗口 insets 仍由外层 Scaffold 统一消费。
+ * 书柜/更多是 P1 占位（禁用），删除是主操作 —— 放在行尾，远离左侧拇指起点。
+ */
 @Composable
 private fun SelectionBar(onDelete: () -> Unit) {
-    BottomAppBar {
-        TextButton(onClick = {}, enabled = false) { Text("加入书柜") }
-        TextButton(onClick = {}, enabled = false) { Text("更多") }
-        TextButton(onClick = onDelete) {
-            Text("删除", color = MaterialTheme.colorScheme.error)
+    Surface(color = MaterialTheme.colorScheme.surfaceContainer) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = Spacing.minTouchTarget)
+                .padding(horizontal = Spacing.md),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Row {
+                TextButton(onClick = {}, enabled = false) { Text("加入书柜") }
+                TextButton(onClick = {}, enabled = false) { Text("更多") }
+            }
+            TextButton(onClick = onDelete) {
+                Text("删除", color = MaterialTheme.colorScheme.error)
+            }
         }
     }
 }

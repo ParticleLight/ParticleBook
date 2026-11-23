@@ -208,6 +208,8 @@ fun ReaderScreen(
     onBack: () -> Unit,
     annotationStore: AnnotationStore? = null,
     openStartedAtNanos: Long? = null,
+    /** 全文搜索命中位置；PDF 暂无页级跳转，传 null 即可（EPUB 由 EpubReaderScreen 消费）。 */
+    initialLocator: ReaderLocator? = null,
 ) {
     BackHandler(onBack = onBack)
     when (book.format) {
@@ -217,6 +219,7 @@ fun ReaderScreen(
             onBack = onBack,
             annotationStore = annotationStore,
             openStartedAtNanos = openStartedAtNanos,
+            initialLocator = initialLocator,
         )
         BookFormat.Unsupported -> UnsupportedReaderScreen(book = book, onBack = onBack)
     }

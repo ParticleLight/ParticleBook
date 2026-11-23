@@ -71,6 +71,7 @@ import app.particlebook.android.reader.epub.EpubSelection
 import app.particlebook.android.reader.epub.EpubTocTarget
 import app.particlebook.android.reader.epub.layout.EpubChapterLayout
 import app.particlebook.android.reader.epub.layout.EpubLayoutConfig
+import app.particlebook.android.reader.search.EpubSearchIndexing
 import app.particlebook.android.reader.epub.layout.StaticLayoutBlockMeasurer
 import app.particlebook.android.reader.epub.parser.EpubArchive
 import app.particlebook.android.reader.epub.perf.EpubPerfEvent
@@ -165,6 +166,11 @@ fun EpubReaderScreen(
     onBack: () -> Unit,
     annotationStore: AnnotationStore? = null,
     openStartedAtNanos: Long? = null,
+    /**
+     * 跨书全文搜索的命中位置。只消费一次：打开期优先于上次阅读位置，重试/重排不会把用户拽回命中处。
+     * 跨章命中由 ChapterRequest 带 locator 交给 EpubContent，落位后再反算页号。
+     */
+    initialLocator: ReaderLocator? = null,
 ) {
     ImmersiveSystemBars()
     val density = LocalDensity.current
@@ -190,6 +196,8 @@ fun EpubReaderScreen(
     var tocOpen by remember { mutableStateOf(false) }
     var selectedRange by remember { mutableStateOf<EpubSelectionRange?>(null) }
     var chapterRequest by remember(book.filePath) { mutableStateOf<ChapterRequest?>(null) }
+    // 搜索命中跳转只属于当前这本书的这次打开：换书重新 remember，消费后置空。
+    var pendingJump by remember(book.filePath) { mutableStateOf(initialLocator as? ReaderLocator.Epub) }
     var requestVersion by remember(book.filePath) { mutableIntStateOf(0) }
     var progressState by remember(book.filePath, book.id) { mutableStateOf(EpubProgressState()) }
     var annotations by remember(book.filePath) { mutableStateOf<List<ReaderAnnotation>>(emptyList()) }
@@ -303,11 +311,18 @@ fun EpubReaderScreen(
             }
             controller = opened.controller
             archive = opened.archive
-            chapterIndex = opened.progress.chapterIndex
+            // 搜索命中优先于上次阅读位置；命中章节不在当前 spine（书换过版本）时静默退回原进度。
+            val jump = pendingJump?.takeIf { opened.controller.chapterIndexForHref(it.chapterHref) != null }
+            pendingJump = null
+            chapterIndex = jump?.let { opened.controller.chapterIndexForHref(it.chapterHref) }
+                ?: opened.progress.chapterIndex
             chapterLayout = null
             pageIndex = 0
             progressState = opened.progress.state
-            if (opened.progress.locator != null || opened.progress.page != null) {
+            if (jump != null) {
+                chapterRequest = ChapterRequest(chapterIndex = chapterIndex, page = 0, locator = jump)
+                requestVersion += 1
+            } else if (opened.progress.locator != null || opened.progress.page != null) {
                 chapterRequest = ChapterRequest(
                     chapterIndex = opened.progress.chapterIndex,
                     page = opened.progress.page ?: 0,
@@ -316,6 +331,8 @@ fun EpubReaderScreen(
                 requestVersion += 1
             }
             openState = EpubOpenState.Ready
+            // 跨书全文索引：打开即后台建/更新，失败只记日志（搜索页据此说明「这本书还没索引」）。
+            EpubSearchIndexing.request(context, book.id, File(book.filePath))
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (throwable: Throwable) {

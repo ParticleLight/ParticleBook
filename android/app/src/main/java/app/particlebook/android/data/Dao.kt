@@ -69,6 +69,29 @@ interface SearchDao {
             replaceDocument(bookId, document.docType, document.locator, document.rawText, document.indexedText)
         }
     }
+
+    /**
+     * 删掉一本书某 docType 的全部文档，供全书重建前清场。
+     *
+     * 刻意不在这里开事务：调用方（[SearchIndexStore.replaceIndex]）要把「删旧 + 插新 + checkpoint」
+     * 合成一个事务，DAO 再嵌套事务会变成保存点语义，回滚边界不再由调用方独占。
+     */
+    fun deleteBookDocuments(bookId: Long, docType: String): Int
+}
+
+/**
+ * index_state 的读写（书级索引 checkpoint）。
+ *
+ * 表是通用 key/value，键格式由 [SearchIndexKeys] 统一；这里只做行映射，
+ * 不理解 value 的内容，避免把 EPUB 语义沉到 DAO 层。
+ */
+interface IndexStateDao {
+    fun get(key: String): IndexStateRow?
+
+    fun put(row: IndexStateRow)
+
+    /** 删掉一本书所有 docType 的 checkpoint；返回删除行数。 */
+    fun deleteForBook(bookId: Long): Int
 }
 
 class SqliteBookDao(private val db: SQLiteDatabase) : BookDao {
@@ -475,6 +498,12 @@ class SqliteSearchDao(private val db: SQLiteDatabase) : SearchDao {
         }
     }
 
+    override fun deleteBookDocuments(bookId: Long, docType: String): Int = db.delete(
+        LibrarySchema.TABLE_SEARCH_DOCUMENTS,
+        "book_id = ? AND doc_type = ?",
+        arrayOf(bookId.toString(), docType),
+    )
+
     override fun search(matchExpression: String, limit: Int): List<SearchHit> = db.rawQuery(
         "SELECT d.book_id, d.doc_type, d.locator, d.raw_text " +
             "FROM search_fts f JOIN search_documents d ON d.id = f.rowid " +
@@ -495,6 +524,42 @@ class SqliteSearchDao(private val db: SQLiteDatabase) : SearchDao {
             }
         }
     }
+}
+
+class SqliteIndexStateDao(private val db: SQLiteDatabase) : IndexStateDao {
+
+    override fun get(key: String): IndexStateRow? = db.rawQuery(
+        "SELECT key, value, updated_at FROM index_state WHERE key = ?",
+        arrayOf(key),
+    ).use { cursor ->
+        if (!cursor.moveToFirst()) {
+            null
+        } else {
+            IndexStateRow(
+                key = cursor.string("key").orEmpty(),
+                value = cursor.string("value").orEmpty(),
+                updatedAt = cursor.long("updated_at"),
+            )
+        }
+    }
+
+    override fun put(row: IndexStateRow) {
+        val values = ContentValues().apply {
+            put("key", row.key)
+            put("value", row.value)
+            put("updated_at", row.updatedAt)
+        }
+        // key 是主键；REPLACE 让「同一本书重新索引」幂等覆盖，而不是撞约束。
+        check(db.insertWithOnConflict(LibrarySchema.TABLE_INDEX_STATE, null, values, SQLiteDatabase.CONFLICT_REPLACE) >= 0) {
+            "index_state write failed: " + row.key
+        }
+    }
+
+    override fun deleteForBook(bookId: Long): Int = db.delete(
+        LibrarySchema.TABLE_INDEX_STATE,
+        "key LIKE ?",
+        arrayOf(SearchIndexKeys.bookCheckpointPattern(bookId)),
+    )
 }
 
 private fun ContentValues.putLongOrNull(key: String, value: Long?) {

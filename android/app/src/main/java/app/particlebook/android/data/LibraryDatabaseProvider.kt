@@ -25,13 +25,25 @@ object LibraryDatabaseProvider {
 
     /** 打开数据库并返回单例仓库；重复调用返回同一实例。 */
     fun initialize(context: Context): LibraryRepository = synchronized(lock) {
-        repository?.let { return@synchronized it }
-        val helper = LibraryDatabase(context.applicationContext)
+        openLocked(context.applicationContext)
+    }
+
+    /**
+     * 跨书全文索引的写入端口：与书架/标注共用同一连接和单例，打开成本仍只有一次。
+     * 返回类型收窄到 [SearchIndexStore]，索引器因此看不到无关的写方法。
+     */
+    fun searchIndexStore(context: Context): SearchIndexStore = synchronized(lock) {
+        openLocked(context.applicationContext)
+    }
+
+    private fun openLocked(appContext: Context): SqliteLibraryRepository {
+        repository?.let { return it }
+        val helper = LibraryDatabase(appContext)
         try {
             val repo = helper.repository()
             database = helper
             repository = repo
-            repo
+            return repo
         } catch (error: Throwable) {
             helper.close()
             throw error

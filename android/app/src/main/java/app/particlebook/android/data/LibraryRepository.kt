@@ -47,14 +47,20 @@ interface LibraryRepository {
     fun close()
 }
 
-/** framework SQLite 生产实现；schema 由 [LibraryDatabase] 建立。 */
-class SqliteLibraryRepository(private val db: SQLiteDatabase) : LibraryRepository {
+/**
+ * framework SQLite 生产实现；schema 由 [LibraryDatabase] 建立。
+ *
+ * 同时实现 [SearchIndexStore]：跨书索引的写入必须和书架/标注共用一个连接与事务域，
+ * 否则「删旧-插新-checkpoint」会被拆到两个连接上，回滚不再原子。
+ */
+class SqliteLibraryRepository(private val db: SQLiteDatabase) : LibraryRepository, SearchIndexStore {
     private val bookDao: BookDao = SqliteBookDao(db)
     private val tagDao: TagDao = SqliteTagDao(db)
     private val progressDao: ProgressDao = SqliteProgressDao(db)
     private val annotationDao: AnnotationDao = SqliteAnnotationDao(db)
     private val downloadDao: DownloadDao = SqliteDownloadDao(db)
     private val searchDao: SearchDao = SqliteSearchDao(db)
+    private val indexStateDao: IndexStateDao = SqliteIndexStateDao(db)
 
     override fun bookCount(): Int = bookDao.count()
 
@@ -64,7 +70,21 @@ class SqliteLibraryRepository(private val db: SQLiteDatabase) : LibraryRepositor
 
     override fun saveBook(book: BookRow): Long = bookDao.save(book)
 
-    override fun deleteBook(bookId: Long): Boolean = bookDao.delete(bookId) > 0
+    /**
+     * 删书：search_documents 靠 FK ON DELETE CASCADE 清掉，但 index_state 是通用 key/value、
+     * 没有外键，必须在同一事务里显式清 checkpoint，避免「书没了 checkpoint 还在」。
+     */
+    override fun deleteBook(bookId: Long): Boolean {
+        db.beginTransaction()
+        return try {
+            val removed = bookDao.delete(bookId) > 0
+            indexStateDao.deleteForBook(bookId)
+            db.setTransactionSuccessful()
+            removed
+        } finally {
+            db.endTransaction()
+        }
+    }
 
     override fun tagsForBook(bookId: Long): List<String> = tagDao.tagsForBook(bookId)
 
@@ -125,6 +145,46 @@ class SqliteLibraryRepository(private val db: SQLiteDatabase) : LibraryRepositor
     override fun search(query: String, limit: Int): List<SearchHit> {
         val match = SearchTokenizer.ftsMatch(query) ?: return emptyList()
         return searchDao.search(match, limit)
+    }
+
+    // ---------------------------------------------------------------------
+    // SearchIndexStore：跨书全文索引的原子写入
+    // ---------------------------------------------------------------------
+
+    override fun indexState(key: String): IndexStateRow? = indexStateDao.get(key)
+
+    override fun putIndexState(rows: List<IndexStateRow>) {
+        if (rows.isEmpty()) return
+        db.beginTransaction()
+        try {
+            rows.forEach { indexStateDao.put(it) }
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
+    }
+
+    override fun replaceIndex(batch: SearchIndexBatch) {
+        require(batch.documents.all { it.docType == batch.docType }) {
+            "batch docType mismatch: " + batch.docType
+        }
+        db.beginTransaction()
+        try {
+            searchDao.deleteBookDocuments(batch.bookId, batch.docType)
+            batch.documents.forEach { document ->
+                searchDao.replaceDocument(
+                    bookId = batch.bookId,
+                    docType = document.docType,
+                    locator = document.locator,
+                    rawText = document.rawText,
+                    indexedText = SearchTokenizer.indexText(document.rawText),
+                )
+            }
+            batch.state.forEach { indexStateDao.put(it) }
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
     }
 
     override fun <T> transaction(block: (LibraryRepository) -> T): T {

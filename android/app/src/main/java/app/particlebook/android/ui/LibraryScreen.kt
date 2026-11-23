@@ -145,6 +145,8 @@ fun LibraryScreen(
     onExitSelection: () -> Unit,
     onStartSelectionMode: () -> Unit,
     onImportClick: () -> Unit,
+    // 跨书全文搜索：入口在「更多操作」菜单，页面由 AppRoot 承载（索引来自 search_documents）。
+    onCrossBookSearch: () -> Unit,
     onRetry: () -> Unit,
     modifier: Modifier = Modifier,
     // 设置里的「默认排序」；书架自己仍可在排序 sheet 里临时改。
@@ -299,6 +301,7 @@ fun LibraryScreen(
                             onStartSelectionMode = onStartSelectionMode,
                             onRetry = onRetry,
                             onImportClick = onImportClick,
+                            onCrossBookSearch = onCrossBookSearch,
                         )
                     },
                 )
@@ -309,6 +312,7 @@ fun LibraryScreen(
                     onStartSelectionMode = onStartSelectionMode,
                     onRetry = onRetry,
                     onImportClick = onImportClick,
+                    onCrossBookSearch = onCrossBookSearch,
                 )
             }
         },
@@ -828,6 +832,7 @@ private fun ShelfTopBar(
     onStartSelectionMode: () -> Unit,
     onRetry: () -> Unit,
     onImportClick: () -> Unit,
+    onCrossBookSearch: () -> Unit,
 ) {
     val container = if (collapsed) {
         MaterialTheme.colorScheme.surface.copy(alpha = 0.86f)
@@ -853,6 +858,7 @@ private fun ShelfTopBar(
                 onStartSelectionMode = onStartSelectionMode,
                 onRetry = onRetry,
                 onImportClick = onImportClick,
+                onCrossBookSearch = onCrossBookSearch,
             )
         },
         colors = TopAppBarDefaults.topAppBarColors(containerColor = container),
@@ -977,6 +983,7 @@ private fun LibraryTopBarActions(
     onStartSelectionMode: () -> Unit,
     onRetry: () -> Unit,
     onImportClick: () -> Unit,
+    onCrossBookSearch: () -> Unit,
 ) {
     var menuOpen by remember { mutableStateOf(false) }
     IconButton(onClick = onSearchClick) {
@@ -995,6 +1002,13 @@ private fun LibraryTopBarActions(
                 onClick = {
                     menuOpen = false
                     onImportClick()
+                },
+            )
+            DropdownMenuItem(
+                text = { Text("全文搜索") },
+                onClick = {
+                    menuOpen = false
+                    onCrossBookSearch()
                 },
             )
             DropdownMenuItem(

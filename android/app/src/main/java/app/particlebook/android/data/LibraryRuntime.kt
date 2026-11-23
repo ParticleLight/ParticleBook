@@ -87,6 +87,13 @@ object LibraryRuntime {
     fun repository(context: Context): LibraryRepository =
         LibraryDatabaseProvider.initialize(context.applicationContext)
 
+    /**
+     * 跨书全文索引的写入端口；与标注/书架共享同一个 SQLite 单例。
+     * 方法同步，调用方负责放到 IO dispatcher（触发点见 reader/search/EpubSearchIndexing）。
+     */
+    fun searchIndexStore(context: Context): SearchIndexStore =
+        LibraryDatabaseProvider.searchIndexStore(context.applicationContext)
+
     fun close() {
         synchronized(lock) {
             annotationStore = null
