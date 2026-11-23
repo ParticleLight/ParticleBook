@@ -37,6 +37,15 @@ interface LibraryRepository {
     fun downloads(): List<DownloadRow>
     fun addDownload(row: DownloadRow): Long
 
+    /** 阅读统计：追加一段阅读会话，返回行 id。同步执行，调用方负责 IO dispatcher。 */
+    fun saveReadingSession(row: ReadingSessionRow): Long
+
+    /**
+     * 阅读统计：读取 ended_at >= [sinceMillis] 的会话，按 started_at、id 升序。
+     * 同步执行，调用方负责 IO dispatcher（统计页只读一次近 60 天）。
+     */
+    fun readingSessionsSince(sinceMillis: Long): List<ReadingSessionRow>
+
     fun saveSearchDocument(bookId: Long, docType: String, locator: String, rawText: String)
     fun saveSearchDocuments(bookId: Long, documents: List<SearchDocumentInput>) {
         documents.forEach { saveSearchDocument(bookId, it.docType, it.locator, it.rawText) }
@@ -59,6 +68,7 @@ class SqliteLibraryRepository(private val db: SQLiteDatabase) : LibraryRepositor
     private val progressDao: ProgressDao = SqliteProgressDao(db)
     private val annotationDao: AnnotationDao = SqliteAnnotationDao(db)
     private val downloadDao: DownloadDao = SqliteDownloadDao(db)
+    private val readingSessionDao: ReadingSessionDao = SqliteReadingSessionDao(db)
     private val searchDao: SearchDao = SqliteSearchDao(db)
     private val indexStateDao: IndexStateDao = SqliteIndexStateDao(db)
 
@@ -124,6 +134,11 @@ class SqliteLibraryRepository(private val db: SQLiteDatabase) : LibraryRepositor
     override fun downloads(): List<DownloadRow> = downloadDao.list()
 
     override fun addDownload(row: DownloadRow): Long = downloadDao.add(row)
+
+    override fun saveReadingSession(row: ReadingSessionRow): Long = readingSessionDao.add(row)
+
+    override fun readingSessionsSince(sinceMillis: Long): List<ReadingSessionRow> =
+        readingSessionDao.since(sinceMillis)
 
     override fun saveSearchDocument(bookId: Long, docType: String, locator: String, rawText: String) {
         searchDao.replaceDocument(bookId, docType, locator, rawText, SearchTokenizer.indexText(rawText))

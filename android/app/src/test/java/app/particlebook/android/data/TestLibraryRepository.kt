@@ -13,10 +13,12 @@ internal class TestLibraryRepository : LibraryRepository {
     private val progressMap = LinkedHashMap<Long, ProgressRow>()
     private val annotationMap = LinkedHashMap<Long, AnnotationRow>()
     private val downloadMap = LinkedHashMap<Long, DownloadRow>()
+    private val sessionList = mutableListOf<ReadingSessionRow>()
     private val searchMap = LinkedHashMap<String, Pair<Long, SearchDocumentRow>>()
     private var nextBookId = 1L
     private var nextAnnotationId = 1L
     private var nextDownloadId = 1L
+    private var nextSessionId = 1L
 
     override fun bookCount(): Int = bookMap.size
 
@@ -41,6 +43,7 @@ internal class TestLibraryRepository : LibraryRepository {
         progressMap.remove(bookId)
         annotationMap.entries.removeAll { it.value.bookId == bookId }
         downloadMap.replaceAll { _, row -> if (row.bookId == bookId) row.copy(bookId = null) else row }
+        sessionList.removeAll { it.bookId == bookId }
         searchMap.entries.removeAll { it.value.first == bookId }
         return true
     }
@@ -114,6 +117,20 @@ internal class TestLibraryRepository : LibraryRepository {
         return id
     }
 
+    override fun saveReadingSession(row: ReadingSessionRow): Long {
+        // 与 SQLite 的 FK（ON DELETE CASCADE）对齐：书不存在时正文会撞外键。
+        require(bookMap.containsKey(row.bookId)) { "book 不存在: " + row.bookId }
+        val id = if (row.id > 0) row.id else nextSessionId++
+        nextSessionId = maxOf(nextSessionId, id + 1)
+        sessionList += row.copy(id = id)
+        return id
+    }
+
+    override fun readingSessionsSince(sinceMillis: Long): List<ReadingSessionRow> =
+        sessionList
+            .filter { it.endedAt >= sinceMillis }
+            .sortedWith(compareBy({ it.startedAt }, { it.id }))
+
     override fun saveSearchDocument(bookId: Long, docType: String, locator: String, rawText: String) {
         require(bookMap.containsKey(bookId)) { "book 不存在: " + bookId }
         val key = bookId.toString() + "|" + docType + "|" + locator
@@ -144,6 +161,7 @@ internal class TestLibraryRepository : LibraryRepository {
         val progressMarkerSnapshot = progressBackfillMarker
         val annotationSnapshot = LinkedHashMap(annotationMap)
         val downloadSnapshot = LinkedHashMap(downloadMap)
+        val sessionSnapshot = ArrayList(sessionList)
         val searchSnapshot = LinkedHashMap(searchMap)
         return try {
             block(this)
@@ -154,6 +172,7 @@ internal class TestLibraryRepository : LibraryRepository {
             progressBackfillMarker = progressMarkerSnapshot
             annotationMap.clear(); annotationMap.putAll(annotationSnapshot)
             downloadMap.clear(); downloadMap.putAll(downloadSnapshot)
+            sessionList.clear(); sessionList.addAll(sessionSnapshot)
             searchMap.clear(); searchMap.putAll(searchSnapshot)
             throw error
         }

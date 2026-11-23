@@ -59,6 +59,20 @@ interface DownloadDao {
     fun list(): List<DownloadRow>
 }
 
+/**
+ * reading_sessions 的追加与按时间窗读取（阅读统计，PB 统计页）。
+ *
+ * 只追加：一段会话落盘后就是不可变事实，没有 update/delete——回翻由新的 pages_delta 表达，
+ * 而不是改写旧行。级联删除交给 books 的外键（ON DELETE CASCADE）。
+ */
+interface ReadingSessionDao {
+    /** 追加一行，返回自增 id。 */
+    fun add(row: ReadingSessionRow): Long
+
+    /** ended_at >= sinceMillis 的会话，按 started_at、id 升序，供聚合器按时间顺序消费。 */
+    fun since(sinceMillis: Long): List<ReadingSessionRow>
+}
+
 interface SearchDao {
     fun replaceDocument(bookId: Long, docType: String, locator: String, rawText: String, indexedText: String)
     fun search(matchExpression: String, limit: Int): List<SearchHit>
@@ -458,6 +472,46 @@ class SqliteDownloadDao(private val db: SQLiteDatabase) : DownloadDao {
             }
         }
     }
+}
+
+class SqliteReadingSessionDao(private val db: SQLiteDatabase) : ReadingSessionDao {
+
+    override fun add(row: ReadingSessionRow): Long {
+        val values = ContentValues().apply {
+            put("book_id", row.bookId)
+            put("started_at", row.startedAt)
+            put("ended_at", row.endedAt)
+            put("duration_ms", row.durationMs)
+            put("pages_delta", row.pagesDelta)
+            putIntOrNull("start_page", row.startPage)
+            putIntOrNull("end_page", row.endPage)
+        }
+        // framework insert 失败返回 -1（不抛），这里显式拦下，避免把 -1 当行 id 传回上层。
+        val id = db.insert(LibrarySchema.TABLE_READING_SESSIONS, null, values)
+        check(id >= 0) { "reading_sessions write failed for book " + row.bookId }
+        return id
+    }
+
+    override fun since(sinceMillis: Long): List<ReadingSessionRow> = db.rawQuery(
+        "SELECT id, book_id, started_at, ended_at, duration_ms, pages_delta, start_page, end_page " +
+            "FROM reading_sessions WHERE ended_at >= ? ORDER BY started_at ASC, id ASC",
+        arrayOf(sinceMillis.toString()),
+    ).use { cursor ->
+        buildList {
+            while (cursor.moveToNext()) add(mapSession(cursor))
+        }
+    }
+
+    private fun mapSession(cursor: Cursor): ReadingSessionRow = ReadingSessionRow(
+        id = cursor.long("id"),
+        bookId = cursor.long("book_id"),
+        startedAt = cursor.long("started_at"),
+        endedAt = cursor.long("ended_at"),
+        durationMs = cursor.long("duration_ms"),
+        pagesDelta = cursor.intOrNull("pages_delta") ?: 0,
+        startPage = cursor.intOrNull("start_page"),
+        endPage = cursor.intOrNull("end_page"),
+    )
 }
 
 class SqliteSearchDao(private val db: SQLiteDatabase) : SearchDao {
