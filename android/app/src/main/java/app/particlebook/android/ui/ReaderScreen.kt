@@ -131,13 +131,19 @@ import app.particlebook.android.reader.pdf.perf.PdfPageCache
 import app.particlebook.android.reader.pdf.perf.PdfPresentWindow
 import app.particlebook.android.reader.pdf.perf.PdfReaderAttempt
 import app.particlebook.android.reader.pdf.perf.PdfSessionClosed
+import app.particlebook.android.reader.pdf.search.PdfSearchHit
+import app.particlebook.android.reader.pdf.search.PdfSearchSession
+import app.particlebook.android.reader.pdf.search.PdfSearchSessionOpenResult
 import app.particlebook.android.reader.tts.AndroidTtsSpeaker
 import app.particlebook.android.reader.tts.TtsPlayback
 import app.particlebook.android.reader.tts.TtsPlaybackState
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.first
@@ -175,6 +181,12 @@ private const val TtsHighlightLightAlpha = 0.24f
 /** 深色方案下的透明度：同族颜色更深，压低一点避免盖住字。 */
 private const val TtsHighlightDarkAlpha = 0.32f
 
+/** 书内搜索命中：自己一层淡色，和朗读高亮叠在同一页时仍能看出各是各的。 */
+private const val SearchHighlightLightAlpha = 0.28f
+
+/** 深色方案下 tertiaryContainer 与纸的对比更强，透明度压低一点。 */
+private const val SearchHighlightDarkAlpha = 0.36f
+
 /**
  * 朗读高亮色（PDF）。
  *
@@ -191,6 +203,21 @@ private fun pdfTtsHighlightColor(): Color {
     val darkCanvas = scheme.surface.luminance() < 0.5f
     val role = if (darkCanvas) scheme.primaryContainer else scheme.primary
     return role.copy(alpha = if (darkCanvas) TtsHighlightDarkAlpha else TtsHighlightLightAlpha)
+}
+
+/**
+ * 书内搜索命中色（PDF）。
+ *
+ * 和朗读高亮同一套「叠在白纸位图上」的取舍，但换一个色族：朗读走 primary，
+ * 搜索走 tertiary，两者同时出现在一页时不会混成一片。深色方案下 tertiary 太淡，
+ * 换 tertiaryContainer；两档都只引用语义角色，没有裸色。
+ */
+@Composable
+private fun pdfSearchHighlightColor(): Color {
+    val scheme = MaterialTheme.colorScheme
+    val darkCanvas = scheme.surface.luminance() < 0.5f
+    val role = if (darkCanvas) scheme.tertiaryContainer else scheme.tertiary
+    return role.copy(alpha = if (darkCanvas) SearchHighlightDarkAlpha else SearchHighlightLightAlpha)
 }
 
 /** 页位图缓存总字节上限 = min(48MB, 堆上限 / 8)：约 3–6 页 A4 位图，避免整本 PDF 常驻。 */
@@ -465,6 +492,9 @@ private fun PdfReadingPane(
         )
     }
     val scope = rememberCoroutineScope()
+    // 搜索与渲染 / 文本层各持一份只读 fd：application context 只是为了不让这次打开
+    // 跟着 Activity 走，句柄本身仍由 PdfSearchSession.close() 归还。
+    val appContext = context.applicationContext
     // 性能体检：翻页计时用（纵向连续滚动，没有离散翻页手势）。
     var scrollStartMs by remember { mutableLongStateOf(0L) }
     var lastTurnPage by remember(book.id) { mutableIntStateOf(startPage) }
@@ -481,6 +511,13 @@ private fun PdfReadingPane(
     var textLayer by remember(book.filePath) { mutableStateOf<PdfTextLayerController?>(null) }
     // A022-2：文本层打不开时（扫描版 PDF）给一次明确提示，而不是让长按毫无反应。
     var textLayerUnavailable by remember(book.filePath) { mutableStateOf(false) }
+    // 书内搜索：面板开关、输入、状态机、当前命中（高亮用）与在跑的任务。
+    // 都按 book.filePath 记忆 —— 换一本书不会把上一本的命中页带过来。
+    var searchOpen by remember(book.filePath) { mutableStateOf(false) }
+    var searchQuery by remember(book.filePath) { mutableStateOf("") }
+    var searchState by remember(book.filePath) { mutableStateOf<PdfSearchUiState>(PdfSearchUiState.Idle) }
+    var searchHighlight by remember(book.filePath) { mutableStateOf<PdfSearchHit?>(null) }
+    var searchJob by remember(book.filePath) { mutableStateOf<Job?>(null) }
     LaunchedEffect(textLayerUnavailable) {
         if (!textLayerUnavailable) return@LaunchedEffect
         delay(8000)
@@ -675,8 +712,10 @@ private fun PdfReadingPane(
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
-    LaunchedEffect(chromeVisible, chromeTick, tocOpen, moreMenuOpen, detailsOpen, pageJumpOpen, sliderDragging) {
-        if (chromeVisible && !tocOpen && !moreMenuOpen && !detailsOpen && !pageJumpOpen && !sliderDragging) {
+    LaunchedEffect(
+        chromeVisible, chromeTick, tocOpen, moreMenuOpen, detailsOpen, pageJumpOpen, sliderDragging, searchOpen,
+    ) {
+        if (chromeVisible && !tocOpen && !moreMenuOpen && !detailsOpen && !pageJumpOpen && !sliderDragging && !searchOpen) {
             delay(CHROME_AUTO_HIDE_MS)
             chromeVisible = false
         }
@@ -708,6 +747,78 @@ private fun PdfReadingPane(
         }
     }
 
+    /*
+     * 书内搜索（整本）。
+     *
+     * 用独立的 PdfSearchSession（自己的 fd + cacheLimit=1 的文本源）在 IO 线程逐页扫：
+     * 阅读屏那份文本层控制器只服务可见页 ±1，拿它扫全书会把当前页挤出缓存、
+     * 让翻页反复重开 native 页句柄。扫描结束（含取消 / 异常）一定 close。
+     *
+     * 进度不逐页写 Compose state：CONFLATED channel 只保留最新一格，主线程按帧丢弃中间值，
+     * 停顿与取消都不需要额外标志位 —— 取消就是 cancel 这个 Job。
+     */
+    val startSearch: () -> Unit = {
+        val query = searchQuery.trim()
+        val file = File(book.filePath)
+        if (query.isEmpty()) {
+            searchState = PdfSearchUiState.Idle
+        } else {
+            searchJob?.cancel()
+            searchHighlight = null
+            searchState = PdfSearchUiState.Scanning(0, pageCount, 0)
+            searchJob = scope.launch {
+                val progress = Channel<Pair<Int, Int>>(Channel.CONFLATED)
+                val pump = launch {
+                    for ((scanned, hits) in progress) {
+                        searchState = PdfSearchUiState.Scanning(scanned, pageCount, hits)
+                    }
+                }
+                try {
+                    when (val opened = withContext(Dispatchers.IO) { PdfSearchSession.open(appContext, file) }) {
+                        is PdfSearchSessionOpenResult.Failure -> {
+                            val detail = opened.message
+                            searchState = PdfSearchUiState.Failed(
+                                if (detail.isNullOrBlank()) "打不开这份 PDF 的文本层，无法搜索"
+                                else "打不开这份 PDF 的文本层，无法搜索（" + detail + "）",
+                            )
+                        }
+
+                        is PdfSearchSessionOpenResult.Success -> {
+                            val session = opened.session
+                            try {
+                                val report = withContext(Dispatchers.IO) {
+                                    session.scan(query) { scanned, hits ->
+                                        progress.trySend(scanned to hits)
+                                    }
+                                }
+                                searchState = PdfSearchUiState.Done(report)
+                            } finally {
+                                withContext(NonCancellable + Dispatchers.IO) { session.close() }
+                            }
+                        }
+                    }
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: Exception) {
+                    searchState = PdfSearchUiState.Failed("搜索失败：" + error.describe())
+                } finally {
+                    progress.close()
+                    pump.cancel()
+                    // 只清掉自己的引用：用户可能已经用新关键词又发起了一次搜索，
+                    // 旧 Job 的收尾若无条件置空，会把新 Job 一起忘掉，之后停止/关闭都取消不到它。
+                    if (searchJob == currentCoroutineContext()[Job]) searchJob = null
+                }
+            }
+        }
+    }
+    // 离开阅读屏 / 换书：正在跑的扫描没有意义了，连任务带会话一起收掉。
+    DisposableEffect(book.filePath) {
+        onDispose {
+            searchJob?.cancel()
+            searchJob = null
+        }
+    }
+
     BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
@@ -734,7 +845,6 @@ private fun PdfReadingPane(
             onDispose { attempt.retireCache(pageCache) }
         }
         // 系统内存吃紧（TRIM_MEMORY_RUNNING_LOW 起）时主动丢掉缓存里非显示页。
-        val appContext = context.applicationContext
         DisposableEffect(pageCache, appContext) {
             val callbacks = object : ComponentCallbacks2 {
                 override fun onTrimMemory(level: Int) {
@@ -806,6 +916,9 @@ private fun PdfReadingPane(
         val chromeFadeOut = Motion.exitFade<Float>()
         // 朗读高亮只交给"正在念的那一页"，其余页传 null：参数不变，LazyColumn 会跳过它们。
         val ttsHighlightPage = ttsPage?.page ?: -1
+        // 搜索命中同理：只有当前命中页分到矩形，其余页保持 null。
+        val searchHighlightPage = searchHighlight?.page ?: -1
+        val searchHighlightRects = searchHighlight?.rects ?: emptyList()
 
         LazyColumn(
             state = listState,
@@ -831,6 +944,7 @@ private fun PdfReadingPane(
                     widthDp = pageWidthDp,
                     selectionState = selectionState,
                     ttsHighlight = if (index == ttsHighlightPage) ttsRects else null,
+                    searchHighlight = if (index == searchHighlightPage) searchHighlightRects else null,
                 )
             }
         }
@@ -893,9 +1007,12 @@ private fun PdfReadingPane(
                             },
                         )
                         DropdownMenuItem(
-                            text = { Text("搜索（即将推出）") },
-                            enabled = false,
-                            onClick = {},
+                            text = { Text("搜索") },
+                            onClick = {
+                                moreMenuOpen = false
+                                searchOpen = true
+                                wakeChrome()
+                            },
                         )
                         DropdownMenuItem(
                             // PDF 是固定版式：字号/行高只对 EPUB 正文有意义，这里不放假入口。
@@ -1001,6 +1118,32 @@ private fun PdfReadingPane(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .padding(bottom = 96.dp),
+        )
+    }
+
+    if (searchOpen) {
+        PdfSearchSheet(
+            query = searchQuery,
+            state = searchState,
+            onQueryChange = { searchQuery = it },
+            onSubmit = startSearch,
+            onStop = {
+                // 停止只取消扫描、不动输入框：用户改个词就能立刻再搜。
+                searchJob?.cancel()
+                searchJob = null
+                searchState = PdfSearchUiState.Idle
+            },
+            onPick = { hit ->
+                // 命中页 + 矩形都在扫描时算好了，这里只负责跳页；高亮留给 LazyColumn 那一页。
+                searchHighlight = hit
+                searchOpen = false
+                jumpToPage(hit.page, PdfNavSource.SEARCH)
+            },
+            onDismiss = {
+                searchOpen = false
+                searchJob?.cancel()
+                searchJob = null
+            },
         )
     }
 
@@ -1256,6 +1399,8 @@ private fun PdfPageItem(
     selectionState: PdfSelectionState? = null,
     /** 正在朗读的那一句在本页的矩形（归一化）。null 表示本页没有朗读高亮。 */
     ttsHighlight: List<PdfNormalizedRect>? = null,
+    /** 书内搜索命中的矩形（归一化）。null 表示本页不是当前命中页。 */
+    searchHighlight: List<PdfNormalizedRect>? = null,
 ) {
     var retry by remember(cache, pageIndex) { mutableIntStateOf(0) }
     val page = remember(cache, presenter, listState, pageIndex, retry) {
@@ -1313,11 +1458,21 @@ private fun PdfPageItem(
                             .clip(MaterialTheme.shapes.extraSmall)
                             .then(page.modifier()),
                     )
-                    // 朗读高亮压在图片之上、选区之下的位置：两者共用同一份归一化矩形坐标。
+                    // 高亮压在图片之上、选区之下：搜索在底、朗读在上，共用同一份归一化矩形坐标。
+                    // 两者都只画不接手势，触摸继续落到选区与翻页上。
+                    val searchRects = searchHighlight
+                    if (searchRects != null && searchRects.isNotEmpty()) {
+                        PdfRectHighlightOverlay(
+                            rects = searchRects,
+                            color = pdfSearchHighlightColor(),
+                            modifier = Modifier.matchParentSize(),
+                        )
+                    }
                     val highlight = ttsHighlight
                     if (highlight != null && highlight.isNotEmpty()) {
-                        PdfTtsHighlightOverlay(
+                        PdfRectHighlightOverlay(
                             rects = highlight,
+                            color = pdfTtsHighlightColor(),
                             modifier = Modifier.matchParentSize(),
                         )
                     }
@@ -1350,18 +1505,18 @@ private fun PdfPageItem(
  * 这里保持纯绘制，不在 draw 阶段做 I/O。
  */
 @Composable
-private fun PdfTtsHighlightOverlay(
+private fun PdfRectHighlightOverlay(
     rects: List<PdfNormalizedRect>,
+    color: Color,
     modifier: Modifier = Modifier,
 ) {
-    val highlightColor = pdfTtsHighlightColor()
     Canvas(modifier = modifier) {
         val width = size.width
         val height = size.height
         if (width <= 0f || height <= 0f) return@Canvas
         rects.forEach { rect ->
             drawRect(
-                color = highlightColor,
+                color = color,
                 topLeft = Offset(rect.left * width, rect.top * height),
                 size = Size(rect.width * width, rect.height * height),
             )

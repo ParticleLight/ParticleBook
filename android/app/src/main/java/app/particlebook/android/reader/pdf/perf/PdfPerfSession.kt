@@ -13,7 +13,7 @@ internal enum class PdfCacheResult(val wire: String) {
 }
 
 internal enum class PdfNavSource(val wire: String) {
-    DRAG("drag"), TOC("toc"), SLIDER("slider"),
+    DRAG("drag"), TOC("toc"), SLIDER("slider"), SEARCH("search"),
 }
 
 internal enum class PdfCloseResult(val wire: String) {
