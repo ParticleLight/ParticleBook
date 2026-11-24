@@ -46,13 +46,16 @@ import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import app.particlebook.android.data.ReadingBookStat
 import app.particlebook.android.data.ReadingDay
 import app.particlebook.android.data.ReadingStats
 import java.time.LocalDate
+import kotlin.math.roundToInt
 
 /**
- * 阅读统计页（无悬浮胶囊的二级页）：顶栏返回 + hero 卡 + 最近 7 天柱状图 + 三宫格汇总。
+ * 阅读统计页（无悬浮胶囊的二级页）：顶栏返回 + hero 卡 + 最近 7 天柱状图 + 三宫格汇总 + 常读的书。
  *
  * ## 版式（M3 2026-11，密度低的「数据页」档）
  * - 表达强度：hero 一处强（primaryContainer 大卡 + 36sp 衬线数字），其余静。
@@ -62,6 +65,9 @@ import java.time.LocalDate
  * - 容器色：hero 用 primaryContainer（本周是这页的主角），汇总用 surfaceContainerLow
  *   （低一档的层次），正文与说明用 onSurface / onSurfaceVariant。
  * - 触控目标：唯一的按钮是返回，size = [Spacing.minTouchTarget]（48dp）。
+ * - 「常读的书」是页尾的明细块：它回答「哪些书」，排在「多少 / 什么时候」之后，
+ *   容器与三宫格同档（surfaceContainerLow），空表时整块（含区块标题）不渲染——
+ *   没有排行可看时留一个空标题只是在解释「这里本来有东西」。
  *
  * ## 数字的字体
  * 三处会变的数字走 TypeTokens 的数值档（tabular figures，tnum）：hero 主数字 = [AppType.heroNumber]
@@ -242,7 +248,7 @@ private fun CenteredState(modifier: Modifier = Modifier, content: @Composable Co
 }
 
 // ---------------------------------------------------------------------------
-// Ready：hero + 图表 + 汇总
+// Ready：hero + 图表 + 汇总 + 常读的书
 // ---------------------------------------------------------------------------
 
 @Composable
@@ -261,6 +267,16 @@ private fun StatsContent(stats: ReadingStats, modifier: Modifier = Modifier) {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(top = Spacing.sm),
         )
+        if (stats.topBooks.isNotEmpty()) {
+            // 放在页尾而不是图表下面：它是「谁」，不是「什么时候」。先读完本周 → 累计（时间维度），
+            // 再看明细排序，信息从「多少」落到「哪些」。右上的窗口说明必须留——它讲的是 7 天，
+            // 与上一块的 60 天不同，不能靠读者猜。
+            StatsSectionHeader(
+                title = "常读的书",
+                trailing = "最近 " + StatsViewModel.CHART_DAYS + " 天",
+            )
+            TopBooksCard(books = stats.topBooks)
+        }
         Spacer(Modifier.height(Spacing.xl))
     }
 }
@@ -493,6 +509,109 @@ private fun SummaryCell(value: String, label: String, modifier: Modifier = Modif
 }
 
 // ---------------------------------------------------------------------------
+// 常读的书
+// ---------------------------------------------------------------------------
+
+/**
+ * 「常读的书」卡片：窗口内时长 Top N，每行一本书。
+ *
+ * 容器与三宫格同档（extraLarge + surfaceContainerLow）：两块都是「在图表之后补充的明细」，
+ * 用同一个面表示同一层；不为新卡再引一档形状或颜色。
+ * 行距用 [Spacing.md]，行内三段（书名/时长 → 页数/占比 → 条）用更小的 [Spacing.xxs] / [Spacing.xs]，
+ * 于是「行内紧、行间松」自己成立，不需要分隔线。
+ */
+@Composable
+private fun TopBooksCard(books: List<ReadingBookStat>, modifier: Modifier = Modifier) {
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.extraLarge,
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+    ) {
+        Column(
+            modifier = Modifier.padding(Spacing.md),
+            verticalArrangement = Arrangement.spacedBy(Spacing.md),
+        ) {
+            books.forEach { book -> TopBookRow(book = book) }
+        }
+    }
+}
+
+/**
+ * 一本书一行：书名单行省略（衬线，与书架卡同源）+ 右侧时长；下一行页数与占比；再下一行占比条。
+ *
+ * 行序即名次（聚合器已按时长降序排好），所以不画序号：序号会占掉书名宽度，
+ * 而「谁排第一」由条长和位置已经说清，多一个数字只会和书名抢注意力。
+ *
+ * 语义：整行 clearAndSetSemantics 成一句完整描述（[bookStatDescription]），替掉三段文字与条子。
+ * 否则读屏会逐段念「40%」「12 页」，既没有主语，也会把同一条信息念三遍。
+ */
+@Composable
+private fun TopBookRow(book: ReadingBookStat, modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .clearAndSetSemantics { contentDescription = bookStatDescription(book) },
+    ) {
+        Row(verticalAlignment = Alignment.Bottom) {
+            Text(
+                text = book.title,
+                style = AppType.bookTitle,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            Spacer(Modifier.width(Spacing.sm))
+            Text(
+                text = formatDurationOrZero(book.millis),
+                style = AppType.inlineNumber,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+            )
+        }
+        Spacer(Modifier.height(Spacing.xxs))
+        Text(
+            // 页数与占比都是会变的数字：走 labelMedium 的 tnum 档，位数变化时右端不抖。
+            text = book.pages.toString() + " 页 · " + sharePercentLabel(book.share),
+            style = AppType.compactNumber,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+        )
+        Spacer(Modifier.height(Spacing.xs))
+        ShareBar(share = book.share)
+    }
+}
+
+/**
+ * 占比条：轨道 + 填充两个 Box。
+ *
+ * 不用进度组件：这里表达的是「在窗口里占多少」这种比例，不是「任务完成到几成」；
+ * 而且数据页上不该有一条一直在动的波（前庭敏感、也抢 hero 的注意力）。
+ * 形状取 [AppShapes.small]（8dp）：轨道只有 [Spacing.xxs]（4dp）高，圆角被钳到半高，视觉就是胶囊——
+ * 不为条子再引一档 full，本屏的形状仍只有两级：卡片 extraLarge、柱顶与条子 small。
+ * 颜色：轨道 surfaceContainerHighest（比卡片高一档的容器），填充 primary（与 hero 同一个强调色）。
+ */
+@Composable
+private fun ShareBar(share: Double, modifier: Modifier = Modifier) {
+    val shape = AppShapes.small
+    // 聚合器已保证 [0,1]；这里只防脏数据把布局打崩（fillMaxWidth 不接受 NaN / >1）。
+    val fraction = if (share.isFinite()) share.coerceIn(0.0, 1.0).toFloat() else 0f
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(Spacing.xxs)
+            .background(MaterialTheme.colorScheme.surfaceContainerHighest, shape),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth(fraction)
+                .height(Spacing.xxs)
+                .background(MaterialTheme.colorScheme.primary, shape),
+        )
+    }
+}
+
+// ---------------------------------------------------------------------------
 // 纯函数（JVM 可单测，见 StatsViewModelTest）
 // ---------------------------------------------------------------------------
 
@@ -556,6 +675,27 @@ internal fun dayDescription(epochDay: Long, millis: Long, isToday: Boolean): Str
     return day + "，" + read
 }
 
+/**
+ * 「常读的书」占比文案：share ∈ [0,1] → 「占 40%」。
+ *
+ * 四舍五入到整数百分比：数据页是概览，小数位只增加噪声；条子已经给出连续的量感，
+ * 文字再精确到 0.1% 也不会让人多读出什么。非有限值、负值一律按 0——
+ * 先挡住 NaN 再算，因为 roundToInt 对 NaN 会抛异常，一个有脏数据的排行榜不该把页面打崩。
+ */
+internal fun sharePercentLabel(share: Double): String {
+    if (!share.isFinite() || share <= 0.0) return "占 0%"
+    val percent = (share.coerceAtMost(1.0) * 100.0).roundToInt()
+    return "占 " + percent + "%"
+}
+
+/**
+ * 「常读的书」一行的读屏描述：「书名，45 分钟，12 页，占 40%」。
+ *
+ * 时长走 [formatDurationOrZero]：只有翻页没有时长的脏会话会出现 0 分钟，
+ * 那句话必须真的念成「0 分钟」，而不是「不到 1 分钟」。
+ */
+internal fun bookStatDescription(stat: ReadingBookStat): String =
+    stat.title + "，" + formatDurationOrZero(stat.millis) + "，" + stat.pages + " 页，" + sharePercentLabel(stat.share)
 private const val MINUTE_MILLIS: Long = 60_000L
 private const val HOUR_MINUTES: Long = 60L
 private const val DAY_MINUTES: Long = 24L * 60L

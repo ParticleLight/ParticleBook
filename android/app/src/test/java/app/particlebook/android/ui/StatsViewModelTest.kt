@@ -1,6 +1,8 @@
 package app.particlebook.android.ui
 
+import app.particlebook.android.data.BookRow
 import app.particlebook.android.data.LibraryRepository
+import app.particlebook.android.data.ReadingBookStat
 import app.particlebook.android.data.ReadingSessionRow
 import app.particlebook.android.data.TestLibraryRepository
 import java.time.DayOfWeek
@@ -301,6 +303,102 @@ class StatsViewModelTest {
     }
 
     // ------------------------------------------------------------------
+    // 常读的书：书名映射与窗口
+    // ------------------------------------------------------------------
+
+    @Test
+    fun `常读的书书名来自书架`() {
+        val repository = StatsRepository(sessions = typicalSessions).apply {
+            bookRows = listOf(
+                BookRow(id = 1L, stableKey = "b1", title = "三体"),
+                BookRow(id = 2L, stableKey = "b2", title = "   "),
+            )
+        }
+        val model = viewModel(repository, now)
+
+        // book 2：昨天 45 + 5 天前 10 = 55 分钟；book 1：今天 30 + 15 = 45 分钟。
+        val top = (model.state as StatsUiState.Ready).stats.topBooks
+        assertEquals(listOf(2L, 1L), top.map { it.bookId })
+        // 只有空白算没书名：降级成占位，不显示一行空白。
+        assertEquals("未知书籍 #2", top[0].title)
+        assertEquals("三体", top[1].title)
+        assertEquals(55L * 60_000L, top[0].millis)
+        assertEquals(45L * 60_000L, top[1].millis)
+        // 分母是 7 天窗口总时长（100 分钟），两天前没读的那天是 0，不影响。
+        assertEquals(0.55, top[0].share, 1e-9)
+        assertEquals(0.45, top[1].share, 1e-9)
+    }
+
+    @Test
+    fun `取书名抛异常时统计仍然 Ready 并退回占位书名`() {
+        val repository = StatsRepository(sessions = typicalSessions).apply {
+            booksFailure = IllegalStateException("books table is gone")
+        }
+        val model = viewModel(repository, now)
+
+        // 书架读失败只是让书名缺失：统计本身已经算完，不该整页 Failed。
+        val ready = model.state as StatsUiState.Ready
+        assertEquals(100L * 60_000L, ready.stats.totalMillis)
+        assertTrue("排行不应该因为书名失败而消失：" + ready.stats.topBooks, ready.stats.topBooks.isNotEmpty())
+        assertTrue(
+            "书名应退回占位：" + ready.stats.topBooks.map { it.title },
+            ready.stats.topBooks.all { it.title.startsWith("未知书籍 #") },
+        )
+    }
+
+    @Test
+    fun `常读的书只算 7 天窗口内的会话`() {
+        // 10 天前读的 120 分钟：在 60 天查询窗口内，但在 7 天排行窗口外。
+        val old = session(bookId = 9L, start = atLocal(today.minusDays(10), 10), minutes = 120, pages = 50)
+        val repository = StatsRepository(sessions = typicalSessions + old)
+        val model = viewModel(repository, now)
+
+        val ready = model.state as StatsUiState.Ready
+        assertTrue("窗口外的书不应进榜：" + ready.stats.topBooks, ready.stats.topBooks.none { it.bookId == 9L })
+        // 汇总仍覆盖 60 天查询窗口。
+        assertEquals(220L * 60_000L, ready.stats.totalMillis)
+    }
+
+    @Test
+    fun `常读的书最多 5 行`() {
+        val sessions = (1L..6L).map { id ->
+            session(bookId = id, start = atLocal(today, 9), minutes = 10, pages = 1)
+        }
+        val repository = StatsRepository(sessions = sessions)
+        val model = viewModel(repository, now)
+
+        val top = (model.state as StatsUiState.Ready).stats.topBooks
+        // 同时长按 bookId 升序，第 6 本被 limit 截掉。
+        assertEquals(listOf(1L, 2L, 3L, 4L, 5L), top.map { it.bookId })
+        assertEquals(StatsViewModel.TOP_BOOK_LIMIT, top.size)
+    }
+
+    // ------------------------------------------------------------------
+    // 纯函数：占比文案与读屏描述
+    // ------------------------------------------------------------------
+
+    @Test
+    fun `sharePercentLabel 四舍五入并挡住脏数据`() {
+        assertEquals("占 0%", sharePercentLabel(0.0))
+        assertEquals("占 45%", sharePercentLabel(0.45))
+        assertEquals("占 33%", sharePercentLabel(0.3333))
+        // 非有限值与越界值都不该把 roundToInt 打崩（NaN 会抛异常）。
+        assertEquals("占 0%", sharePercentLabel(Double.NaN))
+        assertEquals("占 0%", sharePercentLabel(-0.2))
+        assertEquals("占 100%", sharePercentLabel(1.4))
+    }
+
+    @Test
+    fun `bookStatDescription 一句念完书名时长页数占比`() {
+        val stat = ReadingBookStat(bookId = 7L, title = "三体", millis = 45L * 60_000L, pages = 12, share = 0.45)
+        assertEquals("三体，45 分钟，12 页，占 45%", bookStatDescription(stat))
+
+        // 只有翻页没有时长：0 读作「0 分钟」，不是「不到 1 分钟」。
+        val pagesOnly = ReadingBookStat(bookId = 8L, title = "未知书籍 #8", millis = 0L, pages = 3, share = 0.0)
+        assertEquals("未知书籍 #8，0 分钟，3 页，占 0%", bookStatDescription(pagesOnly))
+    }
+
+    // ------------------------------------------------------------------
     // 工具
     // ------------------------------------------------------------------
 
@@ -343,13 +441,18 @@ class StatsViewModelTest {
 /**
  * 记录查询下界并允许注入结果/异常的假仓库。
  *
- * 只覆盖 [LibraryRepository.readingSessionsSince]，其余方法（书架、标注、下载、事务）
+ * 覆盖 [LibraryRepository.readingSessionsSince]（记录下界、注入结果/异常）与
+ * [LibraryRepository.books]（注入书名或让它抛异常），其余方法（标注、下载、事务）
  * 全部委托给 [TestLibraryRepository]，不重抄一遍接口。
  */
 private class StatsRepository(
     private val delegate: TestLibraryRepository = TestLibraryRepository(),
     var sessions: List<ReadingSessionRow> = emptyList(),
     var failure: Throwable? = null,
+    /** 书架：统计页只用来把 bookId 翻成书名；null 表示沿用 delegate 的书架。 */
+    var bookRows: List<BookRow>? = null,
+    /** 让 books() 抛异常，验证「书名失败不影响统计」。 */
+    var booksFailure: Throwable? = null,
 ) : LibraryRepository by delegate {
 
     private val lock = Any()
@@ -359,6 +462,11 @@ private class StatsRepository(
     var onRead: (() -> Unit)? = null
 
     fun sinceRequests(): List<Long> = synchronized(lock) { sinceRequests.toList() }
+
+    override fun books(): List<BookRow> {
+        booksFailure?.let { throw it }
+        return bookRows ?: delegate.books()
+    }
 
     override fun readingSessionsSince(sinceMillis: Long): List<ReadingSessionRow> {
         // 先拍快照再进钩子：钩子里改 sessions 不能影响本次查询（模拟「SQL 已经查完」）。

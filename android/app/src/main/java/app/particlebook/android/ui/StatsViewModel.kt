@@ -16,7 +16,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
- * 阅读统计页的状态机（消费 `LibraryRepository.readingSessionsSince` + `ReadingStatsCalculator`）。
+ * 阅读统计页的状态机（消费 `LibraryRepository.readingSessionsSince` + `LibraryRepository.books` + `ReadingStatsCalculator`）。
  *
  * 与 [SearchViewModel] / [ZlibSearchViewModel] 同一套约定：
  * - 普通类，不是 androidx ViewModel——项目没有 androidx.lifecycle:viewmodel 依赖，页面用 remember 持有，
@@ -30,6 +30,12 @@ import kotlinx.coroutines.withContext
  * 而图表只画 [CHART_DAYS] 天。窗口边界按毫秒算而不是按日历天算：夏令时切换会让 60 天
  * 实际是 59~61 个自然日，这个偏差对聚合结果没有意义，但把边界写成毫秒让查询条件可单测
  * （测试直接断言传给仓库的 `sinceMillis`）。
+ *
+ * ## 常读的书
+ * 排行窗口与柱状图同一个 [CHART_DAYS]（都由 `compute(dayCount = CHART_DAYS)` 推导），所以「本周七根柱之和」
+ * 与「常读的书各条之和」是同一笔数，页面上不会出现两种窗口口径。书名不在会话行里：加载时补一次
+ * `books()` 组成 bookId → title 映射交给聚合器；这一步失败只退化成「未知书籍 #id」，
+ * 不让整页落到 Failed（理由见 [bookTitles]）。
  *
  * ## Empty 的判定
  * 「没有任何阅读时长」就是 Empty（文案「还没有阅读记录」），而不是「查询返回空列表」：
@@ -45,7 +51,7 @@ sealed interface StatsUiState {
     /** 首次加载或重试中：页面显示 LoadingIndicator。 */
     data object Loading : StatsUiState
 
-    /** 有阅读记录：页面显示 hero 卡 + 7 天柱状图 + 三宫格汇总。 */
+    /** 有阅读记录：页面显示 hero 卡 + 7 天柱状图 + 三宫格汇总 + 常读的书（排行空则不渲染）。 */
     data class Ready(val stats: ReadingStats) : StatsUiState
 
     /** 统计窗口内没有任何阅读时长。 */
@@ -108,13 +114,16 @@ class StatsViewModel(
             // now 与 zone 在同一处取样：跨零点的瞬间不会出现「用今天的时间、按昨天的时区切日」。
             val at = now()
             val since = at - LOOKBACK_MILLIS
-            val sessions = repositoryProvider().readingSessionsSince(since)
+            val repository = repositoryProvider()
+            val sessions = repository.readingSessionsSince(since)
             StatsOutcome.Loaded(
                 ReadingStatsCalculator.compute(
                     sessions = sessions,
                     now = at,
                     zone = ZoneId.systemDefault(),
                     dayCount = CHART_DAYS,
+                    bookTitles = bookTitles(repository),
+                    topBookLimit = TOP_BOOK_LIMIT,
                 ),
             )
         }
@@ -123,6 +132,26 @@ class StatsViewModel(
         throw cancellation
     } catch (throwable: Throwable) {
         StatsOutcome.Failed(throwable)
+    }
+
+    /**
+     * bookId → 书名。统计行只带 bookId，书名要回查书架（[LibraryRepository.books]）。
+     *
+     * 取书名失败时退回空 map，而不是让整页 Failed：时长、柱状图、排行都已经算出来了，
+     * 少一批书名只该退化成「未知书籍 #id」——一个缺书名的排行榜比一张错误页有用得多。
+     * 标题为空的书按「没有书名」处理（不塞空串，聚合器会补占位）。
+     * [CancellationException] 原样抛出：取消不是「书架读失败」，吞掉会让重试后的旧协程继续跑。
+     */
+    private fun bookTitles(repository: LibraryRepository): Map<Long, String> = try {
+        repository.books().mapNotNull { book ->
+            val title = book.title.trim()
+            if (title.isEmpty()) null else book.id to title
+        }.toMap()
+    } catch (cancellation: CancellationException) {
+        throw cancellation
+    } catch (throwable: Throwable) {
+        // 故意吞掉并降级：见函数注释。这里不留日志——统计页没有日志通道，异常文本也无处展示。
+        emptyMap()
     }
 
     private sealed interface StatsOutcome {
@@ -136,6 +165,14 @@ class StatsViewModel(
 
         /** 汇总卡的统计窗口天数；页面底部会把它写进「统计范围为最近 N 天」的说明里。 */
         const val LOOKBACK_DAYS: Int = 60
+
+        /**
+         * 「常读的书」最多几行。
+         *
+         * 与 [ReadingStatsCalculator.compute] 的 topBookLimit 默认值同值，这里显式传：
+         * 页面文案（Top N）与数据口径都要能从同一个常量读出来。
+         */
+        const val TOP_BOOK_LIMIT: Int = 5
 
         private const val DAY_MILLIS: Long = 24L * 60L * 60L * 1000L
 
