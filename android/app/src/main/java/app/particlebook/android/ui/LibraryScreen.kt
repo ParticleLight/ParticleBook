@@ -4,6 +4,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -411,7 +412,14 @@ fun LibraryScreen(
                                 )
                             }
                             item(span = { GridItemSpan(maxLineSpan) }) {
-                                RecentBookRow(books = recentBooks, onOpenBook = onOpenBook)
+                                RecentBookRow(
+                                    books = recentBooks,
+                                    selectionMode = selectionMode,
+                                    selectedIds = selectedIds,
+                                    onOpenBook = onOpenBook,
+                                    onToggleSelection = onToggleSelection,
+                                    onEnterSelection = onEnterSelection,
+                                )
                             }
                         }
                         item(span = { GridItemSpan(maxLineSpan) }) {
@@ -783,31 +791,60 @@ private fun ShelfHeroCard(
     }
 }
 
-/** 「最近添加」横滑（§17.3 #2）：卡 132dp 宽、封面 132×176、圆角 20，右侧自然露出下一张。 */
+/**
+ * 「最近添加」横滑（§17.3 #2）：卡 132dp 宽、封面 132×176、圆角 20，右侧自然露出下一张。
+ *
+ * 多选态下这张卡和网格卡是同一批书：点按必须切选中，而不是把书打开——
+ * 否则用户在多选里点一张横滑卡就被踢进阅读器，已选框也白选了。
+ */
 @Composable
 private fun RecentBookRow(
     books: List<Book>,
     onOpenBook: (Book) -> Unit,
+    selectionMode: Boolean = false,
+    selectedIds: Set<Long> = emptySet(),
+    onToggleSelection: (Book) -> Unit = {},
+    onEnterSelection: (Book) -> Unit = {},
 ) {
     val largeFont = LocalDensity.current.fontScale >= 1.3f
     val coverShape = MaterialTheme.shapes.large
+    val haptics = LocalHapticFeedback.current
+    val context = LocalContext.current
     LazyRow(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
         lazyItems(books, key = { it.id }) { book ->
+            val selected = book.id in selectedIds
             Column(
                 Modifier
                     .width(Spacing.recentCardWidth)
-                    .clickable { onOpenBook(book) }
+                    .combinedClickable(
+                        onClick = {
+                            if (selectionMode) onToggleSelection(book) else onOpenBook(book)
+                        },
+                        onLongClick = {
+                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                            if (selectionMode) onToggleSelection(book) else onEnterSelection(book)
+                        },
+                    )
                     .semantics(mergeDescendants = true) {
-                        contentDescription = "《" + book.title + "》，" + book.authorLabel + "，打开"
+                        contentDescription = book.a11yLabel(
+                            ReadingProgress.percentLabel(context, book.id) ?: "未读",
+                            selectionMode,
+                            selected,
+                        )
                     },
             ) {
-                BookCover(
-                    book = book,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(Spacing.recentCoverHeight),
-                    shape = coverShape,
-                )
+                Box(contentAlignment = Alignment.Center) {
+                    BookCover(
+                        book = book,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(Spacing.recentCoverHeight),
+                        shape = coverShape,
+                    )
+                    if (selectionMode) {
+                        SelectionOverlay(selected = selected)
+                    }
+                }
                 Spacer(Modifier.height(Spacing.xs))
                 Text(
                     text = book.title,

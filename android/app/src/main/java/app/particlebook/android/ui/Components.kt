@@ -13,6 +13,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -69,6 +70,63 @@ import app.particlebook.android.ui.data.Book
 import app.particlebook.android.ui.data.ReadingProgress
 
 /**
+ * 多选态的封面覆盖层：选中时整块淡染（secondaryContainer）+ 左上角 24dp 圆形角标（选中打勾）。
+ *
+ * 书架网格卡与「最近添加」横滑卡共用同一套——两处若各画一遍，迟早一处打勾、一处只剩淡染。
+ * 视觉角标 24dp，真正的手势目标是整张卡片（≫48dp），角标本身不可点、不单独朗读。
+ */
+@Composable
+internal fun BoxScope.SelectionOverlay(selected: Boolean) {
+    if (selected) {
+        // 选中态用 secondaryContainer 承载「已选择」语义（与角标同族，不再用 primary*）。
+        Box(
+            Modifier
+                .matchParentSize()
+                .background(MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.32f)),
+        )
+    }
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(Spacing.xs),
+        contentAlignment = Alignment.TopStart,
+    ) {
+        Box(
+            modifier = Modifier
+                .size(24.dp)
+                .clip(CircleShape)
+                .background(
+                    if (selected) {
+                        MaterialTheme.colorScheme.secondaryContainer
+                    } else {
+                        MaterialTheme.colorScheme.surface.copy(alpha = 0.85f)
+                    },
+                )
+                .border(
+                    width = 2.dp,
+                    color = if (selected) {
+                        MaterialTheme.colorScheme.secondaryContainer
+                    } else {
+                        MaterialTheme.colorScheme.outline
+                    },
+                    shape = CircleShape,
+                ),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (selected) {
+                Icon(
+                    imageVector = Icons.Filled.Check,
+                    // 装饰：选中状态已写进卡片语义（a11yLabel 追加「已选中」）。
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                    modifier = Modifier.size(16.dp),
+                )
+            }
+        }
+    }
+}
+
+/**
  * 2026 网格卡（§17.3 #5）：3:4 封面（MaterialTheme.shapes.medium 圆角 + 封面彩色投影）+ 卡下 3 行文字。
  * 卡本身无底色、无边框、无 elevation——封面即视觉主体；格式信息并入元数据行。
  */
@@ -121,49 +179,7 @@ fun BookGridItem(
         ) {
             BookCover(book = book, modifier = Modifier.fillMaxSize(), shape = coverShape)
             if (selectionMode) {
-                if (selected) {
-                    // 选中态用 secondaryContainer 承载「已选择」语义（与角标同族，不再用 primary*）。
-                    Box(
-                        Modifier
-                            .matchParentSize()
-                            .background(MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.32f)),
-                    )
-                }
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.TopStart)
-                        .padding(Spacing.xs)
-                        // 视觉角标 24dp；真正的手势目标是整张卡片（≫48dp），角标本身不可点。
-                        .size(24.dp)
-                        .clip(CircleShape)
-                        .background(
-                            if (selected) {
-                                MaterialTheme.colorScheme.secondaryContainer
-                            } else {
-                                MaterialTheme.colorScheme.surface.copy(alpha = 0.85f)
-                            },
-                        )
-                        .border(
-                            width = 2.dp,
-                            color = if (selected) {
-                                MaterialTheme.colorScheme.secondaryContainer
-                            } else {
-                                MaterialTheme.colorScheme.outline
-                            },
-                            shape = CircleShape,
-                        ),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    if (selected) {
-                        Icon(
-                            imageVector = Icons.Filled.Check,
-                            // 装饰：选中状态已写进卡片语义（a11yLabel 追加「已选中」）。
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                            modifier = Modifier.size(16.dp),
-                        )
-                    }
-                }
+                SelectionOverlay(selected = selected)
             }
         }
 
@@ -199,7 +215,7 @@ fun BookGridItem(
     }
 }
 
-private fun Book.a11yLabel(progress: String, selectionMode: Boolean, selected: Boolean): String {
+internal fun Book.a11yLabel(progress: String, selectionMode: Boolean, selected: Boolean): String {
     // progress 已保证非空：「已读 45%」或「未读」。
     val builder = StringBuilder("《").append(title).append("》")
     builder.append("，").append(authorLabel)
