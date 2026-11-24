@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -36,6 +37,7 @@ import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.RadioButton
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Slider
@@ -190,6 +192,11 @@ fun SettingsScreen(
     var fontSheetOpen by rememberSaveable { mutableStateOf(false) }
     var lineHeightSheetOpen by rememberSaveable { mutableStateOf(false) }
     var sortSheetOpen by rememberSaveable { mutableStateOf(false) }
+    // 这三个弹层都要 skipPartiallyExpanded：默认的半展开高度装不下「标题 + 预览 + 滑杆」，
+    // 滑杆会被压到最后一行，实测只剩 32px 高，手指没法拖。导航条也要自己避让，否则「完成」被胶囊盖住。
+    val fontSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val lineHeightSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val sortSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var clearDialogOpen by rememberSaveable { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
@@ -463,11 +470,13 @@ fun SettingsScreen(
     if (fontSheetOpen) {
         ModalBottomSheet(
             onDismissRequest = { fontSheetOpen = false },
+            sheetState = fontSheetState,
             contentWindowInsets = { WindowInsets(0, 0, 0, 0) },
         ) {
             Column(
                 Modifier
                     .fillMaxWidth()
+                    .navigationBarsPadding()
                     .padding(horizontal = Spacing.screen),
             ) {
                 // 标题行同时给出当前值：滑块本身不标刻度，不给数字用户就不知道停在几 sp。
@@ -528,11 +537,13 @@ fun SettingsScreen(
     if (lineHeightSheetOpen) {
         ModalBottomSheet(
             onDismissRequest = { lineHeightSheetOpen = false },
+            sheetState = lineHeightSheetState,
             contentWindowInsets = { WindowInsets(0, 0, 0, 0) },
         ) {
             Column(
                 Modifier
                     .fillMaxWidth()
+                    .navigationBarsPadding()
                     .padding(horizontal = Spacing.screen),
             ) {
                 Text("行距", style = MaterialTheme.typography.titleLarge)
@@ -582,11 +593,13 @@ fun SettingsScreen(
     if (sortSheetOpen) {
         ModalBottomSheet(
             onDismissRequest = { sortSheetOpen = false },
+            sheetState = sortSheetState,
             contentWindowInsets = { WindowInsets(0, 0, 0, 0) },
         ) {
             Column(
                 Modifier
                     .fillMaxWidth()
+                    .navigationBarsPadding()
                     .padding(horizontal = Spacing.screen),
             ) {
                 Text("默认排序", style = MaterialTheme.typography.titleLarge)
