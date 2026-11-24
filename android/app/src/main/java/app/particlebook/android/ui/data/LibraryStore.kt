@@ -389,6 +389,27 @@ class LibraryStore(
     }
 
     /**
+     * task-42：给书架条目打分（1..5，超出区间自动 clamp 到 1/5）或清除评分（null）。
+     *
+     * 只走 [LibraryIndexStore.setRating] 这一条串行索引写路径：与删书/登记共用同一把 Mutex、
+     * 同一个唯一 tmp + 原子 rename，落盘成功后才提交内存，所以返回时 [books] 已经能看到新评分
+     * （indexStore.onCommitted 同步回写内存态）。
+     *
+     * 返回 null = 本次没有生效：未知 bookId（不写盘、不动内存），或索引写盘失败（已记日志，
+     * 内存与磁盘都保持旧值）。调用方应先 [ensureLoaded]，否则只认索引里的条目、看不到 fixtures 样书。
+     */
+    suspend fun setRating(bookId: Long, rating: Int?): Book? = withContext(Dispatchers.IO) {
+        try {
+            indexStore.setRating(bookId, rating)
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (throwable: Throwable) {
+            Log.e(TAG, "set rating failed id=" + bookId, throwable)
+            null
+        }
+    }
+
+    /**
      * 删除选中的书：串行重写索引（成功后再删 _pb_files 里的文件）。
      * 返回 [Result]：成功携带真正移除的条数；写索引失败时返回 failure，内存与磁盘都不变，
      * 由 UI 提示「删除失败，请重试」，不能无条件提示删除成功。
@@ -790,10 +811,18 @@ internal fun mergePersistedBooks(fixtures: List<Book>, persisted: List<Book>, di
     val merged = ArrayList<Book>(fixtures.size + persisted.size)
     val seenPaths = HashSet<String>(fixtures.size + persisted.size)
     val seenIds = HashSet<Long>(fixtures.size + persisted.size)
+    // task-42：评分只存在索引里，而 fixtures 优先会按同一路径挤掉持久化条目——若不一并把评分捞出来，
+    // 每次冷启都会把样书的评分抹掉（并随回写把磁盘上的也删掉）。评分以索引为准，fixtures 只作兜底默认值。
+    val ratingsByPath = HashMap<String, Int>(persisted.size)
+    persisted.forEach { stored ->
+        val rating = stored.rating ?: return@forEach
+        ratingsByPath.putIfAbsent(pathKey(resolveLocal(stored, dir).filePath), rating)
+    }
     fixtures.forEach { book ->
         seenPaths += pathKey(book.filePath)
         seenIds += book.id
-        merged += book
+        val rating = ratingsByPath[pathKey(book.filePath)] ?: book.rating
+        merged += if (rating == book.rating) book else book.copy(rating = rating)
     }
     persisted.forEach { stored ->
         val book = resolveLocal(stored, dir)
@@ -1416,6 +1445,28 @@ internal data class LibraryFileCandidate(
 
 // -------------------------------------------------------------------- 索引持久化
 
+/** task-42：评分的合法区间（1..5 星）；null 表示未评分。 */
+internal const val MIN_BOOK_RATING = 1
+internal const val MAX_BOOK_RATING = 5
+
+/** task-42：写入侧 clamp —— 调用方给 0/9 也只会落成 1/5；null 保持「清除评分」。 */
+internal fun clampBookRating(rating: Int?): Int? = rating?.coerceIn(MIN_BOOK_RATING, MAX_BOOK_RATING)
+
+/**
+ * task-42：读取侧判定 —— 索引里的原始 rating 值 → 1..5 或 null。
+ *
+ * 缺字段 / JSON null（调用方先用 isNull 判掉）、越界（0、6）、非整数（2.5）、非数字（"4"）
+ * 一律按未评分处理：脏数据既不能让整份索引解析失败，也不能冒充一个用户没打过的分。
+ * 纯 JVM 函数：本地单测里 org.json 是 not mocked，[JsonLibraryIndexCodec] 跑不起来，
+ * 解码规则必须能在不依赖 org.json 的层面被覆盖（见 LibraryRatingTest）。
+ */
+internal fun readBookRating(raw: Any?): Int? {
+    val number = raw as? Number ?: return null
+    val whole = number.toLong()
+    if (whole < MIN_BOOK_RATING || whole > MAX_BOOK_RATING) return null
+    return if (number.toDouble() == whole.toDouble()) whole.toInt() else null
+}
+
 /** books.json 的编解码；抽成接口便于 JVM 单测注入（本地单测里 android.jar 的 org.json 是 not mocked）。 */
 internal interface LibraryIndexCodec {
     fun encode(books: List<Book>): String
@@ -1462,10 +1513,19 @@ internal class JsonLibraryIndexCodec : LibraryIndexCodec {
                 addedAt = item.optString("addedAt").ifBlank { item.optString("added_at") }
                     .takeUnless { it.isBlank() || it == "null" },
                 tags = tags,
+                // task-42：旧索引没有该字段 / JSON null / 越界脏值都按「未评分」读入，不让整份索引解析失败。
+                rating = readIndexRating(item),
             )
         }
         return out
     }
+
+    /**
+     * task-42：索引 rating 字段的读取。字段缺失与 JSON null 在 org.json 里都走 [JSONObject.isNull]，
+     * 一律视为未评分；数值越界/非整数/非数字交给纯函数 [readBookRating] 归 null。
+     */
+    private fun readIndexRating(item: JSONObject): Int? =
+        if (item.isNull("rating")) null else readBookRating(item.opt("rating"))
 
     private fun bookToJson(book: Book): JSONObject = JSONObject()
         .put("id", book.id)
@@ -1476,6 +1536,9 @@ internal class JsonLibraryIndexCodec : LibraryIndexCodec {
         .put("fileSize", book.fileSize)
         .put("addedAt", book.addedAt ?: JSONObject.NULL)
         .put("tags", JSONArray(book.tags))
+        // task-42：null 必须落成 JSON null——org.json 的 put(name, null) 是「删键」，
+        // 会让「清除评分」写成字段缺失（读回语义相同，但索引文本要与约定一致、便于排查）。
+        .put("rating", book.rating ?: JSONObject.NULL)
 }
 
 /** task-81：LibraryIndexStore.load 的读结果，供 LibraryStore 在写回前决定下载补扫。 */
@@ -1868,6 +1931,36 @@ internal class LibraryIndexStore(
 
     /** 按 id 删除并回写索引，返回真正被移除的条目（供调用方删文件）。 */
     suspend fun remove(ids: Set<Long>): List<Book> = removeWithSnapshot(ids).removed
+
+    /**
+     * task-42：设置/清除单个条目的用户评分（1..5，null = 清除），返回更新后的条目。
+     *
+     * - 复用本类唯一的串行写路径：同一把 [mutex]、锁内基于最新 [committed] 合并、唯一 tmp 名 +
+     *   fsync + 原子 rename，写成功后才提交内存并回调（与 [removeWithSnapshot] 同款），不另造并行写入口；
+     * - 未知 id 直接返回 null：不写盘、不提交内存、不动 [committed]；
+     * - 评分没有变化时是幂等命中：不重写索引，仍返回当前条目；
+     * - 写盘失败直接抛给调用方，此时内存与磁盘都保持旧值。
+     */
+    suspend fun setRating(bookId: Long, rating: Int?): Book? {
+        val normalized = clampBookRating(rating)
+        val outcome = mutex.withLock {
+            ensureLoadedLocked()
+            val existing = committed.firstOrNull { it.id == bookId }
+            when {
+                existing == null -> Committed<Book?>(null, committed, committedVersion)
+                existing.rating == normalized -> Committed<Book?>(existing, committed, committedVersion)
+                else -> {
+                    val updated = existing.copy(rating = normalized)
+                    val next = committed.map { if (it.id == bookId) updated else it }
+                    writeIndexLocked(next) // 写失败直接抛：内存/磁盘都不动，UI 保持旧评分。
+                    val version = commitLocked(next)
+                    Committed<Book?>(updated, next, version)
+                }
+            }
+        }
+        dispatchCommitted(outcome.books, outcome.version)
+        return outcome.value
+    }
 
     /**
      * 冷启扫描：把 _pb_files 里「文件头像 EPUB/PDF 但索引中没有」的文件批量补登记。

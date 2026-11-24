@@ -32,6 +32,8 @@ object LibraryCatalogBridge {
             filePath = book.filePath,
             fileName = StableKey.fileNameFromPath(book.filePath),
             fileSize = book.fileSize,
+            // task-42：评分 1..5（null = 未评分）；CatalogSync 侧用 incoming.rating ?: existing.rating 合并。
+            rating = book.rating,
             source = "local",
             addedAt = StableKey.parseEpochMillis(book.addedAt),
             updatedAt = now,

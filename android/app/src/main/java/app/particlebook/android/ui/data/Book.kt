@@ -34,6 +34,13 @@ data class Book(
     val fileSize: Long,
     val addedAt: String? = null,
     val tags: List<String> = emptyList(),
+    /**
+     * 用户评分 1..5；null = 未评分。
+     *
+     * 旧索引没有该字段时按 null 读入（向后兼容）；解码时越界值归 null，
+     * 写入侧由 [LibraryStore.setRating] 负责 clamp。
+     */
+    val rating: Int? = null,
 ) {
     val authorLabel: String
         get() = author?.takeIf { it.isNotBlank() } ?: "未知作者"

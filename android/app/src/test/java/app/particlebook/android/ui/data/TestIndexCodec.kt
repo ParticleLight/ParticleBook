@@ -212,7 +212,8 @@ internal class TestIndexCodec : LibraryIndexCodec {
                 if (tagIndex > 0) append(',')
                 append(TestJson.quote(tag))
             }
-            append("]}")
+            append("],\"rating\":").append(book.rating ?: "null")
+            append("}")
         }
         append("]}")
     }
@@ -234,6 +235,8 @@ internal class TestIndexCodec : LibraryIndexCodec {
                 addedAt = item["addedAt"] as? String,
                 tags = (item["tags"]?.let { TestJson.asArray(it, "tags") } ?: emptyList())
                     .map { it as String },
+                // 与生产一致：只认 1..5 的整数星，缺失/越界归 null（readBookRating 是生产纯函数）。
+                rating = readBookRating(item["rating"]),
             )
         }
     }
