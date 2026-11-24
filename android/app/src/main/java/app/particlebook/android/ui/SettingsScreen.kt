@@ -593,14 +593,12 @@ fun SettingsScreen(
                 Text("默认排序", style = MaterialTheme.typography.titleLarge)
                 Spacer(Modifier.size(Spacing.xs))
                 LibrarySort.entries.forEach { option ->
-                    val enabled = option != LibrarySort.Rating
                     ListItem(
                         modifier = Modifier
                             .fillMaxWidth()
                             .heightIn(min = Spacing.minTouchTarget)
                             .selectable(
                                 selected = defaultSort == option,
-                                enabled = enabled,
                                 role = Role.RadioButton,
                                 onClick = { onDefaultSortChange(option) },
                             )
@@ -608,21 +606,15 @@ fun SettingsScreen(
                         colors = settingsRowColors(),
                         headlineContent = {
                             Text(
-                                text = option.label + if (enabled) "" else "（后续版本）",
+                                text = option.label,
                                 style = MaterialTheme.typography.bodyLarge,
-                                color = if (enabled) {
-                                    MaterialTheme.colorScheme.onSurface
-                                } else {
-                                    MaterialTheme.colorScheme.onSurface
-                                        .copy(alpha = DisabledContentAlpha)
-                                },
+                                color = MaterialTheme.colorScheme.onSurface,
                             )
                         },
                         trailingContent = {
                             RadioButton(
                                 selected = defaultSort == option,
                                 onClick = null,
-                                enabled = enabled,
                             )
                         },
                     )

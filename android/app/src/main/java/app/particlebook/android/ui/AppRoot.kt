@@ -272,6 +272,8 @@ fun ParticleBookApp() {
     var licensesOpen by rememberSaveable { mutableStateOf(false) }
     // 书源管理：与统计/关于三页同构的全屏覆盖层，持有自己的探测状态。
     var zlibSourcesOpen by rememberSaveable { mutableStateOf(false) }
+    // 书籍详情弹层：只记 id，数据始终从 store.books 现取（评分改完立刻回显）。
+    var detailBookId by rememberSaveable { mutableStateOf<Long?>(null) }
     val defaultSort = LibrarySort.entries.firstOrNull { it.name == defaultSortName }
         ?: LibrarySort.RecentRead
 
@@ -492,6 +494,9 @@ fun ParticleBookApp() {
             snackbarHostState = snackbarHostState,
             selectionMode = selectionMode,
             onDelete = { deleteDialogOpen = true },
+            onBookInfo = selectedIds.singleOrNull()?.let { id ->
+                { detailBookId = id }
+            },
         ) {
             when (tabIndex) {
                 0 -> LibraryScreen(
@@ -528,6 +533,12 @@ fun ParticleBookApp() {
                     },
                     onImportClick = launchImport,
                     onCrossBookSearch = { searchOpen = true },
+                    onReadingStatsClick = { statsOpen = true },
+                    onDownloadsClick = {
+                        // 下载历史是 Z-Library tab 的二级页：切过去再压栈，书架不留覆盖层。
+                        tabIndex = 1
+                        pushRoute("downloads")
+                    },
                     onRetry = { scope.launch { store.reload() } },
                     defaultSort = defaultSort,
                     progressEpoch = progressEpoch,
@@ -835,6 +846,26 @@ fun ParticleBookApp() {
             }
         }
 
+        // 书籍详情：从书架多选底栏的「书籍信息」进入；只对当前 books 里的活条目渲染，
+        // 删除或数据重载后自动消失（不额外维护副本）。
+        val detailBook = detailBookId?.let { id -> books.firstOrNull { it.id == id } }
+        if (detailBook != null) {
+            val closeDetail: () -> Unit = { detailBookId = null }
+            BackHandler(onBack = closeDetail)
+            val progressLabel = remember(detailBook.id, progressEpoch) {
+                ReadingProgress.percentLabel(appContext, detailBook.id)?.takeIf { it.isNotBlank() }
+            }
+            BookDetailSheet(
+                book = detailBook,
+                progressLabel = progressLabel,
+                onRatingChange = { rating ->
+                    // 写索引是 suspend + IO：评分失败只回滚到旧值（store 不提交内存），这里不伪造成功。
+                    scope.launch { store.setRating(detailBook.id, rating) }
+                },
+                onDismiss = closeDetail,
+            )
+        }
+
         // 阅读器：全屏覆盖层（主外壳 + 返回栈保持组合）。用 AnimatedContent 的 target 值兜住
         // 退出动画期间的最后一本书，避免退回书架时内容闪空。
         AnimatedContent(
@@ -1004,6 +1035,8 @@ private fun AppShell(
     snackbarHostState: SnackbarHostState,
     selectionMode: Boolean,
     onDelete: () -> Unit,
+    /** 单选时的「书籍信息」动作；多选或空选传 null（按钮禁用，不隐藏，避免底栏宽度跳动）。 */
+    onBookInfo: (() -> Unit)?,
     content: @Composable () -> Unit,
 ) {
     if (compactLandscape) {
@@ -1047,7 +1080,7 @@ private fun AppShell(
                 // 横屏 rail 布局没有悬浮胶囊：Snackbar 只避让系统导航条 + 16dp。
                 snackbarHost = { AppSnackbarHost(snackbarHostState, aboveCapsule = false) },
                 bottomBar = {
-                    if (selectionMode) SelectionBar(onDelete = onDelete)
+                    if (selectionMode) SelectionBar(onDelete = onDelete, onBookInfo = onBookInfo)
                 },
             ) { innerPadding ->
                 Box(
@@ -1067,7 +1100,7 @@ private fun AppShell(
             // 竖屏主 tab 有悬浮胶囊：Snackbar 底边落在胶囊上沿 + 8dp（132/140dp，已含导航条）。
             snackbarHost = { AppSnackbarHost(snackbarHostState, aboveCapsule = true) },
             bottomBar = {
-                if (selectionMode) SelectionBar(onDelete = onDelete)
+                if (selectionMode) SelectionBar(onDelete = onDelete, onBookInfo = onBookInfo)
             },
         ) { innerPadding ->
             Box(
@@ -1236,10 +1269,12 @@ private fun readAsset(context: Context, path: String): String = runCatching {
  * 多选底栏，按 2026-11 的 docked toolbar 形态实现：baseline BottomAppBar 已废弃
  * （docs/android-port/m3/README.md §4），这里用 Surface + Row 保留同样的容器色调、
  * 最小触控高度与左右 16dp 内边距；窗口 insets 仍由外层 Scaffold 统一消费。
- * 书柜/更多是 P1 占位（禁用），删除是主操作 —— 放在行尾，远离左侧拇指起点。
+ *
+ * 动作只有两个真功能：**书籍信息**（单选时可用，打开详情/评分弹层）与**删除**（主操作，
+ * 放在行尾远离左侧拇指起点）。早前的「加入书柜 / 更多」是无对应模型的禁用占位，已移除。
  */
 @Composable
-private fun SelectionBar(onDelete: () -> Unit) {
+private fun SelectionBar(onDelete: () -> Unit, onBookInfo: (() -> Unit)?) {
     Surface(color = MaterialTheme.colorScheme.surfaceContainer) {
         Row(
             modifier = Modifier
@@ -1249,9 +1284,8 @@ private fun SelectionBar(onDelete: () -> Unit) {
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Row {
-                TextButton(onClick = {}, enabled = false) { Text("加入书柜") }
-                TextButton(onClick = {}, enabled = false) { Text("更多") }
+            TextButton(onClick = onBookInfo ?: {}, enabled = onBookInfo != null) {
+                Text("书籍信息")
             }
             TextButton(onClick = onDelete) {
                 Text("删除", color = MaterialTheme.colorScheme.error)

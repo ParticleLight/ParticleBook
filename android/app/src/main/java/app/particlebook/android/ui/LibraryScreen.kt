@@ -109,7 +109,7 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-/** 排序方式；评分排序需要书评数据，P0 只占位。 */
+/** 排序方式；评分排序按 1..5 星降序，未评分条目沉底。 */
 enum class LibrarySort(val label: String) {
     RecentRead("最近阅读"),
     AddedAt("添加时间"),
@@ -148,6 +148,9 @@ fun LibraryScreen(
     // 跨书全文搜索：入口在「更多操作」菜单，页面由 AppRoot 承载（索引来自 search_documents）。
     onCrossBookSearch: () -> Unit,
     onRetry: () -> Unit,
+    // 「更多操作」里的阅读统计 / 下载历史：页面都在 AppRoot，书架只负责发意图。
+    onReadingStatsClick: () -> Unit = {},
+    onDownloadsClick: () -> Unit = {},
     modifier: Modifier = Modifier,
     // 设置里的「默认排序」；书架自己仍可在排序 sheet 里临时改。
     defaultSort: LibrarySort = LibrarySort.RecentRead,
@@ -302,6 +305,8 @@ fun LibraryScreen(
                             onRetry = onRetry,
                             onImportClick = onImportClick,
                             onCrossBookSearch = onCrossBookSearch,
+                            onReadingStatsClick = onReadingStatsClick,
+                            onDownloadsClick = onDownloadsClick,
                         )
                     },
                 )
@@ -313,6 +318,8 @@ fun LibraryScreen(
                     onRetry = onRetry,
                     onImportClick = onImportClick,
                     onCrossBookSearch = onCrossBookSearch,
+                    onReadingStatsClick = onReadingStatsClick,
+                    onDownloadsClick = onDownloadsClick,
                 )
             }
         },
@@ -475,7 +482,6 @@ fun LibraryScreen(
                     modifier = Modifier.padding(horizontal = Spacing.screen, vertical = Spacing.xs),
                 )
                 LibrarySort.entries.forEach { option ->
-                    val enabled = option != LibrarySort.Rating
                     val checked = sort == option
                     // 选中态用 secondaryContainer / onSecondaryContainer：容器与内容色成对，
                     // 不靠「文字变色」这种单通道暗示；RadioButton 只承担控件语义。
@@ -494,18 +500,18 @@ fun LibraryScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = Spacing.xs)
-                            .clickable(enabled = enabled) { sort = option },
+                            .clickable { sort = option },
                     ) {
                         ListItem(
                             headlineContent = {
                                 Text(
-                                    text = option.label + if (enabled) "" else "（后续版本）",
+                                    text = option.label,
                                     // ListItem 默认文字色来自 ColorScheme（不透传 Surface.contentColor），
-                                    // 因此选中/禁用两态显式给配对角色色。
-                                    color = when {
-                                        !enabled -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
-                                        checked -> MaterialTheme.colorScheme.onSecondaryContainer
-                                        else -> MaterialTheme.colorScheme.onSurface
+                                    // 因此选中态显式给配对角色色。
+                                    color = if (checked) {
+                                        MaterialTheme.colorScheme.onSecondaryContainer
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurface
                                     },
                                 )
                             },
@@ -513,7 +519,6 @@ fun LibraryScreen(
                                 RadioButton(
                                     selected = checked,
                                     onClick = null,
-                                    enabled = enabled,
                                 )
                             },
                         )
@@ -833,6 +838,8 @@ private fun ShelfTopBar(
     onRetry: () -> Unit,
     onImportClick: () -> Unit,
     onCrossBookSearch: () -> Unit,
+    onReadingStatsClick: () -> Unit,
+    onDownloadsClick: () -> Unit,
 ) {
     val container = if (collapsed) {
         MaterialTheme.colorScheme.surface.copy(alpha = 0.86f)
@@ -859,6 +866,8 @@ private fun ShelfTopBar(
                 onRetry = onRetry,
                 onImportClick = onImportClick,
                 onCrossBookSearch = onCrossBookSearch,
+                onReadingStatsClick = onReadingStatsClick,
+                onDownloadsClick = onDownloadsClick,
             )
         },
         colors = TopAppBarDefaults.topAppBarColors(containerColor = container),
@@ -984,6 +993,8 @@ private fun LibraryTopBarActions(
     onRetry: () -> Unit,
     onImportClick: () -> Unit,
     onCrossBookSearch: () -> Unit,
+    onReadingStatsClick: () -> Unit,
+    onDownloadsClick: () -> Unit,
 ) {
     var menuOpen by remember { mutableStateOf(false) }
     IconButton(onClick = onSearchClick) {
@@ -1027,20 +1038,29 @@ private fun LibraryTopBarActions(
             )
             DropdownMenuItem(
                 text = { Text("阅读统计") },
-                onClick = {},
-                enabled = false,
+                onClick = {
+                    menuOpen = false
+                    onReadingStatsClick()
+                },
             )
             DropdownMenuItem(
                 text = { Text("下载历史") },
-                onClick = {},
-                enabled = false,
+                onClick = {
+                    menuOpen = false
+                    onDownloadsClick()
+                },
             )
         }
     }
 }
 
-/** 过滤 + 排序；空查询返回全部。 */
-private fun filterBooks(
+/**
+ * 过滤 + 排序；空查询返回全部。
+ *
+ * internal 而非 private：评分排序是有用户可见语义的纯逻辑，单测直接打真实实现
+ * （见 LibrarySortRatingTest），不再靠测试内复制排序契约。
+ */
+internal fun filterBooks(
     books: List<Book>,
     query: String,
     sort: LibrarySort,
@@ -1063,7 +1083,10 @@ private fun filterBooks(
         LibrarySort.RecentRead, LibrarySort.AddedAt -> filtered.sortedByDescending { it.id }
         LibrarySort.Title -> filtered.sortedBy { it.title }
         LibrarySort.Author -> filtered.sortedBy { it.authorLabel }
-        LibrarySort.Rating -> filtered
+        // 评分：5 星在前，未评分（null）沉底；同分按 id 倒序，保证列表稳定不抖。
+        LibrarySort.Rating -> filtered.sortedWith(
+            compareByDescending<Book> { it.rating ?: 0 }.thenByDescending { it.id },
+        )
     }
 }
 
