@@ -682,6 +682,11 @@ class LibraryStore(
         val format = when {
             extension == "pdf" || mimeType == "application/pdf" -> BookFormat.Pdf
             extension == "epub" || mimeType == "application/epub+zip" -> BookFormat.Epub
+            // 纯文本没有魔数：扩展名优先，MIME 兜底（md 先于 txt，因为通用 MIME 都是 text/plain）。
+            extension == "md" || extension == "markdown" ||
+                mimeType == "text/markdown" -> BookFormat.Markdown
+            extension == "txt" || extension == "text" ||
+                mimeType == "text/plain" -> BookFormat.Text
             else -> BookFormat.Unsupported
         }
         val safeExtension = sanitizeCopyExtension(extension, format)
@@ -1220,31 +1225,70 @@ internal fun sanitizeCopyExtension(rawExtension: String, format: BookFormat): St
         when (format) {
             BookFormat.Pdf -> "pdf"
             BookFormat.Epub -> "epub"
+            BookFormat.Text -> "txt"
+            BookFormat.Markdown -> "md"
             BookFormat.Unsupported -> "bin"
         }
     }
 }
 
-/** 读文件头判断书籍类型：%PDF → Pdf，PK（ZIP/EPUB）→ Epub；读不到或不像书籍 → null。 */
-internal fun sniffBookFormat(file: File): BookFormat? = runCatching {
+/** 纯文本类扩展名（大小写不敏感）→ 格式；TXT/Markdown 没有魔数，只能靠扩展名判定。 */
+internal fun textFormatByExtension(extension: String): BookFormat? =
+    when (extension.lowercase(Locale.US)) {
+        "txt", "text" -> BookFormat.Text
+        "md", "markdown" -> BookFormat.Markdown
+        else -> null
+    }
+
+/**
+ * 纯文本内容判定：文件非空，且前 8 KiB 没有 NUL 字节（UTF-16 的 NUL 由 BOM 放行）。
+ *
+ * 只用于「像个文本文件吗」的保守判定——二进制文件几乎必然在前几 KiB 出现 0x00，
+ * 反过来 UTF-16 文本很容易被误判，所以看到 FF FE / FE FF 开头也认作文本。
+ */
+internal fun looksLikePlainText(file: File): Boolean = runCatching {
+    if (!file.isFile || file.length() <= 0L) return@runCatching false
     file.inputStream().use { input ->
-        val header = ByteArray(4)
-        val read = input.read(header)
-        when {
-            read >= 4 &&
-                header[0] == 0x25.toByte() && header[1] == 0x50.toByte() &&
-                header[2] == 0x44.toByte() && header[3] == 0x46.toByte() -> BookFormat.Pdf
-            read >= 2 && header[0] == 0x50.toByte() && header[1] == 0x4B.toByte() -> BookFormat.Epub
-            else -> null
-        }
+        val buffer = ByteArray(8 * 1024)
+        val read = input.read(buffer)
+        if (read <= 0) return@runCatching false
+        val utf16Bom = read >= 2 &&
+            ((buffer[0] == 0xFF.toByte() && buffer[1] == 0xFE.toByte()) ||
+                (buffer[0] == 0xFE.toByte() && buffer[1] == 0xFF.toByte()))
+        utf16Bom || (0 until read).none { buffer[it] == 0.toByte() }
+    }
+}.getOrDefault(false)
+
+/**
+ * 读文件头判断书籍类型：扩展名给得出结论就按扩展名校验内容，给不出结论才看魔数。
+ *
+ * 不能无条件「魔数优先」：内容是 ZIP 的 .txt（或下载中断的残包改错后缀）一旦被魔数抢先判成
+ * EPUB 就会进书架、打开必失败。反过来 .epub / .pdf 扩展名但文件头不对的直接否掉，冷启扫描
+ * 不会把它登记成书。文本类扩展名不再回退魔数——含 NUL 的 .txt 是伪装，不是 EPUB。
+ */
+internal fun sniffBookFormat(file: File): BookFormat? = runCatching {
+    val header = file.inputStream().use { input -> ByteArray(4).also { input.read(it) } }
+    val isZip = header.size >= 2 && libraryStartsWith(header, 0x50, 0x4B)
+    val isPdf = header.size >= 4 && libraryStartsWith(header, 0x25, 0x50, 0x44, 0x46)
+    val extension = file.extension.lowercase(Locale.US)
+    val textFormat = textFormatByExtension(extension)
+    when {
+        textFormat != null -> if (looksLikePlainText(file)) textFormat else null
+        extension == "epub" -> if (isZip) BookFormat.Epub else null
+        extension == "pdf" -> if (isPdf) BookFormat.Pdf else null
+        isPdf -> BookFormat.Pdf
+        isZip -> BookFormat.Epub
+        else -> null
     }
 }.getOrNull()
 
-/** 冷启扫描候选：_pb_files 下的普通文件、扩展名是 epub/pdf、且文件头确实像 EPUB/PDF。 */
+/** 冷启扫描候选：_pb_files 下的普通文件、扩展名受支持、且内容确实像对应格式。 */
 internal fun isRecoverableLibraryFile(file: File): Boolean {
     if (!file.isFile || file.isHidden) return false
-    val name = file.name.lowercase(Locale.US)
-    if (!name.endsWith(".epub") && !name.endsWith(".pdf")) return false
+    // 白名单与导入/嗅探共用同一份扩展名表，避免 .markdown / .text 能导入却扫不回来。
+    val extension = file.extension.lowercase(Locale.US)
+    val known = extension == "epub" || extension == "pdf" || textFormatByExtension(extension) != null
+    if (!known) return false
     return sniffBookFormat(file) != null
 }
 
@@ -1298,6 +1342,9 @@ internal fun classifyImportedFile(file: File): ImportedFileIntegrity {
                     } else {
                         ImportedFileIntegrity.CORRUPT
                     }
+                // 纯文本没有结构可校验：扩展名受支持且内容没有 NUL 即视为完整。
+                textFormatByExtension(file.extension) != null && looksLikePlainText(file) ->
+                    ImportedFileIntegrity.COMPLETE
                 // 不认识的格式可能是合法但本层无法判定的书；按 UNKNOWN 处理，不能删旧副本。
                 else -> ImportedFileIntegrity.UNKNOWN
             }
@@ -2438,8 +2485,9 @@ internal fun freshBookId(used: MutableSet<Long>): Long {
     return candidate
 }
 
-/** 下载文件的格式：先看扩展名，再看文件头（%PDF / PK）。 */
+/** 下载文件的格式：先看扩展名（含 TXT/Markdown），再看文件头（%PDF / PK）。 */
 internal fun detectBookFormat(file: File): BookFormat {
+    textFormatByExtension(file.extension)?.let { return it }
     when (file.extension.lowercase()) {
         "pdf" -> return BookFormat.Pdf
         "epub" -> return BookFormat.Epub

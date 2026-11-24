@@ -74,7 +74,8 @@ object BookCoverLoader {
             when (book.format) {
                 BookFormat.Pdf -> renderPdfCover(file)
                 BookFormat.Epub -> renderEpubCover(file)
-                BookFormat.Unsupported -> null
+                // 纯文本没有首屏可渲染的版面，退回书架占位封面（不缓存、不占磁盘）。
+                BookFormat.Text, BookFormat.Markdown, BookFormat.Unsupported -> null
             }
         }.onFailure {
             Log.w(TAG, "cover generate failed id=" + book.id + ": " + it.message)

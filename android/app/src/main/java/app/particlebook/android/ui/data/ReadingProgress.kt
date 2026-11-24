@@ -81,6 +81,27 @@ object ReadingProgress {
         }
     }
 
+    /**
+     * 文本阅读（TXT / Markdown）：段落下标当页码、段落总数当页数。
+     *
+     * 这样 [ProgressSnapshot.percentLabel] / fraction / 书架 Hero「继续阅读」全部沿用既有页码口径，
+     * 不需要为文本新开一条百分比通道；恢复时 [savedPage] 直接就是段落下标。
+     *
+     * 不调 [pageObserver]：段落不是「页」，段落级变化会让阅读统计把一次滚动记成几十次翻页。
+     * 文本的阅读时长由会话记录器按打开/关闭时间统计，与翻页数无关。
+     */
+    fun saveTextProgress(
+        context: Context,
+        bookId: Long,
+        locator: ReaderLocator.Text,
+        paragraph: Int,
+        paragraphs: Int,
+    ) {
+        if (paragraphs <= 1) return
+        val index = paragraph.coerceIn(0, paragraphs - 1)
+        save(bookId, locator, index, paragraphs)
+    }
+
     fun savePdfProgress(context: Context, bookId: Long, page: Int, pages: Int) {
         if (pages > 0) {
             pageObserver?.invoke(bookId, page)

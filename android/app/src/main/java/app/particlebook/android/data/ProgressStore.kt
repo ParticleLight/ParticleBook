@@ -18,8 +18,13 @@ data class ProgressSnapshot(
 
     /** 解码失败只影响恢复，不修改用于诊断的原始字符串。 */
     fun locator(): ReaderLocator? = ReaderLocator.decode(locatorJson)?.takeIf {
-        it !is ReaderLocator.Pdf ||
-            (it.page >= 0 && it.x.isFinite() && it.y.isFinite() && it.x in 0f..1f && it.y in 0f..1f)
+        when (it) {
+            is ReaderLocator.Pdf ->
+                it.page >= 0 && it.x.isFinite() && it.y.isFinite() && it.x in 0f..1f && it.y in 0f..1f
+            // 文本定位只有字符区间：负偏移会让阅读器滚到不存在的段落，按坏 locator 丢弃。
+            is ReaderLocator.Text -> it.offset >= 0 && it.length >= 0
+            else -> true
+        }
     }
 
     fun percentLabel(): String? {

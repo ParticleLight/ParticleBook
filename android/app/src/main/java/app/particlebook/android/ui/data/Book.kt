@@ -4,21 +4,33 @@ import org.json.JSONObject
 import java.util.Locale
 
 /**
- * 书架条目格式。P1 原生阅读只支持 EPUB/PDF；其他格式保留条目但入口明确提示不支持，
- * 不能再像 P0 那样把未知格式默认当 EPUB（否则 TXT/AZW3 会被送进 EPUB 解析器）。
+ * 书架条目格式。原生阅读支持 EPUB / PDF / 纯文本（TXT）/ Markdown；其他格式保留条目但入口
+ * 明确提示不支持，不能再像 P0 那样把未知格式默认当 EPUB（否则 AZW3 会被送进 EPUB 解析器）。
+ *
+ * 文本类（TXT / Markdown）共用同一个滚动式阅读器：它们没有固定版式，进度按段落位置记。
  */
 enum class BookFormat(val label: String, val mime: String, val raw: String) {
     Epub("EPUB", "application/epub+zip", "epub"),
     Pdf("PDF", "application/pdf", "pdf"),
+    Text("TXT", "text/plain", "txt"),
+
+    /** Markdown 目前按纯文本呈现（标题加大加粗），不做完整富文本渲染。 */
+    Markdown("MD", "text/markdown", "md"),
     Unsupported("不支持", "application/octet-stream", "unsupported");
 
     /** 是否有原生阅读器实现；UI 入口据此禁用或提示。 */
-    val isReadable: Boolean get() = this == Epub || this == Pdf
+    val isReadable: Boolean
+        get() = this == Epub || this == Pdf || this == Text || this == Markdown
+
+    /** 文本类格式（走滚动式文本阅读器）。 */
+    val isTextLike: Boolean get() = this == Text || this == Markdown
 
     companion object {
         fun fromRaw(raw: String?): BookFormat = when (raw?.lowercase(Locale.US)) {
             "pdf" -> Pdf
             "epub" -> Epub
+            "txt", "text" -> Text
+            "md", "markdown" -> Markdown
             else -> Unsupported
         }
     }

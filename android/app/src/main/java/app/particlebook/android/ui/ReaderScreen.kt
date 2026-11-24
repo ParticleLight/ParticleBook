@@ -229,7 +229,8 @@ private fun pageCacheLimitBytes(): Int {
 }
 
 /**
- * 阅读器：PDF 走原生纵向连续滚动；EPUB 走原生 Canvas 分页。
+ * 阅读器分派：PDF 走原生纵向连续滚动；EPUB 走原生 Canvas 分页；
+ * TXT / Markdown 走按段落流式渲染的滚动式阅读器（文本没有固定版式，不做假分页）。
  * 进入即切沉浸（隐藏系统栏），退出恢复。
  */
 @Composable
@@ -244,7 +245,7 @@ fun ReaderScreen(
      * 重试或重组不会把用户拽回命中处。
      */
     initialLocator: ReaderLocator? = null,
-    /** 排版输入（字号 / 行高）：只有 EPUB 用得上，PDF 是固定版式，原样透传后由 EpubReaderScreen 消费。 */
+    /** 排版输入（字号 / 行高）：EPUB 与文本阅读器消费；PDF 是固定版式，只透传不生效。 */
     fontSizeSp: Float = ReaderTypographySpec.DEFAULT_FONT_SIZE_SP,
     lineHeightMultiplier: Float = ReaderTypographySpec.DEFAULT_LINE_HEIGHT,
     onFontSizeChange: (Float) -> Unit = {},
@@ -269,13 +270,22 @@ fun ReaderScreen(
             onFontSizeChange = onFontSizeChange,
             onLineHeightChange = onLineHeightChange,
         )
+        BookFormat.Text, BookFormat.Markdown -> TextReaderScreen(
+            book = book,
+            onBack = onBack,
+            initialLocator = initialLocator,
+            fontSizeSp = fontSizeSp,
+            lineHeightMultiplier = lineHeightMultiplier,
+            onFontSizeChange = onFontSizeChange,
+            onLineHeightChange = onLineHeightChange,
+        )
         BookFormat.Unsupported -> UnsupportedReaderScreen(book = book, onBack = onBack)
     }
 }
 
 /**
- * 未知格式入口：不把 TXT/AZW3/DOCX 之类硬塞进 EPUB 解析器，也不让点击无反应。
- * 明确告诉用户当前只支持 EPUB/PDF，并保留返回路径。
+ * 未知格式入口：不把 AZW3/DOCX/MOBI 之类硬塞进 EPUB 解析器，也不让点击无反应。
+ * 明确告诉用户当前支持哪几种格式，并保留返回路径。
  */
 @Composable
 private fun UnsupportedReaderScreen(book: Book, onBack: () -> Unit) {
@@ -303,7 +313,7 @@ private fun UnsupportedReaderScreen(book: Book, onBack: () -> Unit) {
             Text("暂不支持此格式", style = MaterialTheme.typography.titleLarge)
             Spacer(Modifier.height(8.dp))
             Text(
-                "《" + book.title + "》是 " + book.format.label + " 格式，当前原生阅读器只支持 EPUB 与 PDF。",
+                "《" + book.title + "》是 " + book.format.label + " 格式，当前原生阅读器支持 EPUB、PDF、TXT 与 Markdown。",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,

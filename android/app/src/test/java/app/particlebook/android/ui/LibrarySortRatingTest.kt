@@ -3,6 +3,7 @@ package app.particlebook.android.ui
 import app.particlebook.android.ui.data.Book
 import app.particlebook.android.ui.data.BookFormat
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -157,4 +158,194 @@ class LibrarySortRatingTest {
         assertEquals(books.size, sorted.size)
         assertEquals(books.map { it.id }.toSet(), sorted.map { it.id }.toSet())
     }
+
+    // ── 本轮新增：格式筛选（FormatFilter 新增 Text / Markdown 两个文本类筛选项） ──
+
+    /** 格式化 fixture：filePath 扩展名跟着 format 走，避免「TXT 书挂 .epub 路径」这种自相矛盾的假数据。 */
+    private fun formatBook(
+        id: Long,
+        format: BookFormat,
+        title: String = "book-$id",
+        author: String? = "作者$id",
+        tags: List<String> = emptyList(),
+        rating: Int? = null,
+    ) = book(id, title = title, rating = rating, author = author, format = format, tags = tags)
+        .copy(filePath = "/tmp/book-$id.${format.raw}")
+
+    @Test
+    fun allFormatFilterKeepsEveryFormatIncludingTextAndUnsupported() {
+        // 「全部」= 不过滤：TXT / Markdown / Unsupported 都必须留在结果里（Unsupported 保留条目，只是打不开）。
+        val books = BookFormat.values().mapIndexed { index, format ->
+            formatBook((index + 1).toLong(), format)
+        }
+
+        val all = filterBooks(books, "", LibrarySort.RecentRead, FormatFilter.All)
+
+        assertEquals(books.size, all.size)
+        // RecentRead 按 id 倒序，顺序也一并锁住。
+        assertEquals(listOf(5L, 4L, 3L, 2L, 1L), ids(all))
+        assertEquals(BookFormat.values().toSet(), all.map { it.format }.toSet())
+        assertTrue(all.any { it.format == BookFormat.Text })
+        assertTrue(all.any { it.format == BookFormat.Markdown })
+        assertTrue(all.any { it.format == BookFormat.Unsupported })
+    }
+
+    @Test
+    fun eachFormatFilterKeepsOnlyItsOwnFormat() {
+        // 五种格式各一本，四个单项筛选各只留自己那一本 —— 文本类两种格式绝不能互相带出。
+        val books = BookFormat.values().mapIndexed { index, format ->
+            formatBook((index + 1).toLong(), format)
+        }
+        val cases = listOf(
+            FormatFilter.Epub to BookFormat.Epub,
+            FormatFilter.Pdf to BookFormat.Pdf,
+            FormatFilter.Text to BookFormat.Text,
+            FormatFilter.Markdown to BookFormat.Markdown,
+        )
+
+        cases.forEach { (filter, expected) ->
+            val got = filterBooks(books, "", LibrarySort.RecentRead, filter)
+            assertEquals("筛 $filter 后条目数", 1, got.size)
+            assertEquals("筛 $filter 后格式", listOf(expected), got.map { it.format })
+        }
+    }
+
+    @Test
+    fun queryHitsTitleAndDropsNonMatchingBooks() {
+        val books = listOf(
+            formatBook(1, BookFormat.Text, title = "Kotlin 实战"),
+            formatBook(2, BookFormat.Markdown, title = "统计之美"),
+            formatBook(3, BookFormat.Epub, title = "Kotlin 协程"),
+        )
+
+        // 命中标题、大小写不敏感；2 标题不匹配被过滤掉。
+        val hit = filterBooks(books, query = "kotlin", sort = LibrarySort.RecentRead, filter = FormatFilter.All)
+
+        assertEquals(listOf(3L, 1L), ids(hit))
+        assertTrue(hit.none { it.id == 2L })
+    }
+
+    @Test
+    fun queryHitsAuthorAndDropsNonMatchingBooks() {
+        val books = listOf(
+            formatBook(1, BookFormat.Epub, author = "Kotlin 中文社区"),
+            formatBook(2, BookFormat.Text, author = "张伟"),
+            formatBook(3, BookFormat.Markdown, author = "kotlin 学院"),
+        )
+
+        val hit = filterBooks(books, query = "KOTLIN", sort = LibrarySort.RecentRead, filter = FormatFilter.All)
+
+        assertEquals(listOf(3L, 1L), ids(hit))
+        assertTrue(hit.none { it.id == 2L })
+    }
+
+    @Test
+    fun queryHitsTagsAndDropsNonMatchingBooks() {
+        val books = listOf(
+            formatBook(1, BookFormat.Text, tags = listOf("安卓", "Kotlin")),
+            formatBook(2, BookFormat.Markdown, tags = listOf("编译原理")),
+            formatBook(3, BookFormat.Pdf, tags = emptyList()),
+        )
+
+        // tags 里任意一项包含关键字即算命中；2（标签不匹配）与 3（无标签）都被过滤。
+        val hit = filterBooks(books, query = "kotlin", sort = LibrarySort.RecentRead, filter = FormatFilter.All)
+
+        assertEquals(listOf(1L), ids(hit))
+    }
+
+    @Test
+    fun queryHitsUnknownAuthorPlaceholderForNullAuthor() {
+        // 查询匹配的是 authorLabel 而不是裸 author 字段：author 为 null 时占位文案是「未知作者」。
+        val books = listOf(
+            formatBook(1, BookFormat.Text, author = null),
+            formatBook(2, BookFormat.Text, author = "张伟"),
+        )
+
+        val hit = filterBooks(books, query = "未知作者", sort = LibrarySort.RecentRead, filter = FormatFilter.All)
+
+        assertEquals(listOf(1L), ids(hit))
+        assertEquals("未知作者", hit.single().authorLabel)
+    }
+
+    @Test
+    fun whitespaceOnlyQueryIsTreatedAsEmpty() {
+        // 纯空格 trim 成空关键字：不该把任何书筛掉，但格式筛选依然生效。
+        val books = listOf(
+            formatBook(1, BookFormat.Text),
+            formatBook(2, BookFormat.Markdown),
+        )
+
+        val hit = filterBooks(books, query = "   ", sort = LibrarySort.RecentRead, filter = FormatFilter.Text)
+
+        assertEquals(listOf(1L), ids(hit))
+    }
+
+    @Test
+    fun ratingSortStillAppliesAfterTextFilter() {
+        val books = listOf(
+            formatBook(1, BookFormat.Text, rating = null),
+            formatBook(2, BookFormat.Text, rating = 2),
+            formatBook(3, BookFormat.Markdown, rating = 5), // 格式不同，先被筛掉
+            formatBook(4, BookFormat.Text, rating = 5),
+            formatBook(5, BookFormat.Epub, rating = 4), // 格式不同，先被筛掉
+        )
+
+        val sorted = filterBooks(books, "", LibrarySort.Rating, FormatFilter.Text)
+
+        // 5 星在前、未评分沉底；被筛掉的 3 / 5 不能混进来。
+        assertEquals(listOf(4L, 2L, 1L), ids(sorted))
+        assertEquals(listOf(5, 2, null), sorted.map { it.rating })
+        assertTrue(sorted.all { it.format == BookFormat.Text })
+    }
+
+    @Test
+    fun emptyListStaysEmptyUnderEveryFormatFilter() {
+        FormatFilter.values().forEach { filter ->
+            assertEquals(
+                "筛 $filter + 空查询",
+                emptyList<Long>(),
+                ids(filterBooks(emptyList(), "", LibrarySort.Rating, filter)),
+            )
+            assertEquals(
+                "筛 $filter + 非空查询",
+                emptyList<Long>(),
+                ids(filterBooks(emptyList(), "kotlin", LibrarySort.Title, filter)),
+            )
+        }
+    }
+
+    @Test
+    fun unsupportedNeverLeaksIntoTextOrMarkdownFilter() {
+        // 关键回归点：TXT / Markdown 都属于「文本类」，但 Unsupported 不是文本类，不能被文本筛选带出来。
+        val books = listOf(
+            formatBook(1, BookFormat.Text, title = "纯文本"),
+            formatBook(2, BookFormat.Markdown, title = "Markdown 笔记"),
+            formatBook(9, BookFormat.Unsupported, title = "AZW3 样章"),
+        )
+
+        val text = filterBooks(books, "", LibrarySort.RecentRead, FormatFilter.Text)
+        val markdown = filterBooks(books, "", LibrarySort.RecentRead, FormatFilter.Markdown)
+
+        assertEquals(listOf(1L), ids(text))
+        assertEquals(listOf(2L), ids(markdown))
+        assertTrue(text.none { it.format == BookFormat.Unsupported })
+        assertTrue(markdown.none { it.format == BookFormat.Unsupported })
+        // 语义锚点：Unsupported 既不是 Text 也不是 Markdown，isTextLike 必须为 false。
+        assertFalse(BookFormat.Unsupported.isTextLike)
+    }
+
+    @Test
+    fun formatFilterAndQueryBothMustMatch() {
+        val books = listOf(
+            formatBook(1, BookFormat.Text, title = "Kotlin 实战"),
+            formatBook(2, BookFormat.Markdown, title = "Kotlin 实战"),
+            formatBook(3, BookFormat.Markdown, title = "统计之美"),
+        )
+
+        // 1 被格式筛掉，3 被查询筛掉，只剩 MD 且标题命中。
+        val hit = filterBooks(books, query = "kotlin", sort = LibrarySort.RecentRead, filter = FormatFilter.Markdown)
+
+        assertEquals(listOf(2L), ids(hit))
+    }
 }
+

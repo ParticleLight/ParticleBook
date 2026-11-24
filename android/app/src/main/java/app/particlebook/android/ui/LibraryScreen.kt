@@ -8,6 +8,8 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -119,11 +121,23 @@ enum class LibrarySort(val label: String) {
     Rating("评分"),
 }
 
-/** 格式筛选（单项）。 */
-enum class FormatFilter(val label: String) {
-    All("全部"),
-    Epub("EPUB"),
-    Pdf("PDF"),
+/**
+ * 格式筛选（单项）。文本类两种格式各有筛选项，避免把 TXT 和 Markdown 混成一个「文本」。
+ *
+ * 只记「要不要按格式精确匹配」：All 视作不筛（含未支持格式），其余与 [BookFormat] 一一对应，
+ * 标签直接从 [BookFormat.label] 派生 —— 否则「TXT」「MD」会在枚举和 BookFormat 各写一遍，
+ * 改一处漏一处时筛选按钮和书籍徽章就会说两套话。
+ */
+enum class FormatFilter(val bookFormat: BookFormat?) {
+    All(null),
+    Epub(BookFormat.Epub),
+    Pdf(BookFormat.Pdf),
+    Text(BookFormat.Text),
+    Markdown(BookFormat.Markdown),
+    ;
+
+    val label: String
+        get() = bookFormat?.label ?: "全部"
 }
 
 /**
@@ -131,7 +145,7 @@ enum class FormatFilter(val label: String) {
  * 透明顶栏 + 34sp Serif 大标题 + 继续阅读 Hero + 最近添加横滑 + 2 列 3:4 网格。
  * 排序/筛选收进 ModalBottomSheet；多选/搜索沿用 v3.1 交互，底部导航在 AppRoot（悬浮胶囊）。
  */
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class, ExperimentalLayoutApi::class)
 @Composable
 fun LibraryScreen(
     books: List<Book>,
@@ -538,9 +552,11 @@ fun LibraryScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(horizontal = Spacing.screen, vertical = Spacing.xs),
                 )
-                Row(
+                // 格式项已有 5 个：窄屏 + 大字号时横向放不下，用 FlowRow 换行而不是压缩 chip。
+                FlowRow(
                     modifier = Modifier.padding(horizontal = Spacing.screen),
                     horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
+                    verticalArrangement = Arrangement.spacedBy(Spacing.xs),
                 ) {
                     FormatFilter.entries.forEach { option ->
                         FilterChip(
@@ -577,8 +593,8 @@ fun LibraryScreen(
             title = { Text("支持的格式") },
             text = {
                 Text(
-                    "EPUB、PDF、MOBI、TXT、FB2、CBZ、CBR、HTML、Markdown。" +
-                        "P0 原生可读 PDF；EPUB 等通过「兼容模式」打开。",
+                    "可原生阅读：EPUB、PDF、TXT、Markdown。" +
+                        "MOBI、FB2、CBZ、CBR、HTML 等格式可以导入书架，打开时会提示暂不支持。",
                 )
             },
             confirmButton = {
@@ -1105,11 +1121,8 @@ internal fun filterBooks(
 ): List<Book> {
     val keyword = query.trim().lowercase()
     val filtered = books.filter { book ->
-        val formatOk = when (filter) {
-            FormatFilter.All -> true
-            FormatFilter.Epub -> book.format == BookFormat.Epub
-            FormatFilter.Pdf -> book.format == BookFormat.Pdf
-        }
+        // All 不筛（未支持格式也留在书架上）；其余按格式精确相等，不做 isTextLike 之类的归并。
+        val formatOk = filter.bookFormat == null || book.format == filter.bookFormat
         val queryOk = keyword.isEmpty() ||
             book.title.lowercase().contains(keyword) ||
             book.authorLabel.lowercase().contains(keyword) ||
