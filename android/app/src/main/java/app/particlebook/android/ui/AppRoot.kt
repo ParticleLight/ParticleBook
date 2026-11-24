@@ -1279,6 +1279,10 @@ private fun SelectionBar(onDelete: () -> Unit, onBookInfo: (() -> Unit)?) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
+                // 关键：Scaffold 的 contentWindowInsets 为 0（仅供悬浮胶囊自己避让），底栏就必须自己
+                // 躲系统导航条。少了这一行，整条 48dp 高的底栏会正好落在导航条底下 —— 看得见一点、
+                // 点不到（真机 Pixel 3 XL 手势导航实测：节点 bounds 全 0，点击穿透到书架卡片）。
+                .navigationBarsPadding()
                 .heightIn(min = Spacing.minTouchTarget)
                 .padding(horizontal = Spacing.md),
             horizontalArrangement = Arrangement.SpaceBetween,
