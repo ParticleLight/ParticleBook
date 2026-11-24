@@ -501,8 +501,9 @@ fun SettingsScreen(
                     text = "故乡的河里，有一条小小的船……",
                     style = MaterialTheme.typography.bodyLarge.copy(
                         fontSize = fontSize.sp,
-                        // D6：预览行距跟随当前「行距」设置，和行距 sheet 保持一致。
-                        lineHeight = (fontSize * lineHeight).sp,
+                        // D6：预览行距跟随当前「行距」设置，并且与正文用同一条换算
+                        // （字号 × 倍率 × 字体固有行高），否则两个 sheet 的预览会互相打架。
+                        lineHeight = previewLineHeightSp(fontSize.toFloat(), lineHeight).sp,
                     ),
                     color = MaterialTheme.colorScheme.onSurface,
                 )
