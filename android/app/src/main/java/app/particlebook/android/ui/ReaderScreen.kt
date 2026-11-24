@@ -215,6 +215,11 @@ fun ReaderScreen(
      * 重试或重组不会把用户拽回命中处。
      */
     initialLocator: ReaderLocator? = null,
+    /** 排版输入（字号 / 行高）：只有 EPUB 用得上，PDF 是固定版式，原样透传后由 EpubReaderScreen 消费。 */
+    fontSizeSp: Float = ReaderTypographySpec.DEFAULT_FONT_SIZE_SP,
+    lineHeightMultiplier: Float = ReaderTypographySpec.DEFAULT_LINE_HEIGHT,
+    onFontSizeChange: (Float) -> Unit = {},
+    onLineHeightChange: (Float) -> Unit = {},
 ) {
     BackHandler(onBack = onBack)
     when (book.format) {
@@ -230,6 +235,10 @@ fun ReaderScreen(
             annotationStore = annotationStore,
             openStartedAtNanos = openStartedAtNanos,
             initialLocator = initialLocator,
+            fontSizeSp = fontSizeSp,
+            lineHeightMultiplier = lineHeightMultiplier,
+            onFontSizeChange = onFontSizeChange,
+            onLineHeightChange = onLineHeightChange,
         )
         BookFormat.Unsupported -> UnsupportedReaderScreen(book = book, onBack = onBack)
     }
@@ -889,7 +898,8 @@ private fun PdfReadingPane(
                             onClick = {},
                         )
                         DropdownMenuItem(
-                            text = { Text("阅读设置（即将推出）") },
+                            // PDF 是固定版式：字号/行高只对 EPUB 正文有意义，这里不放假入口。
+                            text = { Text("阅读设置（PDF 为固定版式）") },
                             enabled = false,
                             onClick = {},
                         )

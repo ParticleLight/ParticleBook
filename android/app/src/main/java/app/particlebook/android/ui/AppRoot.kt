@@ -162,11 +162,15 @@ private class AppPreferences(context: Context) {
             runCatching { settings.set("fontSize", value) }
         }
 
-    /** 正文行高倍数（1.3 / 1.5 / 1.7 / 2.0）。 */
+    /** 正文行高倍数（1.2..3.0，1 位小数）。 */
     var lineHeight: Float
-        get() = runCatching { settings.getDouble("lineHeight").toFloat() }.getOrDefault(1.7f)
+        get() = runCatching { settings.getDouble("lineHeight").toFloat() }
+            .getOrDefault(ReaderTypographySpec.DEFAULT_LINE_HEIGHT)
         set(value) {
-            runCatching { settings.set("lineHeight", value.toDouble()) }
+            // 存十进制一位：Float 2.1f 直传 Double 会写成 2.0999999046325684，
+            // 打开 shared_prefs 一看就像坏了。先四舍五入到 0.1 再用 Double 除法。
+            val tenths = kotlin.math.round(value * 10f).toInt()
+            runCatching { settings.set("lineHeight", tenths / 10.0) }
         }
 
     /** 书架默认排序，存 LibrarySort.name。 */
@@ -913,6 +917,24 @@ fun ParticleBookApp() {
                                 ?.takeIf { it.first == readingBook.id }
                                 ?.let { ReaderLocator.decode(it.second) },
                             openStartedAtNanos = epubOpenTiming?.takeIf { it.bookId == readingBook.id }?.startedAtNanos,
+                            // 字号 / 行高：设置页与阅读器弹层改的是同一份偏好（SettingsStore 的
+                            // fontSize / lineHeight 键），改完立刻作用于 EPUB 排版，不用重开书。
+                            fontSizeSp = fontSize.toFloat(),
+                            lineHeightMultiplier = lineHeight,
+                            onFontSizeChange = { sp ->
+                                val next = normalizeFontSize(sp).toInt()
+                                if (next != fontSize) {
+                                    fontSize = next
+                                    preferences.fontSize = next
+                                }
+                            },
+                            onLineHeightChange = { multiplier ->
+                                val next = normalizeLineHeight(multiplier)
+                                if (next != lineHeight) {
+                                    lineHeight = next
+                                    preferences.lineHeight = next
+                                }
+                            },
                             onBack = {
                                 val closingGeneration = readerGeneration
                                 scope.launch {

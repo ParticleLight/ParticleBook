@@ -23,6 +23,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.outlined.List
+import androidx.compose.material.icons.outlined.FormatSize
 import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -172,6 +173,14 @@ fun EpubReaderScreen(
      * 跨章命中由 ChapterRequest 带 locator 交给 EpubContent，落位后再反算页号。
      */
     initialLocator: ReaderLocator? = null,
+    /**
+     * 排版输入：字号（sp）与行高倍数。默认值 = 设置 schema 的默认，AppRoot 传持久化值。
+     * 这两个数一变就必须重排——它们进 EpubLayoutConfig，进而决定分页与行几何。
+     */
+    fontSizeSp: Float = ReaderTypographySpec.DEFAULT_FONT_SIZE_SP,
+    lineHeightMultiplier: Float = ReaderTypographySpec.DEFAULT_LINE_HEIGHT,
+    onFontSizeChange: (Float) -> Unit = {},
+    onLineHeightChange: (Float) -> Unit = {},
 ) {
     ImmersiveSystemBars()
     val density = LocalDensity.current
@@ -195,6 +204,7 @@ fun EpubReaderScreen(
     var layoutConfig by remember(book.filePath) { mutableStateOf<EpubLayoutConfig?>(null) }
     var pageIndex by remember(book.filePath) { mutableIntStateOf(0) }
     var tocOpen by remember { mutableStateOf(false) }
+    var settingsOpen by remember { mutableStateOf(false) }
     var selectedRange by remember { mutableStateOf<EpubSelectionRange?>(null) }
     var chapterRequest by remember(book.filePath) { mutableStateOf<ChapterRequest?>(null) }
     // 搜索命中跳转只属于当前这本书的这次打开：换书重新 remember，消费后置空。
@@ -679,6 +689,9 @@ fun EpubReaderScreen(
                     IconButton(onClick = { tocOpen = true }) {
                         Icon(Icons.AutoMirrored.Outlined.List, contentDescription = "目录")
                     }
+                    IconButton(onClick = { settingsOpen = true }) {
+                        Icon(Icons.Outlined.FormatSize, contentDescription = "阅读设置")
+                    }
                     TextButton(onClick = startTts) { Text("朗读") }
                     IconButton(onClick = addBookmark) {
                         Icon(Icons.Filled.BookmarkBorder, contentDescription = "添加书签")
@@ -780,6 +793,8 @@ fun EpubReaderScreen(
                             onRequestChapter = requestChapter,
                             onLayoutConfig = { layoutConfig = it },
                             onSelectionChanged = { selectedRange = it },
+                            fontSizeSp = fontSizeSp,
+                            lineHeightMultiplier = lineHeightMultiplier,
                         )
                     }
                 }
@@ -810,6 +825,17 @@ fun EpubReaderScreen(
                 )
             }
         }
+    }
+
+    if (settingsOpen) {
+        // 弹层开着时先别让 chrome 自动隐藏：用户可能连续调几档字号，需要看着预览。
+        ReaderSettingsSheet(
+            fontSizeSp = fontSizeSp,
+            lineHeightMultiplier = lineHeightMultiplier,
+            onFontSizeChange = onFontSizeChange,
+            onLineHeightChange = onLineHeightChange,
+            onDismiss = { settingsOpen = false },
+        )
     }
 
     if (tocOpen) {
@@ -912,6 +938,8 @@ private fun EpubContent(
     onRequestChapter: (Int, Int?, ReaderLocator.Epub?) -> Unit,
     onLayoutConfig: (EpubLayoutConfig) -> Unit,
     onSelectionChanged: (EpubSelectionRange?) -> Unit,
+    fontSizeSp: Float,
+    lineHeightMultiplier: Float,
 ) {
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val density = LocalDensity.current
@@ -920,18 +948,32 @@ private fun EpubContent(
         val horizontalPadding = with(density) { Spacing.md.toPx() }.roundToInt()
         val verticalPadding = with(density) { Spacing.lg.toPx() }.roundToInt()
         val textColor = MaterialTheme.colorScheme.onSurface.toArgb()
-        val config = remember(widthPx, heightPx, horizontalPadding, verticalPadding, textColor) {
+        val baseTextSizeSp = normalizeFontSize(fontSizeSp)
+        val baseLineHeight = normalizeLineHeight(lineHeightMultiplier)
+        val config = remember(
+            widthPx,
+            heightPx,
+            horizontalPadding,
+            verticalPadding,
+            textColor,
+            baseTextSizeSp,
+            baseLineHeight,
+        ) {
             EpubLayoutConfig(
                 viewportWidthPx = widthPx,
                 viewportHeightPx = heightPx,
                 horizontalPaddingPx = horizontalPadding,
                 verticalPaddingPx = verticalPadding,
+                baseTextSizeSp = baseTextSizeSp,
+                lineHeightMultiplier = baseLineHeight,
                 defaultTextColor = textColor,
             )
         }
         LaunchedEffect(config) { onLayoutConfig(config) }
         var retryTick by remember { mutableIntStateOf(0) }
         var layoutLoading by remember { mutableStateOf(true) }
+        // 上一轮真正排过版的配置：只用来判断「这次 config 变化是不是字号/行高」。
+        var lastAppliedConfig by remember { mutableStateOf<EpubLayoutConfig?>(null) }
         var layoutError by remember { mutableStateOf<String?>(null) }
         LaunchedEffect(controller, config, chapterIndex, requestVersion, retryTick) {
             if (widthPx <= 0 || heightPx <= 0) return@LaunchedEffect
@@ -939,6 +981,21 @@ private fun EpubContent(
             layoutError = null
             try {
                 val request = chapterRequest?.takeIf { it.chapterIndex == chapterIndex }
+                // 字号/行高变了：先把「当前页」按旧布局换算成 locator，重排后再用 locator 找回位置。
+                // 不这么做，重排会把读者扔回本章第一页——页号只在旧布局里有意义。
+                val previous = lastAppliedConfig
+                val typographyChanged = previous != null &&
+                    (
+                        previous.baseTextSizeSp != config.baseTextSizeSp ||
+                            previous.lineHeightMultiplier != config.lineHeightMultiplier
+                        )
+                val typographyAnchor = if (typographyChanged) {
+                    withContext(Dispatchers.IO) {
+                        runCatching { controller.locatorForPage(controller.currentPageIndex) }.getOrNull()
+                    }
+                } else {
+                    null
+                }
                 val layout = withContext(Dispatchers.IO) {
                     if (controller.currentChapterIndex != chapterIndex ||
                         controller.currentLayoutOrNull == null
@@ -947,7 +1004,11 @@ private fun EpubContent(
                     }
                     controller.layoutChapter(config)
                 }
-                val restoredPage = request?.locator?.let { locator ->
+                // 字号/行高重排：locator 优先于「还停在第几页」，也优先于章节请求（请求是换章用的）。
+                val typographyPage = typographyAnchor?.let { anchor ->
+                    withContext(Dispatchers.IO) { runCatching { controller.pageAt(anchor) }.getOrNull() }
+                }
+                val restoredPage = typographyPage ?: request?.locator?.let { locator ->
                     controller.pageAt(locator)
                         ?: initialPageFor(locator, layout, request.page ?: 0)
                 }
@@ -958,6 +1019,7 @@ private fun EpubContent(
                     else -> request.page
                 }
                 val page = withContext(Dispatchers.IO) { controller.setPage(targetPage) }
+                lastAppliedConfig = config
                 onLayout(layout, page, request)
                 if (request != null) onRequestApplied(request)
             } catch (cancelled: CancellationException) {
