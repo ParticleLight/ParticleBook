@@ -115,10 +115,12 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import app.particlebook.android.reader.AnnotationStore
+import app.particlebook.android.reader.ReaderAnnotation
 import app.particlebook.android.ui.data.Book
 import app.particlebook.android.ui.data.BookFormat
 import app.particlebook.android.ui.data.ReadingProgress
 import app.particlebook.android.reader.ReaderLocator
+import app.particlebook.android.reader.export.AnnotationExportPlanner
 import app.particlebook.android.reader.pdf.PdfNormalizedRect
 import app.particlebook.android.reader.pdf.PdfSelectionController
 import app.particlebook.android.reader.pdf.PdfTextLayerController
@@ -502,6 +504,10 @@ private fun PdfReadingPane(
     var chromeTick by remember { mutableIntStateOf(0) }
     var tocOpen by remember { mutableStateOf(false) }
     var moreMenuOpen by remember { mutableStateOf(false) }
+    // 标注导出：PDF 没有常驻标注侧栏，只在打开弹层时按需把这本书的标注读一次。
+    var exportOpen by remember(book.filePath) { mutableStateOf(false) }
+    var exportAnnotations by remember(book.filePath) { mutableStateOf<List<ReaderAnnotation>?>(null) }
+    var exportReadFailed by remember(book.filePath) { mutableStateOf(false) }
     var detailsOpen by remember { mutableStateOf(false) }
     var pageJumpOpen by remember { mutableStateOf(false) }
     var bookmark by rememberSaveable(book.id) { mutableStateOf(false) }
@@ -572,6 +578,29 @@ private fun PdfReadingPane(
     val snackbarHostState = remember { SnackbarHostState() }
     val notify: (String) -> Unit = { message ->
         scope.launch { snackbarHostState.showSnackbar(message) }
+    }
+
+    // 导出弹层打开才读标注：读完就绪前 exportDocument 为 null，弹层自然不出现；
+    // 关掉时清空，用户改过标注后再打开能拿到最新一份。
+    LaunchedEffect(exportOpen, annotationStore, book.id) {
+        if (!exportOpen) {
+            exportAnnotations = null
+            return@LaunchedEffect
+        }
+        val store = annotationStore ?: return@LaunchedEffect
+        val loaded = withContext(Dispatchers.IO) { runCatching { store.list(book.id) } }
+        exportAnnotations = loaded.getOrNull()
+        exportReadFailed = loaded.isFailure
+    }
+    LaunchedEffect(exportReadFailed) {
+        if (!exportReadFailed) return@LaunchedEffect
+        exportReadFailed = false
+        exportOpen = false
+        notify("标注读取失败，请重试")
+    }
+    // PDF 没有目录标题可对位，章节一律由 planner 归到「第 N 页」。
+    val exportDocument = remember(exportAnnotations) {
+        exportAnnotations?.let { AnnotationExportPlanner.plan(book, it) }
     }
 
     // 文本层按页取（PDF 没有整篇粒度可用，也没必要把整本书读进内存）。loadPage 会走
@@ -1021,6 +1050,15 @@ private fun PdfReadingPane(
                             onClick = {},
                         )
                         DropdownMenuItem(
+                            text = { Text("导出标注") },
+                            // 标注存储没就绪时不留假入口；真要读失败会在打开时提示并收起弹层。
+                            enabled = annotationStore != null,
+                            onClick = {
+                                moreMenuOpen = false
+                                exportOpen = true
+                            },
+                        )
+                        DropdownMenuItem(
                             text = { Text("书籍详情") },
                             onClick = {
                                 moreMenuOpen = false
@@ -1218,6 +1256,14 @@ private fun PdfReadingPane(
             confirmButton = {
                 TextButton(onClick = { detailsOpen = false }) { Text("关闭") }
             },
+        )
+    }
+
+    if (exportOpen && exportDocument != null) {
+        AnnotationExportSheet(
+            document = exportDocument,
+            onDismiss = { exportOpen = false },
+            onNotify = notify,
         )
     }
 

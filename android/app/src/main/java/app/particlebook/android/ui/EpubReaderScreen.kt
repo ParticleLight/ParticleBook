@@ -82,6 +82,7 @@ import app.particlebook.android.reader.epub.render.EpubHighlight
 import app.particlebook.android.reader.epub.render.EpubPageIndex
 import app.particlebook.android.reader.epub.render.EpubPageView
 import app.particlebook.android.reader.epub.render.EpubSelectionRange
+import app.particlebook.android.reader.export.AnnotationExportPlanner
 import app.particlebook.android.reader.tts.AndroidTtsSpeaker
 import app.particlebook.android.reader.tts.TtsPlayback
 import app.particlebook.android.reader.tts.TtsPlaybackState
@@ -215,6 +216,7 @@ fun EpubReaderScreen(
     var annotationVersion by remember(book.filePath) { mutableIntStateOf(0) }
     var annotationsLoading by remember(book.filePath) { mutableStateOf(false) }
     var annotationsOpen by remember { mutableStateOf(false) }
+    var exportOpen by remember { mutableStateOf(false) }
     // 朗读：句子只取"当前这一页"，换页/换章时由浏览器动作重新取，避免念到屏幕外的内容。
     var ttsState by remember { mutableStateOf<TtsPlaybackState>(TtsPlaybackState.Idle) }
     var ttsSentence by remember { mutableStateOf<TtsSentence?>(null) }
@@ -898,6 +900,22 @@ fun EpubReaderScreen(
             onJump = jumpToAnnotation,
             onEditNote = openNoteEditor,
             onDelete = { pendingDelete = it },
+            onExport = {
+                // 先收起侧栏再开导出：两个 ModalBottomSheet 叠在一起时，上层关闭会把下层一起带走。
+                annotationsOpen = false
+                exportOpen = true
+            },
+        )
+    }
+    if (exportOpen) {
+        val exportDocument = remember(annotations, controller) {
+            val titles = tocTitleMap(controller)
+            AnnotationExportPlanner.plan(book, annotations) { href -> titles[href.substringBefore("#")] }
+        }
+        AnnotationExportSheet(
+            document = exportDocument,
+            onDismiss = { exportOpen = false },
+            onNotify = notify,
         )
     }
     noteDraft?.let { draft ->
@@ -1234,4 +1252,28 @@ internal fun initialPageFor(
     return EpubPageIndex.pageForLocator(layout, locator)
         ?: EpubPageIndex.pageForBlockLine(layout, locator.blockIndex)
         ?: EpubPageIndex.clampPage(fallbackPage, layout.pageCount)
+}
+
+/**
+ * TOC 扁平化成 href → 章节标题，供标注导出给每章起名。
+ *
+ * 用去 fragment 的 href 做键：TOC 里的小节常写成 `ch03.xhtml#sec2`，而标注 locator 只记
+ * `ch03.xhtml`。同一 href 出现多次（多级目录里章与其首节指向同一文件）时保留先出现的那个，
+ * 也就是目录里更靠上的章级标题——导出按章分组，用章名比用节名更贴。
+ */
+private fun tocTitleMap(controller: EpubReaderController?): Map<String, String> {
+    val active = controller ?: return emptyMap()
+    val titles = HashMap<String, String>()
+    fun visit(targets: List<EpubTocTarget>) {
+        for (target in targets) {
+            val key = target.href.substringBefore("#")
+            val title = target.title.trim()
+            if (key.isNotEmpty() && title.isNotEmpty() && !titles.containsKey(key)) {
+                titles[key] = title
+            }
+            if (target.children.isNotEmpty()) visit(target.children)
+        }
+    }
+    visit(active.tocTargets())
+    return titles
 }

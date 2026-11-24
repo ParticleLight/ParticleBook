@@ -223,6 +223,8 @@ internal fun EpubAnnotationSheet(
     onJump: (ReaderAnnotation) -> Unit,
     onEditNote: (ReaderAnnotation) -> Unit,
     onDelete: (ReaderAnnotation) -> Unit,
+    /** 非空且确实有标注时才显示「导出」；null 表示这个入口不需要导出。 */
+    onExport: (() -> Unit)? = null,
 ) {
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -239,11 +241,26 @@ internal fun EpubAnnotationSheet(
                 .navigationBarsPadding()
                 .heightIn(max = 560.dp),
         ) {
-            Text(
-                text = "标注（" + annotations.size + "）",
-                style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.padding(horizontal = Spacing.lg, vertical = Spacing.sm),
-            )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = Spacing.lg, end = Spacing.sm),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = "标注（" + annotations.size + "）",
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(vertical = Spacing.sm),
+                )
+                if (onExport != null && annotations.isNotEmpty()) {
+                    TextButton(
+                        onClick = onExport,
+                        modifier = Modifier.heightIn(min = Spacing.minTouchTarget),
+                    ) { Text("导出") }
+                }
+            }
             when {
                 loading -> {
                     Text(
