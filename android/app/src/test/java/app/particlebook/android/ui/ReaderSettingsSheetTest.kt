@@ -103,12 +103,20 @@ class ReaderSettingsSheetTest {
 
     // ── 预览行高 ─────────────────────────────────────────────────────
     @Test
-    fun previewLineHeightMultipliesAndClamps() {
-        assertEquals(32.4f, previewLineHeightSp(18f, 1.8f), 0.001f)
-        // 脏输入先各自夹取，再相乘：96f 是 32 sp × 3.0× 的上限。
-        assertEquals(96f, previewLineHeightSp(999f, 999f), 0.001f)
+    fun previewLineHeightApproximatesBodyLineSpacing() {
+        // 正文用 setLineSpacing(multiplier) 乘字体固有行高（≈1.2×字号），预览必须跟同一条换算：
+        // 18 sp × 1.8 × 1.2 = 38.88。按「字号 × 倍数」画会紧 15%，用户会看到预览和正文不一致。
+        assertEquals(38.88f, previewLineHeightSp(18f, 1.8f), 0.01f)
+        // 脏输入先各自夹取，再相乘：32 sp × 3.0× × 1.2 = 115.2。
+        assertEquals(115.2f, previewLineHeightSp(999f, 999f), 0.01f)
         // 1 sp 被夹到 12 sp、11× 被夹到 3.0×：预览永远不显示排不出来的组合。
-        assertEquals(36f, previewLineHeightSp(1f, 11f), 0.001f)
+        assertEquals(43.2f, previewLineHeightSp(1f, 11f), 0.01f)
+    }
+
+    @Test
+    fun bodyLineHeightRatioMatchesAndroidLineSpacing() {
+        // 这个常数一旦改，预览与正文就又分叉了：把它钉在测试里，改之前先想清楚。
+        assertEquals(1.2f, BODY_LINE_HEIGHT_RATIO, 0.0001f)
     }
 
     @Test

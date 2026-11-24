@@ -20,6 +20,10 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.contentDescription
@@ -112,8 +116,16 @@ internal fun lineHeightLabel(multiplier: Float): String {
 internal fun previewLineHeightSp(fontSizeSp: Float, multiplier: Float): Float {
     val size = normalizeFontSize(fontSizeSp)
     val factor = normalizeLineHeight(multiplier)
-    return size * factor
+    return size * factor * BODY_LINE_HEIGHT_RATIO
 }
+
+/**
+ * 正文字体固有行高 / 字号 ≈ 1.2（Roboto / Noto 的 ascent+descent 都在这个量级）。
+ *
+ * 正文走 [android.text.Layout.setLineSpacing]，倍数乘的是**字体固有行高**，不是字号本身；
+ * 预览如果按「字号 × 倍数」画，会比正文紧约 15%，用户调完一看正文就「和预览不一样」。
+ */
+internal const val BODY_LINE_HEIGHT_RATIO = 1.2f
 
 /** 预览段落：固定文案，只随两个设置变；不读真实书内容，避免弹层依赖阅读器状态。 */
 internal const val READER_PREVIEW_TEXT =
@@ -131,6 +143,11 @@ fun ReaderSettingsSheet(
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val size = normalizeFontSize(fontSizeSp)
     val lineHeight = normalizeLineHeight(lineHeightMultiplier)
+    // 拖动期间只改草稿：预览立刻跟手，但正文整章重排等到松手（onValueChangeFinished）才发生。
+    // 不这么做的话，每滑过 1sp 就重排一次整章，旧机（Pixel 3 XL）上会明显卡顿。
+    var draftSize by remember(size) { mutableFloatStateOf(size) }
+    var draftLineHeight by remember(lineHeight) { mutableFloatStateOf(lineHeight) }
+    val draftPreviewHeight = previewLineHeightSp(draftSize, draftLineHeight)
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -157,23 +174,31 @@ fun ReaderSettingsSheet(
 
             SliderRow(
                 label = "字号",
-                valueLabel = fontSizeLabel(size),
-                value = size,
+                valueLabel = fontSizeLabel(draftSize),
+                value = draftSize,
                 valueRange = ReaderTypographySpec.MIN_FONT_SIZE_SP..ReaderTypographySpec.MAX_FONT_SIZE_SP,
                 steps = ReaderTypographySpec.FONT_SIZE_STEPS,
-                onChange = { raw -> onFontSizeChange(normalizeFontSize(raw)) },
-                onReset = { onFontSizeChange(ReaderTypographySpec.DEFAULT_FONT_SIZE_SP) },
-                resetVisible = abs(size - ReaderTypographySpec.DEFAULT_FONT_SIZE_SP) > ReaderTypographySpec.EPSILON,
+                onChange = { raw -> draftSize = normalizeFontSize(raw) },
+                onChangeFinished = { onFontSizeChange(draftSize) },
+                onReset = {
+                    draftSize = ReaderTypographySpec.DEFAULT_FONT_SIZE_SP
+                    onFontSizeChange(draftSize)
+                },
+                resetVisible = abs(draftSize - ReaderTypographySpec.DEFAULT_FONT_SIZE_SP) > ReaderTypographySpec.EPSILON,
             )
             SliderRow(
                 label = "行高",
-                valueLabel = lineHeightLabel(lineHeight),
-                value = lineHeight,
+                valueLabel = lineHeightLabel(draftLineHeight),
+                value = draftLineHeight,
                 valueRange = ReaderTypographySpec.MIN_LINE_HEIGHT..ReaderTypographySpec.MAX_LINE_HEIGHT,
                 steps = ReaderTypographySpec.LINE_HEIGHT_STEPS,
-                onChange = { raw -> onLineHeightChange(normalizeLineHeight(raw)) },
-                onReset = { onLineHeightChange(ReaderTypographySpec.DEFAULT_LINE_HEIGHT) },
-                resetVisible = abs(lineHeight - ReaderTypographySpec.DEFAULT_LINE_HEIGHT) > ReaderTypographySpec.EPSILON,
+                onChange = { raw -> draftLineHeight = normalizeLineHeight(raw) },
+                onChangeFinished = { onLineHeightChange(draftLineHeight) },
+                onReset = {
+                    draftLineHeight = ReaderTypographySpec.DEFAULT_LINE_HEIGHT
+                    onLineHeightChange(draftLineHeight)
+                },
+                resetVisible = abs(draftLineHeight - ReaderTypographySpec.DEFAULT_LINE_HEIGHT) > ReaderTypographySpec.EPSILON,
             )
 
             Text(
@@ -190,15 +215,15 @@ fun ReaderSettingsSheet(
                 Text(
                     text = READER_PREVIEW_TEXT,
                     modifier = Modifier.padding(Spacing.md),
-                    fontSize = size.sp,
-                    lineHeight = previewLineHeightSp(size, lineHeight).sp,
+                    fontSize = draftSize.sp,
+                    lineHeight = draftPreviewHeight.sp,
                     color = MaterialTheme.colorScheme.onSurface,
                 )
             }
 
             Spacer(Modifier.height(Spacing.sm))
             Text(
-                text = "字号与行高会立即生效，并作为全局阅读偏好保存。PDF 是固定版式，这两项只对 EPUB 正文有效。",
+                text = "松手后立即生效，并作为全局阅读偏好保存。PDF 是固定版式，这两项只对 EPUB 正文有效。",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 3,
@@ -217,6 +242,7 @@ private fun SliderRow(
     valueRange: ClosedFloatingPointRange<Float>,
     steps: Int,
     onChange: (Float) -> Unit,
+    onChangeFinished: () -> Unit,
     onReset: () -> Unit,
     resetVisible: Boolean,
 ) {
@@ -243,6 +269,7 @@ private fun SliderRow(
         Slider(
             value = value,
             onValueChange = onChange,
+            onValueChangeFinished = onChangeFinished,
             valueRange = valueRange,
             steps = steps,
             modifier = Modifier

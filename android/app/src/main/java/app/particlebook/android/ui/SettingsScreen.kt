@@ -251,7 +251,7 @@ fun SettingsScreen(
                     SettingsRow(
                         title = "行距",
                         support = "EPUB 正文行距（PDF 保持原版式）",
-                        value = formatLineHeight(lineHeight),
+                        value = lineHeightLabel(lineHeight),
                         showChevron = true,
                         onClick = { lineHeightSheetOpen = true },
                     )
@@ -541,34 +541,33 @@ fun SettingsScreen(
                     text = "故乡的河里，有一条小小的船……",
                     style = MaterialTheme.typography.bodyLarge.copy(
                         fontSize = fontSize.sp,
-                        lineHeight = (fontSize * lineHeight).sp,
+                        lineHeight = previewLineHeightSp(fontSize.toFloat(), lineHeight).sp,
                     ),
                     color = MaterialTheme.colorScheme.onSurface,
                 )
                 Spacer(Modifier.size(Spacing.xs))
-                LineHeightOptions.forEach { option ->
-                    ListItem(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .heightIn(min = Spacing.minTouchTarget)
-                            .selectable(
-                                selected = lineHeight == option,
-                                role = Role.RadioButton,
-                                onClick = { onLineHeightChange(option) },
-                            )
-                            .padding(horizontal = RowExtraHorizontalPadding),
-                        colors = settingsRowColors(),
-                        headlineContent = {
-                            Text(
-                                text = formatLineHeight(option) + " 倍",
-                                style = MaterialTheme.typography.bodyLarge,
-                            )
-                        },
-                        trailingContent = {
-                            RadioButton(selected = lineHeight == option, onClick = null)
-                        },
+                // 行距从「4 档单选」改成与阅读器弹层同一条滑杆：schema 允许 1.2..3.0，
+                // 原来的 1.3/1.5/1.7/2.0 四档连默认值 1.8 都选不到。
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = lineHeightLabel(lineHeight),
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.primary,
                     )
                 }
+                Slider(
+                    value = normalizeLineHeight(lineHeight),
+                    onValueChange = { raw -> onLineHeightChange(normalizeLineHeight(raw)) },
+                    valueRange = ReaderTypographySpec.MIN_LINE_HEIGHT..ReaderTypographySpec.MAX_LINE_HEIGHT,
+                    steps = ReaderTypographySpec.LINE_HEIGHT_STEPS,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = Spacing.minTouchTarget)
+                        .semantics {
+                            contentDescription = "行距"
+                            stateDescription = lineHeightLabel(lineHeight)
+                        },
+                )
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.End,
@@ -963,12 +962,9 @@ private fun SettingsRowValue(value: String?, showChevron: Boolean, enabled: Bool
     }
 }
 
-/** 字号滑块范围与档数（14–26sp，1sp 一档）。 */
-private val FontSizeRange = 14f..26f
-private const val FontSizeSteps = 11
-
-/** 行距可选项：4 档，够用且不会在 200% 字号下溢出。 */
-private val LineHeightOptions = listOf(1.3f, 1.5f, 1.7f, 2.0f)
-
-/** 行距显示成「1.7」而不是「1.700000」。 */
-private fun formatLineHeight(value: Float): String = String.format(Locale.US, "%.1f", value)
+/**
+ * 字号滑块范围：直接取 [ReaderTypographySpec]，与 schema（12..32）和阅读器弹层共用一份常量，
+ * 免得「设置页能调到 14、阅读器里却能到 32」这种两套刻度。
+ */
+private val FontSizeRange = ReaderTypographySpec.MIN_FONT_SIZE_SP..ReaderTypographySpec.MAX_FONT_SIZE_SP
+private const val FontSizeSteps = ReaderTypographySpec.FONT_SIZE_STEPS

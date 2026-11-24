@@ -828,7 +828,6 @@ fun EpubReaderScreen(
     }
 
     if (settingsOpen) {
-        // 弹层开着时先别让 chrome 自动隐藏：用户可能连续调几档字号，需要看着预览。
         ReaderSettingsSheet(
             fontSizeSp = fontSizeSp,
             lineHeightMultiplier = lineHeightMultiplier,
@@ -948,6 +947,7 @@ private fun EpubContent(
         val horizontalPadding = with(density) { Spacing.md.toPx() }.roundToInt()
         val verticalPadding = with(density) { Spacing.lg.toPx() }.roundToInt()
         val textColor = MaterialTheme.colorScheme.onSurface.toArgb()
+        val scaledDensity = density.density * density.fontScale
         val baseTextSizeSp = normalizeFontSize(fontSizeSp)
         val baseLineHeight = normalizeLineHeight(lineHeightMultiplier)
         val config = remember(
@@ -958,6 +958,8 @@ private fun EpubContent(
             textColor,
             baseTextSizeSp,
             baseLineHeight,
+            // sp→px 的换算因子也是排版输入：系统字体大小变了，同一 sp 排出来的行数就不同。
+            scaledDensity,
         ) {
             EpubLayoutConfig(
                 viewportWidthPx = widthPx,
