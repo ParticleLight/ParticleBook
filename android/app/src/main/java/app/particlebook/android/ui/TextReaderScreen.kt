@@ -18,6 +18,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.FormatSize
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
@@ -32,11 +33,15 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -44,6 +49,8 @@ import androidx.compose.ui.unit.sp
 import app.particlebook.android.reader.ReaderLocator
 import app.particlebook.android.reader.text.TextDocument
 import app.particlebook.android.reader.text.TextDocumentParser
+import app.particlebook.android.reader.text.TextSearchEngine
+import app.particlebook.android.reader.text.TextSearchHit
 import app.particlebook.android.reader.text.TextFileDecoder
 import app.particlebook.android.reader.text.TextParagraph
 import app.particlebook.android.ui.data.Book
@@ -52,6 +59,7 @@ import app.particlebook.android.ui.data.ReadingProgress
 import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.withContext
 
@@ -67,6 +75,9 @@ import kotlinx.coroutines.withContext
  *
  * Markdown 目前只做「标题放大加粗」，其余标记按源码显示——完整富文本需要独立的解析与排版层，
  * 不在这一批范围内，宁可显示原文也不假装渲染。
+ *
+ * 搜索：整本已在内存里，[TextSearchEngine] 同步扫一遍喂给弹层；点结果只滚到段首，段内命中
+ * 位置靠行内底色标出（精确滚到字符要等 TextLayoutResult 排版完成，收益不值这个复杂度）。
  */
 @Composable
 internal fun TextReaderScreen(
@@ -86,7 +97,11 @@ internal fun TextReaderScreen(
     var document by remember(book.filePath) { mutableStateOf<TextDocument?>(null) }
     var failure by remember(book.filePath) { mutableStateOf<String?>(null) }
     var settingsOpen by remember { mutableStateOf(false) }
+    var searchOpen by remember(book.filePath) { mutableStateOf(false) }
+    var searchQuery by remember(book.filePath) { mutableStateOf("") }
+    var activeHit by remember(book.filePath) { mutableStateOf<TextSearchHit?>(null) }
     val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
 
     // 打开：读字节 → 解码（BOM/UTF-8/GB18030）→ 分段，整块放 IO，主线程只接结果。
     LaunchedEffect(book.filePath) {
@@ -134,6 +149,13 @@ internal fun TextReaderScreen(
         }
     }
 
+    // 整本已经在内存里，搜索是同步的：词不变就不重算。命中上限由引擎兜住，列表不会一次渲染上千行。
+    val searchHits = remember(document, searchQuery) {
+        val doc = document
+        if (doc == null || searchQuery.isBlank()) emptyList()
+        else TextSearchEngine.search(doc, searchQuery)
+    }
+
     val percent by remember(document) {
         derivedStateOf {
             val total = document?.paragraphs?.size ?: 0
@@ -157,6 +179,9 @@ internal fun TextReaderScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         Spacer(Modifier.width(Spacing.xs))
+                    }
+                    IconButton(onClick = { searchOpen = true }) {
+                        Icon(Icons.Outlined.Search, contentDescription = "书内搜索")
                     }
                     IconButton(onClick = { settingsOpen = true }) {
                         Icon(Icons.Outlined.FormatSize, contentDescription = "阅读设置")
@@ -191,9 +216,27 @@ internal fun TextReaderScreen(
                     listState = listState,
                     fontSizeSp = fontSizeSp,
                     lineHeightMultiplier = lineHeightMultiplier,
+                    hit = activeHit,
                 )
             }
         }
+    }
+
+    if (searchOpen && document != null) {
+        TextSearchSheet(
+            query = searchQuery,
+            hits = searchHits,
+            totalHitLimit = TextSearchEngine.DEFAULT_LIMIT,
+            onQueryChange = { searchQuery = it },
+            onPick = { picked ->
+                activeHit = picked
+                searchOpen = false
+                // 段落是排版单位：滚到该段首（段内精确到字符需要 TextLayoutResult，收益不值这个复杂度），
+                // 段内命中位置靠行内高亮标出来。
+                scope.launch { listState.animateScrollToItem(picked.paragraphIndex) }
+            },
+            onDismiss = { searchOpen = false },
+        )
     }
 
     if (settingsOpen) {
@@ -220,6 +263,7 @@ private fun TextFlow(
     listState: LazyListState,
     fontSizeSp: Float,
     lineHeightMultiplier: Float,
+    hit: TextSearchHit?,
 ) {
     val sizeSp = normalizeFontSize(fontSizeSp)
     val lineHeightSp = normalizeLineHeight(lineHeightMultiplier) * sizeSp
@@ -240,11 +284,16 @@ private fun TextFlow(
             ),
         ) {
             itemsIndexed(document.paragraphs) { index, paragraph ->
+                // 只有当前命中那一段带区间；命中切换时其余段回到 -1，高亮自然消失。
+                val hitStart = if (hit?.paragraphIndex == index) hit.start else -1
+                val hitEnd = if (hit?.paragraphIndex == index) hit.end else -1
                 TextParagraphView(
                     paragraph = paragraph,
                     baseSizeSp = sizeSp,
                     lineHeightSp = lineHeightSp,
                     first = index == 0,
+                    highlightStart = hitStart,
+                    highlightEnd = hitEnd,
                 )
             }
         }
@@ -261,8 +310,36 @@ private fun TextParagraphView(
     baseSizeSp: Float,
     lineHeightSp: Float,
     first: Boolean,
+    highlightStart: Int = -1,
+    highlightEnd: Int = -1,
 ) {
     val level = paragraph.headingLevel
+    val text = paragraph.text
+    // 命中区间直接标在已排好的文本上：不拆段、不重排，滚到该段就有上下文。
+    val highlightBackground = MaterialTheme.colorScheme.tertiaryContainer
+    val highlightForeground = MaterialTheme.colorScheme.onTertiaryContainer
+    val decorated = remember(text, highlightStart, highlightEnd, highlightBackground, highlightForeground) {
+        if (highlightStart < 0 || highlightEnd <= highlightStart) {
+            AnnotatedString(text)
+        } else {
+            val start = highlightStart.coerceIn(0, text.length)
+            val end = highlightEnd.coerceIn(start, text.length)
+            buildAnnotatedString {
+                append(text)
+                if (end > start) {
+                    addStyle(
+                        SpanStyle(
+                            background = highlightBackground,
+                            color = highlightForeground,
+                            fontWeight = FontWeight.SemiBold,
+                        ),
+                        start,
+                        end,
+                    )
+                }
+            }
+        }
+    }
     if (level in 1..6) {
         val scale = when (level) {
             1 -> 1.70f
@@ -273,7 +350,7 @@ private fun TextParagraphView(
             else -> 1.06f
         }
         Text(
-            text = paragraph.text,
+            text = decorated,
             style = MaterialTheme.typography.titleLarge,
             fontSize = (baseSizeSp * scale).sp,
             lineHeight = (lineHeightSp * scale).sp,
@@ -285,7 +362,7 @@ private fun TextParagraphView(
         )
     } else {
         Text(
-            text = paragraph.text,
+            text = decorated,
             style = MaterialTheme.typography.bodyLarge,
             fontSize = baseSizeSp.sp,
             lineHeight = lineHeightSp.sp,
