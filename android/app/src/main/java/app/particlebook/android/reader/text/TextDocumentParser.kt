@@ -32,6 +32,7 @@ internal data class TextDocument(
  *
  * 分段规则：连续非空行成段，空行或纯空白行是段分隔（Markdown 的代码围栏内除外，
  * 围栏里的空行属于代码本身，保留在同一段里，否则代码块会被空行劈碎）。
+ * 围栏按出现顺序两两配对：末尾落单的开围栏当普通文本行，不会吞掉它后面的整本书。
  *
  * - TXT：段内换行折叠成一个空格（中文 txt 常见的 hard-wrap），段首尾 trim；
  * - Markdown：段内换行保留；段第一行形如「1..6 个 # + 空白」时识别为标题，
@@ -41,14 +42,20 @@ internal data class TextDocument(
  * 码元切成多段，切点避开代理对；后续块的 headingLevel 一律 0，charOffsets 仍然
  * 指向该块在规范化全文里的起点（段起点 + 前面各块长度）。
  *
- * charOffsets 是逐行扫描累计出来的原始下标，[TextDocument.charCount] 是规范化后
- * 全文长度，两者都按 UTF-16 码元计，因此「偏移 / 长度」可直接当阅读进度比例用。
+ * charOffsets 是**近似**下标：段起点取原文行首，块内偏移却是在折叠后（TXT 折行、Markdown 去 #）
+ * 的段落文本坐标上累加的，所以它只保证单调递增，不等于原文里的字符位置。当前唯一消费者是
+ * 「字符偏移 → 段落」定位（[TextOutline] / 阅读进度），只需要单调；若将来要拿它跟原始文件对账
+ * （标注导出、跨版本迁移），得先补一张「折叠下标 → 原文下标」的映射。
+ * [TextDocument.charCount] 是规范化后全文长度，两者都按 UTF-16 码元计，因此比例可以直接算。
  */
 internal object TextDocumentParser {
 
     /** 反引号围栏在 Kotlin 里用 \u0060 拼，避免和 markdown 文档里的反引号混淆。 */
     private const val FENCE_BACKTICKS = "\u0060\u0060\u0060"
     private const val FENCE_TILDES = "~~~"
+
+    /** 没有落单围栏时的哨兵偏移。 */
+    private const val NO_FENCE = -1
 
     private const val MAX_HEADING_LEVEL = 6
 
@@ -72,6 +79,10 @@ internal object TextDocumentParser {
         val paragraphs = ArrayList<TextParagraph>()
         val offsets = ArrayList<Int>()
 
+        // 围栏要成对才算代码块：末尾落单的那个开围栏按普通文本处理。否则 inFence 一路为真、
+        // 空行不再切段，后面整本书会被并成一段（目录、进度粒度、搜索片段全跟着坏）。
+        val unclosedFenceStart = if (markdown) unclosedFenceLineStart(normalized) else NO_FENCE
+
         var blockStart = -1
         var blockLines = ArrayList<String>()
         var inFence = false
@@ -91,7 +102,7 @@ internal object TextDocumentParser {
             val lineFeed = normalized.indexOf('\n', lineStart)
             val lineEnd = if (lineFeed < 0) normalized.length else lineFeed
             val lineText = normalized.substring(lineStart, lineEnd)
-            val fenceLine = markdown && isFenceLine(lineText)
+            val fenceLine = markdown && lineStart != unclosedFenceStart && isFenceLine(lineText)
             val insideFence = inFence
             if (fenceLine) inFence = !inFence
             if (lineText.isBlank() && !insideFence) {
@@ -240,9 +251,41 @@ internal object TextDocumentParser {
         return if (separator == ' ' || separator == '\t') hashes else 0
     }
 
-    private fun isFenceLine(line: String): Boolean {
-        val trimmed = line.trimStart()
-        return trimmed.startsWith(FENCE_BACKTICKS) || trimmed.startsWith(FENCE_TILDES)
+    private fun isFenceLine(line: String): Boolean = isFenceLine(line, 0, line.length)
+
+    /**
+     * 围栏行判定：行首空白之后连续三个反引号或波浪线（后面允许带语言标注）。
+     *
+     * 用 [CharSequence] + 区间而不是 [String]：预扫描要给全文每行判一次，逐行 substring 在大文件上纯属浪费。
+     */
+    private fun isFenceLine(source: CharSequence, start: Int, end: Int): Boolean {
+        var index = start
+        while (index < end && source[index].isWhitespace()) index++
+        if (end - index < 3) return false
+        val marker = source[index]
+        if (marker != '`' && marker != '~') return false
+        return source[index + 1] == marker && source[index + 2] == marker
+    }
+
+    /**
+     * 末尾落单的开围栏所在行的行首偏移；围栏全部成对时返回 [NO_FENCE]。
+     *
+     * 围栏按出现顺序两两配对（与主循环同一个宽松判定，不区分反引号/波浪线），
+     * 配不上的最后一个就是「开了没收」，主循环会把它当普通文本行。
+     */
+    private fun unclosedFenceLineStart(normalized: String): Int {
+        var pending = NO_FENCE
+        var lineStart = 0
+        while (lineStart <= normalized.length) {
+            val lineFeed = normalized.indexOf('\n', lineStart)
+            val lineEnd = if (lineFeed < 0) normalized.length else lineFeed
+            if (isFenceLine(normalized, lineStart, lineEnd)) {
+                pending = if (pending == NO_FENCE) lineStart else NO_FENCE
+            }
+            if (lineFeed < 0) break
+            lineStart = lineFeed + 1
+        }
+        return pending
     }
 
     private fun normalizeNewlines(raw: String): String {

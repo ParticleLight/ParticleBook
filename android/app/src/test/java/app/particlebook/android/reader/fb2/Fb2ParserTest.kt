@@ -510,6 +510,99 @@ class Fb2ParserTest {
         assertThrows(Fb2ParseException::class.java) { Fb2Parser.parse(xml) }
     }
 
+    // ------------------------------------------- 补充：容器直接挂在非 p 元素下的文本
+
+    @Test
+    fun tableCellTextDirectlyUnderTableBecomesParagraph() {
+        val xml = book(
+            titleInfo("书") +
+                """
+                <body>
+                  <section>
+                    <p>甲</p>
+                    <table><tr><td>2024</td></tr></table>
+                  </section>
+                </body>
+                """.trimIndent()
+        )
+
+        val document = Fb2Parser.parse(xml)
+
+        assertEquals(listOf(Fb2Paragraph("甲"), Fb2Paragraph("2024")), document.paragraphs)
+        assertTrue(document.paragraphs.any { it.text.contains("2024") })
+    }
+
+    @Test
+    fun citeWithoutParagraphChildrenBecomesParagraph() {
+        val xml = book(
+            titleInfo("书") +
+                "<body><section><p>甲</p><cite>引文</cite><p>乙</p></section></body>"
+        )
+
+        val document = Fb2Parser.parse(xml)
+
+        assertEquals(
+            listOf(Fb2Paragraph("甲"), Fb2Paragraph("引文"), Fb2Paragraph("乙")),
+            document.paragraphs
+        )
+        assertTrue(document.paragraphs.any { it.text.contains("引文") })
+    }
+
+    @Test
+    fun paragraphTextIsNotRepeatedByContainerRecursion() {
+        val xml = book(
+            titleInfo("书") +
+                "<body><section><p>唯一</p><p>第二段</p>" +
+                "<table><tr><td>第三段</td></tr></table></section></body>"
+        )
+
+        val document = Fb2Parser.parse(xml)
+
+        assertEquals(1, document.paragraphs.count { it.text.contains("唯一") })
+        assertEquals(3, document.paragraphs.size)
+    }
+
+    // -------------------------------------------------- 补充：嵌套深度上限
+
+    @Test
+    fun nestingDeeperThanLimitParsesWithoutOverflow() {
+        val xml = book(titleInfo("书") + "<body>" + nestedBareSections(80, "<p>深</p>") + "</body>")
+
+        val document = Fb2Parser.parse(xml)
+
+        assertTrue(document.paragraphs.isNotEmpty())
+        assertTrue(document.paragraphs.any { it.text.contains("深") })
+    }
+
+    @Test
+    fun twentyNestedSectionsKeepHeadingCapAndInnerBody() {
+        val xml = book(
+            titleInfo("书") + "<body>" + nestedSectionsWithInner(20, "<p>最内层正文</p>") + "</body>"
+        )
+
+        val document = Fb2Parser.parse(xml)
+
+        assertEquals(21, document.paragraphs.size)
+        assertEquals(listOf(1, 2, 3), document.paragraphs.take(3).map { it.headingLevel })
+        assertTrue(document.paragraphs.drop(3).take(17).all { it.headingLevel == 3 })
+        assertEquals(Fb2Paragraph("最内层正文", 0), document.paragraphs.last())
+    }
+
+    @Test
+    fun containerWithMixedTextAndParagraphKeepsBothInOrder() {
+        // 直属文字与子段落混排：按文档顺序各出一段，不能因为容器有元素子节点就把直属文字丢掉。
+        val xml = book(
+            titleInfo("书") + "<body><section>" +
+                "<epigraph>题词<p>引文</p>尾注</epigraph>" +
+                "<p>正文</p>" +
+                "</section></body>"
+        )
+
+        val document = Fb2Parser.parse(xml)
+
+        assertEquals(listOf("题词", "引文", "尾注", "正文"), document.paragraphs.map { it.text })
+    }
+
     // ---------------------------------------------------------------- 帮助器
 
     private fun book(inner: String, namespace: Boolean = true): String {
@@ -544,5 +637,25 @@ class Fb2ParserTest {
             close.insert(0, "</section>")
         }
         return open.toString() + close.toString()
+    }
+
+    /** 生成 depth 层互相嵌套、不带 title 的 section，最内层追加 [innerXml]。 */
+    private fun nestedBareSections(depth: Int, innerXml: String): String {
+        val builder = StringBuilder()
+        repeat(depth) { builder.append("<section>") }
+        builder.append(innerXml)
+        repeat(depth) { builder.append("</section>") }
+        return builder.toString()
+    }
+
+    /** 生成 depth 层互相嵌套、每层只带自己 title 的 section，最内层追加 [innerXml]。 */
+    private fun nestedSectionsWithInner(depth: Int, innerXml: String): String {
+        val open = StringBuilder()
+        val close = StringBuilder()
+        for (index in 1..depth) {
+            open.append("<section><title><p>L").append(index).append("</p></title>")
+            close.insert(0, "</section>")
+        }
+        return open.toString() + innerXml + close.toString()
     }
 }

@@ -287,4 +287,65 @@ class HtmlTextExtractorTest {
         assertEquals(listOf("标题", "正文"), texts(html))
         assertEquals(listOf(2, 0), levels(html))
     }
+
+    // ------------------------------------------- ⑫ 标题栈：隐式结束与按层弹栈
+
+    @Test
+    fun closedHeadingReturnsFollowingBodyToLevelZero() {
+        val html = "<h1>第一章</h1><p>正文一</p>"
+
+        assertEquals(listOf("第一章", "正文一"), texts(html))
+        assertEquals(listOf(1, 0), levels(html))
+    }
+
+    @Test
+    fun unclosedHeadingIsEndedImplicitlyByFollowingBlockTag() {
+        // HTML5 允许省略 </h1>：<p> 一开始就说明标题结束，正文不能带上标题层级。
+        val html = "<h1>第一章<p>正文一</p><p>正文二</p>"
+
+        assertEquals(listOf("第一章", "正文一", "正文二"), texts(html))
+        assertEquals(listOf(1, 0, 0), levels(html))
+    }
+
+    @Test
+    fun brInsideHeadingKeepsHeadingLevelForFollowingLine() {
+        // br 是唯一不结束标题的块级标签，所以「副标题」仍是 level 2，而不是掉成正文。
+        val html = "<h2>标题<br>副标题</h2><p>正文</p>"
+
+        assertEquals(listOf("标题", "副标题", "正文"), texts(html))
+        assertEquals(listOf(2, 2, 0), levels(html))
+    }
+
+    @Test
+    fun implicitCloseAlsoAppliesToNonHeadingBlockTags() {
+        val html = "<h1>章<div>块</div>尾</h1>"
+
+        assertEquals(listOf("章", "块", "尾"), texts(html))
+        assertEquals(listOf(1, 0, 0), levels(html))
+    }
+
+    @Test
+    fun closingOuterHeadingAlsoEndsInnerHeadingLevel() {
+        // <h1> 里嵌 <h3>：遇到 </h1> 后文字按正文走，不能继续挂着 3 级标题。
+        val html = "<h1>甲<h3>乙</h1><p>丙</p>"
+
+        assertEquals(listOf("甲", "乙", "丙"), texts(html))
+        assertEquals(listOf(1, 3, 0), levels(html))
+    }
+
+    @Test
+    fun strayHeadingEndTagWithoutStartIsIgnored() {
+        val html = "<p>甲</p></h3><p>乙</p>"
+
+        assertEquals(listOf("甲", "乙"), texts(html))
+        assertEquals(listOf(0, 0), levels(html))
+    }
+
+    @Test
+    fun strayHeadingEndTagDoesNotAffectFollowingParagraphs() {
+        val html = "<h2>标题</h2><p>正文</p></h2><p>后续</p>"
+
+        assertEquals(listOf("标题", "正文", "后续"), texts(html))
+        assertEquals(listOf(2, 0, 0), levels(html))
+    }
 }

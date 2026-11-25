@@ -56,6 +56,9 @@ internal object HtmlTextExtractor {
     private val VOID_DROPPED_ELEMENTS = setOf("embed")
 
     private const val PRE_ELEMENT = "pre"
+
+/** 唯一允许待在标题里、不该把标题隐式关掉的块级标签：`<h2>标题<br>副标题</h2>` 很常见。 */
+private const val LINE_BREAK_ELEMENT = "br"
     private const val HEAD_ELEMENT = "head"
     private const val BODY_ELEMENT = "body"
 
@@ -280,24 +283,39 @@ internal object HtmlTextExtractor {
             droppedDepth = 0
         }
 
-        /** 开始标签：块级切段；h1..h6 压栈；pre 深度 +1；其余（行内 / 未知 / 无内容）只剥标签。 */
+        /**
+         * 开始标签：块级切段；h1..h6 压栈；pre 深度 +1；其余（行内 / 未知 / 无内容）只剥标签。
+         *
+         * 块级开始标签会**隐式结束**仍然开着的标题（HTML5 允许 `<h1>第一章<p>正文…` 不写 `</h1>`，
+         * txt→html 的转换器产物里极常见）。不这么做，标题层级会一路挂到后面所有段落上：
+         * 正文全部按大字号加粗渲染，而且整段灌进目录。`<br>` 是唯一的例外（标题内合法）。
+         */
         private fun openElement(name: String, selfClosing: Boolean) {
             if (name !in BLOCK_ELEMENTS) return
             flush()
             if (selfClosing) return
+            if (name != LINE_BREAK_ELEMENT && openHeadings.isNotEmpty()) openHeadings.clear()
             val level = headingLevelOf(name)
             if (level > 0) openHeadings.add(level)
             if (name == PRE_ELEMENT) preDepth++
         }
 
-        /** 结束标签：块级切段（先切段，用当前标题层级定层级，再弹栈）；多余的非块级结束标签忽略。 */
+        /**
+         * 结束标签：块级切段（先切段，用当前标题层级定层级，再弹栈）；多余的非块级结束标签忽略。
+         *
+         * 标题按**同名层**弹栈。注意标题栈实际最多只有一层（任何标题开始标签都会先清空已开的标题，
+         * 因为 HTML 里标题不能嵌套），所以 `</h1>` 遇上 `<h1>甲<h3>乙</h1>` 这种错位写法时找不到 1，
+         * 直接忽略 —— 此时 h3 开始时 h1 就已经关了，与浏览器行为一致；孤立 `</h3>` 同样忽略。
+         */
         private fun closeElement(name: String) {
             if (name !in BLOCK_ELEMENTS) return
             flush()
             if (name == PRE_ELEMENT && preDepth > 0) preDepth--
-            if (headingLevelOf(name) > 0 && openHeadings.isNotEmpty()) {
-                openHeadings.removeAt(openHeadings.size - 1)
-            }
+            val level = headingLevelOf(name)
+            if (level <= 0) return
+            val index = openHeadings.lastIndexOf(level)
+            if (index < 0) return
+            while (openHeadings.size > index) openHeadings.removeAt(openHeadings.size - 1)
         }
 
         /** h1..h6 → 1..6，其它一律 0。 */

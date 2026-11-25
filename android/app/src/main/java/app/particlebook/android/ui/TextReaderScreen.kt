@@ -17,6 +17,7 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.List
 import androidx.compose.material.icons.outlined.FormatSize
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.Button
@@ -28,6 +29,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -51,6 +53,7 @@ import app.particlebook.android.reader.fb2.Fb2Parser
 import app.particlebook.android.reader.html.HtmlTextExtractor
 import app.particlebook.android.reader.text.TextDocument
 import app.particlebook.android.reader.text.TextDocumentParser
+import app.particlebook.android.reader.text.TextOutline
 import app.particlebook.android.reader.text.TextSearchEngine
 import app.particlebook.android.reader.text.TextSearchHit
 import app.particlebook.android.reader.text.TextFileDecoder
@@ -99,6 +102,7 @@ internal fun TextReaderScreen(
     var failure by remember(book.filePath) { mutableStateOf<String?>(null) }
     var settingsOpen by remember { mutableStateOf(false) }
     var searchOpen by remember(book.filePath) { mutableStateOf(false) }
+    var tocOpen by remember(book.filePath) { mutableStateOf(false) }
     var searchQuery by remember(book.filePath) { mutableStateOf("") }
     var activeHit by remember(book.filePath) { mutableStateOf<TextSearchHit?>(null) }
     val listState = rememberLazyListState()
@@ -147,12 +151,44 @@ internal fun TextReaderScreen(
         }
     }
 
-    // 整本已经在内存里，搜索是同步的：词不变就不重算。命中上限由引擎兜住，列表不会一次渲染上千行。
-    val searchHits = remember(document, searchQuery) {
-        val doc = document
-        if (doc == null || searchQuery.isBlank()) emptyList()
-        else TextSearchEngine.search(doc, searchQuery)
+    // 离开阅读器时补落一次：防抖窗口（600ms）里按返回时，collectLatest 会被取消，
+    // 最后一次位置就再也写不进去了。onDispose 里同步入队（saveTextProgress 本身只是 enqueue）。
+    DisposableEffect(book.filePath) {
+        onDispose {
+            val doc = document
+            if (doc != null && doc.paragraphs.size > 1) {
+                val index = listState.firstVisibleItemIndex.coerceIn(0, doc.paragraphs.lastIndex)
+                ReadingProgress.saveTextProgress(
+                    context = context,
+                    bookId = book.id,
+                    locator = ReaderLocator.Text(offset = doc.charOffsets.getOrElse(index) { 0 }, length = 0),
+                    paragraph = index,
+                    paragraphs = doc.paragraphs.size,
+                )
+            }
+        }
     }
+
+    // 搜什么都要先停一下：整本 indexOf 是 O(n·m)，逐键在组合阶段同步跑会在长文本上直接卡住主线程。
+    // 停停顿时间由 LaunchedEffect 的重启天然取消上一次查询，不需要额外的 Job 管理。
+    var searchHits by remember(document) { mutableStateOf<List<TextSearchHit>>(emptyList()) }
+    LaunchedEffect(document, searchQuery) {
+        val doc = document
+        if (doc == null || searchQuery.isBlank()) {
+            searchHits = emptyList()
+            return@LaunchedEffect
+        }
+        delay(SearchDebounceMillis)
+        searchHits = withContext(Dispatchers.Default) { TextSearchEngine.search(doc, searchQuery) }
+    }
+
+    // 目录：只有带标题的文档才有（纯 TXT 通常没有），无标题时顶栏连入口都不出现。
+    val outline = remember(document) {
+        document?.let { TextOutline.build(it) } ?: emptyList()
+    }
+
+    // 当前段落：进度百分比与「目录里高亮哪一章」共用同一个可见位置。
+    val visibleParagraph by remember { derivedStateOf { listState.firstVisibleItemIndex } }
 
     val percent by remember(document) {
         derivedStateOf {
@@ -177,6 +213,11 @@ internal fun TextReaderScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         Spacer(Modifier.width(Spacing.xs))
+                    }
+                    if (outline.isNotEmpty()) {
+                        IconButton(onClick = { tocOpen = true }) {
+                            Icon(Icons.AutoMirrored.Outlined.List, contentDescription = "目录")
+                        }
                     }
                     IconButton(onClick = { searchOpen = true }) {
                         Icon(Icons.Outlined.Search, contentDescription = "书内搜索")
@@ -220,12 +261,28 @@ internal fun TextReaderScreen(
         }
     }
 
+    if (tocOpen && outline.isNotEmpty()) {
+        TextTocSheet(
+            chapters = outline,
+            activeParagraphIndex = visibleParagraph,
+            onPick = { chapter ->
+                tocOpen = false
+                scope.launch { listState.animateScrollToItem(chapter.paragraphIndex) }
+            },
+            onDismiss = { tocOpen = false },
+        )
+    }
+
     if (searchOpen && document != null) {
         TextSearchSheet(
             query = searchQuery,
             hits = searchHits,
             totalHitLimit = TextSearchEngine.DEFAULT_LIMIT,
-            onQueryChange = { searchQuery = it },
+            onQueryChange = { next ->
+                searchQuery = next
+                // 换词就撤掉上一次跳转的命中高亮：否则那一段会一直带着底色，像被永久标记了。
+                activeHit = null
+            },
             onPick = { picked ->
                 activeHit = picked
                 searchOpen = false
@@ -250,6 +307,17 @@ internal fun TextReaderScreen(
 
 /** 滚动停止多久后落一次进度。 */
 private const val ProgressSaveDelayMillis = 600L
+
+/** 输入停顿多久才真正开搜：逐键全表扫会卡住主线程。 */
+private const val SearchDebounceMillis = 180L
+
+/**
+ * 打开前允许的最大文件字节数。
+ *
+ * 解码器的字符上限是 4M（[TextFileDecoder.MAX_TEXT_CHARS]），按 UTF-8 最多 4 字节/字符算约 16 MB，
+ * 这里留一点余量。真正的意义是**在 readBytes 之前**就拦住超大文件，而不是读到内存里再截断。
+ */
+private const val MaxTextFileBytes = 24L * 1024 * 1024
 
 /** 正文最大行宽：平板上正文铺满会一行上千像素，读起来像海报。 */
 private val TextColumnMaxWidth = 760.dp
@@ -440,6 +508,15 @@ private fun paragraphIndexForOffset(document: TextDocument, offset: Int): Int {
  * 四条路最终都得到同一个 [TextDocument]，所以阅读器、搜索与进度链路对格式零分叉。
  */
 private fun openDocument(file: File, format: BookFormat): TextDocument {
+    // 先按字节拦一道：解码器的字符上限是在**已经读进内存并解码之后**才截断的，
+    // 一本几十 MB 的「合集」txt 会先把整个 ByteArray 和完整解码串塞进堆，中低端机直接 OOM。
+    val bytes = file.length()
+    if (bytes > MaxTextFileBytes) {
+        error(
+            "这个文件有 " + (bytes / (1024 * 1024)) + " MB，超过 " +
+                (MaxTextFileBytes / (1024 * 1024)) + " MB 上限，暂时打不开；可以先在电脑上拆分或转成 EPUB。",
+        )
+    }
     val text = TextFileDecoder.decode(file.readBytes()).text
     return when (format) {
         BookFormat.Fb2 -> {

@@ -25,6 +25,9 @@ internal object TextFileDecoder {
     /** 单次解码的字符上限：超出截断，避免把几百 MB 的 txt 读进内存。 */
     const val MAX_TEXT_CHARS: Int = 4_000_000
 
+    /** 截断时 StringBuilder 的预分配上限：反正会扩容，没必要为一个离谱的 maxChars 先要一大块内存。 */
+    private const val MAX_CAPACITY_HINT = 1 shl 16
+
     private const val BOM_CODE_POINT = 0xFEFF
     private const val CARRIAGE_RETURN = '\r'.code
     private const val LINE_FEED = '\n'.code
@@ -94,7 +97,13 @@ internal object TextFileDecoder {
      * 截断点落在代理对中间时整对丢弃，不写半个字符。
      */
     private fun normalize(raw: String, maxChars: Int): String {
-        val capacity = if (raw.length <= maxChars) raw.length else maxChars + 1
+        // capacity 只是预估：maxChars 来自调用方，Int.MAX_VALUE 时 maxChars + 1 会溢出成负数，
+        // StringBuilder 直接抛 NegativeArraySizeException，与「截断」的语义正好相反。
+        val capacity = if (raw.length <= maxChars) {
+            raw.length
+        } else {
+            (maxChars.toLong() + 1L).coerceAtMost(MAX_CAPACITY_HINT.toLong()).toInt()
+        }
         val out = StringBuilder(capacity)
         var index = 0
         while (index < raw.length) {

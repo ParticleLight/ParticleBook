@@ -183,4 +183,41 @@ internal class TextFileDecoderTest {
         assertEquals("", result.text)
         assertEquals("UTF-16LE", result.charsetName)
     }
+
+    // ---- maxChars 极端值：capacity 预估不能因 maxChars + 1 溢出而抛 NegativeArraySizeException ----
+
+    /** 容量分支（raw.length <= maxChars）走 raw.length，极小输入配 Int.MAX_VALUE 不抛。 */
+    @Test
+    fun decodeWithIntMaxValueMaxCharsKeepsSmallInput() {
+        val result = TextFileDecoder.decode("hello".toByteArray(Charsets.UTF_8), maxChars = Int.MAX_VALUE)
+        assertEquals("hello", result.text)
+        assertEquals("UTF-8", result.charsetName)
+    }
+
+    /** 5000 个字符在 Int.MAX_VALUE 上限下完整保留，容量预估与最终长度一致。 */
+    @Test
+    fun decodeWithIntMaxValueMaxCharsKeepsFiveThousandChars() {
+        val payload = "a".repeat(5_000)
+        val result = TextFileDecoder.decode(payload.toByteArray(Charsets.UTF_8), maxChars = Int.MAX_VALUE)
+        assertEquals(5_000, result.text.length)
+        assertEquals(payload, result.text)
+        assertEquals("UTF-8", result.charsetName)
+    }
+
+    /** 负数 maxChars 先 coerceAtLeast(0)，与 maxChars = 0 一样得到空串（既有行为不能改坏）。 */
+    @Test
+    fun decodeWithNegativeMaxCharsYieldsEmptyText() {
+        val result = TextFileDecoder.decode("abc".toByteArray(Charsets.UTF_8), maxChars = -5)
+        assertEquals("", result.text)
+        assertEquals("UTF-8", result.charsetName)
+    }
+
+    /** Int.MAX_VALUE 上限下仍然照常剥离 BOM、归一换行，不做任何截断。 */
+    @Test
+    fun decodeWithIntMaxValueMaxCharsStillNormalizesBomAndNewlines() {
+        val bytes = concat(utf8Bom, "a\r\nb".toByteArray(Charsets.UTF_8))
+        val result = TextFileDecoder.decode(bytes, maxChars = Int.MAX_VALUE)
+        assertEquals("a\nb", result.text)
+        assertEquals("UTF-8", result.charsetName)
+    }
 }

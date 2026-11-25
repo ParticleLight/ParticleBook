@@ -39,6 +39,15 @@ internal object Fb2Parser {
     private const val TITLE_LINE_SEPARATOR = " \u00B7 "
 
     private const val AUTHOR_FIELD_SEPARATOR = " "
+
+    /**
+     * 递归下钻的深度上限。
+     *
+     * FB2 是任意嵌套的 XML：4M 字符的预算里 `<section>` 只占 9 字节，够埋几十万层，
+     * 递归到那一步就是 StackOverflowError（捕获 SOE 本身不可靠，栈已经耗尽）。
+     * 超过上限就停止下钻、把剩余内容当扁平正文，宁可少一层结构也不要炸。
+     */
+    private const val MAX_NESTING_DEPTH = 64
     private val AUTHOR_FIELDS = listOf("first-name", "middle-name", "last-name")
     private val WHITESPACE = Regex("\\s+")
 
@@ -110,6 +119,10 @@ internal object Fb2Parser {
 
     /** section：先出自己的一行标题，再按文档顺序展开子节点（嵌套 section 递归、层级 +1）。 */
     private fun appendSection(section: Element, depth: Int, out: MutableList<Fb2Paragraph>) {
+        if (depth > MAX_NESTING_DEPTH) {
+            appendFlow(section, out)
+            return
+        }
         val level = minOf(depth, MAX_HEADING_LEVEL)
         firstChild(section, "title")?.let { title -> appendTitleLine(title, level, out) }
         for (child in childElements(section)) {
@@ -131,8 +144,15 @@ internal object Fb2Parser {
         if (line.isNotEmpty()) out += Fb2Paragraph(line, level)
     }
 
-    /** 正文流：epigraph / poem / stanza / cite / table 等容器逐层下钻，遇到 p / v / subtitle 收一行。 */
-    private fun appendFlow(element: Element, out: MutableList<Fb2Paragraph>) {
+    /**
+     * 正文流：epigraph / poem / stanza / cite / table 等容器逐层下钻，遇到 p / v / subtitle 收一行。
+     *
+     * 按**文档顺序**遍历全部子节点，而不只是子元素：`<td>2024</td>`、`<cite>引文</cite>`，
+     * 以及 `<epigraph>题词<p>x</p></epigraph>` 这种「文字和段落混排」的容器，
+     * 直属文字此前会被整块静默丢掉（只遍历 Element 时它连一个节点都不是）。
+     * p / v / subtitle 仍整块收起（叶元素不再下钻），所以同一段文字不会输出两次。
+     */
+    private fun appendFlow(element: Element, out: MutableList<Fb2Paragraph>, depth: Int = 0) {
         val name = nameOf(element)
         if (name in SILENT_ELEMENTS) return
         if (name in LEAF_TEXT_ELEMENTS) {
@@ -140,7 +160,19 @@ internal object Fb2Parser {
             if (text.isNotEmpty()) out += Fb2Paragraph(text, 0)
             return
         }
-        for (child in childElements(element)) appendFlow(child, out)
+        if (depth > MAX_NESTING_DEPTH) return
+        val children = element.childNodes
+        for (index in 0 until children.length) {
+            val child = children.item(index) ?: continue
+            if (child is Element) {
+                appendFlow(child, out, depth + 1)
+                continue
+            }
+            if (child.nodeType == Node.TEXT_NODE || child.nodeType == Node.CDATA_SECTION_NODE) {
+                val text = collapsedNodeText(child)
+                if (text.isNotEmpty()) out += Fb2Paragraph(text, 0)
+            }
+        }
     }
 
     // -------------------------------------------------------------- DOM 工具
@@ -215,6 +247,10 @@ internal object Fb2Parser {
 
     /** 全部后代文本节点拼接 → 连续空白折叠成单个空格 → trim。 */
     private fun collapsedText(element: Element): String = WHITESPACE.replace(rawText(element), " ").trim()
+
+    /** 单个节点自身的文字（容器直属文本节点用）：折叠空白后 trim，不做后代递归。 */
+    private fun collapsedNodeText(node: Node): String =
+        WHITESPACE.replace(node.nodeValue ?: "", " ").trim()
 
     private fun rawText(node: Node): String {
         val sink = StringBuilder()

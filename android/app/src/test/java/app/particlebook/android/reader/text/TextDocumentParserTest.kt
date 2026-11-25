@@ -482,5 +482,68 @@ internal class TextDocumentParserTest {
             assertEquals("round trip at " + index, index, TextDocumentParser.paragraphIndexForFraction(document, fraction))
         }
     }
-}
 
+    // ---- 未闭合围栏：末尾落单的围栏行按普通文本处理，不能吞掉后面的正文 ----
+
+    /** 用例 A：落单的开围栏不能把后面整本书并成一段，也不能把其后的 ## 标题吃进代码块。 */
+    @Test
+    fun parseTreatsTrailingUnclosedBacktickFenceAsPlainTextLine() {
+        val fence = "\u0060\u0060\u0060"
+        val raw = "# 一 标题\n\n" + fence + "\n围栏里的文字\n\n第二段正文\n\n## 二\n\n第三段"
+        val document = TextDocumentParser.parse(raw, markdown = true)
+        assertTrue("unclosed fence must not swallow the rest of the book", document.paragraphs.size >= 4)
+        assertEquals(
+            listOf("一 标题", fence + "\n围栏里的文字", "第二段正文", "二", "第三段"),
+            texts(document),
+        )
+        assertEquals(listOf(1, 0, 0, 2, 0), levels(document))
+    }
+
+    /** 用例 B：成对围栏行为不变 —— 围栏内空行不切段，围栏之后的正文是独立普通段。 */
+    @Test
+    fun parsePairedFenceKeepsInnerBlankLineAndSplitsParagraphAfterFence() {
+        val fence = "\u0060\u0060\u0060"
+        val raw = fence + "\ncode\n\ncode2\n" + fence + "\n\n正文"
+        val document = TextDocumentParser.parse(raw, markdown = true)
+        assertEquals(2, document.paragraphs.size)
+        assertEquals(fence + "\ncode\n\ncode2\n" + fence, document.paragraphs[0].text)
+        assertEquals(0, document.paragraphs[0].headingLevel)
+        assertEquals("正文", document.paragraphs[1].text)
+        assertEquals(0, document.paragraphs[1].headingLevel)
+    }
+
+    /** 用例 C：奇数个围栏行 —— 前两行配对，第三行落单当普通行，其后的 # 标题仍是标题。 */
+    @Test
+    fun parseOddFenceCountPairsFirstTwoAndKeepsFollowingHeading() {
+        val fence = "\u0060\u0060\u0060"
+        val raw = fence + "\ncode\n" + fence + "\n" + fence + "\n\n# 标题"
+        val document = TextDocumentParser.parse(raw, markdown = true)
+        assertEquals(2, document.paragraphs.size)
+        assertEquals(fence + "\ncode\n" + fence + "\n" + fence, document.paragraphs[0].text)
+        assertEquals(0, document.paragraphs[0].headingLevel)
+        assertEquals("标题", document.paragraphs[1].text)
+        assertEquals(1, document.paragraphs[1].headingLevel)
+    }
+
+    /** 用例 D：波浪线围栏同样适用 —— 单行 ~~~ 落单后当普通行，后面的 # 标题照常识别。 */
+    @Test
+    fun parseTreatsTrailingUnclosedTildeFenceAsPlainTextLine() {
+        val raw = "~~~\n\n# 标题\n\n正文"
+        val document = TextDocumentParser.parse(raw, markdown = true)
+        assertEquals(3, document.paragraphs.size)
+        assertEquals(listOf("~~~", "标题", "正文"), texts(document))
+        assertEquals(listOf(0, 1, 0), levels(document))
+    }
+
+    /** 用例 E：TXT（markdown=false）里三反引号只是普通行，不参与分段判断。 */
+    @Test
+    fun parseTxtKeepsBacktickLinesAsOrdinaryParagraphContent() {
+        val fence = "\u0060\u0060\u0060"
+        val raw = "第一段\n" + fence + "\n\n" + fence + "\n第二段"
+        val document = TextDocumentParser.parse(raw, markdown = false)
+        assertEquals(2, document.paragraphs.size)
+        assertEquals("第一段 " + fence, document.paragraphs[0].text)
+        assertEquals(fence + " 第二段", document.paragraphs[1].text)
+        assertEquals(listOf(0, 0), levels(document))
+    }
+}
