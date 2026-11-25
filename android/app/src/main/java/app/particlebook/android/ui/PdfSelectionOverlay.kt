@@ -20,6 +20,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -57,6 +58,13 @@ class PdfSelectionState(
     var lastActionError: String? by mutableStateOf(null)
         private set
 
+    /**
+     * 成功落库的次数。宿主拿它当"标注变了"的信号：PDF 侧没有 EPUB 那种 adapter 通知通道，
+     * 不重读的话页面上的既有高亮要等下次进阅读器才出现。
+     */
+    var savedVersion by mutableIntStateOf(0)
+        private set
+
     val canCopy: Boolean
         get() = clipboard != null && selection?.hasText == true
 
@@ -78,6 +86,11 @@ class PdfSelectionState(
         selection = null
     }
 
+    /** 提示过一次就清掉：lastActionError 是状态而不是事件，不清会一直挂在那里。 */
+    fun clearActionError() {
+        lastActionError = null
+    }
+
     fun copySelection(): Boolean {
         val active = selection?.takeIf { it.hasText } ?: return false
         val manager = clipboard ?: return false
@@ -93,7 +106,9 @@ class PdfSelectionState(
 
     fun addNote(note: String): ReaderAnnotation? {
         if (note.isBlank()) return null
-        return addAnnotation(type = ReaderAnnotationType.NOTE, note = note.trim(), color = null)
+        // 笔记用调色板的蓝色，和默认黄色高亮分开：侧栏色点、页面色块两边都跟着这个 key 走，
+        // 不然 PDF 的笔记在列表里会和普通高亮长得一模一样（kind 都落成 highlight）。
+        return addAnnotation(type = ReaderAnnotationType.NOTE, note = note.trim(), color = EpubAnnotationPalette.note.key)
     }
 
     private fun addAnnotation(
@@ -112,7 +127,10 @@ class PdfSelectionState(
             color = color,
         )
         return runCatching { store.add(annotation) }
-            .onSuccess { clear() }
+            .onSuccess {
+                clear()
+                savedVersion += 1
+            }
             .onFailure { lastActionError = it.message ?: "保存标注失败" }
             .getOrNull()
     }

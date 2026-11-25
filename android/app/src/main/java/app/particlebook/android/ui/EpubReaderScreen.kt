@@ -417,10 +417,17 @@ fun EpubReaderScreen(
         }
         // 不先清空：保存后 version++ 重读时保留旧高亮，避免闪一下再出现。
         annotationsLoading = true
-        val result = withContext(Dispatchers.IO) { runCatching { store.list(book.id) } }
-        annotationsLoading = false
-        result.onSuccess { annotations = it }
-            .onFailure { notify("读取标注失败：" + (it.message ?: "未知错误")) }
+        try {
+            annotations = withContext(Dispatchers.IO) { store.list(book.id) }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            notify("读取标注失败：" + (error.message ?: "未知错误"))
+        } finally {
+            // 换章/连点重读会把 effect 取消掉，顺序语句在取消路径上根本走不到，
+            // loading 会永远停在"正在读取标注"。
+            annotationsLoading = false
+        }
     }
 
     val captureSelection: () -> EpubSelection? = {
@@ -582,6 +589,8 @@ fun EpubReaderScreen(
         } else {
             val target = active.chapterIndexForHref(locator.chapterHref)
             if (target == null) {
+                // 同上：提示前先关侧栏，否则 Snackbar 压在弹层下面什么也看不见。
+                annotationsOpen = false
                 notify("标注所在章节已变化")
             } else {
                 annotationsOpen = false
@@ -893,9 +902,10 @@ fun EpubReaderScreen(
     }
 
     if (annotationsOpen) {
-        EpubAnnotationSheet(
+        AnnotationListSheet(
             annotations = annotations,
             loading = annotationsLoading,
+            emptyHint = "暂无标注。选中正文后点底栏颜色或「笔记」即可保存。",
             onDismiss = { annotationsOpen = false },
             onJump = jumpToAnnotation,
             onEditNote = openNoteEditor,
@@ -919,7 +929,7 @@ fun EpubReaderScreen(
         )
     }
     noteDraft?.let { draft ->
-        EpubNoteEditorDialog(
+        AnnotationNoteEditorDialog(
             title = if (draft.existing == null) "新建笔记" else "编辑笔记",
             initialText = draft.existing?.note.orEmpty(),
             onDismiss = { noteDraft = null },
@@ -927,7 +937,7 @@ fun EpubReaderScreen(
         )
     }
     pendingDelete?.let { annotation ->
-        EpubDeleteAnnotationDialog(
+        AnnotationDeleteDialog(
             annotation = annotation,
             onDismiss = { pendingDelete = null },
             onConfirm = { deleteAnnotation(annotation) },

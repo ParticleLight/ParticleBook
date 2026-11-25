@@ -176,92 +176,107 @@ internal fun AnnotationExportSheet(
                 overflow = TextOverflow.Ellipsis,
             )
             Spacer(Modifier.height(Spacing.md))
-            Text(
-                text = "包含",
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(Modifier.height(Spacing.xs))
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
-                verticalArrangement = Arrangement.spacedBy(Spacing.xs),
-            ) {
-                ExportKindChip(
-                    label = "书签 " + counts.bookmarks,
-                    available = counts.bookmarks > 0,
-                    selected = includeBookmarks,
-                    onToggle = { includeBookmarks = it },
+            if (counts.total == 0) {
+                // 一条都没有时不摆类型/格式 chip：它们全是禁用态，还会写一句「至少选一种这本书里有的类型」，
+                // 读起来像用户选错了，其实这本书压根没标过。
+                Text(
+                    text = "这本书还没有标注。阅读时选中文字，用工具条的「高亮」或「笔记」保存，再回来导出。",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                ExportKindChip(
-                    label = "高亮 " + counts.highlights,
-                    available = counts.highlights > 0,
-                    selected = includeHighlights,
-                    onToggle = { includeHighlights = it },
-                )
-                ExportKindChip(
-                    label = "笔记 " + counts.notes,
-                    available = counts.notes > 0,
-                    selected = includeNotes,
-                    onToggle = { includeNotes = it },
-                )
-            }
-            Spacer(Modifier.height(Spacing.md))
-            Text(
-                text = "格式",
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(Modifier.height(Spacing.xs))
-            Row(horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
-                ExportFormatChip(
-                    label = "Markdown（.md）",
-                    selected = format == ExportFormat.MARKDOWN,
-                    onSelect = { format = ExportFormat.MARKDOWN },
-                )
-                ExportFormatChip(
-                    label = "CSV（.csv）",
-                    selected = format == ExportFormat.CSV,
-                    onSelect = { format = ExportFormat.CSV },
-                )
-            }
-            Spacer(Modifier.height(Spacing.md))
-            Text(
-                text = if (exportedCount > 0) {
-                    "将导出 " + exportedCount + " 条，" + if (format == ExportFormat.CSV) "CSV（.csv）" else "Markdown（.md）"
-                } else {
-                    "没有可导出的标注：至少选一种这本书里有的类型"
-                },
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(Modifier.height(Spacing.md))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Button(
-                    onClick = {
-                        pending = result
-                        createDocument.launch(result.fileName)
-                    },
-                    enabled = exportedCount > 0,
-                    modifier = Modifier.weight(1f),
-                ) { Text("另存为文件") }
+                Spacer(Modifier.height(Spacing.md))
                 TextButton(
-                    onClick = {
-                        val intent = Intent(Intent.ACTION_SEND).apply {
-                            // 固定不带 charset：分享面板按 MIME 挑应用，charset 参数会让部分应用认不出来。
-                            type = if (format == ExportFormat.CSV) "text/csv" else "text/markdown"
-                            putExtra(Intent.EXTRA_SUBJECT, document.bookTitle + " — 标注导出")
-                            putExtra(Intent.EXTRA_TEXT, result.content)
-                        }
-                        context.startActivity(Intent.createChooser(intent, "分享标注"))
-                        onDismiss()
-                    },
-                    enabled = exportedCount > 0,
+                    onClick = onDismiss,
                     modifier = Modifier.heightIn(min = Spacing.minTouchTarget),
-                ) { Text("分享文本") }
+                ) { Text("知道了") }
+            } else {
+                Text(
+                    text = "包含",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(Spacing.xs))
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
+                    verticalArrangement = Arrangement.spacedBy(Spacing.xs),
+                ) {
+                    ExportKindChip(
+                        label = "书签 " + counts.bookmarks,
+                        available = counts.bookmarks > 0,
+                        selected = includeBookmarks,
+                        onToggle = { includeBookmarks = it },
+                    )
+                    ExportKindChip(
+                        label = "高亮 " + counts.highlights,
+                        available = counts.highlights > 0,
+                        selected = includeHighlights,
+                        onToggle = { includeHighlights = it },
+                    )
+                    ExportKindChip(
+                        label = "笔记 " + counts.notes,
+                        available = counts.notes > 0,
+                        selected = includeNotes,
+                        onToggle = { includeNotes = it },
+                    )
+                }
+                Spacer(Modifier.height(Spacing.md))
+                Text(
+                    text = "格式",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(Spacing.xs))
+                Row(horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+                    ExportFormatChip(
+                        label = "Markdown（.md）",
+                        selected = format == ExportFormat.MARKDOWN,
+                        onSelect = { format = ExportFormat.MARKDOWN },
+                    )
+                    ExportFormatChip(
+                        label = "CSV（.csv）",
+                        selected = format == ExportFormat.CSV,
+                        onSelect = { format = ExportFormat.CSV },
+                    )
+                }
+                Spacer(Modifier.height(Spacing.md))
+                Text(
+                    text = if (exportedCount > 0) {
+                        "将导出 " + exportedCount + " 条，" + if (format == ExportFormat.CSV) "CSV（.csv）" else "Markdown（.md）"
+                    } else {
+                        "没有勾选任何类型：至少选一种这本书里有的类型"
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(Spacing.md))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Button(
+                        onClick = {
+                            pending = result
+                            createDocument.launch(result.fileName)
+                        },
+                        enabled = exportedCount > 0,
+                        modifier = Modifier.weight(1f),
+                    ) { Text("另存为文件") }
+                    TextButton(
+                        onClick = {
+                            val intent = Intent(Intent.ACTION_SEND).apply {
+                                // 固定不带 charset：分享面板按 MIME 挑应用，charset 参数会让部分应用认不出来。
+                                type = if (format == ExportFormat.CSV) "text/csv" else "text/markdown"
+                                putExtra(Intent.EXTRA_SUBJECT, document.bookTitle + " — 标注导出")
+                                putExtra(Intent.EXTRA_TEXT, result.content)
+                            }
+                            context.startActivity(Intent.createChooser(intent, "分享标注"))
+                            onDismiss()
+                        },
+                        enabled = exportedCount > 0,
+                        modifier = Modifier.heightIn(min = Spacing.minTouchTarget),
+                    ) { Text("分享文本") }
+                }
             }
             Spacer(Modifier.height(Spacing.lg))
         }

@@ -514,10 +514,19 @@ private fun PdfReadingPane(
     var chromeTick by remember { mutableIntStateOf(0) }
     var tocOpen by remember { mutableStateOf(false) }
     var moreMenuOpen by remember { mutableStateOf(false) }
-    // 标注导出：PDF 没有常驻标注侧栏，只在打开弹层时按需把这本书的标注读一次。
+    // 本书标注：页面上的既有高亮与侧栏列表吃同一份，与 EPUB 侧同一条加载路径
+    // （打开时读一次，增删改后 version++ 重读）。PDF 的标注只存包围盒，
+    // 所以页面上落笔是一块矩形而不是逐行高亮 —— 这是 PdfSelectionController.toLocator 的既有约定。
+    var annotations by remember(book.filePath) { mutableStateOf<List<ReaderAnnotation>>(emptyList()) }
+    var annotationsLoading by remember(book.filePath) { mutableStateOf(false) }
+    // 上一次读是否失败。失败过就再也不能把现有的 0 条当成"这本书没有标注"：
+    // 侧栏与导出每次打开前会先重读一次（见 openAnnotations / openExport）。
+    var annotationsLoadFailed by remember(book.filePath) { mutableStateOf(false) }
+    var annotationVersion by remember(book.filePath) { mutableIntStateOf(0) }
+    var annotationsOpen by remember(book.filePath) { mutableStateOf(false) }
     var exportOpen by remember(book.filePath) { mutableStateOf(false) }
-    var exportAnnotations by remember(book.filePath) { mutableStateOf<List<ReaderAnnotation>?>(null) }
-    var exportReadFailed by remember(book.filePath) { mutableStateOf(false) }
+    var noteDraft by remember(book.filePath) { mutableStateOf<ReaderAnnotation?>(null) }
+    var pendingDelete by remember(book.filePath) { mutableStateOf<ReaderAnnotation?>(null) }
     var detailsOpen by remember { mutableStateOf(false) }
     var pageJumpOpen by remember { mutableStateOf(false) }
     var bookmark by rememberSaveable(book.id) { mutableStateOf(false) }
@@ -590,27 +599,46 @@ private fun PdfReadingPane(
         scope.launch { snackbarHostState.showSnackbar(message) }
     }
 
-    // 导出弹层打开才读标注：读完就绪前 exportDocument 为 null，弹层自然不出现；
-    // 关掉时清空，用户改过标注后再打开能拿到最新一份。
-    LaunchedEffect(exportOpen, annotationStore, book.id) {
-        if (!exportOpen) {
-            exportAnnotations = null
+    LaunchedEffect(annotationStore, book.id, annotationVersion) {
+        val store = annotationStore
+        if (store == null) {
+            annotations = emptyList()
+            annotationsLoadFailed = false
+            annotationsLoading = false
             return@LaunchedEffect
         }
-        val store = annotationStore ?: return@LaunchedEffect
-        val loaded = withContext(Dispatchers.IO) { runCatching { store.list(book.id) } }
-        exportAnnotations = loaded.getOrNull()
-        exportReadFailed = loaded.isFailure
-    }
-    LaunchedEffect(exportReadFailed) {
-        if (!exportReadFailed) return@LaunchedEffect
-        exportReadFailed = false
-        exportOpen = false
-        notify("标注读取失败，请重试")
+        // 不先清空：增删改后 version++ 重读时保留页面上的旧高亮，避免闪一下再出现。
+        annotationsLoading = true
+        try {
+            annotations = withContext(Dispatchers.IO) { store.list(book.id) }
+            annotationsLoadFailed = false
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            annotationsLoadFailed = true
+            notify("读取标注失败：" + (error.message ?: "未知错误"))
+        } finally {
+            // 用 finally 而不是顺次语句：effect 被取消（换书、连点重读）时也要放下 loading，
+            // 否则侧栏永远停在"正在读取标注"，而列表其实早就没有下一个 effect 了。
+            annotationsLoading = false
+        }
     }
     // PDF 没有目录标题可对位，章节一律由 planner 归到「第 N 页」。
-    val exportDocument = remember(exportAnnotations) {
-        exportAnnotations?.let { AnnotationExportPlanner.plan(book, it) }
+    val exportDocument = remember(annotations) { AnnotationExportPlanner.plan(book, annotations) }
+    val annotationsByPage = remember(annotations) { pdfAnnotationsByPage(annotations) }
+    // 选区落库后重读一次：PdfSelectionState 只是落库，不认识 Compose 宿主，
+    // 拿它的自增计数当"标注变了"的信号，页面高亮与侧栏计数才会立刻跟上。
+    val selectionSavedVersion = selectionState?.savedVersion ?: 0
+    LaunchedEffect(selectionSavedVersion) {
+        if (selectionSavedVersion > 0) annotationVersion += 1
+    }
+    // 落库失败（磁盘满、库被清）在 PdfSelectionState 里只记一句，宿主不订阅就完全静默：
+    // 用户看到选区消失却以为存进去了。读完立刻清掉，同一个错误只提示一次。
+    val selectionActionError = selectionState?.lastActionError
+    LaunchedEffect(selectionActionError) {
+        if (selectionActionError == null) return@LaunchedEffect
+        notify(selectionActionError)
+        selectionState?.clearActionError()
     }
 
     // 文本层按页取（PDF 没有整篇粒度可用，也没必要把整本书读进内存）。loadPage 会走
@@ -753,8 +781,12 @@ private fun PdfReadingPane(
     }
     LaunchedEffect(
         chromeVisible, chromeTick, tocOpen, moreMenuOpen, detailsOpen, pageJumpOpen, sliderDragging, searchOpen,
+        annotationsOpen, exportOpen,
     ) {
-        if (chromeVisible && !tocOpen && !moreMenuOpen && !detailsOpen && !pageJumpOpen && !sliderDragging && !searchOpen) {
+        if (
+            chromeVisible && !tocOpen && !moreMenuOpen && !detailsOpen && !pageJumpOpen && !sliderDragging &&
+            !searchOpen && !annotationsOpen && !exportOpen
+        ) {
             delay(CHROME_AUTO_HIDE_MS)
             chromeVisible = false
         }
@@ -782,6 +814,78 @@ private fun PdfReadingPane(
                 wakeChrome()
             } finally {
                 if (nav != null) attempt.perf.finishNav(nav, null, "interrupted")
+            }
+        }
+    }
+
+    // 标注侧栏的三个动作。PDF 侧没有 adapter 包一层，直接走 store；
+    // 跳转只认 Pdf locator 的页码，坏 locator（locatorError 非空）一律提示不可用，不猜位置。
+    // 导航来源复用 SEARCH 而不是新增枚举值：那个字段进 PBPERF 日志、离线分析按历史口径认这四个值，
+    // 为一次"跳回标注页"新增 wire 值只会让新旧日志对不上。
+    // 上次读失败过就先重读再开：否则弹层会拿一份空的旧列表冒充"这本书没有标注"。
+    val openAnnotations: () -> Unit = {
+        if (annotationsLoadFailed) annotationVersion += 1
+        annotationsOpen = true
+    }
+    val openExport: () -> Unit = {
+        if (annotationsLoadFailed) annotationVersion += 1
+        exportOpen = true
+    }
+    val jumpToAnnotation: (ReaderAnnotation) -> Unit = { annotation ->
+        val locator = annotation.locator as? ReaderLocator.Pdf
+        annotationsOpen = false
+        if (annotation.locatorError != null || locator == null) {
+            notify("这条标注的位置不可用")
+        } else {
+            jumpToPage(locator.page, PdfNavSource.SEARCH)
+        }
+    }
+    val openNoteEditor: (ReaderAnnotation) -> Unit = { annotation ->
+        annotationsOpen = false
+        noteDraft = annotation
+    }
+    val saveNote: (String) -> Unit = { text ->
+        val draft = noteDraft
+        val store = annotationStore
+        if (draft == null) {
+            Unit
+        } else if (store == null) {
+            notify("标注存储未就绪")
+        } else {
+            scope.launch {
+                val result = withContext(Dispatchers.IO) {
+                    runCatching {
+                        store.update(annotationWithNote(draft, text, System.currentTimeMillis()))
+                    }
+                }
+                result.onSuccess { updated ->
+                    if (updated == null) {
+                        notify("标注不存在或已被删除")
+                    } else {
+                        annotationVersion += 1
+                        noteDraft = null
+                        notify("笔记已更新")
+                    }
+                }.onFailure { notify("更新笔记失败：" + (it.message ?: "未知错误")) }
+            }
+        }
+    }
+    val deleteAnnotation: (ReaderAnnotation) -> Unit = { annotation ->
+        val store = annotationStore
+        if (store == null) {
+            notify("标注存储未就绪")
+        } else {
+            scope.launch {
+                val result = withContext(Dispatchers.IO) { runCatching { store.remove(annotation.id) } }
+                result.onSuccess { removed ->
+                    pendingDelete = null
+                    if (removed) {
+                        annotationVersion += 1
+                        notify("已删除标注")
+                    } else {
+                        notify("标注不存在")
+                    }
+                }.onFailure { notify("删除标注失败：" + (it.message ?: "未知错误")) }
             }
         }
     }
@@ -982,6 +1086,7 @@ private fun PdfReadingPane(
                     pageIndex = index,
                     widthDp = pageWidthDp,
                     selectionState = selectionState,
+                    pageAnnotations = annotationsByPage[index].orEmpty(),
                     ttsHighlight = if (index == ttsHighlightPage) ttsRects else null,
                     searchHighlight = if (index == searchHighlightPage) searchHighlightRects else null,
                 )
@@ -1054,6 +1159,25 @@ private fun PdfReadingPane(
                             },
                         )
                         DropdownMenuItem(
+                            // 0 条也给入口：空态里要告诉用户怎么标（长按拖动选中再点底栏），
+                            // 藏起来只会让人以为这个阅读器不能标注。
+                            text = {
+                                Text(
+                                    if (annotations.isEmpty()) {
+                                        "标注"
+                                    } else {
+                                        "标注（" + annotations.size + "）"
+                                    },
+                                )
+                            },
+                            enabled = annotationStore != null,
+                            onClick = {
+                                moreMenuOpen = false
+                                openAnnotations()
+                                wakeChrome()
+                            },
+                        )
+                        DropdownMenuItem(
                             // PDF 是固定版式：字号/行高只对 EPUB 正文有意义，这里不放假入口。
                             text = { Text("阅读设置（PDF 为固定版式）") },
                             enabled = false,
@@ -1061,11 +1185,11 @@ private fun PdfReadingPane(
                         )
                         DropdownMenuItem(
                             text = { Text("导出标注") },
-                            // 标注存储没就绪时不留假入口；真要读失败会在打开时提示并收起弹层。
+                            // 标注存储没就绪时不留假入口；上次读失败过会在打开前重读一次。
                             enabled = annotationStore != null,
                             onClick = {
                                 moreMenuOpen = false
-                                exportOpen = true
+                                openExport()
                             },
                         )
                         DropdownMenuItem(
@@ -1269,7 +1393,47 @@ private fun PdfReadingPane(
         )
     }
 
-    if (exportOpen && exportDocument != null) {
+    if (annotationsOpen) {
+        AnnotationListSheet(
+            annotations = annotations,
+            loading = annotationsLoading,
+            emptyHint = "暂无标注。在页面上长按并拖动选中文字，再点底部工具条的「高亮」或「笔记」即可保存。",
+            onDismiss = { annotationsOpen = false },
+            onJump = jumpToAnnotation,
+            onEditNote = openNoteEditor,
+            onDelete = { pendingDelete = it },
+            // PDF 的 kind 一律落成 highlight（SqliteAnnotationStore.kindFor），类型标签在页面上分不出是哪一条；
+            // 副标题给页码，同一个词的多处标注才挑得对。
+            subtitleOf = { annotation ->
+                (annotation.locator as? ReaderLocator.Pdf)?.let { "第 " + (it.page + 1) + " 页" }
+            },
+            onExport = {
+                // 先收起侧栏再开导出：两个 ModalBottomSheet 叠在一起，上层关闭会把下层一起带走。
+                annotationsOpen = false
+                openExport()
+            },
+        )
+    }
+
+    noteDraft?.let { draft ->
+        AnnotationNoteEditorDialog(
+            title = "编辑笔记",
+            initialText = draft.note,
+            onDismiss = { noteDraft = null },
+            onConfirm = saveNote,
+        )
+    }
+
+    pendingDelete?.let { annotation ->
+        AnnotationDeleteDialog(
+            annotation = annotation,
+            onDismiss = { pendingDelete = null },
+            onConfirm = { deleteAnnotation(annotation) },
+        )
+    }
+
+    if (exportOpen) {
+        // 无标注时也开弹层：导出表里给「没有可导出的标注」比让菜单项点了没反应诚实。
         AnnotationExportSheet(
             document = exportDocument,
             onDismiss = { exportOpen = false },
@@ -1453,6 +1617,8 @@ private fun PdfPageItem(
     pageIndex: Int,
     widthDp: Dp,
     selectionState: PdfSelectionState? = null,
+    /** 本页已有的标注（只含能画的记录，已按位置排序）。 */
+    pageAnnotations: List<ReaderAnnotation> = emptyList(),
     /** 正在朗读的那一句在本页的矩形（归一化）。null 表示本页没有朗读高亮。 */
     ttsHighlight: List<PdfNormalizedRect>? = null,
     /** 书内搜索命中的矩形（归一化）。null 表示本页不是当前命中页。 */
@@ -1514,8 +1680,15 @@ private fun PdfPageItem(
                             .clip(MaterialTheme.shapes.extraSmall)
                             .then(page.modifier()),
                     )
-                    // 高亮压在图片之上、选区之下：搜索在底、朗读在上，共用同一份归一化矩形坐标。
-                    // 两者都只画不接手势，触摸继续落到选区与翻页上。
+                    // 高亮压在图片之上、选区之下，自下而上：已存标注（这本书已有内容）→ 搜索命中
+                    // （这次要找的东西）→ 朗读句（此刻在念的）→ 选区（正在操作的那一段）。
+                    // 四者共用同一份归一化矩形坐标，都只画不接手势，触摸继续落到选区与翻页上。
+                    if (pageAnnotations.isNotEmpty()) {
+                        PdfAnnotationHighlights(
+                            annotations = pageAnnotations,
+                            modifier = Modifier.matchParentSize(),
+                        )
+                    }
                     val searchRects = searchHighlight
                     if (searchRects != null && searchRects.isNotEmpty()) {
                         PdfRectHighlightOverlay(
