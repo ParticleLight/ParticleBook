@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.interaction.DragInteraction
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -27,12 +28,17 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearWavyProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -58,6 +64,11 @@ import app.particlebook.android.reader.text.TextSearchEngine
 import app.particlebook.android.reader.text.TextSearchHit
 import app.particlebook.android.reader.text.TextFileDecoder
 import app.particlebook.android.reader.text.TextParagraph
+import app.particlebook.android.reader.text.TextSpeech
+import app.particlebook.android.reader.tts.AndroidTtsSpeaker
+import app.particlebook.android.reader.tts.TtsPlayback
+import app.particlebook.android.reader.tts.TtsPlaybackState
+import app.particlebook.android.reader.tts.TtsSentence
 import app.particlebook.android.ui.data.Book
 import app.particlebook.android.ui.data.BookFormat
 import app.particlebook.android.ui.data.ReadingProgress
@@ -95,7 +106,6 @@ internal fun TextReaderScreen(
     onLineHeightChange: (Float) -> Unit = {},
 ) {
     ImmersiveSystemBars()
-    BackHandler(onBack = onBack)
     val context = LocalContext.current
 
     var document by remember(book.filePath) { mutableStateOf<TextDocument?>(null) }
@@ -107,6 +117,35 @@ internal fun TextReaderScreen(
     var activeHit by remember(book.filePath) { mutableStateOf<TextSearchHit?>(null) }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
+
+    // 朗读：以「段」为单位推进。TtsPlayback 一次只装一段的句子，念完一段回到 Idle，
+    // 再由下面的续段 effect 装下一段——句子偏移始终是段内的，高亮不会跨段错位。
+    var ttsState by remember(book.filePath) { mutableStateOf<TtsPlaybackState>(TtsPlaybackState.Idle) }
+    var ttsSentence by remember(book.filePath) { mutableStateOf<TtsSentence?>(null) }
+    var ttsRate by remember { mutableStateOf(1.0f) }
+    // 正在朗读的段落下标；-1 表示没在朗读。
+    var aloudParagraph by remember(book.filePath) { mutableIntStateOf(-1) }
+    // 「续读」意图：只有它开着，一段念完才自动接下一段。用户主动停止时先关它再 stop()，
+    // 否则 stop() 同步刷出的 Idle 会被续段逻辑当成"自然念完"而接着念。
+    var aloudFollowing by remember(book.filePath) { mutableStateOf(false) }
+    val snackbarHostState = remember { SnackbarHostState() }
+    // 失焦回调要拿到 playback，而 playback 又需要 speaker：用持有者打破这个循环。
+    // SideEffect 在组合提交后赋值，真正的音频焦点变化只会发生在更晚。
+    val ttsPlaybackHolder = remember { mutableStateOf<TtsPlayback?>(null) }
+    val ttsSpeaker = remember(context) {
+        AndroidTtsSpeaker(context, onFocusLost = { ttsPlaybackHolder.value?.pause() })
+    }
+    val ttsPlayback = remember(ttsSpeaker) {
+        TtsPlayback(
+            speaker = ttsSpeaker,
+            onStateChanged = { ttsState = it },
+            onSentence = { ttsSentence = it },
+        )
+    }
+    SideEffect { ttsPlaybackHolder.value = ttsPlayback }
+    DisposableEffect(ttsPlayback) {
+        onDispose { ttsPlayback.shutdown() }
+    }
 
     // 打开：读字节 → 解码（BOM/UTF-8/GB18030）→ 按格式分段，整块放 IO，主线程只接结果。
     LaunchedEffect(book.filePath) {
@@ -187,8 +226,150 @@ internal fun TextReaderScreen(
         document?.let { TextOutline.build(it) } ?: emptyList()
     }
 
-    // 当前段落：进度百分比与「目录里高亮哪一章」共用同一个可见位置。
+    // 当前段落：进度百分比、「目录里高亮哪一章」与朗读起点共用同一个可见位置。
     val visibleParagraph by remember { derivedStateOf { listState.firstVisibleItemIndex } }
+
+    /** 这一段现在是否在屏幕里：在就别滚，省掉每段一次的无谓动画。 */
+    fun isParagraphVisible(index: Int): Boolean {
+        val items = listState.layoutInfo.visibleItemsInfo
+        if (items.isEmpty()) return false
+        return index >= items.first().index && index <= items.last().index
+    }
+
+    /**
+     * 装载某一段；返回是否真的装载成功。
+     *
+     * [keepPaused] 为真时走 [TtsPlayback.load]，只换句子与光标、**不向引擎下发 speak**：
+     * 暂停态跨段用 "start 后立刻 pause" 会先发出半个音节再被掐断，后台音乐也会被闪一次音频焦点。
+     *
+     * 引擎未就绪（装载返回 false）时状态机保持原状，界面不会出现"在播却没声音"；
+     * 这时段号必须清回 -1——它同时喂给跟随滚动与"滚动即停"的判定，留着会把界面滚到一个没在念的段落。
+     */
+    fun playParagraph(index: Int, fromSentence: Int = 0, keepPaused: Boolean = false): Boolean {
+        val doc = document ?: return false
+        val paragraph = doc.paragraphs.getOrNull(index) ?: return false
+        val sentences = TextSpeech.sentences(paragraph.text)
+        if (sentences.isEmpty()) return false
+        ttsPlayback.setRate(ttsRate)
+        val loaded = if (keepPaused) {
+            ttsPlayback.load(sentences, fromSentence, paused = true)
+        } else {
+            ttsPlayback.start(sentences, fromSentence)
+        }
+        if (!loaded) {
+            aloudParagraph = -1
+            return false
+        }
+        aloudParagraph = index
+        return true
+    }
+
+    fun stopAloud() {
+        // 顺序是契约：先关「续读」再停引擎。stop() 会同步把状态刷成 Idle，
+        // 反序会被续段逻辑当成"自然念完"接着念下一段。
+        aloudFollowing = false
+        aloudParagraph = -1
+        ttsPlayback.stop()
+    }
+
+    /** 从当前可见段落起读；不可见文字（空段）向后找第一段。 */
+    fun startAloud() {
+        val doc = document
+        if (doc == null || doc.paragraphs.isEmpty()) {
+            scope.launch { snackbarHostState.showSnackbar("这本书没有可朗读的文字") }
+            return
+        }
+        val target = TextSpeech.firstSpeakableAtOrAfter(doc.paragraphs, visibleParagraph)
+        if (target == null) {
+            scope.launch { snackbarHostState.showSnackbar("这之后没有可朗读的文字") }
+            return
+        }
+        aloudFollowing = true
+        if (!playParagraph(target)) {
+            aloudFollowing = false
+            scope.launch { snackbarHostState.showSnackbar("系统朗读引擎不可用") }
+        }
+    }
+
+    fun stepPreviousSentence() {
+        val doc = document ?: return
+        if (ttsState.sentenceIndex > 0) {
+            ttsPlayback.previous()
+            return
+        }
+        val previous = TextSpeech.previousSpeakable(doc.paragraphs, aloudParagraph) ?: return
+        val lastSentence = TextSpeech.sentences(doc.paragraphs[previous].text).lastIndex
+        playParagraph(
+            index = previous,
+            fromSentence = lastSentence,
+            keepPaused = ttsState is TtsPlaybackState.Paused,
+        )
+    }
+
+    fun stepNextSentence() {
+        val doc = document ?: return
+        if (ttsState.sentenceIndex < ttsState.sentenceTotal - 1) {
+            ttsPlayback.next()
+            return
+        }
+        val next = TextSpeech.nextSpeakable(doc.paragraphs, aloudParagraph)
+        if (next == null) {
+            stopAloud()
+            scope.launch { snackbarHostState.showSnackbar("已经读到文件末尾") }
+            return
+        }
+        if (!playParagraph(next, keepPaused = ttsState is TtsPlaybackState.Paused)) {
+            // 装载失败还继续留着 aloudFollowing，续段逻辑会从"再下一段"接着找，
+            // 用户想听的那一段就被静默跳过了。
+            stopAloud()
+            scope.launch { snackbarHostState.showSnackbar("系统朗读引擎不可用") }
+        }
+    }
+
+    // 返回书架前先停读：退出动画里阅读器还要在组合里停留一小段，
+    // 那段时间引擎仍在出声，用户已经看到书架了还能听见朗读尾巴。
+    val leaveReader: () -> Unit = {
+        stopAloud()
+        onBack()
+    }
+    BackHandler(onBack = leaveReader)
+
+    // 一段念完 → 接下一段；念到末尾就收摊。ttsState 由状态机同步写回，
+    // 这里等价于"自然播完"的通知渠道：用户主动停止会先把 aloudFollowing 关掉。
+    LaunchedEffect(ttsState) {
+        if (ttsState != TtsPlaybackState.Idle) return@LaunchedEffect
+        if (!aloudFollowing) return@LaunchedEffect
+        // 段号已清（用户停止 / 装载失败）时不该续：靠调用顺序保证太脆，写死成前置条件。
+        if (aloudParagraph < 0) return@LaunchedEffect
+        val doc = document ?: return@LaunchedEffect
+        val next = TextSpeech.nextSpeakable(doc.paragraphs, aloudParagraph)
+        if (next == null) {
+            stopAloud()
+            snackbarHostState.showSnackbar("已经读到文件末尾")
+        } else if (!playParagraph(next)) {
+            stopAloud()
+            snackbarHostState.showSnackbar("系统朗读引擎不可用")
+        }
+    }
+
+    // 念到屏幕外就把当前段滚进视野（已在视野里不动，免得每段抖一下）。
+    LaunchedEffect(aloudParagraph) {
+        if (aloudParagraph < 0) return@LaunchedEffect
+        if (isParagraphVisible(aloudParagraph)) return@LaunchedEffect
+        listState.animateScrollToItem(aloudParagraph)
+    }
+
+    // 用户一拖动就停读：屏幕上已经换了内容，继续念就是"念的不是你看到的"。
+    //
+    // 认 DragInteraction 而不是 isScrollInProgress：后者把自动跟随滚动也算进来，
+    // 只能再拿一个布尔标志猜"这次是谁发起的"；而相邻段短于一次滚动动画时，
+    // 上一轮 effect 的 finally 会把新一轮刚置上的标志清掉，朗读就这样被自己停掉。
+    // 程序滚动（animateScrollToItem）不产生 DragInteraction，天然不用猜来源。
+    LaunchedEffect(listState) {
+        listState.interactionSource.interactions.collect { interaction ->
+            if (interaction is DragInteraction.Start) stopAloud()
+        }
+    }
 
     val percent by remember(document) {
         derivedStateOf {
@@ -201,10 +382,11 @@ internal fun TextReaderScreen(
         modifier = Modifier.fillMaxSize(),
         containerColor = MaterialTheme.colorScheme.background,
         contentWindowInsets = WindowInsets(0),
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             ReaderTopBar(
                 title = book.title,
-                onBack = onBack,
+                onBack = leaveReader,
                 actions = {
                     if (paragraphCount > 1) {
                         Text(
@@ -219,6 +401,9 @@ internal fun TextReaderScreen(
                             Icon(Icons.AutoMirrored.Outlined.List, contentDescription = "目录")
                         }
                     }
+                    // 入口按"从哪开始念"来理解：已在朗读时再点一次是从当前可见段落重新起读，
+                    // 而不是停止——控制条上已经有停止键，顶栏再放一个停止会让人以为朗读坏了。
+                    TextButton(onClick = { startAloud() }) { Text("朗读") }
                     IconButton(onClick = { searchOpen = true }) {
                         Icon(Icons.Outlined.Search, contentDescription = "书内搜索")
                     }
@@ -239,7 +424,7 @@ internal fun TextReaderScreen(
                 failure != null -> TextReaderMessage(
                     title = "打不开这个文件",
                     detail = failure ?: "",
-                    onBack = onBack,
+                    onBack = leaveReader,
                 )
 
                 current == null -> TextReaderLoading()
@@ -247,7 +432,7 @@ internal fun TextReaderScreen(
                 current.isEmpty -> TextReaderMessage(
                     title = "这个文件没有文字",
                     detail = "《" + book.title + "》解出来是空文档，可能是空文件或编码无法识别。",
-                    onBack = onBack,
+                    onBack = leaveReader,
                 )
 
                 else -> TextFlow(
@@ -256,6 +441,32 @@ internal fun TextReaderScreen(
                     fontSizeSp = fontSizeSp,
                     lineHeightMultiplier = lineHeightMultiplier,
                     hit = activeHit,
+                    speechParagraph = if (ttsState == TtsPlaybackState.Idle) -1 else aloudParagraph,
+                    speechStart = ttsSentence?.startChar ?: -1,
+                    speechEnd = ttsSentence?.endChar ?: -1,
+                )
+            }
+            // 朗读控制条浮在正文之上：不做 mini-player 顶替底栏那一套，
+            // 文本阅读器没有底栏，浮起来才不挤掉最后几行。
+            if (ttsState != TtsPlaybackState.Idle) {
+                TtsBar(
+                    state = ttsState,
+                    rate = ttsRate,
+                    progressUnit = ParagraphProgressUnit,
+                    onPlayPause = {
+                        if (ttsState is TtsPlaybackState.Playing) ttsPlayback.pause() else ttsPlayback.resume()
+                    },
+                    onPrevious = { stepPreviousSentence() },
+                    onNext = { stepNextSentence() },
+                    onCycleRate = {
+                        val next = TtsRates[(TtsRates.indexOf(ttsRate) + 1).mod(TtsRates.size)]
+                        ttsRate = next
+                        ttsPlayback.setRate(next)
+                    },
+                    onStop = { stopAloud() },
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(horizontal = Spacing.md, vertical = Spacing.sm),
                 )
             }
         }
@@ -267,6 +478,8 @@ internal fun TextReaderScreen(
             activeParagraphIndex = visibleParagraph,
             onPick = { chapter ->
                 tocOpen = false
+                // 跳到别的章还接着念旧位置，听起来就是"念错了地方"：跳转即停。
+                stopAloud()
                 scope.launch { listState.animateScrollToItem(chapter.paragraphIndex) }
             },
             onDismiss = { tocOpen = false },
@@ -286,6 +499,8 @@ internal fun TextReaderScreen(
             onPick = { picked ->
                 activeHit = picked
                 searchOpen = false
+                // 同上：跳到命中处就停读，否则声音停留在一屏之外。
+                stopAloud()
                 // 段落是排版单位：滚到该段首（段内精确到字符需要 TextLayoutResult，收益不值这个复杂度），
                 // 段内命中位置靠行内高亮标出来。
                 scope.launch { listState.animateScrollToItem(picked.paragraphIndex) }
@@ -312,6 +527,14 @@ private const val ProgressSaveDelayMillis = 600L
 private const val SearchDebounceMillis = 180L
 
 /**
+ * 朗读进度文案的单位。
+ *
+ * 文本阅读器按「段」推进，所以不能沿用状态机默认的「本页」——那会让用户以为自己在翻页。
+ * 写成常量而不是就地字面量：文案散落在 TtsBar 与状态机两侧时，漏改一处就会静默显示错单位。
+ */
+private const val ParagraphProgressUnit = "本段"
+
+/**
  * 打开前允许的最大文件字节数。
  *
  * 解码器的字符上限是 4M（[TextFileDecoder.MAX_TEXT_CHARS]），按 UTF-8 最多 4 字节/字符算约 16 MB，
@@ -330,6 +553,9 @@ private fun TextFlow(
     fontSizeSp: Float,
     lineHeightMultiplier: Float,
     hit: TextSearchHit?,
+    speechParagraph: Int,
+    speechStart: Int,
+    speechEnd: Int,
 ) {
     val sizeSp = normalizeFontSize(fontSizeSp)
     val lineHeightSp = normalizeLineHeight(lineHeightMultiplier) * sizeSp
@@ -353,6 +579,9 @@ private fun TextFlow(
                 // 只有当前命中那一段带区间；命中切换时其余段回到 -1，高亮自然消失。
                 val hitStart = if (hit?.paragraphIndex == index) hit.start else -1
                 val hitEnd = if (hit?.paragraphIndex == index) hit.end else -1
+                // 朗读区间同理：只有正在念的那一段带区间，换段后其余段自然回到 -1。
+                val speechRangeStart = if (speechParagraph == index) speechStart else -1
+                val speechRangeEnd = if (speechParagraph == index) speechEnd else -1
                 TextParagraphView(
                     paragraph = paragraph,
                     baseSizeSp = sizeSp,
@@ -360,6 +589,8 @@ private fun TextFlow(
                     first = index == 0,
                     highlightStart = hitStart,
                     highlightEnd = hitEnd,
+                    speechStart = speechRangeStart,
+                    speechEnd = speechRangeEnd,
                 )
             }
         }
@@ -378,30 +609,65 @@ private fun TextParagraphView(
     first: Boolean,
     highlightStart: Int = -1,
     highlightEnd: Int = -1,
+    speechStart: Int = -1,
+    speechEnd: Int = -1,
 ) {
     val level = paragraph.headingLevel
     val text = paragraph.text
-    // 命中区间直接标在已排好的文本上：不拆段、不重排，滚到该段就有上下文。
-    val highlightBackground = MaterialTheme.colorScheme.tertiaryContainer
-    val highlightForeground = MaterialTheme.colorScheme.onTertiaryContainer
-    val decorated = remember(text, highlightStart, highlightEnd, highlightBackground, highlightForeground) {
-        if (highlightStart < 0 || highlightEnd <= highlightStart) {
+    // 两种区间都直接标在已排好的文本上：不拆段、不重排，滚到该段就有上下文。
+    // 搜索命中走 tertiary 系（"这是你要找的字"），朗读走 primary 系（"正在念这一句"）：
+    // 语义不同就该长得不一样，同一段里也可能同时出现（从搜索结果跳过来接着朗读）。
+    val hitBackground = MaterialTheme.colorScheme.tertiaryContainer
+    val hitForeground = MaterialTheme.colorScheme.onTertiaryContainer
+    val speechBackground = MaterialTheme.colorScheme.primaryContainer
+    val speechForeground = MaterialTheme.colorScheme.onPrimaryContainer
+    val decorated = remember(
+        text,
+        highlightStart,
+        highlightEnd,
+        speechStart,
+        speechEnd,
+        hitBackground,
+        hitForeground,
+        speechBackground,
+        speechForeground,
+    ) {
+        val hasHit = highlightStart in 0 until highlightEnd
+        val hasSpeech = speechStart in 0 until speechEnd
+        if (!hasHit && !hasSpeech) {
             AnnotatedString(text)
         } else {
-            val start = highlightStart.coerceIn(0, text.length)
-            val end = highlightEnd.coerceIn(start, text.length)
             buildAnnotatedString {
                 append(text)
-                if (end > start) {
-                    addStyle(
-                        SpanStyle(
-                            background = highlightBackground,
-                            color = highlightForeground,
-                            fontWeight = FontWeight.SemiBold,
-                        ),
-                        start,
-                        end,
-                    )
+                if (hasHit) {
+                    val start = highlightStart.coerceIn(0, text.length)
+                    val end = highlightEnd.coerceIn(start, text.length)
+                    if (end > start) {
+                        addStyle(
+                            SpanStyle(
+                                background = hitBackground,
+                                color = hitForeground,
+                                fontWeight = FontWeight.SemiBold,
+                            ),
+                            start,
+                            end,
+                        )
+                    }
+                }
+                if (hasSpeech) {
+                    val start = speechStart.coerceIn(0, text.length)
+                    val end = speechEnd.coerceIn(start, text.length)
+                    if (end > start) {
+                        addStyle(
+                            SpanStyle(
+                                background = speechBackground,
+                                color = speechForeground,
+                                fontWeight = FontWeight.SemiBold,
+                            ),
+                            start,
+                            end,
+                        )
+                    }
                 }
             }
         }

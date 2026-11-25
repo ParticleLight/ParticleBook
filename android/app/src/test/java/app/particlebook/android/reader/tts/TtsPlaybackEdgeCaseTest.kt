@@ -170,7 +170,7 @@ class TtsPlaybackEdgeCaseTest {
         val single = sentences("独。")
         assertTrue(playback.start(single, fromIndex = 5))
         assertEquals(TtsPlaybackState.Playing(0, 1), playback.state)
-        assertEquals("本页 1 / 1", playback.state.progressLabel)
+        assertEquals("本页 1 / 1", playback.state.progressLabel())
     }
 
     // ⑤ 防的回归：playback 不得私自夹 rate（夹取/取整属于 speaker 与引擎）；一旦这里加了 coerceIn，
@@ -194,24 +194,24 @@ class TtsPlaybackEdgeCaseTest {
     // 早先 UI 自己掰下标，出现过 Idle 下显示"本页 0 / 0"、以及把 total 当全书句数的问题。
     @Test
     fun progressLabelFollowsState() {
-        assertNull("Idle 不显示进度", TtsPlaybackState.Idle.progressLabel)
+        assertNull("Idle 不显示进度", TtsPlaybackState.Idle.progressLabel())
         assertEquals(-1, TtsPlaybackState.Idle.sentenceIndex)
         assertEquals(0, TtsPlaybackState.Idle.sentenceTotal)
 
-        assertEquals("本页 1 / 3", TtsPlaybackState.Playing(0, 3).progressLabel)
-        assertEquals("本页 3 / 3", TtsPlaybackState.Playing(2, 3).progressLabel)
-        assertEquals("本页 2 / 3", TtsPlaybackState.Paused(1, 3).progressLabel)
+        assertEquals("本页 1 / 3", TtsPlaybackState.Playing(0, 3).progressLabel())
+        assertEquals("本页 3 / 3", TtsPlaybackState.Playing(2, 3).progressLabel())
+        assertEquals("本页 2 / 3", TtsPlaybackState.Paused(1, 3).progressLabel())
 
         // 真实状态机上的取值：Playing 与 Paused 同名同值（暂停不改变"第几句"），stop 后必须回到 null。
         val speaker = FakeSpeaker()
         val playback = TtsPlayback(speaker)
-        assertNull(playback.state.progressLabel)
+        assertNull(playback.state.progressLabel())
         playback.start(sentences("甲。", "乙。", "丙。"), fromIndex = 1)
-        assertEquals("本页 2 / 3", playback.state.progressLabel)
+        assertEquals("本页 2 / 3", playback.state.progressLabel())
         playback.pause()
-        assertEquals("本页 2 / 3", playback.state.progressLabel)
+        assertEquals("本页 2 / 3", playback.state.progressLabel())
         playback.stop()
-        assertNull(playback.state.progressLabel)
+        assertNull(playback.state.progressLabel())
     }
 
     // ⑦ 防的回归：系统 TTS 没有续播，resume 必须重念整句并换新 utteranceId；若复用旧 id，

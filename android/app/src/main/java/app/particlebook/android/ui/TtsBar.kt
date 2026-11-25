@@ -64,12 +64,14 @@ internal fun TtsBar(
     onCycleRate: () -> Unit,
     onStop: () -> Unit,
     modifier: Modifier = Modifier,
+    progressUnit: String = TtsPlaybackState.DEFAULT_PROGRESS_UNIT,
 ) {
     if (state is TtsPlaybackState.Idle) return
     val playing = state is TtsPlaybackState.Playing
-    // 进度文案由状态机给（"本页 n / total"）：total 是**本页**句数而不是全书句数，
+    // 进度文案由状态机给（"本页 n / total"）：total 是**当前朗读单元**的句数而不是全书句数，
     // UI 再自己下标/判空就会重演「把 total 当全书」和「Idle 显示 0 / 0」两个老问题。
-    val progressLabel = state.progressLabel.orEmpty()
+    // 单位（页 / 段）由调用方给：文本阅读器按段落朗读时传「本段」。
+    val progressLabel = state.progressLabel(progressUnit).orEmpty()
     // 语速文案保持原格式（1.0 -> "1x"、1.2 -> "1.2x"），只多算一次供无障碍播报复用。
     val rateLabel = rate.toString().trimEnd('0').trimEnd('.') + "x"
     val scheme = MaterialTheme.colorScheme

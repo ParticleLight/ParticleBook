@@ -44,11 +44,19 @@ internal sealed interface TtsPlaybackState {
     /**
      * 控制条上的进度文案「本页 n / total」；Idle 时为 null。
      *
-     * 写成「本页」是因为 total 是**当前页**的句数，不是全书句数：早先的「朗读 n / total」
-     * 被读成"全书第 n 句"，用户会以为翻了半天才念到个位数。
+     * total 是**当前朗读单元**的句数，不是全书句数：早先的「朗读 n / total」被读成
+     * "全书第 n 句"，用户会以为翻了半天才念到个位数。
+     *
+     * 单位由调用方给（[unit]）：EPUB / PDF 按页朗读是「本页」，文本阅读器按段落朗读是「本段」。
+     * 状态机只认"第几句"，不认识页与段这类排版概念，所以单位不下沉到这里。
      */
-    val progressLabel: String?
-        get() = if (this is Idle) null else "本页 " + (sentenceIndex + 1) + " / " + sentenceTotal
+    fun progressLabel(unit: String = DEFAULT_PROGRESS_UNIT): String? =
+        if (this is Idle) null else unit + " " + (sentenceIndex + 1) + " / " + sentenceTotal
+
+    companion object {
+        /** 默认进度单位：按页朗读的阅读器（EPUB / PDF）。 */
+        const val DEFAULT_PROGRESS_UNIT: String = "本页"
+    }
 }
 
 /**
@@ -96,6 +104,25 @@ internal class TtsPlayback(
         index = fromIndex.coerceIn(0, sentences.lastIndex)
         paused = false
         speakCurrent()
+        return true
+    }
+
+    /**
+     * 只装载不发声：把光标放到指定句子并发布状态，等用户按「继续」才开口。
+     *
+     * 存在的理由：调用方在暂停态跨段、或暂停态重新定位时，需要的只是"换一批句子"。
+     * 早先的做法是 start() 再 pause()，那会真的向引擎下发一次 speak 再掐掉——
+     * 用户能听到半个音节，后台音乐也会被闪一次音频焦点（见 AndroidTtsSpeaker.stop 会 abandon）。
+     *
+     * 返回 false 与 [start] 同义：没装载成功（引擎未就绪或没有句子），状态不变。
+     */
+    fun load(sentences: List<TtsSentence>, fromIndex: Int = 0, paused: Boolean = true): Boolean {
+        if (sentences.isEmpty() || !speaker.ready) return false
+        this.sentences = sentences
+        index = fromIndex.coerceIn(0, sentences.lastIndex)
+        this.paused = paused
+        publish()
+        onSentence(current)
         return true
     }
 
