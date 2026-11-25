@@ -48,6 +48,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.particlebook.android.reader.ReaderLocator
 import app.particlebook.android.reader.fb2.Fb2Parser
+import app.particlebook.android.reader.html.HtmlTextExtractor
 import app.particlebook.android.reader.text.TextDocument
 import app.particlebook.android.reader.text.TextDocumentParser
 import app.particlebook.android.reader.text.TextSearchEngine
@@ -433,9 +434,10 @@ private fun paragraphIndexForOffset(document: TextDocument, offset: Int): Int {
  * - TXT：空行分段、段内软换行折成空格；
  * - Markdown：空行分段、保留段内换行、识别 # 标题；
  * - FB2：交给 [Fb2Parser] 从 XML 里取出章节标题与正文段落，再经
- *   [TextDocumentParser.fromParagraphs] 统一切分与偏移计算。
+ *   [TextDocumentParser.fromParagraphs] 统一切分与偏移计算；
+ * - HTML：交给 [HtmlTextExtractor] 剥掉标签取出标题与段落，同样经 fromParagraphs 归一。
  *
- * 三条路最终都得到同一个 [TextDocument]，所以阅读器、搜索与进度链路对格式零分叉。
+ * 四条路最终都得到同一个 [TextDocument]，所以阅读器、搜索与进度链路对格式零分叉。
  */
 private fun openDocument(file: File, format: BookFormat): TextDocument {
     val text = TextFileDecoder.decode(file.readBytes()).text
@@ -447,6 +449,7 @@ private fun openDocument(file: File, format: BookFormat): TextDocument {
             )
         }
 
+        BookFormat.Html -> TextDocumentParser.fromParagraphs(HtmlTextExtractor.extract(text))
         BookFormat.Markdown -> TextDocumentParser.parse(text, markdown = true)
         else -> TextDocumentParser.parse(text, markdown = false)
     }

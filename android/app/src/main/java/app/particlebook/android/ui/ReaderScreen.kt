@@ -270,7 +270,7 @@ fun ReaderScreen(
             onFontSizeChange = onFontSizeChange,
             onLineHeightChange = onLineHeightChange,
         )
-        BookFormat.Text, BookFormat.Markdown, BookFormat.Fb2 -> TextReaderScreen(
+        BookFormat.Text, BookFormat.Markdown, BookFormat.Fb2, BookFormat.Html -> TextReaderScreen(
             book = book,
             onBack = onBack,
             initialLocator = initialLocator,
@@ -313,7 +313,7 @@ private fun UnsupportedReaderScreen(book: Book, onBack: () -> Unit) {
             Text("暂不支持此格式", style = MaterialTheme.typography.titleLarge)
             Spacer(Modifier.height(8.dp))
             Text(
-                "《" + book.title + "》是 " + book.format.label + " 格式，当前原生阅读器支持 EPUB、PDF、TXT、Markdown 与 FB2。",
+                "《" + book.title + "》是 " + book.format.label + " 格式，当前原生阅读器支持 EPUB、PDF、TXT、Markdown、FB2 与 HTML。",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,

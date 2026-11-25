@@ -369,6 +369,220 @@ class LibraryFileRecoveryTest {
         )
     }
 
+    // ------------------------------------------------------------------ HTML 格式识别
+
+    @Test
+    fun looksLikeHtmlAcceptsDoctypeDeclaration() {
+        assertTrue(
+            "带 <!doctype html> 的整页应认作 HTML",
+            looksLikeHtml(
+                write(
+                    "page.html",
+                    "<!DOCTYPE html>\n<html><body><p>正文</p></body></html>".toByteArray(Charsets.UTF_8),
+                ),
+            ),
+        )
+        // 判定前整段 lowercase，doctype 大小写不规范也放行（没有 body / html 骨架，只靠 doctype 命中）。
+        assertTrue(
+            looksLikeHtml(
+                write("upper-doctype.html", "<!DoCtYpE HTML><head><title>t</title></head>".toByteArray(Charsets.UTF_8)),
+            ),
+        )
+    }
+
+    @Test
+    fun looksLikeHtmlAcceptsHtmlRootWithoutDoctype() {
+        // 没有 doctype、直接以 <html> 开头的整页同样是网页。
+        assertTrue(
+            looksLikeHtml(write("no-doctype.html", "<html>\n<body>正文</body>\n</html>".toByteArray(Charsets.UTF_8))),
+        )
+        // 只要有 <html 骨架，缺 head / body 也认。
+        assertTrue(
+            looksLikeHtml(write("html-only.html", "<html lang=\"zh\">正文</html>".toByteArray(Charsets.UTF_8))),
+        )
+    }
+
+    @Test
+    fun looksLikeHtmlAcceptsBodyOnlyFragment() {
+        // 从网页 / Word 复制出来的正文往往只剩 <body> 片段。
+        assertTrue(
+            looksLikeHtml(
+                write("body-fragment.html", "<body>\n<p>第一章</p>\n</body>".toByteArray(Charsets.UTF_8)),
+            ),
+        )
+    }
+
+    @Test
+    fun looksLikeHtmlAcceptsParagraphFragment() {
+        // 单个段落块也算 HTML 片段。
+        assertTrue(looksLikeHtml(write("p-fragment.html", "<p>第一章 起点</p>".toByteArray(Charsets.UTF_8))))
+        // 带属性的 <p ...> 走 `<p ` 分支（大小写由 lowercase 归一）。
+        assertTrue(
+            looksLikeHtml(
+                write("p-attr.html", "<P class=\"lead\">第一章</P>".toByteArray(Charsets.UTF_8)),
+            ),
+        )
+    }
+
+    @Test
+    fun looksLikeHtmlAcceptsDivFragment() {
+        assertTrue(looksLikeHtml(write("div-fragment.html", "<div>第一章</div>".toByteArray(Charsets.UTF_8))))
+        assertTrue(
+            looksLikeHtml(
+                write("div-attr.html", "<DIV id=\"c1\"><span>第一章</span></DIV>".toByteArray(Charsets.UTF_8)),
+            ),
+        )
+    }
+
+    @Test
+    fun looksLikeHtmlAcceptsUppercaseTags() {
+        assertTrue(
+            looksLikeHtml(
+                write("upper.html", "<HTML><BODY><P>正文</P></BODY></HTML>".toByteArray(Charsets.UTF_8)),
+            ),
+        )
+    }
+
+    @Test
+    fun looksLikeHtmlSkipsUtf8Bom() {
+        // UTF-8 BOM（EF BB BF）按 UTF-8 解出来是 \uFEFF；判定前 trimStart，BOM 不得影响结果。
+        val withBom = "\uFEFF<!doctype html><p>正文</p>".toByteArray(Charsets.UTF_8)
+        assertTrue(looksLikeHtml(write("bom.html", withBom)))
+    }
+
+    @Test
+    fun looksLikeHtmlToleratesLeadingWhitespaceAndNewlines() {
+        // 判定是子串匹配，标签前有空白 / 换行不影响命中。
+        val padded = "\n\n \t\r\n<!doctype html>\n<html><body>正文</body></html>"
+        assertTrue(looksLikeHtml(write("padded.html", padded.toByteArray(Charsets.UTF_8))))
+        assertTrue(
+            looksLikeHtml(write("padded-div.html", "\r\n\t  <div>正文</div>".toByteArray(Charsets.UTF_8))),
+        )
+    }
+
+    @Test
+    fun looksLikeHtmlRejectsPlainTextRenderedAsHtml() {
+        // 没有任何标签的纯文本即使改名 .html 也不是网页（宁可漏认，不要错认）。
+        assertFalse(
+            looksLikeHtml(
+                write("plain.html", "第一章 这不是网页，只是改了后缀的纯文本。".toByteArray(Charsets.UTF_8)),
+            ),
+        )
+    }
+
+    @Test
+    fun looksLikeHtmlRejectsFb2Markup() {
+        // FB2 正文里本来就带 <p> 元素，正是 <fictionbook 排除项把 XML 挡在 HTML 分支外。
+        assertFalse(looksLikeHtml(write("book.fb2.html", FB2_WITH_DECLARATION.toByteArray(Charsets.UTF_8))))
+        assertFalse(
+            "根元素大小写不同同样排除",
+            looksLikeHtml(write("upper.fb2.html", FB2_WITHOUT_DECLARATION.uppercase().toByteArray(Charsets.UTF_8))),
+        )
+    }
+
+    @Test
+    fun looksLikeHtmlRejectsEmptyAndMissingFiles() {
+        assertFalse("0 字节文件不是网页", looksLikeHtml(write("empty.html", ByteArray(0))))
+        assertFalse("不存在的文件不是网页", looksLikeHtml(File(root, "missing.html")))
+    }
+
+    @Test
+    fun isHtmlFileAcceptsHtmlFamilyExtensions() {
+        // isHtmlFile 只看文件名，文件不必存在。
+        assertTrue(isHtmlFile(File(root, "a.html")))
+        assertTrue(isHtmlFile(File(root, "a.htm")))
+        assertTrue(isHtmlFile(File(root, "a.xhtml")))
+        // SAF DISPLAY_NAME 大小写不可控。
+        assertTrue(isHtmlFile(File(root, "A.HTML")))
+        assertTrue(isHtmlFile(File(root, "A.Htm")))
+        assertTrue(isHtmlFile(File(root, "A.XHTML")))
+
+        assertFalse(isHtmlFile(File(root, "a.txt")))
+        assertFalse(isHtmlFile(File(root, "a.fb2")))
+        assertFalse(isHtmlFile(File(root, "a.epub")))
+        // 扩展名取最后一个点之后：.html.bak 是 bak，不是 html。
+        assertFalse(isHtmlFile(File(root, "a.html.bak")))
+        assertFalse(isHtmlFile(File(root, "html")))
+    }
+
+    @Test
+    fun sniffBookFormatValidatesHtmlFamilyExtensions() {
+        val real = "<!doctype html><html><body><p>正文</p></body></html>".toByteArray(Charsets.UTF_8)
+        assertEquals(BookFormat.Html, sniffBookFormat(write("page.htm", real)))
+        assertEquals(BookFormat.Html, sniffBookFormat(write("page.xhtml", real)))
+        assertEquals(BookFormat.Html, sniffBookFormat(write("PAGE.HTML", real)))
+
+        // 扩展名给结论就按内容校验：假 HTML 不得登记成书。
+        assertNull(sniffBookFormat(write("fake.html", "只是纯文本".toByteArray(Charsets.UTF_8))))
+        assertNull(sniffBookFormat(write("fake.htm", "只是纯文本".toByteArray(Charsets.UTF_8))))
+        assertNull(sniffBookFormat(write("empty.xhtml", ByteArray(0))))
+    }
+
+    @Test
+    fun sniffBookFormatKeepsTextExtensionForHtmlContent() {
+        // 扩展名优先：内容是 HTML 的 .txt / .md 仍按纯文本类处理，不能被 HTML 抢走。
+        val html = "<div>正文</div>".toByteArray(Charsets.UTF_8)
+        assertEquals(BookFormat.Text, sniffBookFormat(write("misnamed.txt", html)))
+        assertEquals(BookFormat.Markdown, sniffBookFormat(write("misnamed.md", html)))
+    }
+
+    @Test
+    fun isRecoverableLibraryFileAcceptsOnlyRealHtmlUnderLibraryDir() {
+        val real = "<!doctype html><html><body><p>正文</p></body></html>".toByteArray(Charsets.UTF_8)
+        assertTrue(isRecoverableLibraryFile(libraryFile("real.html", real)))
+        assertTrue(isRecoverableLibraryFile(libraryFile("page.htm", real)))
+        assertTrue(isRecoverableLibraryFile(libraryFile("page.xhtml", real)))
+
+        // 假内容 / 0 字节 / FB2 冒充 .html 都不得被冷启扫描登记成书。
+        assertFalse(isRecoverableLibraryFile(libraryFile("fake.html", "纯文本".toByteArray(Charsets.UTF_8))))
+        assertFalse(isRecoverableLibraryFile(libraryFile("empty.html", ByteArray(0))))
+        assertFalse(
+            isRecoverableLibraryFile(libraryFile("book.html", FB2_WITH_DECLARATION.toByteArray(Charsets.UTF_8))),
+        )
+        // 复制中间态不得登记。
+        assertFalse(isRecoverableLibraryFile(libraryFile("page.html.tmp", real)))
+    }
+
+    @Test
+    fun classifyImportedFileMarksHtmlByContent() {
+        assertEquals(
+            ImportedFileIntegrity.COMPLETE,
+            classifyImportedFile(write("page.html", "<body><p>正文</p></body>".toByteArray(Charsets.UTF_8))),
+        )
+        assertEquals(
+            ImportedFileIntegrity.COMPLETE,
+            classifyImportedFile(
+                write("page.xhtml", "<html><body>正文</body></html>".toByteArray(Charsets.UTF_8)),
+            ),
+        )
+        // 非空但内容不像网页：既不算完整，也不够格判「确认损坏」→ UNKNOWN（不能据此删旧副本）。
+        assertEquals(
+            ImportedFileIntegrity.UNKNOWN,
+            classifyImportedFile(write("fake.html", "改了后缀的纯文本".toByteArray(Charsets.UTF_8))),
+        )
+        // FB2 冒充 .html：html 分支不成立，扩展名也不属于文本类 → UNKNOWN。
+        assertEquals(
+            ImportedFileIntegrity.UNKNOWN,
+            classifyImportedFile(write("book.html", FB2_WITH_DECLARATION.toByteArray(Charsets.UTF_8))),
+        )
+        // 0 字节仍是唯一无争议的损坏形态。
+        assertEquals(ImportedFileIntegrity.CORRUPT, classifyImportedFile(write("empty.html", ByteArray(0))))
+    }
+
+    @Test
+    fun detectBookFormatTrustsHtmlExtension() {
+        val real = "<!doctype html><html><body><p>正文</p></body></html>".toByteArray(Charsets.UTF_8)
+        assertEquals(BookFormat.Html, detectBookFormat(write("page.html", real)))
+        // 只信扩展名：内容不像网页、甚至 0 字节，扩展名是 .html 就按 HTML 处理。
+        assertEquals(BookFormat.Html, detectBookFormat(write("fake.html", "纯文本".toByteArray(Charsets.UTF_8))))
+        assertEquals(BookFormat.Html, detectBookFormat(write("empty.html", ByteArray(0))))
+        // 大小写不敏感。
+        assertEquals(BookFormat.Html, detectBookFormat(write("PAGE.HTML", real)))
+        assertEquals(BookFormat.Html, detectBookFormat(write("page.HtM", real)))
+        // HTML 没有魔数可依：无扩展名时 detectBookFormat 只能落到 Unsupported。
+        assertEquals(BookFormat.Unsupported, detectBookFormat(write("no-ext-page", real)))
+    }
+
     /** 在 filesDir/_pb_files（冷启扫描的唯一目录）下建文件。 */
     private fun libraryFile(name: String, bytes: ByteArray): File {
         val dir = File(root, "_pb_files").apply { mkdirs() }

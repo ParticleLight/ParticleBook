@@ -683,6 +683,9 @@ class LibraryStore(
             extension == "pdf" || mimeType == "application/pdf" -> BookFormat.Pdf
             extension == "epub" || mimeType == "application/epub+zip" -> BookFormat.Epub
             extension == "fb2" || mimeType == "application/x-fictionbook+xml" -> BookFormat.Fb2
+            // HTML 的通用 MIME 只有 text/html，与纯文本不冲突；html 与 htm 视为同一格式。
+            extension == "html" || extension == "htm" || extension == "xhtml" ||
+                mimeType == "text/html" -> BookFormat.Html
             // 纯文本没有魔数：扩展名优先，MIME 兜底（md 先于 txt，因为通用 MIME 都是 text/plain）。
             extension == "md" || extension == "markdown" ||
                 mimeType == "text/markdown" -> BookFormat.Markdown
@@ -1229,6 +1232,7 @@ internal fun sanitizeCopyExtension(rawExtension: String, format: BookFormat): St
             BookFormat.Text -> "txt"
             BookFormat.Markdown -> "md"
             BookFormat.Fb2 -> "fb2"
+            BookFormat.Html -> "html"
             BookFormat.Unsupported -> "bin"
         }
     }
@@ -1281,6 +1285,42 @@ internal fun looksLikeFb2(file: File): Boolean = runCatching {
 }.getOrDefault(false)
 
 /**
+ * HTML 内容判定：扩展名是 .html / .htm 还不够，文件头得真是一份 HTML。
+ *
+ * HTML 也没有魔数，所以看「前 4 KiB 里有没有 <!doctype html / <html / <body 这些骨架」，
+ * 外加片段式 HTML（直接以 <p> / <div> 开头的单个内容块）也认。
+ * 明确排除 FB2 的根元素：XML 冒充 HTML 进书架，打开只会得到一堆看不懂的标签。
+ * 纯文本改成 .html 的（没有任何标签）判 false —— 宁可漏认，不要错认。
+ */
+internal fun looksLikeHtml(file: File): Boolean = runCatching {
+    if (!file.isFile || file.length() <= 0L) return@runCatching false
+    val head = file.inputStream().use { input ->
+        val buffer = ByteArray(4 * 1024)
+        val read = input.read(buffer)
+        if (read <= 0) return@runCatching false
+        // BOM 与空白可能交替出现（导出工具常写「BOM + 空行」），一次剥干净。
+        String(buffer, 0, read, Charsets.UTF_8).trimStart { it == '\uFEFF' || it.isWhitespace() }
+    }
+    if (head.contains("<fictionbook", ignoreCase = true)) return@runCatching false
+    HTML_SKELETON.containsMatchIn(head)
+}.getOrDefault(false)
+
+/**
+ * HTML 骨架：doctype 声明、html / body / head / div 标签、或以 p 开头的片段。
+ * 标签名后必须紧跟空白、`/`、`>` 或输入结束 —— `<bodyguard>` / `<divx>` 这种不算 HTML。
+ */
+private val HTML_SKELETON = Regex(
+    "<!doctype\\s+html|<(?:html|body|head|div)(?=[\\s/>]|$)|<p(?=[\\s/>])",
+    RegexOption.IGNORE_CASE,
+)
+
+/** 扩展名是否属于 HTML 家族：html / htm / xhtml 三种写法视为同一格式。 */
+internal fun isHtmlFile(file: File): Boolean {
+    val extension = file.extension.lowercase(Locale.US)
+    return extension == "html" || extension == "htm" || extension == "xhtml"
+}
+
+/**
  * 读文件头判断书籍类型：扩展名给得出结论就按扩展名校验内容，给不出结论才看魔数。
  *
  * 不能无条件「魔数优先」：内容是 ZIP 的 .txt（或下载中断的残包改错后缀）一旦被魔数抢先判成
@@ -1295,6 +1335,8 @@ internal fun sniffBookFormat(file: File): BookFormat? = runCatching {
     val textFormat = textFormatByExtension(extension)
     when {
         extension == "fb2" -> if (looksLikeFb2(file)) BookFormat.Fb2 else null
+        extension == "html" || extension == "htm" || extension == "xhtml" ->
+            if (looksLikeHtml(file)) BookFormat.Html else null
         textFormat != null -> if (looksLikePlainText(file)) textFormat else null
         extension == "epub" -> if (isZip) BookFormat.Epub else null
         extension == "pdf" -> if (isPdf) BookFormat.Pdf else null
@@ -1310,7 +1352,7 @@ internal fun isRecoverableLibraryFile(file: File): Boolean {
     // 白名单与导入/嗅探共用同一份扩展名表，避免 .markdown / .text 能导入却扫不回来。
     val extension = file.extension.lowercase(Locale.US)
     val known = extension == "epub" || extension == "pdf" || extension == "fb2" ||
-        textFormatByExtension(extension) != null
+        isHtmlFile(file) || textFormatByExtension(extension) != null
     if (!known) return false
     return sniffBookFormat(file) != null
 }
@@ -1368,6 +1410,8 @@ internal fun classifyImportedFile(file: File): ImportedFileIntegrity {
                 // FB2 的结构证据就是根元素本身。
                 file.extension.lowercase(Locale.US) == "fb2" && looksLikeFb2(file) ->
                     ImportedFileIntegrity.COMPLETE
+                // HTML 同样只有「像不像一份网页」这一条可用证据。
+                isHtmlFile(file) && looksLikeHtml(file) -> ImportedFileIntegrity.COMPLETE
                 // 纯文本没有结构可校验：扩展名受支持且内容没有 NUL 即视为完整。
                 textFormatByExtension(file.extension) != null && looksLikePlainText(file) ->
                     ImportedFileIntegrity.COMPLETE
@@ -2511,11 +2555,12 @@ internal fun freshBookId(used: MutableSet<Long>): Long {
     return candidate
 }
 
-/** 下载文件的格式：先看扩展名（含 TXT / Markdown / FB2），再看文件头（%PDF / PK）。 */
+/** 下载文件的格式：先看扩展名（含 TXT / Markdown / FB2 / HTML），再看文件头（%PDF / PK）。 */
 internal fun detectBookFormat(file: File): BookFormat {
     textFormatByExtension(file.extension)?.let { return it }
     when (file.extension.lowercase(Locale.US)) {
         "fb2" -> return BookFormat.Fb2
+        "html", "htm", "xhtml" -> return BookFormat.Html
         "pdf" -> return BookFormat.Pdf
         "epub" -> return BookFormat.Epub
     }

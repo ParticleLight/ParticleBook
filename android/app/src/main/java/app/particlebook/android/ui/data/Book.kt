@@ -4,10 +4,10 @@ import org.json.JSONObject
 import java.util.Locale
 
 /**
- * 书架条目格式。原生阅读支持 EPUB / PDF / 纯文本（TXT）/ Markdown / FB2；其他格式保留条目但入口
+ * 书架条目格式。原生阅读支持 EPUB / PDF / TXT / Markdown / FB2 / HTML；其他格式保留条目但入口
  * 明确提示不支持，不能再像 P0 那样把未知格式默认当 EPUB（否则 AZW3 会被送进 EPUB 解析器）。
  *
- * 文本类（TXT / Markdown / FB2）共用同一个滚动式阅读器：它们没有固定版式，进度按段落位置记。
+ * 文本类（TXT / Markdown / FB2 / HTML）共用同一个滚动式阅读器：它们没有固定版式，进度按段落位置记。
  */
 enum class BookFormat(val label: String, val mime: String, val raw: String) {
     Epub("EPUB", "application/epub+zip", "epub"),
@@ -22,14 +22,20 @@ enum class BookFormat(val label: String, val mime: String, val raw: String) {
      * 章节标题与正文段落，再走同一个滚动式阅读器。内嵌图片暂不显示。
      */
     Fb2("FB2", "application/x-fictionbook+xml", "fb2"),
+
+    /**
+     * HTML：由 [app.particlebook.android.reader.html.HtmlTextExtractor] 抽出标题与正文段落，
+     * 与文本类共用滚动式阅读器。只读正文，不执行脚本、不加载外部资源。
+     */
+    Html("HTML", "text/html", "html"),
     Unsupported("不支持", "application/octet-stream", "unsupported");
 
     /** 是否有原生阅读器实现；UI 入口据此禁用或提示。 */
     val isReadable: Boolean
         get() = this != Unsupported
 
-    /** 走滚动式文本阅读器的格式（TXT / Markdown / FB2）：没有固定版式，进度按段落位置记。 */
-    val isTextLike: Boolean get() = this == Text || this == Markdown || this == Fb2
+    /** 走滚动式文本阅读器的格式（TXT / Markdown / FB2 / HTML）：没有固定版式，进度按段落位置记。 */
+    val isTextLike: Boolean get() = this == Text || this == Markdown || this == Fb2 || this == Html
 
     companion object {
         fun fromRaw(raw: String?): BookFormat = when (raw?.lowercase(Locale.US)) {
@@ -38,6 +44,7 @@ enum class BookFormat(val label: String, val mime: String, val raw: String) {
             "txt", "text" -> Text
             "md", "markdown" -> Markdown
             "fb2" -> Fb2
+            "html", "htm", "xhtml" -> Html
             else -> Unsupported
         }
     }

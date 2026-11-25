@@ -135,6 +135,7 @@ enum class FormatFilter(val bookFormat: BookFormat?) {
     Text(BookFormat.Text),
     Markdown(BookFormat.Markdown),
     Fb2(BookFormat.Fb2),
+    Html(BookFormat.Html),
     ;
 
     val label: String
@@ -594,8 +595,8 @@ fun LibraryScreen(
             title = { Text("支持的格式") },
             text = {
                 Text(
-                    "可原生阅读：EPUB、PDF、TXT、Markdown。" +
-                        "MOBI、FB2、CBZ、CBR、HTML 等格式可以导入书架，打开时会提示暂不支持。",
+                    "可原生阅读：EPUB、PDF、TXT、Markdown、FB2、HTML。" +
+                        "MOBI、AZW3、CBZ、CBR、DOCX 等格式可以导入书架，打开时会提示暂不支持。",
                 )
             },
             confirmButton = {

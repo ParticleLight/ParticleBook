@@ -1,0 +1,369 @@
+package app.particlebook.android.reader.html
+
+import app.particlebook.android.reader.text.TextParagraph
+
+/**
+ * HTML 正文 → [TextParagraph]：滚动式文本阅读器用的最小投影。
+ *
+ * 阅读器把 HTML 电子书当纯文本流显示（与 TXT / Markdown / FB2 同一条渲染链路），
+ * 这里只回答两件事：哪些文字是正文、哪几段是标题。不建 DOM、不做布局、不做 CSS，
+ * 因此可以在单遍字符扫描里完成；超长切分与进度偏移留给
+ * [app.particlebook.android.reader.text.TextDocumentParser.fromParagraphs]。
+ *
+ * 扫描规则：
+ * - 注释、doctype、处理指令整段忽略；CDATA 的内容当普通文本（里面的 `<b>` 不解标签）；
+ * - 标签名大小写不敏感，属性值里（单引号 / 双引号）的 `>` 不会提前结束标签；
+ * - [RAW_TEXT_DROPPED_ELEMENTS] 与 [CONTAINER_DROPPED_ELEMENTS] 连同内部文本整棵丢弃；
+ * - [BLOCK_ELEMENTS] 的每个开始与结束标签都切段，`h1..h6` 的内容带标题层级 1..6；
+ * - [PRE_ELEMENT] 内换行即切段，行内空白照样折叠；
+ * - 其余标签（a / b / span / img / input 以及所有未知标签）一律按行内处理，只剥标签留文本，
+ *   所以不需要单独维护行内标签表；
+ * - 文本先做字符引用解码（[HtmlEntities.decode]）再折叠空白：段首尾 trim，空段落丢弃。
+ *
+ * 容错：`<` 后面不是字母 / `/` / `!` / `?` 时把 `<` 当普通字符；
+ * 没有 `>` 的标签连同其后的内容一起舍弃；多余的结束标签忽略。
+ */
+internal object HtmlTextExtractor {
+
+    /** 抽取入口：按文档顺序返回段落；空输入与「只有标签没有文本」都返回空列表。 */
+    fun extract(html: String): List<TextParagraph> = Scanner(html).scan()
+
+    /** 块级元素：开始与结束都切段；h1..h6 同时给段落带上标题层级。 */
+    private val BLOCK_ELEMENTS = setOf(
+        "address", "article", "aside", "blockquote", "br", "caption", "center", "dd",
+        "details", "div", "dl", "dt", "fieldset", "figcaption", "figure", "footer",
+        "form", "h1", "h2", "h3", "h4", "h5", "h6", "header", "hr", "legend", "li",
+        "main", "nav", "ol", "p", "pre", "section", "summary", "table", "tbody", "td",
+        "tfoot", "th", "thead", "tr", "ul", "body", "html",
+    )
+
+    /**
+     * 原始文本类丢弃元素：内容不解析标签，遇到第一个 `</name` 就结束。
+     * 浏览器对 script / style 也按 raw text 处理，JS 与 CSS 里的 `<`、引号才不会干扰标签扫描。
+     */
+    private val RAW_TEXT_DROPPED_ELEMENTS = setOf("script", "style", "title", "noscript")
+
+    /** 容器类丢弃元素：按同名标签的嵌套深度找配对的结束标签。 */
+    private val CONTAINER_DROPPED_ELEMENTS = setOf(
+        "head", "svg", "template", "iframe", "object", "math", "canvas",
+        "audio", "video", "map", "select", "button",
+    )
+
+    /**
+     * 无内容又被要求丢弃的元素：embed 在 HTML 里是 void 元素，不会出现 `</embed>`。
+     * 按容器处理会把后面整篇正文一起吞掉，所以只丢弃标签本身。
+     */
+    private val VOID_DROPPED_ELEMENTS = setOf("embed")
+
+    private const val PRE_ELEMENT = "pre"
+    private const val HEAD_ELEMENT = "head"
+    private const val BODY_ELEMENT = "body"
+
+    private const val COMMENT_OPEN = "<!--"
+    private const val COMMENT_CLOSE = "-->"
+    private const val CDATA_OPEN = "<![CDATA["
+    private const val CDATA_CLOSE = "]]>"
+    private const val PROCESSING_INSTRUCTION_OPEN = "<?"
+    private const val PROCESSING_INSTRUCTION_CLOSE = "?>"
+    private const val DECLARATION_OPEN = "<!"
+    private const val END_TAG_OPEN = "</"
+
+    private const val DOUBLE_QUOTE = '"'
+    private const val SINGLE_QUOTE = '\''
+
+    private const val SPACE = ' '
+    private const val TAB = '\t'
+    private const val LINE_FEED = '\n'
+    private const val CARRIAGE_RETURN = '\r'
+    private const val FORM_FEED = '\u000C'
+    private const val NO_BREAK_SPACE = '\u00A0'
+
+    /** 段落边界 = 一次 flush；标题层级取「当前打开的 h1..h6」，所以一切状态都在这里。 */
+    private class Scanner(private val source: String) {
+        private val out = ArrayList<TextParagraph>()
+
+        /** 当前段落的原始文本（已解码实体，未折叠空白）。 */
+        private val pending = StringBuilder()
+
+        /** 当前打开的标题层级栈：嵌套标题取最内层，结束后弹回外层。 */
+        private val openHeadings = ArrayList<Int>()
+
+        /** `<pre>` 嵌套深度：> 0 时换行符切段。 */
+        private var preDepth = 0
+
+        /** 正在丢弃的容器元素名；null 表示正常抽取。 */
+        private var droppedName: String? = null
+
+        /** 丢弃区里同名标签的嵌套深度，回到 0 才恢复抽取。 */
+        private var droppedDepth = 0
+
+        private var index = 0
+
+        fun scan(): List<TextParagraph> {
+            val length = source.length
+            while (index < length) {
+                if (source[index] != '<') {
+                    val start = index
+                    while (index < length && source[index] != '<') index++
+                    if (droppedName == null) appendText(source.substring(start, index))
+                    continue
+                }
+                consumeMarkup(length)
+            }
+            flush()
+            return out
+        }
+
+        // ------------------------------------------------------------ 标记扫描
+
+        /** 从 [index] 处的 `<` 起吃掉一段标记，并把 [index] 推到它之后。 */
+        private fun consumeMarkup(length: Int) {
+            if (source.startsWith(COMMENT_OPEN, index)) {
+                val end = source.indexOf(COMMENT_CLOSE, index + COMMENT_OPEN.length)
+                index = if (end < 0) length else end + COMMENT_CLOSE.length
+                return
+            }
+            if (source.regionMatches(index, CDATA_OPEN, 0, CDATA_OPEN.length, ignoreCase = true)) {
+                val contentStart = index + CDATA_OPEN.length
+                val end = source.indexOf(CDATA_CLOSE, contentStart)
+                val contentEnd = if (end < 0) length else end
+                if (droppedName == null) appendText(source.substring(contentStart, contentEnd))
+                index = if (end < 0) length else end + CDATA_CLOSE.length
+                return
+            }
+            if (source.startsWith(PROCESSING_INSTRUCTION_OPEN, index)) {
+                val end = source.indexOf(PROCESSING_INSTRUCTION_CLOSE, index + PROCESSING_INSTRUCTION_OPEN.length)
+                index = if (end < 0) length else end + PROCESSING_INSTRUCTION_CLOSE.length
+                return
+            }
+            if (source.startsWith(DECLARATION_OPEN, index)) {
+                // <!doctype ...> 与其它 <! ...> 声明：整段忽略。
+                val end = source.indexOf('>', index + DECLARATION_OPEN.length)
+                index = if (end < 0) length else end + 1
+                return
+            }
+            if (source.startsWith(END_TAG_OPEN, index)) {
+                consumeEndTag(length)
+                return
+            }
+            if (index + 1 >= length || !source[index + 1].isLetter()) {
+                // 规则 12：`<` 后面既不是字母也不是 / ! ?，当普通字符。
+                if (droppedName == null) appendText("<")
+                index += 1
+                return
+            }
+            consumeStartTag(length)
+        }
+
+        private fun consumeStartTag(length: Int) {
+            var cursor = index + 1
+            val nameStart = cursor
+            while (cursor < length && isNameChar(source[cursor])) cursor++
+            val name = source.substring(nameStart, cursor).lowercase()
+            val tagEnd = findTagEnd(cursor)
+            if (tagEnd < 0) {
+                // 规则 12：没有配套 `>` 的标签直接舍弃，其后的内容一并丢掉。
+                index = length
+                return
+            }
+            index = tagEnd
+            val selfClosing = isSelfClosing(tagEnd, cursor)
+
+            if (droppedName != null) {
+                if (name == droppedName) {
+                    if (!selfClosing) droppedDepth++
+                } else if (droppedName == HEAD_ELEMENT && name == BODY_ELEMENT) {
+                    // HTML5 允许省略 </head>：body 一开始就说明 head 结束，否则整篇正文会被吞掉。
+                    closeDropped()
+                    openElement(name, selfClosing)
+                }
+                return
+            }
+            if (name in RAW_TEXT_DROPPED_ELEMENTS) {
+                if (!selfClosing) skipRawText(name, length)
+                return
+            }
+            if (name in CONTAINER_DROPPED_ELEMENTS) {
+                if (!selfClosing) openDropped(name)
+                return
+            }
+            if (name in VOID_DROPPED_ELEMENTS) return
+            openElement(name, selfClosing)
+        }
+
+        private fun consumeEndTag(length: Int) {
+            var cursor = index + END_TAG_OPEN.length
+            val nameStart = cursor
+            while (cursor < length && isNameChar(source[cursor])) cursor++
+            if (cursor == nameStart) {
+                // `</` 后面没有名字：不是一个标签，丢掉这两个字符继续扫。
+                index += END_TAG_OPEN.length
+                return
+            }
+            val name = source.substring(nameStart, cursor).lowercase()
+            val tagEnd = findTagEnd(cursor)
+            if (tagEnd < 0) {
+                index = length
+                return
+            }
+            index = tagEnd
+            if (droppedName != null) {
+                if (name == droppedName) {
+                    droppedDepth -= 1
+                    if (droppedDepth <= 0) closeDropped()
+                }
+                return
+            }
+            closeElement(name)
+        }
+
+        /** 原始文本元素的内容直接跳到第一个 `</name`（大小写不敏感），其中的标签一律不解析。 */
+        private fun skipRawText(name: String, length: Int) {
+            val terminator = END_TAG_OPEN + name
+            var cursor = index
+            while (cursor < length) {
+                val close = source.indexOf(terminator, cursor, ignoreCase = true)
+                if (close < 0) {
+                    index = length
+                    return
+                }
+                val afterName = close + terminator.length
+                // `</scriptfoo>` 不是 `</script>`：标签名必须在此结束。
+                if (afterName < length && isNameChar(source[afterName])) {
+                    cursor = afterName
+                    continue
+                }
+                val end = findTagEnd(afterName)
+                index = if (end < 0) length else end
+                return
+            }
+            index = length
+        }
+
+        /** 从标签名之后扫到 `>` 的后一位；跳过引号里的 `>`；没有闭合返回 -1。 */
+        private fun findTagEnd(from: Int): Int {
+            var cursor = from
+            while (cursor < source.length) {
+                when (source[cursor]) {
+                    DOUBLE_QUOTE, SINGLE_QUOTE -> {
+                        val close = source.indexOf(source[cursor], cursor + 1)
+                        if (close < 0) return -1
+                        cursor = close + 1
+                    }
+
+                    '>' -> return cursor + 1
+                    else -> cursor++
+                }
+            }
+            return -1
+        }
+
+        /** `/>` 才算自闭合；`<br/>` 与 `<br />` 都认。 */
+        private fun isSelfClosing(tagEnd: Int, nameEnd: Int): Boolean {
+            var cursor = tagEnd - 2
+            while (cursor > nameEnd && source[cursor].isWhitespace()) cursor--
+            return cursor >= nameEnd && source[cursor] == '/'
+        }
+
+        private fun isNameChar(char: Char): Boolean =
+            char.isLetterOrDigit() || char == '-' || char == '_' || char == ':' || char == '.'
+
+        // ------------------------------------------------------------ 元素语义
+
+        private fun openDropped(name: String) {
+            droppedName = name
+            droppedDepth = 1
+        }
+
+        private fun closeDropped() {
+            droppedName = null
+            droppedDepth = 0
+        }
+
+        /** 开始标签：块级切段；h1..h6 压栈；pre 深度 +1；其余（行内 / 未知 / 无内容）只剥标签。 */
+        private fun openElement(name: String, selfClosing: Boolean) {
+            if (name !in BLOCK_ELEMENTS) return
+            flush()
+            if (selfClosing) return
+            val level = headingLevelOf(name)
+            if (level > 0) openHeadings.add(level)
+            if (name == PRE_ELEMENT) preDepth++
+        }
+
+        /** 结束标签：块级切段（先切段，用当前标题层级定层级，再弹栈）；多余的非块级结束标签忽略。 */
+        private fun closeElement(name: String) {
+            if (name !in BLOCK_ELEMENTS) return
+            flush()
+            if (name == PRE_ELEMENT && preDepth > 0) preDepth--
+            if (headingLevelOf(name) > 0 && openHeadings.isNotEmpty()) {
+                openHeadings.removeAt(openHeadings.size - 1)
+            }
+        }
+
+        /** h1..h6 → 1..6，其它一律 0。 */
+        private fun headingLevelOf(name: String): Int =
+            if (name.length == 2 && name[0] == 'h' && name[1] in '1'..'6') name[1] - '0' else 0
+
+        // -------------------------------------------------------------- 文本
+
+        /** 文本先解码字符引用再入缓冲；pre 内换行即切段。 */
+        private fun appendText(raw: String) {
+            if (raw.isEmpty()) return
+            val text = HtmlEntities.decode(raw)
+            if (preDepth == 0) {
+                pending.append(text)
+                return
+            }
+            var cursor = 0
+            while (cursor < text.length) {
+                when (val char = text[cursor]) {
+                    LINE_FEED, CARRIAGE_RETURN -> {
+                        flush()
+                        // CRLF 算一个换行。
+                        if (char == CARRIAGE_RETURN && cursor + 1 < text.length && text[cursor + 1] == LINE_FEED) {
+                            cursor++
+                        }
+                    }
+
+                    else -> pending.append(char)
+                }
+                cursor++
+            }
+        }
+
+        /** 结束当前段落：折叠空白 → 丢弃空段 → 带上当前标题层级。 */
+        private fun flush() {
+            if (pending.isEmpty()) return
+            val text = collapseWhitespace(pending.toString())
+            pending.setLength(0)
+            if (text.isEmpty()) return
+            out.add(TextParagraph(text, openHeadings.lastOrNull() ?: 0))
+        }
+
+        /**
+         * 连续空白（空格 / 制表 / CR / LF / 换页 / 不换行空格）折叠成单个空格，
+         * 段首尾的空白直接丢掉——一次扫描同时完成 trim 与段内折叠。
+         */
+        private fun collapseWhitespace(raw: String): String {
+            val folded = StringBuilder(raw.length)
+            var pendingSpace = false
+            for (char in raw) {
+                if (isCollapsibleSpace(char)) {
+                    pendingSpace = folded.isNotEmpty()
+                } else {
+                    if (pendingSpace) {
+                        folded.append(SPACE)
+                        pendingSpace = false
+                    }
+                    folded.append(char)
+                }
+            }
+            return folded.toString()
+        }
+
+        private fun isCollapsibleSpace(char: Char): Boolean = when (char) {
+            SPACE, TAB, LINE_FEED, CARRIAGE_RETURN, FORM_FEED, NO_BREAK_SPACE -> true
+            else -> false
+        }
+    }
+}

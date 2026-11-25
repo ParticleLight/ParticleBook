@@ -188,6 +188,7 @@ class LibrarySortRatingTest {
         assertTrue(all.any { it.format == BookFormat.Text })
         assertTrue(all.any { it.format == BookFormat.Markdown })
         assertTrue(all.any { it.format == BookFormat.Fb2 })
+        assertTrue(all.any { it.format == BookFormat.Html })
         assertTrue(all.any { it.format == BookFormat.Unsupported })
     }
 
@@ -203,6 +204,7 @@ class LibrarySortRatingTest {
             FormatFilter.Text to BookFormat.Text,
             FormatFilter.Markdown to BookFormat.Markdown,
             FormatFilter.Fb2 to BookFormat.Fb2,
+            FormatFilter.Html to BookFormat.Html,
         )
 
         cases.forEach { (filter, expected) ->
