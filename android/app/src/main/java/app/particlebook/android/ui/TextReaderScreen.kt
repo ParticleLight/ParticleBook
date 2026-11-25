@@ -78,6 +78,8 @@ import app.particlebook.android.reader.text.TextAnnotations
 import app.particlebook.android.reader.text.TextDocument
 import app.particlebook.android.reader.text.TextDocumentParser
 import app.particlebook.android.reader.text.TextOutline
+import app.particlebook.android.reader.text.TextImage
+import app.particlebook.android.reader.text.TextImageCatalog
 import app.particlebook.android.reader.text.TextSearchEngine
 import app.particlebook.android.reader.text.TextSearchHit
 import app.particlebook.android.reader.text.TextFileDecoder
@@ -133,6 +135,9 @@ internal fun TextReaderScreen(
     var settingsOpen by remember { mutableStateOf(false) }
     var searchOpen by remember(book.filePath) { mutableStateOf(false) }
     var tocOpen by remember(book.filePath) { mutableStateOf(false) }
+    // 图片查看器：-1 表示关着，其余是「图片在 catalog 里的下标」。用下标而不是 TextImage 本身，
+    // 是因为同一张图可能在书里出现多次（每处都要单独算「第 n / 共 m 张」）。
+    var imageIndex by remember(book.filePath) { mutableStateOf(-1) }
     // 标注：与 EPUB / PDF 同一条加载路径（打开读一次，增删改后 version++ 重读）。
     // 文本侧标在「整段」上（见 TextAnnotations 的 KDoc），所以只需要一个段号，不需要字符选区。
     var annotations by remember(book.filePath) { mutableStateOf<List<ReaderAnnotation>>(emptyList()) }
@@ -284,19 +289,30 @@ internal fun TextReaderScreen(
     // 搜什么都要先停一下：整本 indexOf 是 O(n·m)，逐键在组合阶段同步跑会在长文本上直接卡住主线程。
     // 停停顿时间由 LaunchedEffect 的重启天然取消上一次查询，不需要额外的 Job 管理。
     var searchHits by remember(document) { mutableStateOf<List<TextSearchHit>>(emptyList()) }
+    // 「是否还有更多命中」由引擎判定（内部多扫一条），不能拿 hits.size >= 上限去猜：
+    // 命中数正好等于上限时并不存在第 201 条，猜出来的「显示前 200 处」是假话。
+    var searchTruncated by remember(document) { mutableStateOf(false) }
     LaunchedEffect(document, searchQuery) {
         val doc = document
         if (doc == null || searchQuery.isBlank()) {
             searchHits = emptyList()
+            searchTruncated = false
             return@LaunchedEffect
         }
         delay(SearchDebounceMillis)
-        searchHits = withContext(Dispatchers.Default) { TextSearchEngine.search(doc, searchQuery) }
+        val result = withContext(Dispatchers.Default) { TextSearchEngine.searchDetailed(doc, searchQuery) }
+        searchHits = result.hits
+        searchTruncated = result.truncated
     }
 
     // 目录：只有带标题的文档才有（纯 TXT 通常没有），无标题时顶栏连入口都不出现。
     val outline = remember(document) {
         document?.let { TextOutline.build(it) } ?: emptyList()
+    }
+
+    // 插图列表：查看器要在书内前后翻，索引与正文共用同一次遍历结果。
+    val images = remember(document) {
+        document?.let { TextImageCatalog.images(it) } ?: emptyList()
     }
 
     // 当前段落：进度百分比、「目录里高亮哪一章」与朗读起点共用同一个可见位置。
@@ -786,6 +802,7 @@ internal fun TextReaderScreen(
                     speechEnd = ttsSentence?.endChar ?: -1,
                     annotations = annotationsByParagraph,
                     onLongPress = { index -> openAnnotationTools(index) },
+                    onImageClick = { image -> imageIndex = TextImageCatalog.indexOfKey(current, image.key) ?: -1 },
                 )
             }
             // 标注工具条：长按某段后浮在底部。与朗读控制条互斥（长按会先停朗读），
@@ -869,7 +886,7 @@ internal fun TextReaderScreen(
         TextSearchSheet(
             query = searchQuery,
             hits = searchHits,
-            totalHitLimit = TextSearchEngine.DEFAULT_LIMIT,
+            truncated = searchTruncated,
             onQueryChange = { next ->
                 searchQuery = next
                 // 换词就撤掉上一次跳转的命中高亮：否则那一段会一直带着底色，像被永久标记了。
@@ -886,6 +903,14 @@ internal fun TextReaderScreen(
                 scope.launch { listState.animateScrollToItem(picked.paragraphIndex) }
             },
             onDismiss = { searchOpen = false },
+        )
+    }
+
+    if (imageIndex in images.indices) {
+        TextImageViewer(
+            images = images,
+            initialIndex = imageIndex,
+            onDismiss = { imageIndex = -1 },
         )
     }
 
@@ -1016,6 +1041,7 @@ private fun TextFlow(
     speechEnd: Int,
     annotations: Map<Int, List<ReaderAnnotation>>,
     onLongPress: (Int) -> Unit,
+    onImageClick: (TextImage) -> Unit,
 ) {
     val sizeSp = normalizeFontSize(fontSizeSp)
     val lineHeightSp = normalizeLineHeight(lineHeightMultiplier) * sizeSp
@@ -1057,6 +1083,7 @@ private fun TextFlow(
                     TextImageBlock(
                         image = image,
                         modifier = Modifier.padding(vertical = Spacing.xs),
+                        onClick = { onImageClick(image) },
                     )
                 } else {
                     TextParagraphView(

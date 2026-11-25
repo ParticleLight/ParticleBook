@@ -17,17 +17,30 @@ internal data class TextSearchHit(
 )
 
 /**
+ * 一次整本搜索的结果。
+ *
+ * [hits] 最多 limit 条；[truncated] 表示「后面还有命中没返回」。这个判断只能由引擎给出——
+ * 内部多扫一条才知道有没有第 limit+1 处；调用方拿 `hits.size >= limit` 去猜，
+ * 会把「命中数正好装满 limit」误报成「还有更多」。
+ */
+internal data class TextSearchResult(
+    val hits: List<TextSearchHit>,
+    val truncated: Boolean,
+)
+
+/**
  * 纯文本 / Markdown 的整本搜索。
  *
  * 文本阅读器打开时整本书已经在内存里（[TextDocument]），所以这里不需要 PDF 那套逐页扫描、
  * 进度回调与取消：同步跑完、结果一次返回。代价是必须自带上限——四百万字符的 txt 里搜一个
- * 单字可能命中几十万次，列表吃不下也没有意义，默认 [DEFAULT_LIMIT] 条就停。
+ * 单字可能命中几十万次，列表吃不下也没有意义，默认 [DEFAULT_LIMIT] 条就停；
+ * 停的时候「后面还有没有」由 [searchDetailed] 多扫一条给出（[TextSearchResult.truncated]）。
  *
  * 匹配口径：
  * - 忽略大小写（中文无影响，英文/数字按 Unicode 简单折叠）；
  * - 段内非重叠匹配（同一段里 "aaa" 里搜 "aa" 只算一处，与 PDF 搜索一致）；
  * - 不跨段匹配：段是排版单位，跨段命中在界面上无处高亮；
- * - 空词、纯空白词、limit <= 0 一律返回空表。
+ * - 空词、纯空白词、limit <= 0 一律返回空表（[TextSearchResult.truncated] 同时为 false）。
  */
 internal object TextSearchEngine {
 
@@ -37,15 +50,35 @@ internal object TextSearchEngine {
     /** 片段在命中两侧各留的字符数（折叠空白后会略少一点）。 */
     private const val SNIPPET_RADIUS: Int = 24
 
+    /** 空查询 / 空文档 / 非法 limit 共用同一份空结果：输入框每敲一个字符都会走这条路径。 */
+    private val EMPTY_RESULT = TextSearchResult(emptyList(), truncated = false)
+
+    /** 只要命中列表、不关心是否截断时的便捷入口：等价于 [searchDetailed] 的 `hits`。 */
     fun search(
         document: TextDocument,
         query: String,
         limit: Int = DEFAULT_LIMIT,
-    ): List<TextSearchHit> {
+    ): List<TextSearchHit> = searchDetailed(document, query, limit).hits
+
+    /**
+     * 整本搜索，并额外报告「后面还有没有命中没返回」。
+     *
+     * 截断只能靠多扫一条判定：命中数正好等于 [limit] 时并不存在第 limit+1 条，
+     * [TextSearchResult.truncated] 就是 false；调用方拿 `hits.size >= limit` 猜，
+     * 会把「刚好装满」错报成「还有更多」。
+     *
+     * 实现上先判条数、后建片段：凑满 [limit] 之后再遇到的下一个 start 已经足以证明还有更多，
+     * 不必为一条不会返回的命中再压一遍空白（片段构建是整轮里最贵的一步）。
+     */
+    fun searchDetailed(
+        document: TextDocument,
+        query: String,
+        limit: Int = DEFAULT_LIMIT,
+    ): TextSearchResult {
         val needle = query.trim()
-        if (needle.isEmpty() || limit <= 0) return emptyList()
+        if (needle.isEmpty() || limit <= 0) return EMPTY_RESULT
         val paragraphs = document.paragraphs
-        if (paragraphs.isEmpty()) return emptyList()
+        if (paragraphs.isEmpty()) return EMPTY_RESULT
         val hits = ArrayList<TextSearchHit>()
         for (index in paragraphs.indices) {
             val text = paragraphs[index].text
@@ -54,6 +87,8 @@ internal object TextSearchEngine {
             while (from <= text.length - needle.length) {
                 val start = text.indexOf(needle, startIndex = from, ignoreCase = true)
                 if (start < 0) break
+                // 已经凑满 limit 还找到下一处：这一条就是「第 limit+1 条」，只用来判截断。
+                if (hits.size >= limit) return TextSearchResult(hits, truncated = true)
                 val end = start + needle.length
                 val snippet = buildSnippet(text, start, end)
                 hits.add(
@@ -66,12 +101,11 @@ internal object TextSearchEngine {
                         matchEnd = snippet.matchEnd,
                     ),
                 )
-                if (hits.size >= limit) return hits
                 // 非重叠：从命中末尾继续；长度为零不可能（needle 非空），但仍兜底 +1 防死循环。
                 from = if (end > start) end else start + 1
             }
         }
-        return hits
+        return TextSearchResult(hits, truncated = false)
     }
 
     private class Snippet(val text: String, val matchStart: Int, val matchEnd: Int)

@@ -47,17 +47,18 @@ import app.particlebook.android.reader.text.TextSearchHit
  * 交互约定：
  * - 输入即搜（每次 onValueChange 都往上抛，防抖由调用方决定），回车不额外触发；
  * - 命中按「第 N 段 · 高亮片段」列出，点一条就交给 onPick 跳段并关闭弹层；
- * - 命中数触顶（[totalHitLimit]）只提示，不影响继续改词。
+ * - 命中被截断（[truncated]）时只提示「显示前 N 处」，不影响继续改词；是否截断由引擎判定后传进来，
+ *   本组件不再拿 hits.size 跟上限比——命中数正好等于上限时并没有更多，比出来的「截断」是假话。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun TextSearchSheet(
     query: String,
     hits: List<TextSearchHit>,
-    totalHitLimit: Int,
     onQueryChange: (String) -> Unit,
     onPick: (TextSearchHit) -> Unit,
     onDismiss: () -> Unit,
+    truncated: Boolean = false,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val focusRequester = remember { FocusRequester() }
@@ -108,10 +109,11 @@ internal fun TextSearchSheet(
                 hits.isEmpty() -> TextSearchHint("没有找到匹配的内容")
                 else -> {
                     Text(
-                        // 触顶时只报「显示前 N 处」，不报「200 处命中（只显示前 200 处）」—— 同一句话里
-                        // 重复同一个数字，读起来像 bug。
-                        text = if (hits.size >= totalHitLimit) {
-                            "显示前 " + totalHitLimit + " 处命中"
+                        // 截断时只报「显示前 N 处」，不报「200 处命中（只显示前 200 处）」—— 同一句话里
+                        // 重复同一个数字，读起来像 bug。N 用实际列出来的条数，不引用上限常量：
+                        // 两者只在真截断时才相等，而 hits.size 永远是对的。
+                        text = if (truncated) {
+                            "显示前 " + hits.size + " 处命中"
                         } else {
                             hits.size.toString() + " 处命中"
                         },

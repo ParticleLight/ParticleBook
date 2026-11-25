@@ -12,6 +12,9 @@ import org.junit.Test
  * 覆盖契约（见 TextSearchEngine 的类注释）：忽略大小写、段内非重叠、不跨段、
  * 空词 / limit <= 0 返回空表，以及两条易碎点——start/end 能回读原文，
  * snippet 压缩空白后 matchStart/matchEnd 仍然指向命中本身。
+ *
+ * 另一组重点：截断判定。hits 的条数（最多 limit）与 truncated（是否还有第 limit+1 条）
+ * 是两件事，必须分开断言——命中数正好等于 limit 时 UI 说「显示前 N 处」就是真实误报。
  */
 internal class TextSearchEngineTest {
 
@@ -29,6 +32,9 @@ internal class TextSearchEngineTest {
         "Alpha beta GAMMA\n\nbeta alpha\n\nGamma BETA\n\n无命中的一段",
         markdown = markdown,
     )
+
+    /** 一个段落里连续 count 处「关键词」（空格分隔，段内非重叠匹配），用来压 limit 边界。 */
+    private fun hitSequence(count: Int): String = (1..count).joinToString(" ") { "关键词" }
 
     @Test
     fun emptyQueryReturnsEmptyList() {
@@ -258,6 +264,117 @@ internal class TextSearchEngineTest {
         assertEquals(1, dirty.size)
         assertEquals(clean.map { it.start to it.end }, dirty.map { it.start to it.end })
         assertEquals("hello", dirty[0].snippet.substring(dirty[0].matchStart, dirty[0].matchEnd))
+    }
+
+    // ---- 截断判定（searchDetailed）----
+    //
+    // 「hits 有几条」与「是否还有更多」必须分开断言：前者是 limit 的直接结果，
+    // 后者要求引擎再多扫一条。正好等于 limit 是真实误报的来源，所以每条都正反两面各测一次。
+
+    @Test
+    fun exactlyLimitHitsIsNotTruncated() {
+        val document = parse("关键词 关键词 关键词 关键词")
+        val result = TextSearchEngine.searchDetailed(document, "关键词", limit = 4)
+        assertEquals(4, result.hits.size)
+        assertFalse("命中数恰好等于 limit 时并不存在第 5 处，不能判成截断", result.truncated)
+    }
+
+    @Test
+    fun limitPlusOneHitsIsTruncated() {
+        val document = parse("关键词 关键词 关键词 关键词 关键词")
+        val result = TextSearchEngine.searchDetailed(document, "关键词", limit = 4)
+        assertEquals("多出来那一处只用于判定，不进 hits", 4, result.hits.size)
+        assertTrue("存在第 5 处命中时必须报截断", result.truncated)
+    }
+
+    @Test
+    fun truncatedIsDetectedAcrossParagraphs() {
+        // 第 limit+1 条落在后面的段里：判定不能只看当前段，也不能只看第一段。
+        val document = parse("关键词 关键词\n\n关键词\n\n关键词")
+        val truncated = TextSearchEngine.searchDetailed(document, "关键词", limit = 3)
+        assertEquals(3, truncated.hits.size)
+        assertTrue(truncated.truncated)
+
+        val exact = TextSearchEngine.searchDetailed(document, "关键词", limit = 4)
+        assertEquals(4, exact.hits.size)
+        assertFalse(exact.truncated)
+    }
+
+    @Test
+    fun defaultLimitBoundaryMarksTruncationOnlyPastTheLimit() {
+        // 200 处命中正好装满 DEFAULT_LIMIT：旧实现 hits.size >= limit 会在这里误报截断。
+        val exact = TextSearchEngine.searchDetailed(
+            parse(hitSequence(TextSearchEngine.DEFAULT_LIMIT)),
+            "关键词",
+        )
+        assertEquals(TextSearchEngine.DEFAULT_LIMIT, exact.hits.size)
+        assertFalse("200 处命中正好装满分页上限，不该说「显示前 200 处」", exact.truncated)
+
+        // 201 处：第 201 处只用来判定截断。
+        val overflow = TextSearchEngine.searchDetailed(
+            parse(hitSequence(TextSearchEngine.DEFAULT_LIMIT + 1)),
+            "关键词",
+        )
+        assertEquals(TextSearchEngine.DEFAULT_LIMIT, overflow.hits.size)
+        assertTrue("第 201 处命中存在时必须报截断", overflow.truncated)
+    }
+
+    @Test
+    fun singleHitLimitMarksTruncationExactly() {
+        val two = TextSearchEngine.searchDetailed(parse("关键词 关键词"), "关键词", limit = 1)
+        assertEquals(1, two.hits.size)
+        assertEquals(0, two.hits[0].start)
+        assertTrue(two.truncated)
+
+        val one = TextSearchEngine.searchDetailed(parse("前缀 关键词 后缀"), "关键词", limit = 1)
+        assertEquals(1, one.hits.size)
+        assertFalse("只有一处命中时 limit=1 也刚好装满，不算截断", one.truncated)
+    }
+
+    @Test
+    fun nonPositiveLimitReturnsEmptyAndNotTruncated() {
+        val document = parse("关键词 若干 关键词")
+        for (limit in intArrayOf(0, -1, Int.MIN_VALUE)) {
+            val result = TextSearchEngine.searchDetailed(document, "关键词", limit = limit)
+            assertTrue("limit=$limit 应返回空表", result.hits.isEmpty())
+            assertFalse("limit=$limit 没扫过任何命中，不能报截断", result.truncated)
+        }
+    }
+
+    @Test
+    fun blankQueryReturnsEmptyAndNotTruncated() {
+        val document = parse("hello world\n\n第二段 hello")
+        for (query in listOf("", "   ", " \t\n\r ")) {
+            val result = TextSearchEngine.searchDetailed(document, query, limit = 5)
+            assertTrue("空词 / 纯空白词应返回空表：$query", result.hits.isEmpty())
+            assertFalse("空词 / 纯空白词不能报截断：$query", result.truncated)
+        }
+    }
+
+    @Test
+    fun emptyDocumentReturnsEmptyAndNotTruncated() {
+        val empty = parse("")
+        assertTrue(empty.isEmpty)
+        val fromEmpty = TextSearchEngine.searchDetailed(empty, "任意", limit = 3)
+        assertTrue(fromEmpty.hits.isEmpty())
+        assertFalse(fromEmpty.truncated)
+
+        // 纯空白文档解析后段落为空，走的是同一条短路。
+        val blank = parse("  \n\n\t\n   ")
+        assertTrue(blank.isEmpty)
+        val fromBlank = TextSearchEngine.searchDetailed(blank, "任意")
+        assertTrue(fromBlank.hits.isEmpty())
+        assertFalse(fromBlank.truncated)
+    }
+
+    @Test
+    fun searchDelegatesToSearchDetailed() {
+        val document = parse("目标甲 目标乙 目标丙\n\n目标丁 目标戊\n\n目标己")
+        for (limit in intArrayOf(1, 2, 5, 6, Int.MAX_VALUE)) {
+            val expected = TextSearchEngine.search(document, "目标", limit = limit)
+            val actual = TextSearchEngine.searchDetailed(document, "目标", limit = limit).hits
+            assertEquals("limit=$limit 的 hits 必须与 search() 逐条一致", expected, actual)
+        }
     }
 
     /** 逐码元断言片段里没有孤立代理字符：高位后面必须跟低位，低位前面必须有高位。 */

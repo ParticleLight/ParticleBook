@@ -2,13 +2,13 @@ package app.particlebook.android.ui
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.BrokenImage
 import androidx.compose.material3.Icon
@@ -27,6 +27,7 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import app.particlebook.android.reader.text.TextImage
 import app.particlebook.android.reader.text.TextImageSampling
@@ -41,7 +42,7 @@ import java.io.File
  * 「还没解完」与「解不出来」不分开存：[aspectRatio] 在解码前就从 bounds 拿到了，
  * 两种情况都渲染同一个尺寸的占位块，界面不会在解完的一瞬间跳高度。
  */
-private data class TextImageLoadState(
+internal data class TextImageLoadState(
     val bitmap: ImageBitmap? = null,
     val aspectRatio: Float = 1.6f,
     val failed: Boolean = false,
@@ -58,13 +59,17 @@ private data class TextImageLoadState(
  * 读不出来时留一个同尺寸的占位块并显示 alt，避免「这里什么都没有」的静默。
  */
 @Composable
-internal fun TextImageBlock(image: TextImage, modifier: Modifier = Modifier) {
+internal fun TextImageBlock(
+    image: TextImage,
+    modifier: Modifier = Modifier,
+    onClick: (() -> Unit)? = null,
+) {
     var state by remember(image.key) { mutableStateOf(TextImageLoadState()) }
     LaunchedEffect(image.key) {
         state = withContext(Dispatchers.IO) { decodeTextImage(image) }
     }
 
-    val shape = RoundedCornerShape(12.dp)
+    val shape = MaterialTheme.shapes.medium
     val bitmap = state.bitmap
     if (bitmap != null) {
         Image(
@@ -74,7 +79,11 @@ internal fun TextImageBlock(image: TextImage, modifier: Modifier = Modifier) {
             modifier = modifier
                 .fillMaxWidth()
                 .clip(shape)
-                .aspectRatio(state.aspectRatio),
+                .aspectRatio(state.aspectRatio)
+                .then(
+                    if (onClick == null) Modifier
+                    else Modifier.clickable(role = Role.Image) { onClick() },
+                ),
         )
         return
     }
@@ -109,8 +118,16 @@ internal fun TextImageBlock(image: TextImage, modifier: Modifier = Modifier) {
     }
 }
 
-/** 读字节 → 读尺寸 → 采样解码。只在这一个地方碰 BitmapFactory，失败一律降级成占位。 */
-private fun decodeTextImage(image: TextImage): TextImageLoadState {
+/**
+ * 读字节 → 读尺寸 → 采样解码。只在这一个地方碰 BitmapFactory，失败一律降级成占位。
+ *
+ * [maxEdgePx] 是长边上限：正文里给 [TextImageSampling.MAX_EDGE_PX]（1600，够填满一栏），
+ * 全屏查看时给更大值（屏幕最长的边），否则放大到 2 倍就能看出像素块。
+ */
+internal fun decodeTextImage(
+    image: TextImage,
+    maxEdgePx: Int = TextImageSampling.MAX_EDGE_PX,
+): TextImageLoadState {
     val bytes = image.bytes ?: readImageFile(image.path)
     if (bytes == null || bytes.isEmpty()) {
         return TextImageLoadState(failed = true)
@@ -124,7 +141,7 @@ private fun decodeTextImage(image: TextImage): TextImageLoadState {
     }
     val aspect = (width.toFloat() / height.toFloat()).coerceIn(0.2f, 5f)
     val options = BitmapFactory.Options().apply {
-        inSampleSize = TextImageSampling.sampleSizeFor(width, height)
+        inSampleSize = TextImageSampling.sampleSizeFor(width, height, maxEdgePx)
         inPreferredConfig = android.graphics.Bitmap.Config.ARGB_8888
     }
     val bitmap = runCatching { BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options) }
@@ -134,7 +151,7 @@ private fun decodeTextImage(image: TextImage): TextImageLoadState {
 }
 
 /** 本地文件图：先看大小再读，超限的图连字节都不读。 */
-private fun readImageFile(path: String?): ByteArray? {
+internal fun readImageFile(path: String?): ByteArray? {
     if (path.isNullOrBlank()) return null
     val file = File(path)
     val length = runCatching { file.length() }.getOrDefault(0L)
