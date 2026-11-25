@@ -8,6 +8,7 @@ import app.particlebook.android.reader.epub.layout.MeasuredBlock
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNotSame
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
@@ -251,6 +252,250 @@ class EpubReaderControllerTest {
             fail("expected IllegalStateException")
         } catch (e: IllegalStateException) {
             assertTrue(e.message!!.contains("closed"))
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // layoutRevision / openChapter / layoutChapter 三条核心不变量
+    // 页数由 FakeMeasurer(charsPerLine=10, lineHeight=10) + 分页高度唯一决定：
+    //   ch1 = [10 字符/1 行, 16 字符/2 行, 20 字符/2 行] -> 页高 10 -> 5 页，20 -> 3 页，100 -> 1 页。
+    //   ch2 = [3 字符/1 行] -> 页高 10 与 100 都是 1 页。
+    // ------------------------------------------------------------------
+
+    @Test
+    fun layoutRevisionStartsAtZeroAndLayoutIsAbsentBeforeAnyLayout() {
+        EpubReaderController.open(fixture(), FakeMeasurer()).use { controller ->
+            assertEquals(0, controller.layoutRevision)
+            assertEquals(0, controller.currentPageIndex)
+            assertEquals(0, controller.pageCount)
+            assertNull(controller.currentLayoutOrNull)
+        }
+    }
+
+    @Test
+    fun openChapterAdvancesRevisionAndResetsPageAndLayout() {
+        EpubReaderController.open(fixture(), FakeMeasurer()).use { controller ->
+            val config = EpubLayoutConfig(viewportWidthPx = 100, viewportHeightPx = 20)
+
+            controller.openChapter(0)
+            assertEquals(1, controller.layoutRevision)
+            controller.layoutChapter(config)
+            assertEquals(2, controller.layoutRevision)
+            assertEquals(3, controller.pageCount)
+            assertEquals(2, controller.setPage(2))
+            assertNotNull(controller.currentLayoutOrNull)
+
+            controller.openChapter(1)
+            assertEquals(3, controller.layoutRevision)
+            assertEquals(1, controller.currentChapterIndex)
+            assertEquals(0, controller.currentPageIndex)
+            assertNull(controller.currentLayoutOrNull)
+            assertEquals(0, controller.pageCount)
+
+            controller.openChapter(0)
+            assertEquals(4, controller.layoutRevision)
+            assertEquals(0, controller.currentChapterIndex)
+            assertEquals(0, controller.currentPageIndex)
+            assertNull(controller.currentLayoutOrNull)
+        }
+    }
+
+    @Test
+    fun layoutChapterSameConfigHitsLayoutCacheWithoutAdvancingRevision() {
+        EpubReaderController.open(fixture(), FakeMeasurer()).use { controller ->
+            controller.openChapter(0)
+            val config = EpubLayoutConfig(viewportWidthPx = 100, viewportHeightPx = 20)
+
+            val first = controller.layoutChapter(config)
+            assertEquals(2, controller.layoutRevision)
+            assertEquals(3, first.pageCount)
+
+            val second = controller.layoutChapter(config)
+            assertEquals(2, controller.layoutRevision)
+            assertSame(first, second)
+
+            val third = controller.layoutChapter(config)
+            assertEquals(2, controller.layoutRevision)
+            assertSame(first, third)
+            assertSame(first, controller.currentLayoutOrNull)
+            assertEquals(3, controller.pageCount)
+        }
+    }
+
+    @Test
+    fun layoutChapterWithChangedConfigAdvancesRevisionAndRebuildsLayout() {
+        EpubReaderController.open(fixture(), FakeMeasurer()).use { controller ->
+            controller.openChapter(0)
+            val base = EpubLayoutConfig(viewportWidthPx = 100, viewportHeightPx = 20)
+            val first = controller.layoutChapter(base)
+            assertEquals(2, controller.layoutRevision)
+
+            // 只改宽度：FakeMeasurer 不消耗宽度，页数不变，代次推进只能来自「布局实例换了」。
+            val wider = base.copy(viewportWidthPx = 200)
+            val second = controller.layoutChapter(wider)
+            assertEquals(3, controller.layoutRevision)
+            assertNotSame(first, second)
+            assertEquals(wider, second.config)
+            assertEquals(first.pageCount, second.pageCount)
+
+            // 只改字号：同上，仍换实例、仍推进。
+            val largerText = wider.copy(baseTextSizeSp = 24f)
+            val third = controller.layoutChapter(largerText)
+            assertEquals(4, controller.layoutRevision)
+            assertNotSame(second, third)
+            assertEquals(largerText, third.config)
+
+            // 改页高：页数真的变了，实例与页数一起变。
+            val taller = largerText.copy(viewportHeightPx = 100)
+            val fourth = controller.layoutChapter(taller)
+            assertEquals(5, controller.layoutRevision)
+            assertNotSame(third, fourth)
+            assertEquals(1, fourth.pageCount)
+            assertEquals(1, controller.pageCount)
+        }
+    }
+
+    @Test
+    fun layoutChapterClampsPageIndexIntoShrunkLayout() {
+        EpubReaderController.open(fixture(), FakeMeasurer()).use { controller ->
+            controller.openChapter(0)
+            val fivePages = EpubLayoutConfig(viewportWidthPx = 100, viewportHeightPx = 10)
+            val threePages = EpubLayoutConfig(viewportWidthPx = 100, viewportHeightPx = 20)
+            val onePage = EpubLayoutConfig(viewportWidthPx = 100, viewportHeightPx = 100)
+
+            assertEquals(5, controller.layoutChapter(fivePages).pageCount)
+            assertEquals(4, controller.setPage(4))
+            assertEquals(4, controller.currentPageIndex)
+            assertEquals(4, controller.setPage(99))
+
+            // 页数 5 -> 3：页下标被夹到最后可用页。
+            assertEquals(3, controller.layoutChapter(threePages).pageCount)
+            assertEquals(2, controller.currentPageIndex)
+            assertTrue(controller.currentPageIndex in 0 until controller.pageCount)
+
+            // 页数 3 -> 5：页下标留在原地，不回到 0 也不越界。
+            assertEquals(5, controller.layoutChapter(fivePages).pageCount)
+            assertEquals(2, controller.currentPageIndex)
+
+            // 页数 5 -> 1：夹到 0。
+            assertEquals(1, controller.layoutChapter(onePage).pageCount)
+            assertEquals(0, controller.currentPageIndex)
+            assertTrue(controller.currentPageIndex in 0 until controller.pageCount)
+        }
+    }
+
+    @Test
+    fun openChapterWithoutLayoutHasNoPages() {
+        EpubReaderController.open(fixture(), FakeMeasurer()).use { controller ->
+            controller.openChapter(0)
+            assertEquals(0, controller.pageCount)
+            assertNull(controller.currentLayoutOrNull)
+            assertEquals(0, controller.currentPageIndex)
+            assertNull(controller.page(0))
+            assertEquals(0f, controller.percent, 0.0001f)
+
+            // 换到有内容的章但不布局：仍然没有页。
+            controller.openChapter(1)
+            assertEquals(0, controller.pageCount)
+            assertEquals(0, controller.currentPageIndex)
+            assertNull(controller.currentLayoutOrNull)
+            assertNull(controller.page(0))
+        }
+    }
+
+    @Test
+    fun layoutChapterAfterChapterSwitchBindsLayoutToCurrentChapter() {
+        EpubReaderController.open(fixture(), FakeMeasurer()).use { controller ->
+            val config = EpubLayoutConfig(viewportWidthPx = 100, viewportHeightPx = 20)
+
+            controller.openChapter(0)
+            val first = controller.layoutChapter(config)
+            assertEquals(2, controller.layoutRevision)
+            assertEquals(controller.book.spine[0].href, first.chapterHref)
+            assertTrue(first.chapterHref.endsWith("ch1.xhtml"))
+
+            controller.openChapter(1)
+            assertEquals(3, controller.layoutRevision)
+            val second = controller.layoutChapter(config)
+            assertEquals(4, controller.layoutRevision)
+            assertEquals(1, controller.currentChapterIndex)
+
+            // 同 config 不同章 => 不同缓存键 => 不同实例，且布局绑在当前章上。
+            assertNotSame(first, second)
+            assertEquals(config, second.config)
+            assertEquals(controller.book.spine[1].href, second.chapterHref)
+            assertEquals(controller.chapterAt(controller.currentChapterIndex).href, second.chapterHref)
+            assertTrue(second.chapterHref.endsWith("ch2.xhtml"))
+            assertEquals(1, second.pageCount)
+            assertEquals(1, controller.pageCount)
+        }
+    }
+
+    @Test
+    fun reopeningSameChapterInvalidatesLayoutEvenWhenCacheHits() {
+        EpubReaderController.open(fixture(), FakeMeasurer()).use { controller ->
+            val config = EpubLayoutConfig(viewportWidthPx = 100, viewportHeightPx = 20)
+
+            controller.openChapter(0)
+            assertEquals(1, controller.layoutRevision)
+            val first = controller.layoutChapter(config)
+            assertEquals(2, controller.layoutRevision)
+            controller.setPage(2)
+            assertEquals(2, controller.currentPageIndex)
+
+            controller.openChapter(0)
+            assertEquals(3, controller.layoutRevision)
+            assertNull(controller.currentLayoutOrNull)
+            assertEquals(0, controller.currentPageIndex)
+
+            val reopened = controller.layoutChapter(config)
+            assertEquals(4, controller.layoutRevision)
+            // LRU 命中，拿回的是同一个布局实例；推进代次的是「currentLayout 已被 openChapter 作废」。
+            assertSame(first, reopened)
+            assertEquals(3, reopened.pageCount)
+            assertEquals(3, controller.pageCount)
+        }
+    }
+
+    @Test
+    fun setPageDoesNotAdvanceLayoutRevision() {
+        EpubReaderController.open(fixture(), FakeMeasurer()).use { controller ->
+            controller.openChapter(0)
+            val layout = controller.layoutChapter(EpubLayoutConfig(viewportWidthPx = 100, viewportHeightPx = 20))
+            val revisionAfterLayout = controller.layoutRevision
+            assertEquals(2, revisionAfterLayout)
+
+            controller.setPage(1)
+            assertEquals(1, controller.currentPageIndex)
+            controller.setPage(2)
+            assertEquals(2, controller.currentPageIndex)
+            controller.setPage(-5)
+            assertEquals(0, controller.currentPageIndex)
+            controller.setPage(99)
+            assertEquals(2, controller.currentPageIndex)
+
+            // 翻页不改变页界，代次与布局实例都必须原地不动。
+            assertEquals(revisionAfterLayout, controller.layoutRevision)
+            assertSame(layout, controller.currentLayoutOrNull)
+            assertEquals(3, controller.pageCount)
+        }
+    }
+
+    @Test
+    fun layoutChapterWithoutOpenChapterResolvesCurrentChapterOnce() {
+        EpubReaderController.open(fixture(), FakeMeasurer()).use { controller ->
+            val config = EpubLayoutConfig(viewportWidthPx = 100, viewportHeightPx = 20)
+            val layout = controller.layoutChapter(config)
+
+            // 没有 openChapter：隐式解析第 0 章，只 +1 次（没有额外的换章代次）。
+            assertEquals(1, controller.layoutRevision)
+            assertEquals(0, controller.currentChapterIndex)
+            assertEquals(controller.book.spine[0].href, layout.chapterHref)
+            assertEquals(3, controller.pageCount)
+            assertEquals(3, layout.pageCount)
+
+            controller.layoutChapter(EpubLayoutConfig(viewportWidthPx = 100, viewportHeightPx = 20))
+            assertEquals(1, controller.layoutRevision)
         }
     }
 

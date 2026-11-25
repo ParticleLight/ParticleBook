@@ -1010,9 +1010,9 @@ private fun EpubContent(
                             previous.lineHeightMultiplier != config.lineHeightMultiplier
                         )
                 val typographyAnchor = if (typographyChanged) {
-                    withContext(Dispatchers.IO) {
-                        runCatching { controller.locatorForPage(controller.currentPageIndex) }.getOrNull()
-                    }
+                    // 必须在 openChapter 之前取：openChapter 会把 currentPageIndex 重置为 0。
+                    // 纯内存计算，不需要切线程。
+                    runCatching { controller.locatorForPage(controller.currentPageIndex) }.getOrNull()
                 } else {
                     null
                 }
@@ -1024,9 +1024,15 @@ private fun EpubContent(
                     }
                     controller.layoutChapter(config)
                 }
+                // 从这里到 onLayout 之间**不允许再有挂起点**。
+                // controller 是跨重组共享的可变状态：一旦在本 effect 被取消时已经排好新布局、
+                // 而 onLayout 还没把结果交给 UI，界面就停在旧布局上；config 不变则本 effect 不会重跑，
+                // 表现为「改了字号没反应，再改一次才生效」（P2-1）。
+                // pageAt / locatorForPage / setPage 都是纯内存计算，放 Dispatchers.IO 既不省主线程
+                // 又平白多出可被取消的挂起点，所以就地同步调用。
                 // 字号/行高重排：locator 优先于「还停在第几页」，也优先于章节请求（请求是换章用的）。
                 val typographyPage = typographyAnchor?.let { anchor ->
-                    withContext(Dispatchers.IO) { runCatching { controller.pageAt(anchor) }.getOrNull() }
+                    runCatching { controller.pageAt(anchor) }.getOrNull()
                 }
                 val restoredPage = typographyPage ?: request?.locator?.let { locator ->
                     controller.pageAt(locator)
@@ -1038,7 +1044,7 @@ private fun EpubContent(
                     request.page == null -> (layout.pageCount - 1).coerceAtLeast(0)
                     else -> request.page
                 }
-                val page = withContext(Dispatchers.IO) { controller.setPage(targetPage) }
+                val page = controller.setPage(targetPage)
                 lastAppliedConfig = config
                 onLayout(layout, page, request)
                 if (request != null) onRequestApplied(request)
