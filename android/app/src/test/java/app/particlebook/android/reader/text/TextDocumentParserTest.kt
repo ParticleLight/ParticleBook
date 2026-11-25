@@ -546,4 +546,44 @@ internal class TextDocumentParserTest {
         assertEquals(fence + " 第二段", document.paragraphs[1].text)
         assertEquals(listOf(0, 0), levels(document))
     }
+
+    // ------------------------------------------------- 图片段（FB2 / HTML 插图）
+
+    private fun image(bytes: ByteArray = byteArrayOf(1, 2, 3)): TextImage =
+        TextImage.embedded(key = "img", bytes = bytes)!!
+
+    /** 图片段没有文字，但它占一个段落下标；丢了图就整张消失，所以不能被当空段落过滤。 */
+    @Test
+    fun fromParagraphsKeepsImageParagraphsBetweenTextParagraphs() {
+        val document = TextDocumentParser.fromParagraphs(
+            listOf(
+                TextParagraph("上"),
+                TextParagraph("", image = image()),
+                TextParagraph("下"),
+            ),
+        )
+        assertEquals(3, document.paragraphs.size)
+        assertEquals(listOf("上", "", "下"), texts(document))
+        assertTrue(document.paragraphs[1].image != null)
+        assertEquals(null, document.paragraphs[0].image)
+        // 偏移仍单调：图片段长度 0，第三段从「上」之后开始。
+        assertEquals(listOf(0, 1, 1), document.charOffsets.toList())
+        assertEquals(2, document.charCount)
+    }
+
+    /** 没有图片的空串段落照旧丢弃——只有 image 非空才豁免。 */
+    @Test
+    fun fromParagraphsStillDropsBlankParagraphsWithoutImage() {
+        val document = TextDocumentParser.fromParagraphs(
+            listOf(TextParagraph("甲"), TextParagraph(""), TextParagraph("乙")),
+        )
+        assertEquals(listOf("甲", "乙"), texts(document))
+    }
+
+    /** 纯文本 / Markdown 解析不会凭空造出图片段（默认值必须保持 null）。 */
+    @Test
+    fun parseNeverProducesImageParagraphs() {
+        val document = TextDocumentParser.parse("第一段\n\n第二段", markdown = false)
+        assertTrue(document.paragraphs.all { it.image == null })
+    }
 }

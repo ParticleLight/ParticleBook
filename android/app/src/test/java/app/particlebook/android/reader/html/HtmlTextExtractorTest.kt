@@ -1,7 +1,14 @@
 package app.particlebook.android.reader.html
 
+import app.particlebook.android.reader.text.TextImage
 import app.particlebook.android.reader.text.TextParagraph
+import java.io.File
+import java.nio.file.Files
+import java.util.Base64
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -248,6 +255,7 @@ class HtmlTextExtractorTest {
 
     @Test
     fun imgProducesNoTextAndNoBoundary() {
+        // 没有 baseDir，相对路径的图无从解析 → 跳过；被跳过的图不该把一段文字劈成两段。
         assertEquals(listOf("甲乙"), texts("<p>甲<img src=\"x.png\" alt=\"图\">乙</p>"))
     }
 
@@ -347,5 +355,208 @@ class HtmlTextExtractorTest {
 
         assertEquals(listOf("标题", "正文", "后续"), texts(html))
         assertEquals(listOf(2, 0, 0), levels(html))
+    }
+
+    // ------------------------------------------------------------- ⑬ img 插图
+
+    /** 一份最小的 PNG 头：只用来验证字节原样进出，不需要真的能解码。 */
+    private val pngBytes = byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A)
+
+    private fun dataUri(bytes: ByteArray, mime: String = "image/png"): String =
+        "data:" + mime + ";base64," + Base64.getEncoder().encodeToString(bytes)
+
+    private fun paragraphsOf(html: String, baseDir: File? = null): List<TextParagraph> =
+        HtmlTextExtractor.extract(html, baseDir)
+
+    private fun imagesOf(html: String, baseDir: File? = null): List<TextImage> =
+        HtmlTextExtractor.extract(html, baseDir).mapNotNull { it.image }
+
+    @Test
+    fun dataUriBecomesOneImageParagraphWithDecodedBytes() {
+        val paragraphs = paragraphsOf("<p>前</p><img src=\"" + dataUri(pngBytes) + "\"><p>后</p>")
+
+        assertEquals(listOf("前", "", "后"), paragraphs.map { it.text })
+        val image = paragraphs[1].image!!
+        assertTrue(image.isEmbedded)
+        assertArrayEquals(pngBytes, image.bytes)
+        assertEquals("", image.alt)
+        assertNull(image.path)
+        assertEquals(0, paragraphs[1].headingLevel)
+    }
+
+    @Test
+    fun dataUriKeyIsStableForIdenticalSource() {
+        val html = "<img src=\"" + dataUri(pngBytes) + "\">"
+
+        val first = imagesOf(html).single().key
+        assertEquals(first, imagesOf(html).single().key)
+        assertTrue(first.startsWith("data:"))
+        assertTrue(first.endsWith(":" + pngBytes.size))
+    }
+
+    @Test
+    fun relativeSourceResolvesAgainstBaseDirectory() {
+        val root = Files.createTempDirectory("pb-html-image-").toFile()
+        try {
+            val image = imagesOf("<img src=\"pic/01.jpg\">", root).single()
+
+            assertEquals(File(root, "pic/01.jpg").canonicalPath, image.path)
+            assertEquals("file:" + image.path, image.key)
+            assertFalse(image.isEmbedded)
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun relativeSourceWithoutBaseDirectoryIsSkipped() {
+        assertEquals(listOf("甲乙"), texts("<p>甲<img src=\"pic/01.jpg\">乙</p>"))
+        assertTrue(imagesOf("<img src=\"pic/01.jpg\">").isEmpty())
+    }
+
+    @Test
+    fun parentDirectoryEscapeIsRejectedButTextSurvives() {
+        val root = Files.createTempDirectory("pb-html-escape-").toFile()
+        val book = File(root, "book").apply { mkdirs() }
+        try {
+            val paragraphs = paragraphsOf("<p>甲<img src=\"../secret.jpg\">乙</p>", book)
+
+            assertEquals(listOf("甲乙"), paragraphs.map { it.text })
+            assertTrue(paragraphs.mapNotNull { it.image }.isEmpty())
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun absoluteSourceOutsideBaseDirectoryIsRejected() {
+        val root = Files.createTempDirectory("pb-html-outside-").toFile()
+        val book = File(root, "book").apply { mkdirs() }
+        try {
+            val src = File(root, "outside.jpg").absolutePath
+
+            assertTrue(imagesOf("<img src=\"" + src + "\">", book).isEmpty())
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun absoluteSourceInsideBaseDirectoryIsAccepted() {
+        val root = Files.createTempDirectory("pb-html-inside-").toFile()
+        try {
+            val file = File(root, "pic/01.jpg")
+            val image = imagesOf("<img src=\"" + file.absolutePath + "\">", root).single()
+
+            assertEquals(file.canonicalPath, image.path)
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun absoluteSourceIsAcceptedWithoutBaseDirectory() {
+        val file = Files.createTempFile("pb-html-absolute-", ".jpg").toFile()
+        try {
+            val image = imagesOf("<img src=\"" + file.absolutePath + "\">").single()
+
+            assertEquals(file.canonicalPath, image.path)
+        } finally {
+            file.delete()
+        }
+    }
+
+    @Test
+    fun remoteSourcesAreSkipped() {
+        assertTrue(imagesOf("<img src=\"http://example.com/a.jpg\">").isEmpty())
+        assertTrue(imagesOf("<img src=\"https://example.com/a.jpg\">").isEmpty())
+        assertTrue(imagesOf("<img src=\"//example.com/a.jpg\">").isEmpty())
+    }
+
+    @Test
+    fun imageWithoutSourceIsSkipped() {
+        assertTrue(imagesOf("<img alt=\"无源\">").isEmpty())
+        assertTrue(imagesOf("<img src=\"\">").isEmpty())
+        assertTrue(imagesOf("<img src=\"   \">").isEmpty())
+    }
+
+    @Test
+    fun imageBetweenTextParagraphsKeepsDocumentOrder() {
+        val paragraphs = paragraphsOf("<p>上</p><img src=\"" + dataUri(pngBytes) + "\"><p>下</p>")
+
+        assertEquals(listOf("上", "", "下"), paragraphs.map { it.text })
+        assertEquals(listOf(false, true, false), paragraphs.map { it.image != null })
+    }
+
+    @Test
+    fun imageWithoutSelfClosingSlashDoesNotSwallowFollowingText() {
+        val root = Files.createTempDirectory("pb-html-unclosed-").toFile()
+        try {
+            val paragraphs = paragraphsOf("<p>甲<img src=x.png alt=图>乙</p>", root)
+
+            assertEquals(listOf("甲", "", "乙"), paragraphs.map { it.text })
+            assertEquals(File(root, "x.png").canonicalPath, paragraphs[1].image?.path)
+            assertEquals("图", paragraphs[1].image?.alt)
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun altIsPassedThroughWithEntitiesDecoded() {
+        val image = imagesOf("<img src=\"" + dataUri(pngBytes) + "\" alt=\"图 &amp; 说明\">").single()
+
+        assertEquals("图 & 说明", image.alt)
+    }
+
+    @Test
+    fun uppercaseAttributeNamesAreAccepted() {
+        val image = imagesOf("<IMG SRC=\"" + dataUri(pngBytes) + "\" ALT=\"大写\">").single()
+
+        assertTrue(image.isEmbedded)
+        assertEquals("大写", image.alt)
+    }
+
+    @Test
+    fun sourceEntitiesAreDecodedBeforePathResolution() {
+        val root = Files.createTempDirectory("pb-html-entity-").toFile()
+        try {
+            val image = imagesOf("<img src=\"a&amp;b.jpg\">", root).single()
+
+            assertEquals(File(root, "a&b.jpg").canonicalPath, image.path)
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun fileUriAbsolutePathIsAccepted() {
+        val file = Files.createTempFile("pb-html-uri-", ".jpg").toFile()
+        try {
+            val image = imagesOf("<img src=\"file:" + file.absolutePath + "\">").single()
+
+            assertEquals(file.canonicalPath, image.path)
+        } finally {
+            file.delete()
+        }
+    }
+
+    @Test
+    fun imageInsideDroppedContainerProducesNothing() {
+        assertTrue(imagesOf("<svg><img src=\"" + dataUri(pngBytes) + "\"></svg>").isEmpty())
+    }
+
+    @Test
+    fun nonBase64DataUriIsSkipped() {
+        assertTrue(imagesOf("<img src=\"data:image/png,abc\">").isEmpty())
+        assertTrue(imagesOf("<img src=\"data:image/png;base64,\">").isEmpty())
+    }
+
+    @Test
+    fun imageParagraphInsideHeadingCarriesNoHeadingLevel() {
+        val paragraphs = paragraphsOf("<h2>甲<img src=\"" + dataUri(pngBytes) + "\">乙</h2>")
+
+        assertEquals(listOf("甲", "", "乙"), paragraphs.map { it.text })
+        assertEquals(listOf(2, 0, 2), paragraphs.map { it.headingLevel })
     }
 }

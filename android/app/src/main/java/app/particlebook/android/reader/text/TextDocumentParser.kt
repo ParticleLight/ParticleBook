@@ -1,7 +1,16 @@
 package app.particlebook.android.reader.text
 
-/** 一段正文；headingLevel 0=普通段落，1..6 对应 Markdown 的 1..6 级标题。 */
-internal data class TextParagraph(val text: String, val headingLevel: Int = 0)
+/**
+ * 一段正文；headingLevel 0=普通段落，1..6 对应 Markdown 的 1..6 级标题。
+ *
+ * [image] 非空表示这一段是一张插图，此时 [text] 为空：图片占一个段落下标（滚动、进度、
+ * 目录跳转都按它算），但搜索、朗读、标注、目录这些只看文字的功能都会跳过它。
+ */
+internal data class TextParagraph(
+    val text: String,
+    val headingLevel: Int = 0,
+    val image: TextImage? = null,
+)
 
 /** 解析结果：段落 + 每段在原文里的起始字符偏移（用于按位置恢复阅读进度）。 */
 internal data class TextDocument(
@@ -135,7 +144,8 @@ internal object TextDocumentParser {
         val offsets = ArrayList<Int>(paragraphs.size)
         var cursor = 0
         for (paragraph in paragraphs) {
-            if (paragraph.text.isEmpty()) continue
+            // 图片段没有文字但必须留下：它是正文流里的一个位置，丢了图就整张消失。
+            if (paragraph.text.isEmpty() && paragraph.image == null) continue
             appendParagraph(paragraph, cursor, out, offsets)
             cursor += paragraph.text.length
         }

@@ -1051,18 +1051,27 @@ private fun TextFlow(
                 } else {
                     annotationColor(TextAnnotations.paintColorOf(marks) ?: EpubAnnotationPalette.default.key)
                 }
-                TextParagraphView(
-                    paragraph = paragraph,
-                    baseSizeSp = sizeSp,
-                    lineHeightSp = lineHeightSp,
-                    first = index == 0,
-                    highlightStart = hitStart,
-                    highlightEnd = hitEnd,
-                    speechStart = speechRangeStart,
-                    speechEnd = speechRangeEnd,
-                    annotationBackground = annotationBackground,
-                    onLongPress = { onLongPress(index) },
-                )
+                val image = paragraph.image
+                if (image != null) {
+                    // 图片段：整段是一张图，不参与搜索命中 / 朗读 / 标注（text 为空，那三处都按空串跳过）。
+                    TextImageBlock(
+                        image = image,
+                        modifier = Modifier.padding(vertical = Spacing.xs),
+                    )
+                } else {
+                    TextParagraphView(
+                        paragraph = paragraph,
+                        baseSizeSp = sizeSp,
+                        lineHeightSp = lineHeightSp,
+                        first = index == 0,
+                        highlightStart = hitStart,
+                        highlightEnd = hitEnd,
+                        speechStart = speechRangeStart,
+                        speechEnd = speechRangeEnd,
+                        annotationBackground = annotationBackground,
+                        onLongPress = { onLongPress(index) },
+                    )
+                }
             }
         }
     }
@@ -1252,9 +1261,10 @@ private fun TextReaderMessage(title: String, detail: String, onBack: () -> Unit)
  *
  * - TXT：空行分段、段内软换行折成空格；
  * - Markdown：空行分段、保留段内换行、识别 # 标题；
- * - FB2：交给 [Fb2Parser] 从 XML 里取出章节标题与正文段落，再经
+ * - FB2：交给 [Fb2Parser] 从 XML 里取出章节标题、正文段落与内嵌图片，再经
  *   [TextDocumentParser.fromParagraphs] 统一切分与偏移计算；
- * - HTML：交给 [HtmlTextExtractor] 剥掉标签取出标题与段落，同样经 fromParagraphs 归一。
+ * - HTML：交给 [HtmlTextExtractor] 剥掉标签取出标题、段落与插图（相对路径按本书目录解析），
+ *   同样经 fromParagraphs 归一。
  *
  * 四条路最终都得到同一个 [TextDocument]，所以阅读器、搜索与进度链路对格式零分叉。
  */
@@ -1273,11 +1283,15 @@ private fun openDocument(file: File, format: BookFormat): TextDocument {
         BookFormat.Fb2 -> {
             val document = Fb2Parser.parse(text)
             TextDocumentParser.fromParagraphs(
-                document.paragraphs.map { TextParagraph(it.text, it.headingLevel) },
+                document.paragraphs.map { TextParagraph(it.text, it.headingLevel, it.image) },
             )
         }
 
-        BookFormat.Html -> TextDocumentParser.fromParagraphs(HtmlTextExtractor.extract(text))
+        // baseDir 给 img 的相对路径用：书导入时文件与图片一起复制到书架目录，
+        // 相对路径就是相对「这本书所在的目录」。
+        BookFormat.Html -> TextDocumentParser.fromParagraphs(
+            HtmlTextExtractor.extract(text, baseDir = file.parentFile),
+        )
         BookFormat.Markdown -> TextDocumentParser.parse(text, markdown = true)
         else -> TextDocumentParser.parse(text, markdown = false)
     }

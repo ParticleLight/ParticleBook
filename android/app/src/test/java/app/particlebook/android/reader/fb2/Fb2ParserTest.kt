@@ -1,10 +1,12 @@
 package app.particlebook.android.reader.fb2
 
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.util.Base64
 
 class Fb2ParserTest {
 
@@ -603,6 +605,196 @@ class Fb2ParserTest {
         assertEquals(listOf("题词", "引文", "尾注", "正文"), document.paragraphs.map { it.text })
     }
 
+    // ------------------------------------------------------- ㉑ 内嵌图片
+
+    @Test
+    fun binaryReferencedByInlineImageBecomesImageParagraph() {
+        val bytes = sampleBytes(0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46)
+        val xml = imageBook(
+            body = "<section><title><p>图</p></title>" +
+                "<p>上</p><image l:href=\"#cover.jpg\"/><p>下</p></section>",
+            binaries = binary("cover.jpg", base64(bytes)),
+        )
+
+        val paragraphs = Fb2Parser.parse(xml).paragraphs
+
+        // 图片必须落在它在文档里出现的位置：文字 / 图片 / 文字。
+        assertEquals(listOf("图", "上", "", "下"), paragraphs.map { it.text })
+        assertEquals(listOf(1, 0, 0, 0), paragraphs.map { it.headingLevel })
+        val image = requireNotNull(paragraphs[2].image) { "图片段没有 image" }
+        assertEquals("cover.jpg", image.key)
+        assertEquals("cover.jpg", image.alt)
+        assertTrue(image.isEmbedded)
+        assertArrayEquals(bytes, image.bytes)
+    }
+
+    @Test
+    fun imageReferencedTwiceKeepsTwoParagraphsWithSameBytes() {
+        val bytes = sampleBytes(0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A)
+        val xml = imageBook(
+            body = "<section><p>甲</p><image l:href=\"#pic.png\"/><p>乙</p>" +
+                "<image l:href=\"#pic.png\"/></section>",
+            binaries = binary("pic.png", base64(bytes), contentType = "image/png"),
+        )
+
+        val paragraphs = Fb2Parser.parse(xml).paragraphs
+
+        assertEquals(listOf("甲", "", "乙", ""), paragraphs.map { it.text })
+        val first = requireNotNull(paragraphs[1].image)
+        val second = requireNotNull(paragraphs[3].image)
+        // 同一张图两处引用：两个段落、缓存键一致、字节一致。
+        assertEquals("pic.png", first.key)
+        assertEquals(first.key, second.key)
+        assertArrayEquals(bytes, first.bytes)
+        assertArrayEquals(bytes, second.bytes)
+    }
+
+    @Test
+    fun imageWithoutHrefProducesNoParagraph() {
+        val xml = imageBook(
+            body = "<section><p>上</p><image/><p>下</p></section>",
+            binaries = binary("cover.jpg", base64(sampleBytes(1, 2, 3))),
+        )
+
+        val paragraphs = Fb2Parser.parse(xml).paragraphs
+
+        assertEquals(listOf("上", "下"), paragraphs.map { it.text })
+        assertTrue(paragraphs.all { it.image == null })
+    }
+
+    @Test
+    fun imagePointingToMissingBinaryProducesNoParagraph() {
+        val xml = imageBook(
+            body = "<section><p>上</p><image l:href=\"#missing.jpg\"/><p>下</p></section>",
+            binaries = binary("cover.jpg", base64(sampleBytes(4, 5, 6))),
+        )
+
+        val paragraphs = Fb2Parser.parse(xml).paragraphs
+
+        assertEquals(listOf("上", "下"), paragraphs.map { it.text })
+        assertTrue(paragraphs.all { it.image == null })
+    }
+
+    @Test
+    fun brokenBase64BinaryIsSkippedWithoutThrowing() {
+        val xml = imageBook(
+            body = "<section><p>上</p><image l:href=\"#broken.png\"/><p>下</p></section>",
+            // 5 个字符凑不成 4 字符的 base64 单元，MIME 解码器抛 IllegalArgumentException。
+            binaries = binary("broken.png", "AAAAA", contentType = "image/png"),
+        )
+
+        val paragraphs = Fb2Parser.parse(xml).paragraphs
+
+        // 一张坏图不该毁掉整本书：跳过图片，其余段落照旧，也不抛 Fb2ParseException。
+        assertEquals(listOf("上", "下"), paragraphs.map { it.text })
+        assertTrue(paragraphs.all { it.image == null })
+    }
+
+    @Test
+    fun binaryLargerThanEightMegabytesIsSkipped() {
+        // 上限是 MAX_BYTES * 4 / 3 + 64 = 11_184_874 字符；全 'A' 是合法 base64（4 的倍数），
+        // 所以「跳过」只能是被尺寸规则挡下的，不是解码失败。
+        val oversized = "A".repeat(11_185_000)
+        val small = sampleBytes(7, 7, 7, 7)
+        val xml = imageBook(
+            body = "<section><p>上</p><image l:href=\"#huge.jpg\"/>" +
+                "<image l:href=\"#small.jpg\"/></section>",
+            binaries = binary("huge.jpg", oversized) + binary("small.jpg", base64(small)),
+        )
+
+        val paragraphs = Fb2Parser.parse(xml).paragraphs
+
+        // 超限的那张被丢掉，同一本书里的正常图片不受影响。
+        assertEquals(listOf("上", ""), paragraphs.map { it.text })
+        val image = requireNotNull(paragraphs[1].image)
+        assertEquals("small.jpg", image.key)
+        assertArrayEquals(small, image.bytes)
+    }
+
+    @Test
+    fun imageInsideTitleProducesNoParagraph() {
+        val xml = imageBook(
+            body = "<section><title><p>章</p><image l:href=\"#cover.jpg\"/></title><p>正文</p></section>",
+            binaries = binary("cover.jpg", base64(sampleBytes(8, 8, 8))),
+        )
+
+        val paragraphs = Fb2Parser.parse(xml).paragraphs
+
+        // title 里的 image 是封面 / 卷头画，不进正文。
+        assertEquals(listOf(Fb2Paragraph("章", 1), Fb2Paragraph("正文")), paragraphs)
+        assertTrue(paragraphs.none { it.image != null })
+    }
+
+    @Test
+    fun imageDirectlyUnderBodyAndSectionKeepsDocumentOrder() {
+        val xml = imageBook(
+            body = "<image l:href=\"#cover.jpg\"/>" +
+                "<section><p>一</p><image l:href=\"#cover.jpg\"/><p>二</p></section>",
+            binaries = binary("cover.jpg", base64(sampleBytes(3, 1, 4))),
+        )
+
+        val paragraphs = Fb2Parser.parse(xml).paragraphs
+
+        assertEquals(listOf("", "一", "", "二"), paragraphs.map { it.text })
+        assertEquals(listOf(true, false, true, false), paragraphs.map { it.image != null })
+    }
+
+    @Test
+    fun binariesWithoutInlineReferencesDoNotChangeTextParagraphs() {
+        val body = "<section><title><p>章</p></title><p>一</p><p>二</p></section>"
+
+        val withBinaries = Fb2Parser.parse(imageBook(body, binary("unused.png", base64(sampleBytes(5, 5)))))
+        val withoutBinaries = Fb2Parser.parse(imageBook(body))
+
+        assertEquals(listOf("章", "一", "二"), withoutBinaries.paragraphs.map { it.text })
+        assertEquals(withoutBinaries.paragraphs, withBinaries.paragraphs)
+    }
+
+    @Test
+    fun prefixedBinaryIdAndHrefAreMatchedByLocalName() {
+        val bytes = sampleBytes(0x47, 0x49, 0x46, 0x38, 0x39, 0x61)
+        val xml = """
+            <?xml version="1.0" encoding="utf-8"?>
+            <fb2:FictionBook xmlns:fb2="http://www.gribuser.ru/xml/fictionbook/2.0"
+                             xmlns:l="http://www.w3.org/1999/xlink">
+              <fb2:description>
+                <fb2:title-info><fb2:book-title>前缀图</fb2:book-title></fb2:title-info>
+              </fb2:description>
+              <fb2:body>
+                <fb2:section>
+                  <fb2:p>上</fb2:p>
+                  <fb2:image l:href="#cover.jpg"/>
+                </fb2:section>
+              </fb2:body>
+              <fb2:binary fb2:id="cover.jpg" fb2:content-type="image/jpeg">${base64(bytes)}</fb2:binary>
+            </fb2:FictionBook>
+        """.trimIndent()
+
+        val document = Fb2Parser.parse(xml)
+
+        assertEquals("前缀图", document.title)
+        assertEquals(listOf("上", ""), document.paragraphs.map { it.text })
+        val image = requireNotNull(document.paragraphs[1].image)
+        assertEquals("cover.jpg", image.key)
+        assertArrayEquals(bytes, image.bytes)
+    }
+
+    @Test
+    fun wrappedBase64WithNewlinesAndIndentationIsDecoded() {
+        val bytes = ByteArray(180) { (it * 7).toByte() }
+        val wrapped = base64(bytes).chunked(76).joinToString("\n        ")
+        val xml = imageBook(
+            body = "<section><p>上</p><image l:href=\"#wrapped.jpg\"/></section>",
+            binaries = "<binary id=\"wrapped.jpg\" content-type=\"image/jpeg\">\n          " + wrapped +
+                "\n        </binary>",
+        )
+
+        val paragraphs = Fb2Parser.parse(xml).paragraphs
+
+        val image = requireNotNull(paragraphs[1].image)
+        assertArrayEquals(bytes, image.bytes)
+    }
+
     // ---------------------------------------------------------------- 帮助器
 
     private fun book(inner: String, namespace: Boolean = true): String {
@@ -658,4 +850,21 @@ class Fb2ParserTest {
         }
         return open.toString() + innerXml + close.toString()
     }
+
+    /** 带 FB2 默认命名空间 + XLink（`l:href` 要用）的书；`binaries` 拼在 `</body>` 之后。 */
+    private fun imageBook(body: String, binaries: String = ""): String =
+        "<?xml version=\"1.0\" encoding=\"utf-8\"?>" +
+            "<FictionBook xmlns=\"http://www.gribuser.ru/xml/fictionbook/2.0\"" +
+            " xmlns:l=\"http://www.w3.org/1999/xlink\">" +
+            titleInfo("图册") +
+            "<body>" + body + "</body>" +
+            binaries +
+            "</FictionBook>"
+
+    private fun binary(id: String, payload: String, contentType: String = "image/jpeg"): String =
+        "<binary id=\"" + id + "\" content-type=\"" + contentType + "\">" + payload + "</binary>"
+
+    private fun base64(bytes: ByteArray): String = Base64.getEncoder().encodeToString(bytes)
+
+    private fun sampleBytes(vararg values: Int): ByteArray = ByteArray(values.size) { values[it].toByte() }
 }
