@@ -38,11 +38,15 @@ internal object AnnotationExportPlanner {
     /**
      * @param chapterTitleOf 给出章节 href，返回该章的显示标题；null/空白表示 TOC 里没有这一章。
      *   调用方通常传 `controller.tocTargets()` 的映射；导不出来源时传默认实现即可。
+     * @param textLocationOf 给出纯文本标注的字符偏移，返回更贴近阅读器的位置文字
+     *   （文本阅读器传「第 N 段」）。null/空白表示按字符偏移兜底：读者在纯文本里
+     *   按段阅读，只拿得到「第 12034 字符」这种位置等于没给。
      */
     fun plan(
         book: Book,
         annotations: List<ReaderAnnotation>,
         chapterTitleOf: (chapterHref: String) -> String? = { null },
+        textLocationOf: (offset: Int) -> String? = { null },
     ): AnnotationExportDocument {
         val sections = ArrayList<AnnotationExportSection>()
         // 分组键到 sections 下标的映射：同一章/同一页的标注必须落进同一组，且组按首次出现排序。
@@ -50,7 +54,7 @@ internal object AnnotationExportPlanner {
 
         val ordered = annotations
             .filter { it.locatorError == null }
-            .mapNotNull { annotation -> toEntry(annotation)?.let { it to annotation } }
+            .mapNotNull { annotation -> toEntry(annotation, textLocationOf)?.let { it to annotation } }
             .sortedWith { left, right -> compareOrder(left.second.locator, right.second.locator) }
 
         for ((entry, annotation) in ordered) {
@@ -75,7 +79,10 @@ internal object AnnotationExportPlanner {
     }
 
     /** 类型映射：PDF 几何标注在 P1 以 HIGHLIGHT 落库，导出时同样按高亮处理。 */
-    private fun toEntry(annotation: ReaderAnnotation): AnnotationExportEntry? {
+    private fun toEntry(
+        annotation: ReaderAnnotation,
+        textLocationOf: (Int) -> String?,
+    ): AnnotationExportEntry? {
         val kind = when (annotation.type) {
             ReaderAnnotationType.BOOKMARK -> AnnotationExportKind.BOOKMARK
             ReaderAnnotationType.HIGHLIGHT, ReaderAnnotationType.PDF -> AnnotationExportKind.HIGHLIGHT
@@ -83,7 +90,7 @@ internal object AnnotationExportPlanner {
         }
         return AnnotationExportEntry(
             kind = kind,
-            location = locationOf(annotation.locator),
+            location = locationOf(annotation.locator, textLocationOf),
             // 笔记正文单独成行；书签可能带名字，只有高亮与书签把 quote 当正文用。
             quote = if (kind == AnnotationExportKind.NOTE) "" else annotation.quote,
             note = annotation.note,
@@ -115,10 +122,14 @@ internal object AnnotationExportPlanner {
     }
 
     /** 条目位置：组标题已经给了章/页，这里只补组内更细的坐标，避免同一行重复两遍。 */
-    private fun locationOf(locator: ReaderLocator): String = when (locator) {
+    private fun locationOf(
+        locator: ReaderLocator,
+        textLocationOf: (Int) -> String?,
+    ): String = when (locator) {
         is ReaderLocator.Epub -> "第 " + (locator.blockIndex + 1) + " 段"
         is ReaderLocator.Pdf -> PDF_SECTION_PREFIX + (locator.page + 1) + PDF_SECTION_SUFFIX
-        is ReaderLocator.Text -> "第 " + (locator.offset + 1) + " 字符"
+        is ReaderLocator.Text -> textLocationOf(locator.offset)?.takeIf { it.isNotBlank() }
+            ?: ("第 " + (locator.offset + 1) + " 字符")
         is ReaderLocator.Html -> locator.fragment.takeIf { it.isNotBlank() } ?: "文档开头"
         is ReaderLocator.Scroll -> "约 " + (locator.percent * 100).toInt() + "%"
     }

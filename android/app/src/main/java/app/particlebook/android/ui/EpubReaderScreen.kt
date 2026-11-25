@@ -215,6 +215,8 @@ fun EpubReaderScreen(
     var annotations by remember(book.filePath) { mutableStateOf<List<ReaderAnnotation>>(emptyList()) }
     var annotationVersion by remember(book.filePath) { mutableIntStateOf(0) }
     var annotationsLoading by remember(book.filePath) { mutableStateOf(false) }
+    // 读失败时 0 条不能冒充「没有标注」：侧栏要能说出「没读到」并给重试。
+    var annotationsLoadFailed by remember(book.filePath) { mutableStateOf(false) }
     var annotationsOpen by remember { mutableStateOf(false) }
     var exportOpen by remember { mutableStateOf(false) }
     // 朗读：句子只取"当前这一页"，换页/换章时由浏览器动作重新取，避免念到屏幕外的内容。
@@ -412,6 +414,7 @@ fun EpubReaderScreen(
         val store = annotationStore
         if (store == null) {
             annotations = emptyList()
+            annotationsLoadFailed = false
             annotationsLoading = false
             return@LaunchedEffect
         }
@@ -419,9 +422,11 @@ fun EpubReaderScreen(
         annotationsLoading = true
         try {
             annotations = withContext(Dispatchers.IO) { store.list(book.id) }
+            annotationsLoadFailed = false
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (error: Exception) {
+            annotationsLoadFailed = true
             notify("读取标注失败：" + (error.message ?: "未知错误"))
         } finally {
             // 换章/连点重读会把 effect 取消掉，顺序语句在取消路径上根本走不到，
@@ -915,12 +920,20 @@ fun EpubReaderScreen(
                 annotationsOpen = false
                 exportOpen = true
             },
+            loadFailed = annotationsLoadFailed,
+            onRetry = { annotationVersion += 1 },
         )
     }
     if (exportOpen) {
         val exportDocument = remember(annotations, controller) {
             val titles = tocTitleMap(controller)
-            AnnotationExportPlanner.plan(book, annotations) { href -> titles[href.substringBefore("#")] }
+            // 必须显式命名：plan 的尾随 lambda 槽位已经让给 textLocationOf（列表最后一个函数参数），
+            // 写成 plan(book, annotations) { href -> … } 会把 href 绑成 Int。
+            AnnotationExportPlanner.plan(
+                book = book,
+                annotations = annotations,
+                chapterTitleOf = { href -> titles[href.substringBefore("#")] },
+            )
         }
         AnnotationExportSheet(
             document = exportDocument,

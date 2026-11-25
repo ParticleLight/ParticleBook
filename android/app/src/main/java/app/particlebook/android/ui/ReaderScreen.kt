@@ -273,6 +273,7 @@ fun ReaderScreen(
         BookFormat.Text, BookFormat.Markdown, BookFormat.Fb2, BookFormat.Html -> TextReaderScreen(
             book = book,
             onBack = onBack,
+            annotationStore = annotationStore,
             initialLocator = initialLocator,
             fontSizeSp = fontSizeSp,
             lineHeightMultiplier = lineHeightMultiplier,
@@ -1412,6 +1413,8 @@ private fun PdfReadingPane(
                 annotationsOpen = false
                 openExport()
             },
+            loadFailed = annotationsLoadFailed,
+            onRetry = { annotationVersion += 1 },
         )
     }
 

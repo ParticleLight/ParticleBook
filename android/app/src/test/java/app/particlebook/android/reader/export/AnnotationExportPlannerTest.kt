@@ -39,7 +39,11 @@ class AnnotationExportPlannerTest {
         )
         val titles = mapOf(ch01 to "第一章 起", ch02 to "第二章 承")
 
-        val document = AnnotationExportPlanner.plan(book(), annotations) { titles[it] }
+        val document = AnnotationExportPlanner.plan(
+            book = book(),
+            annotations = annotations,
+            chapterTitleOf = { titles[it] },
+        )
 
         // 组间顺序：ch01 的最小块号(0) 先出现，所以排在 ch02 之前。
         assertEquals(2, document.sections.size)
@@ -81,12 +85,13 @@ class AnnotationExportPlannerTest {
         val titles = mapOf(ch01 to "第一章", ch02 to "第二章")
 
         AnnotationExportPlanner.plan(
-            book(),
-            listOf(annotation(epub(ch01, 0)), annotation(epub(ch02, 0))),
-        ) { href ->
-            asked += href
-            titles[href]
-        }
+            book = book(),
+            annotations = listOf(annotation(epub(ch01, 0)), annotation(epub(ch02, 0))),
+            chapterTitleOf = { href ->
+                asked += href
+                titles[href]
+            },
+        )
 
         assertEquals(setOf(ch01, ch02), asked.toSet())
         // 分组键是 "epub:" + href，但问标题时必须给原始 href。
@@ -110,10 +115,14 @@ class AnnotationExportPlannerTest {
             annotation(epub(irrelevant, 4)),
         )
 
-        val document = AnnotationExportPlanner.plan(book(), annotations) { href ->
-            // 空白 TOC 标题也算「没有标题」，继续走 href 兜底。
-            if (href == irrelevant) "   " else null
-        }
+        val document = AnnotationExportPlanner.plan(
+            book = book(),
+            annotations = annotations,
+            chapterTitleOf = { href ->
+                // 空白 TOC 标题也算「没有标题」，继续走 href 兜底。
+                if (href == irrelevant) "   " else null
+            },
+        )
 
         assertEquals(
             listOf("ch03", "ch04", "正文", "ch05", "ch06"),
@@ -174,7 +183,11 @@ class AnnotationExportPlannerTest {
             annotation(epub(ch01, 2), quote = "三"),
         )
 
-        val document = AnnotationExportPlanner.plan(book(), annotations) { "同一章" }
+        val document = AnnotationExportPlanner.plan(
+            book = book(),
+            annotations = annotations,
+            chapterTitleOf = { "同一章" },
+        )
 
         val section = document.sections.single()
         assertEquals("同一章", section.title)
@@ -230,7 +243,11 @@ class AnnotationExportPlannerTest {
             ),
         )
 
-        val document = AnnotationExportPlanner.plan(book(), annotations) { "第一章" }
+        val document = AnnotationExportPlanner.plan(
+            book = book(),
+            annotations = annotations,
+            chapterTitleOf = { "第一章" },
+        )
 
         assertEquals(listOf("第一章", "第 10 页"), document.sections.map { it.title })
 
@@ -413,6 +430,163 @@ class AnnotationExportPlannerTest {
         assertEquals("PDF", document.formatLabel)
         assertTrue(document.sections.isEmpty())
         assertEquals(0L, document.exportedAtMillis)
+    }
+
+    // ---- 10. textLocationOf ---------------------------------------------------
+
+    @Test
+    fun callerSuppliedTextLocationsReplaceCharacterOffsetsInBodySection() {
+        val asked = ArrayList<Int>()
+        val annotations = listOf(
+            annotation(ReaderLocator.Text(offset = 199), quote = "一百九十九"),
+            annotation(ReaderLocator.Text(offset = 0), quote = "开头"),
+        )
+
+        val document = AnnotationExportPlanner.plan(
+            book = book(),
+            annotations = annotations,
+            textLocationOf = { offset ->
+                asked += offset
+                "第 " + (offset / 100) + " 段"
+            },
+        )
+
+        val section = document.sections.single()
+        assertEquals("正文", section.title)
+        // 位置文案整句由调用方给，Planner 不再拼「第 N 字符」。
+        assertEquals(listOf("第 0 段", "第 1 段"), section.entries.map { it.location })
+        assertEquals(listOf("开头", "一百九十九"), section.entries.map { it.quote })
+        // 传进去的是原始 0 基 offset，不是 1 基字符序数：199 若被 +1 就成了「第 2 段」。
+        // 求值发生在排序前，按入参顺序每条 Text 一次（199 在前、0 在后）。
+        assertEquals(listOf(199, 0), asked)
+    }
+
+    @Test
+    fun omittedTextLocationProviderKeepsOneBasedCharacterOffsetText() {
+        val annotations = listOf(
+            annotation(ReaderLocator.Text(offset = 41), quote = "四十二"),
+            annotation(ReaderLocator.Text(offset = 0), quote = "开头"),
+        )
+
+        // 不传 textLocationOf：走默认实现，位置仍是「第 offset+1 字符」。
+        val document = AnnotationExportPlanner.plan(book(), annotations)
+
+        val section = document.sections.single()
+        assertEquals("正文", section.title)
+        assertEquals(listOf("第 1 字符", "第 42 字符"), section.entries.map { it.location })
+
+        // 显式传默认实现（恒 null）与不传等价：默认参数没被顺手换成别的文案。
+        val explicitDefault = AnnotationExportPlanner.plan(
+            book = book(),
+            annotations = annotations,
+            textLocationOf = { null },
+        )
+        assertEquals(
+            document.sections.single().entries.map { it.location },
+            explicitDefault.sections.single().entries.map { it.location },
+        )
+    }
+
+    @Test
+    fun nullAndBlankTextLocationsFallBackToCharacterOffset() {
+        val annotations = listOf(
+            annotation(ReaderLocator.Text(offset = 6), quote = "返回 null"),
+            annotation(ReaderLocator.Text(offset = 7), quote = "返回空格"),
+            annotation(ReaderLocator.Text(offset = 8), quote = "返回控制空白"),
+        )
+
+        val document = AnnotationExportPlanner.plan(
+            book = book(),
+            annotations = annotations,
+            textLocationOf = { offset ->
+                when (offset) {
+                    6 -> null
+                    7 -> "   "
+                    else -> "\t\r\n"
+                }
+            },
+        )
+
+        // 判空用 isBlank 而不是 isEmpty：纯空白与控制空白都退回字符序数（offset + 1）。
+        assertEquals(
+            listOf("第 7 字符", "第 8 字符", "第 9 字符"),
+            document.sections.single().entries.map { it.location },
+        )
+        assertEquals(
+            listOf("返回 null", "返回空格", "返回控制空白"),
+            document.sections.single().entries.map { it.quote },
+        )
+    }
+
+    @Test
+    fun textLocationProviderLeavesEpubAndPdfLocationsUntouched() {
+        val annotations = listOf(
+            annotation(ReaderLocator.Text(offset = 250), quote = "正文选区"),
+            annotation(epub(ch01, blockIndex = 2, charOffset = 4), quote = "章节选区"),
+            annotation(ReaderLocator.Pdf(page = 4, y = 0.5f), quote = "页内选区"),
+        )
+        val asked = ArrayList<Int>()
+
+        val baseline = AnnotationExportPlanner.plan(book = book(), annotations = annotations)
+        val withProvider = AnnotationExportPlanner.plan(
+            book = book(),
+            annotations = annotations,
+            textLocationOf = { offset ->
+                asked += offset
+                "第 " + (offset / 100) + " 段"
+            },
+        )
+
+        // 分组与组间顺序只由 locator 决定：章 → 页 → 正文。
+        assertEquals(listOf("ch01", "第 5 页", "正文"), withProvider.sections.map { it.title })
+        assertEquals(
+            listOf("章节选区", "页内选区", "正文选区"),
+            withProvider.sections.flatMap { section -> section.entries.map { it.quote } },
+        )
+        // EPUB「第 blockIndex+1 段」与 PDF「第 page+1 页」不受 provider 影响，只有 Text 换文案。
+        assertEquals(
+            listOf("第 3 段", "第 5 页", "第 2 段"),
+            withProvider.sections.flatMap { section -> section.entries.map { it.location } },
+        )
+        assertEquals(
+            listOf("第 3 段", "第 5 页", "第 251 字符"),
+            baseline.sections.flatMap { section -> section.entries.map { it.location } },
+        )
+        // provider 只对 ReaderLocator.Text 求值一次，其余 locator 一次都没问。
+        assertEquals(listOf(250), asked)
+    }
+
+    @Test
+    fun textLocationProviderDoesNotChangeBodyGroupingOrEntryOrder() {
+        val annotations = listOf(
+            annotation(ReaderLocator.Scroll(0.5f), quote = "滚动"),
+            annotation(ReaderLocator.Html(href = "notes.html", fragment = "sec-2"), quote = "网页"),
+            annotation(ReaderLocator.Text(offset = 100), quote = "晚"),
+            annotation(ReaderLocator.Text(offset = 12), quote = "早"),
+        )
+
+        val baseline = AnnotationExportPlanner.plan(book(), annotations)
+        val withProvider = AnnotationExportPlanner.plan(
+            book = book(),
+            annotations = annotations,
+            textLocationOf = { offset -> "第 " + (offset / 100) + " 段" },
+        )
+
+        // 分组口径不变：三种 locator 仍合成一个「正文」组，组内 字符偏移 → 文档顺序 → 滚动。
+        assertEquals(1, withProvider.sections.size)
+        assertEquals("正文", withProvider.sections.single().title)
+        assertEquals(
+            listOf("早", "晚", "网页", "滚动"),
+            withProvider.sections.single().entries.map { it.quote },
+        )
+        assertEquals(
+            listOf("第 13 字符", "第 101 字符", "sec-2", "约 50%"),
+            baseline.sections.single().entries.map { it.location },
+        )
+        assertEquals(
+            listOf("第 0 段", "第 1 段", "sec-2", "约 50%"),
+            withProvider.sections.single().entries.map { it.location },
+        )
     }
 
     // ---- 造数据 ---------------------------------------------------------------
