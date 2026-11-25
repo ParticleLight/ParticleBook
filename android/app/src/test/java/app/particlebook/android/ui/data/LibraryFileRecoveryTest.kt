@@ -238,6 +238,143 @@ class LibraryFileRecoveryTest {
         )
     }
 
+    // ------------------------------------------------------------------ FB2 格式识别
+
+    @Test
+    fun looksLikeFb2AcceptsXmlDeclarationAndRootElement() {
+        assertTrue(
+            "标准 FB2（XML 声明 + FictionBook 根元素）应认作 FB2",
+            looksLikeFb2(write("book.fb2", FB2_WITH_DECLARATION.toByteArray(Charsets.UTF_8))),
+        )
+    }
+
+    @Test
+    fun looksLikeFb2AcceptsDocumentStartingWithRootElement() {
+        // 没有 XML 声明、直接以根元素开头也是合法 FB2。
+        assertTrue(
+            looksLikeFb2(write("no-decl.fb2", FB2_WITHOUT_DECLARATION.toByteArray(Charsets.UTF_8))),
+        )
+    }
+
+    @Test
+    fun looksLikeFb2SkipsUtf8Bom() {
+        // UTF-8 BOM（EF BB BF）解出来是 \uFEFF，必须先跳过才看得到 XML 声明。
+        val withBom = ("\uFEFF" + FB2_WITH_DECLARATION).toByteArray(Charsets.UTF_8)
+        assertTrue(looksLikeFb2(write("bom.fb2", withBom)))
+        // BOM 之后直接跟根元素（无声明）同样放行。
+        assertTrue(
+            looksLikeFb2(write("bom-root.fb2", ("\uFEFF" + FB2_WITHOUT_DECLARATION).toByteArray(Charsets.UTF_8))),
+        )
+    }
+
+    @Test
+    fun looksLikeFb2SkipsLeadingWhitespaceAndNewlines() {
+        val padded = "\n\n \t\r\n  \t" + FB2_WITH_DECLARATION
+        assertTrue(looksLikeFb2(write("padded.fb2", padded.toByteArray(Charsets.UTF_8))))
+
+        val paddedRoot = "\r\n\t " + FB2_WITHOUT_DECLARATION
+        assertTrue(looksLikeFb2(write("padded-root.fb2", paddedRoot.toByteArray(Charsets.UTF_8))))
+    }
+
+    @Test
+    fun looksLikeFb2RejectsPlainText() {
+        assertFalse(
+            "纯文本不是 FB2",
+            looksLikeFb2(write("novel.fb2", "第一章 这不是 XML，只是改了后缀的纯文本".toByteArray(Charsets.UTF_8))),
+        )
+        assertFalse(looksLikeFb2(write("binary.fb2", byteArrayOf(0x00, 0x01, 0x02, 0x03))))
+    }
+
+    @Test
+    fun looksLikeFb2RejectsEmptyAndMissingFiles() {
+        assertFalse("0 字节文件不是 FB2", looksLikeFb2(write("empty.fb2", ByteArray(0))))
+        assertFalse("不存在的文件不是 FB2", looksLikeFb2(File(root, "missing.fb2")))
+    }
+
+    @Test
+    fun looksLikeFb2RejectsXmlWithForeignRootElement() {
+        // 是 XML 但根元素不是 FictionBook：不能进 FB2 分支。
+        val catalog = XML_DECLARATION + "<catalog><book>测试</book></catalog>"
+        assertFalse(looksLikeFb2(write("catalog.fb2", catalog.toByteArray(Charsets.UTF_8))))
+        assertFalse(
+            looksLikeFb2(write("catalog-root.fb2", "<catalog><book>测试</book></catalog>".toByteArray(Charsets.UTF_8))),
+        )
+        // 只有 XML 声明、正文里没有 FictionBook 根元素同样否掉。
+        assertFalse(
+            looksLikeFb2(write("decl-only.fb2", (XML_DECLARATION + "<html><body/></html>").toByteArray(Charsets.UTF_8))),
+        )
+    }
+
+    @Test
+    fun sniffBookFormatValidatesFb2Content() {
+        assertEquals(
+            BookFormat.Fb2,
+            sniffBookFormat(write("real.fb2", FB2_WITH_DECLARATION.toByteArray(Charsets.UTF_8))),
+        )
+        // .fb2 扩展名但内容不是 FB2：不能当书登记。
+        assertNull(sniffBookFormat(write("fake.fb2", "只是纯文本".toByteArray(Charsets.UTF_8))))
+        assertNull(sniffBookFormat(write("empty.fb2", ByteArray(0))))
+        // 大小写不敏感（SAF DISPLAY_NAME 不可控）。
+        assertEquals(
+            BookFormat.Fb2,
+            sniffBookFormat(write("UPPER.FB2", FB2_WITHOUT_DECLARATION.toByteArray(Charsets.UTF_8))),
+        )
+    }
+
+    @Test
+    fun sniffBookFormatKeepsTextExtensionForFb2Content() {
+        // 扩展名优先：内容是 FB2 XML 的 .txt 仍然是纯文本，不能被 XML 抢走成 FB2。
+        val file = write("misnamed.txt", FB2_WITH_DECLARATION.toByteArray(Charsets.UTF_8))
+        assertEquals(BookFormat.Text, sniffBookFormat(file))
+    }
+
+    @Test
+    fun isRecoverableLibraryFileAcceptsOnlyRealFb2UnderLibraryDir() {
+        // 冷启扫描只扫 filesDir/_pb_files，真实 FB2 内容应可恢复。
+        assertTrue(isRecoverableLibraryFile(libraryFile("real.fb2", FB2_WITH_DECLARATION.toByteArray(Charsets.UTF_8))))
+        assertTrue(
+            isRecoverableLibraryFile(libraryFile("root-only.fb2", FB2_WITHOUT_DECLARATION.toByteArray(Charsets.UTF_8))),
+        )
+        // 假内容 / 0 字节不得被冷启扫描登记成书。
+        assertFalse(isRecoverableLibraryFile(libraryFile("fake.fb2", "纯文本".toByteArray(Charsets.UTF_8))))
+        assertFalse(isRecoverableLibraryFile(libraryFile("empty.fb2", ByteArray(0))))
+    }
+
+    @Test
+    fun classifyImportedFileMarksFb2ByContentNotExtension() {
+        assertEquals(
+            ImportedFileIntegrity.COMPLETE,
+            classifyImportedFile(write("real.fb2", FB2_WITH_DECLARATION.toByteArray(Charsets.UTF_8))),
+        )
+        // 假内容既不能算完整，也不够格判「确认损坏」→ UNKNOWN（不能据此删旧副本）。
+        assertEquals(
+            ImportedFileIntegrity.UNKNOWN,
+            classifyImportedFile(write("fake.fb2", "改了后缀的纯文本".toByteArray(Charsets.UTF_8))),
+        )
+        // 0 字节仍是唯一无争议的损坏形态。
+        assertEquals(ImportedFileIntegrity.CORRUPT, classifyImportedFile(write("empty.fb2", ByteArray(0))))
+    }
+
+    @Test
+    fun detectBookFormatTrustsFb2Extension() {
+        assertEquals(
+            BookFormat.Fb2,
+            detectBookFormat(write("real.fb2", FB2_WITH_DECLARATION.toByteArray(Charsets.UTF_8))),
+        )
+        // detectBookFormat 只看扩展名（下载器给的后缀可信），内容不合也不会降级。
+        assertEquals(BookFormat.Fb2, detectBookFormat(write("fake.fb2", "纯文本".toByteArray(Charsets.UTF_8))))
+        assertEquals(
+            BookFormat.Fb2,
+            detectBookFormat(write("UPPER.FB2", FB2_WITHOUT_DECLARATION.toByteArray(Charsets.UTF_8))),
+        )
+    }
+
+    /** 在 filesDir/_pb_files（冷启扫描的唯一目录）下建文件。 */
+    private fun libraryFile(name: String, bytes: ByteArray): File {
+        val dir = File(root, "_pb_files").apply { mkdirs() }
+        return File(dir, name).apply { writeBytes(bytes) }
+    }
+
     private fun write(name: String, bytes: ByteArray): File = File(root, name).apply { writeBytes(bytes) }
 
     /** UTF-16 文本（带 FF FE / FE FF BOM），用于验证 BOM 放行分支。 */
@@ -268,5 +405,18 @@ class LibraryFileRecoveryTest {
 
     private companion object {
         val EPUB_HEADER = byteArrayOf(0x50, 0x4B, 0x03, 0x04, 0x14, 0x00)
+
+        const val XML_DECLARATION = "<?xml version=\"1.0\" encoding=\"utf-8\"?>"
+
+        /** 标准 FB2：XML 声明 + FictionBook 根元素 + 最小正文。 */
+        const val FB2_WITH_DECLARATION = XML_DECLARATION + "\n" +
+            "<FictionBook xmlns=\"http://www.gribuser.ru/xml/fictionbook/2.0\">\n" +
+            "  <description><title-info><book-title>测试书</book-title></title-info></description>\n" +
+            "  <body><section><p>正文</p></section></body>\n" +
+            "</FictionBook>\n"
+
+        /** 省略 XML 声明、直接以根元素开头的 FB2。 */
+        const val FB2_WITHOUT_DECLARATION = "<FictionBook xmlns=\"http://www.gribuser.ru/xml/fictionbook/2.0\">" +
+            "<body><section><p>正文</p></section></body></FictionBook>"
     }
 }

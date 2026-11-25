@@ -17,6 +17,8 @@ class BookFormatTest {
         assertEquals(BookFormat.Text, BookFormat.fromRaw("text"))
         assertEquals(BookFormat.Markdown, BookFormat.fromRaw("md"))
         assertEquals(BookFormat.Markdown, BookFormat.fromRaw("Markdown"))
+        assertEquals(BookFormat.Fb2, BookFormat.fromRaw("fb2"))
+        assertEquals(BookFormat.Fb2, BookFormat.fromRaw("FB2"))
     }
 
     @Test
@@ -32,9 +34,11 @@ class BookFormatTest {
         assertTrue(BookFormat.Pdf.isReadable)
         assertTrue(BookFormat.Text.isReadable)
         assertTrue(BookFormat.Markdown.isReadable)
+        assertTrue(BookFormat.Fb2.isReadable)
         assertFalse(BookFormat.Unsupported.isReadable)
         assertTrue(BookFormat.Text.isTextLike)
         assertTrue(BookFormat.Markdown.isTextLike)
+        assertTrue(BookFormat.Fb2.isTextLike)
         assertFalse(BookFormat.Epub.isTextLike)
         assertFalse(BookFormat.Pdf.isTextLike)
         assertFalse(BookFormat.Unsupported.isTextLike)

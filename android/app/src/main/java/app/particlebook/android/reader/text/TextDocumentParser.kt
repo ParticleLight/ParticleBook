@@ -110,6 +110,29 @@ internal object TextDocumentParser {
         return document
     }
 
+    /**
+     * 由「已经分好段的段落列表」重建文档（FB2 这类结构化格式用）。
+     *
+     * 与 [parse] 走同一套超长切分与代理对保护，只是偏移来源不同：
+     * 结构化格式没有可复用的原文（标签之间还夹着属性与空白），所以
+     * charOffsets[i] = 前 i 段文本长度之和、charCount = 全部段落文本长度之和 ——
+     * 坐标系仍是 UTF-16 码元，[fractionForParagraph] / [paragraphIndexForFraction] 照常单调可用。
+     * 空段落（空串）直接丢弃，不占一个可滚动的位置。
+     */
+    fun fromParagraphs(paragraphs: List<TextParagraph>): TextDocument {
+        val out = ArrayList<TextParagraph>(paragraphs.size)
+        val offsets = ArrayList<Int>(paragraphs.size)
+        var cursor = 0
+        for (paragraph in paragraphs) {
+            if (paragraph.text.isEmpty()) continue
+            appendParagraph(paragraph, cursor, out, offsets)
+            cursor += paragraph.text.length
+        }
+        val document = TextDocument(out, offsets.toIntArray())
+        document.bindCharCount(cursor)
+        return document
+    }
+
     /** 阅读进度：给定 0..1 的比例，返回应显示的第一段下标（越界一律落到合法范围）。 */
     fun paragraphIndexForFraction(document: TextDocument, fraction: Float): Int {
         val count = document.paragraphs.size

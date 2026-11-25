@@ -682,6 +682,7 @@ class LibraryStore(
         val format = when {
             extension == "pdf" || mimeType == "application/pdf" -> BookFormat.Pdf
             extension == "epub" || mimeType == "application/epub+zip" -> BookFormat.Epub
+            extension == "fb2" || mimeType == "application/x-fictionbook+xml" -> BookFormat.Fb2
             // 纯文本没有魔数：扩展名优先，MIME 兜底（md 先于 txt，因为通用 MIME 都是 text/plain）。
             extension == "md" || extension == "markdown" ||
                 mimeType == "text/markdown" -> BookFormat.Markdown
@@ -1227,6 +1228,7 @@ internal fun sanitizeCopyExtension(rawExtension: String, format: BookFormat): St
             BookFormat.Epub -> "epub"
             BookFormat.Text -> "txt"
             BookFormat.Markdown -> "md"
+            BookFormat.Fb2 -> "fb2"
             BookFormat.Unsupported -> "bin"
         }
     }
@@ -1260,6 +1262,25 @@ internal fun looksLikePlainText(file: File): Boolean = runCatching {
 }.getOrDefault(false)
 
 /**
+ * FB2 内容判定：扩展名是 .fb2 还不够，文件头（跳过 BOM 与空白）必须真是一条 FB2 XML。
+ *
+ * FB2 是 XML，没有二进制魔数，所以看「前 4 KiB 里有没有 <FictionBook 根元素」：
+ * 既能放行带 / 不带 XML 声明的两种写法，也能挡掉「改了后缀的任意文件」进书架。
+ * UTF-16 编码的 fb2 极少见，这里按 UTF-8 读；解不出来就当不是 FB2（宁可漏认，不要错认）。
+ */
+internal fun looksLikeFb2(file: File): Boolean = runCatching {
+    if (!file.isFile || file.length() <= 0L) return@runCatching false
+    val head = file.inputStream().use { input ->
+        val buffer = ByteArray(4 * 1024)
+        val read = input.read(buffer)
+        if (read <= 0) return@runCatching false
+        String(buffer, 0, read, Charsets.UTF_8).trimStart('\uFEFF', ' ', '\t', '\r', '\n')
+    }
+    val looksLikeXml = head.startsWith("<?xml") || head.startsWith("<FictionBook")
+    looksLikeXml && head.contains("<FictionBook")
+}.getOrDefault(false)
+
+/**
  * 读文件头判断书籍类型：扩展名给得出结论就按扩展名校验内容，给不出结论才看魔数。
  *
  * 不能无条件「魔数优先」：内容是 ZIP 的 .txt（或下载中断的残包改错后缀）一旦被魔数抢先判成
@@ -1273,6 +1294,7 @@ internal fun sniffBookFormat(file: File): BookFormat? = runCatching {
     val extension = file.extension.lowercase(Locale.US)
     val textFormat = textFormatByExtension(extension)
     when {
+        extension == "fb2" -> if (looksLikeFb2(file)) BookFormat.Fb2 else null
         textFormat != null -> if (looksLikePlainText(file)) textFormat else null
         extension == "epub" -> if (isZip) BookFormat.Epub else null
         extension == "pdf" -> if (isPdf) BookFormat.Pdf else null
@@ -1287,7 +1309,8 @@ internal fun isRecoverableLibraryFile(file: File): Boolean {
     if (!file.isFile || file.isHidden) return false
     // 白名单与导入/嗅探共用同一份扩展名表，避免 .markdown / .text 能导入却扫不回来。
     val extension = file.extension.lowercase(Locale.US)
-    val known = extension == "epub" || extension == "pdf" || textFormatByExtension(extension) != null
+    val known = extension == "epub" || extension == "pdf" || extension == "fb2" ||
+        textFormatByExtension(extension) != null
     if (!known) return false
     return sniffBookFormat(file) != null
 }
@@ -1342,6 +1365,9 @@ internal fun classifyImportedFile(file: File): ImportedFileIntegrity {
                     } else {
                         ImportedFileIntegrity.CORRUPT
                     }
+                // FB2 的结构证据就是根元素本身。
+                file.extension.lowercase(Locale.US) == "fb2" && looksLikeFb2(file) ->
+                    ImportedFileIntegrity.COMPLETE
                 // 纯文本没有结构可校验：扩展名受支持且内容没有 NUL 即视为完整。
                 textFormatByExtension(file.extension) != null && looksLikePlainText(file) ->
                     ImportedFileIntegrity.COMPLETE
@@ -2485,10 +2511,11 @@ internal fun freshBookId(used: MutableSet<Long>): Long {
     return candidate
 }
 
-/** 下载文件的格式：先看扩展名（含 TXT/Markdown），再看文件头（%PDF / PK）。 */
+/** 下载文件的格式：先看扩展名（含 TXT / Markdown / FB2），再看文件头（%PDF / PK）。 */
 internal fun detectBookFormat(file: File): BookFormat {
     textFormatByExtension(file.extension)?.let { return it }
-    when (file.extension.lowercase()) {
+    when (file.extension.lowercase(Locale.US)) {
+        "fb2" -> return BookFormat.Fb2
         "pdf" -> return BookFormat.Pdf
         "epub" -> return BookFormat.Epub
     }

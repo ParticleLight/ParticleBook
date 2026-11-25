@@ -47,6 +47,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.particlebook.android.reader.ReaderLocator
+import app.particlebook.android.reader.fb2.Fb2Parser
 import app.particlebook.android.reader.text.TextDocument
 import app.particlebook.android.reader.text.TextDocumentParser
 import app.particlebook.android.reader.text.TextSearchEngine
@@ -92,7 +93,6 @@ internal fun TextReaderScreen(
     ImmersiveSystemBars()
     BackHandler(onBack = onBack)
     val context = LocalContext.current
-    val markdown = book.format == BookFormat.Markdown
 
     var document by remember(book.filePath) { mutableStateOf<TextDocument?>(null) }
     var failure by remember(book.filePath) { mutableStateOf<String?>(null) }
@@ -103,13 +103,10 @@ internal fun TextReaderScreen(
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
 
-    // 打开：读字节 → 解码（BOM/UTF-8/GB18030）→ 分段，整块放 IO，主线程只接结果。
+    // 打开：读字节 → 解码（BOM/UTF-8/GB18030）→ 按格式分段，整块放 IO，主线程只接结果。
     LaunchedEffect(book.filePath) {
         val loaded = withContext(Dispatchers.IO) {
-            runCatching {
-                val bytes = File(book.filePath).readBytes()
-                TextDocumentParser.parse(TextFileDecoder.decode(bytes).text, markdown)
-            }
+            runCatching { openDocument(File(book.filePath), book.format) }
         }
         loaded.onSuccess { document = it }
             .onFailure { failure = it.message ?: "读取文件失败" }
@@ -428,4 +425,29 @@ private fun paragraphIndexForOffset(document: TextDocument, offset: Int): Int {
         if (document.charOffsets[i] <= offset) index = i else break
     }
     return index
+}
+
+/**
+ * 打开文本类书籍：先按 BOM/编码猜解出字符串，再按格式选解析器。
+ *
+ * - TXT：空行分段、段内软换行折成空格；
+ * - Markdown：空行分段、保留段内换行、识别 # 标题；
+ * - FB2：交给 [Fb2Parser] 从 XML 里取出章节标题与正文段落，再经
+ *   [TextDocumentParser.fromParagraphs] 统一切分与偏移计算。
+ *
+ * 三条路最终都得到同一个 [TextDocument]，所以阅读器、搜索与进度链路对格式零分叉。
+ */
+private fun openDocument(file: File, format: BookFormat): TextDocument {
+    val text = TextFileDecoder.decode(file.readBytes()).text
+    return when (format) {
+        BookFormat.Fb2 -> {
+            val document = Fb2Parser.parse(text)
+            TextDocumentParser.fromParagraphs(
+                document.paragraphs.map { TextParagraph(it.text, it.headingLevel) },
+            )
+        }
+
+        BookFormat.Markdown -> TextDocumentParser.parse(text, markdown = true)
+        else -> TextDocumentParser.parse(text, markdown = false)
+    }
 }

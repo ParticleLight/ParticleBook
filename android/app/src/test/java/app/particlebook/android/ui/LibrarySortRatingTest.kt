@@ -182,17 +182,18 @@ class LibrarySortRatingTest {
         val all = filterBooks(books, "", LibrarySort.RecentRead, FormatFilter.All)
 
         assertEquals(books.size, all.size)
-        // RecentRead 按 id 倒序，顺序也一并锁住。
-        assertEquals(listOf(5L, 4L, 3L, 2L, 1L), ids(all))
+        // RecentRead 按 id 倒序，顺序也一并锁住（格式增减时自动跟随，不写死 id 清单）。
+        assertEquals((books.size downTo 1).map { it.toLong() }, ids(all))
         assertEquals(BookFormat.values().toSet(), all.map { it.format }.toSet())
         assertTrue(all.any { it.format == BookFormat.Text })
         assertTrue(all.any { it.format == BookFormat.Markdown })
+        assertTrue(all.any { it.format == BookFormat.Fb2 })
         assertTrue(all.any { it.format == BookFormat.Unsupported })
     }
 
     @Test
     fun eachFormatFilterKeepsOnlyItsOwnFormat() {
-        // 五种格式各一本，四个单项筛选各只留自己那一本 —— 文本类两种格式绝不能互相带出。
+        // 每种格式各一本，每个单项筛选各只留自己那一本 —— 文本类三种格式绝不能互相带出。
         val books = BookFormat.values().mapIndexed { index, format ->
             formatBook((index + 1).toLong(), format)
         }
@@ -201,6 +202,7 @@ class LibrarySortRatingTest {
             FormatFilter.Pdf to BookFormat.Pdf,
             FormatFilter.Text to BookFormat.Text,
             FormatFilter.Markdown to BookFormat.Markdown,
+            FormatFilter.Fb2 to BookFormat.Fb2,
         )
 
         cases.forEach { (filter, expected) ->

@@ -134,6 +134,7 @@ enum class FormatFilter(val bookFormat: BookFormat?) {
     Pdf(BookFormat.Pdf),
     Text(BookFormat.Text),
     Markdown(BookFormat.Markdown),
+    Fb2(BookFormat.Fb2),
     ;
 
     val label: String

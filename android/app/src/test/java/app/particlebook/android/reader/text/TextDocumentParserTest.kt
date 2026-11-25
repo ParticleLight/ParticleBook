@@ -373,5 +373,114 @@ internal class TextDocumentParserTest {
         assertEquals(listOf(0, 20_000), document.charOffsets.toList())
         assertEquals(20_001, document.charCount)
     }
+
+    // ---- fromParagraphs：结构化格式（FB2 等）的「已分好段」入口 ----
+
+    @Test
+    fun fromParagraphsOfEmptyListGivesEmptyDocument() {
+        val document = TextDocumentParser.fromParagraphs(emptyList())
+        assertTrue(document.isEmpty)
+        assertEquals(0, document.paragraphs.size)
+        assertEquals(0, document.charOffsets.size)
+        assertEquals(0, document.charCount)
+    }
+
+    @Test
+    fun fromParagraphsLaysOutOffsetsFromTextLengths() {
+        val document = TextDocumentParser.fromParagraphs(
+            listOf(
+                TextParagraph("甲乙丙"),
+                TextParagraph("丁戊"),
+                TextParagraph("己庚辛"),
+            ),
+        )
+        assertFalse(document.isEmpty)
+        assertEquals(listOf("甲乙丙", "丁戊", "己庚辛"), texts(document))
+        // 偏移 = 前面各段长度之和（3、3+2）。
+        assertEquals(listOf(0, 3, 5), document.charOffsets.toList())
+        assertEquals(8, document.charCount)
+        assertEquals(listOf(0, 0, 0), levels(document))
+    }
+
+    @Test
+    fun fromParagraphsDropsEmptyTextAndKeepsOffsetsPacked() {
+        val document = TextDocumentParser.fromParagraphs(
+            listOf(TextParagraph("甲"), TextParagraph(""), TextParagraph("乙丙")),
+        )
+        assertEquals(2, document.paragraphs.size)
+        assertEquals(listOf("甲", "乙丙"), texts(document))
+        assertEquals(listOf(0, 1), document.charOffsets.toList())
+        assertEquals(3, document.charCount)
+    }
+
+    @Test
+    fun fromParagraphsPassesHeadingLevelsThrough() {
+        val document = TextDocumentParser.fromParagraphs(
+            listOf(
+                TextParagraph("一级", headingLevel = 1),
+                TextParagraph("二级", headingLevel = 2),
+                TextParagraph("六级", headingLevel = 6),
+            ),
+        )
+        assertEquals(listOf(1, 2, 6), levels(document))
+        assertEquals(listOf("一级", "二级", "六级"), texts(document))
+        assertEquals(listOf(0, 2, 4), document.charOffsets.toList())
+        assertEquals(6, document.charCount)
+    }
+
+    @Test
+    fun fromParagraphsSplitsOversizedParagraphIntoChunks() {
+        val raw = "字".repeat(45_000)
+        val document = TextDocumentParser.fromParagraphs(listOf(TextParagraph(raw, headingLevel = 2)))
+        assertEquals(3, document.paragraphs.size)
+        assertEquals(listOf(20_000, 20_000, 5_000), document.paragraphs.map { it.text.length })
+        assertEquals(listOf(0, 20_000, 40_000), document.charOffsets.toList())
+        // 标题级别只属于首块，后续块一律 0。
+        assertEquals(listOf(2, 0, 0), levels(document))
+        assertEquals(45_000, document.charCount)
+        assertEquals(raw, document.paragraphs.joinToString("") { it.text })
+        assertTrue(document.paragraphs.all { it.text.length <= 20_000 })
+    }
+
+    @Test
+    fun fromParagraphsNeverSplitsSurrogatePairsWhenChunking() {
+        // 每个单元 19_999 个 'a' + 一个 emoji，第一个切点正好落在 emoji 的高位代理上。
+        val raw = ("a".repeat(19_999) + "\uD83D\uDE00").repeat(3)
+        val document = TextDocumentParser.fromParagraphs(listOf(TextParagraph(raw)))
+        assertTrue(document.paragraphs.size >= 3)
+        assertTrue(document.paragraphs.all { it.text.length <= 20_000 })
+        assertEquals(raw, document.paragraphs.joinToString("") { it.text })
+        assertEquals(raw.length, document.charCount)
+        assertEquals(19_999, document.paragraphs[0].text.length)
+        var expectedOffset = 0
+        for ((index, paragraph) in document.paragraphs.withIndex()) {
+            assertEquals("offset at chunk " + index, expectedOffset, document.charOffsets[index])
+            expectedOffset += paragraph.text.length
+            assertFalse("lone surrogate in chunk " + index, hasLoneSurrogate(paragraph.text))
+            assertFalse(
+                "chunk " + index + " starts with a low surrogate",
+                Character.isLowSurrogate(paragraph.text.first()),
+            )
+            assertFalse(
+                "chunk " + index + " ends with a high surrogate",
+                Character.isHighSurrogate(paragraph.text.last()),
+            )
+        }
+        assertEquals(raw.length, expectedOffset)
+    }
+
+    @Test
+    fun fromParagraphsFractionRoundTripHoldsForEveryParagraph() {
+        val document = TextDocumentParser.fromParagraphs(
+            listOf(TextParagraph("甲", headingLevel = 1), TextParagraph("乙乙"), TextParagraph("丙丙丙")),
+        )
+        assertEquals(listOf(0, 1, 3), document.charOffsets.toList())
+        assertEquals(6, document.charCount)
+        for (index in document.paragraphs.indices) {
+            val fraction = TextDocumentParser.fractionForParagraph(document, index)
+            // ROUND_TRIP_SLACK（1e-6 * charCount）吸收 Float 24 位有效位带来的往返误差。
+            assertEquals("round trip at " + index, index, TextDocumentParser.paragraphIndexForFraction(document, fraction))
+        }
+    }
 }
 
