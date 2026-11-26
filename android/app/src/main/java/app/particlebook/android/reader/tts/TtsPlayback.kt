@@ -64,7 +64,8 @@ internal sealed interface TtsPlaybackState {
  *
  * 语义：
  * - [start] 从头（或指定下标）开始，立刻朗读该句；
- * - 一句念完（[onUtteranceDone]）自动推进到下一句，末句念完回到 Idle；
+ * - 一句念完（[onUtteranceDone]）自动推进到下一句；末句念完先同步询问 [onUnitFinished]，
+ *   宿主在其中 start 下一单元则跨单元续播，否则回到 Idle；
  * - [pause] 只停当前句，恢复时从当前句重新朗读（系统 TTS 不支持续播，重念整句是常见做法）；
  * - 暂停期间的 [next] / [previous] 只移动光标，停在暂停状态，不自动开念；
  * - [stop] 清空并回到 Idle。
@@ -75,6 +76,18 @@ internal class TtsPlayback(
     private val speaker: TtsSpeaker,
     private val onStateChanged: (TtsPlaybackState) -> Unit = {},
     private val onSentence: (TtsSentence?) -> Unit = {},
+    /**
+     * 当前单元自然念完（末句回调）时、在收尾或释放音频焦点之前同步调用。
+     *
+     * 要连续朗读，必须在本回调内同步 [start] 下一单元：start 会推进 [utteranceSeq]，
+     * 回到本类时便不再执行默认 [stop]，因此段间不发布 Idle、不释放音频焦点。
+     * 回调内主动 [stop]/[pause]/[shutdown] 同样以代次/状态为准，不会被旧单元的收尾覆盖。
+     * 回调抛异常时先 [stop] 释放，再把原异常原样抛出。
+     * 默认空实现保持 EPUB/PDF 与既有调用方的「末句即 stop」语义。
+     *
+     * 回调内不得用 [load] 接续：load 不推进 [utteranceSeq]，也不会释放旧焦点。
+     */
+    private val onUnitFinished: () -> Unit = {},
 ) {
     private var sentences: List<TtsSentence> = emptyList()
     private var index = -1
@@ -183,16 +196,40 @@ internal class TtsPlayback(
         speaker.shutdown()
     }
 
-    /** 由引擎回调驱动：只有当前这一句的回调才推进，避免快速暂停/切句时的迟到回调打乱状态。 */
+    /**
+     * 由引擎回调驱动：只有当前 Playing 单元且 id 匹配的回调才推进，
+     * 避免快速暂停/切句/停止后的迟到回调打乱状态或误触发单元完成交接。
+     */
     fun onUtteranceDone(utteranceId: String) {
-        if (paused) return
+        if (state !is TtsPlaybackState.Playing) return
         if (utteranceId != currentUtteranceId()) return
         if (index >= sentences.lastIndex) {
-            stop()
+            finishUnit()
             return
         }
         index += 1
         speakCurrent()
+    }
+
+    /**
+     * 当前单元自然念完：先推进代次作废这一句，再同步交给宿主决定是否接续。
+     *
+     * 宿主在回调里 [start] 下一单元会再次推进 [utteranceSeq]，这里便跳过 [stop]，
+     * 段间不发布 Idle、不释放音频焦点；未接续才 [stop]，已暂停/关闭则不覆盖其状态。
+     * 异常路径先把引擎/焦点收干净，再把原异常抛回宿主，避免「崩了但焦点还挂着」。
+     */
+    private fun finishUnit() {
+        utteranceSeq += 1
+        val generation = utteranceSeq
+        try {
+            onUnitFinished()
+        } catch (error: Throwable) {
+            stop()
+            throw error
+        }
+        if (utteranceSeq == generation && state is TtsPlaybackState.Playing) {
+            stop()
+        }
     }
 
     private fun moveToCurrent() {

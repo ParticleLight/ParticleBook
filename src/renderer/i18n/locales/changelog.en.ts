@@ -1,5 +1,7 @@
 export const enChangelog: Record<string, string> = {
   // Android P1 · unreleased
+  // ── 2026-11-26：连续朗读音频焦点 ──
+  '修复安卓版 TXT / Markdown / FB2 / HTML 连续朗读跨段时反复释放、申请音频焦点的问题：自然接下一段沿用同一朗读会话，暂停、停止、离开书籍、定时到期或读到末尾仍及时释放；EPUB / PDF 保留本页读完即停止的行为。': 'Fixed repeated audio-focus release and requests between paragraphs in Android TXT / Markdown / FB2 / HTML read aloud. Natural paragraph continuation now keeps one speech session, while pause, stop, leaving the book, timer expiry and the end of the file still release focus. EPUB / PDF continue to stop at the end of the current page.',
   // ── 2026-11-26：全文搜索书架范围 ──
   '修复安卓版跨书全文搜索范围：只显示当前书架的书，已移除书籍的旧索引不再占用结果上限；按当前书架身份匹配书名与打开目标，书架变化时自动刷新当前查询。': 'Fixed cross-book full-text search on Android: results are limited to the current library, and old indexes for removed books no longer consume the result limit. Titles and open targets use current library identities, and library changes refresh the current query.',
   // ── 2026-11-26：EPUB 搜索位置接管 ──

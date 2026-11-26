@@ -185,21 +185,26 @@ internal fun TextReaderScreen(
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
 
-    // 朗读：以「段」为单位推进。TtsPlayback 一次只装一段的句子，念完一段回到 Idle，
-    // 再由下面的续段 effect 装下一段——句子偏移始终是段内的，高亮不会跨段错位。
+    // 朗读：以「段」为单位推进。TtsPlayback 一次只装一段的句子；自然念完一段时它同步回调
+    // 下面的续段 holder 接下一段——句子偏移始终是段内的，高亮不会跨段错位。
+    // 接续发生在状态机收尾之前，所以段间不发布 Idle、不释放音频焦点；手动停止/暂停不受影响。
     var ttsState by remember(book.filePath) { mutableStateOf<TtsPlaybackState>(TtsPlaybackState.Idle) }
     var ttsSentence by remember(book.filePath) { mutableStateOf<TtsSentence?>(null) }
     var ttsRate by remember { mutableStateOf(1.0f) }
     // 正在朗读的段落下标；-1 表示没在朗读。
     var aloudParagraph by remember(book.filePath) { mutableIntStateOf(-1) }
-    // 「续读」意图：只有它开着，一段念完才自动接下一段。用户主动停止时先关它再 stop()，
-    // 否则 stop() 同步刷出的 Idle 会被续段逻辑当成"自然念完"而接着念。
+    // 「续读」意图：只有它开着，自然段末才接下一段。用户主动停止时先关它再 stop()：
+    // stop() 会推进代次并清掉引擎回调，迟到的 done 不再触发完成回调，续读意图也一并落空。
     var aloudFollowing by remember(book.filePath) { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
     val sleepTimer = rememberReaderSleepTimer(book.filePath)
     // 失焦回调要拿到 playback，而 playback 又需要 speaker：用持有者打破这个循环。
     // SideEffect 在组合提交后赋值，真正的音频焦点变化只会发生在更晚。
     val ttsPlaybackHolder = remember { mutableStateOf<TtsPlayback?>(null) }
+    // 段末续读回调经 holder 交给 playback：playback 只在 speaker 变化时重建，直接把当帧
+    // lambda 塞进构造器会捕获换书前的旧组合；SideEffect 每次提交后刷新，回调里再读
+    // document / aloudParagraph 等状态。
+    val naturalUnitFinishedHolder = remember { mutableStateOf<(() -> Unit)?>(null) }
     val ttsSpeaker = remember(context) {
         AndroidTtsSpeaker(context, onFocusLost = { ttsPlaybackHolder.value?.pause() })
     }
@@ -208,6 +213,7 @@ internal fun TextReaderScreen(
             speaker = ttsSpeaker,
             onStateChanged = { ttsState = it },
             onSentence = { ttsSentence = it },
+            onUnitFinished = { naturalUnitFinishedHolder.value?.invoke() },
         )
     }
     SideEffect { ttsPlaybackHolder.value = ttsPlayback }
@@ -452,8 +458,8 @@ internal fun TextReaderScreen(
 
     fun stopAloud() {
         sleepTimer.cancel()
-        // 顺序是契约：先关「续读」再停引擎。stop() 会同步把状态刷成 Idle，
-        // 反序会被续段逻辑当成"自然念完"接着念下一段。
+        // 顺序是契约：先关「续读」再停引擎，用户意图先行；stop() 随后推进代次并清空
+        // 引擎回调，迟到的 done 不会再把下一段接回来。
         aloudFollowing = false
         aloudParagraph = -1
         ttsPlayback.stop()
@@ -524,7 +530,7 @@ internal fun TextReaderScreen(
             return
         }
         if (!playParagraph(next, keepPaused = ttsState is TtsPlaybackState.Paused)) {
-            // 装载失败还继续留着 aloudFollowing，续段逻辑会从"再下一段"接着找，
+            // 装载失败还继续留着 aloudFollowing，下一次自动续段会从"再下一段"接着找，
             // 用户想听的那一段就被静默跳过了。
             stopAloud()
             scope.launch { snackbarHostState.showSnackbar("系统朗读引擎不可用") }
@@ -761,21 +767,28 @@ internal fun TextReaderScreen(
     }
     BackHandler(onBack = leaveReader)
 
-    // 一段念完 → 接下一段；念到末尾就收摊。ttsState 由状态机同步写回，
-    // 这里等价于"自然播完"的通知渠道：用户主动停止会先把 aloudFollowing 关掉。
-    LaunchedEffect(ttsState) {
-        if (ttsState != TtsPlaybackState.Idle) return@LaunchedEffect
-        if (!aloudFollowing) return@LaunchedEffect
-        // 段号已清（用户停止 / 装载失败）时不该续：靠调用顺序保证太脆，写死成前置条件。
-        if (aloudParagraph < 0) return@LaunchedEffect
-        val doc = document ?: return@LaunchedEffect
-        val next = TextSpeech.nextSpeakable(doc.paragraphs, aloudParagraph)
-        if (next == null) {
-            stopAloud()
-            snackbarHostState.showSnackbar("已经读到文件末尾")
-        } else if (!playParagraph(next)) {
-            stopAloud()
-            snackbarHostState.showSnackbar("系统朗读引擎不可用")
+    // 自然段末的同步续段：TtsPlayback 在末句 done 且仍 Playing 时调用本回调。
+    // 这里必须同步 start 下一段——start 推进代次后状态机便跳过默认 stop，段间因此
+    // 不发布 Idle、不释放音频焦点。回调本身不挂起：提示交给 scope，缺文档 / EOF /
+    // 装载失败都 stopAloud 把计时、段号与焦点一起收干净。
+    SideEffect {
+        naturalUnitFinishedHolder.value = {
+            if (aloudFollowing) {
+                val index = aloudParagraph
+                val doc = document
+                if (index < 0 || doc == null) {
+                    stopAloud()
+                } else {
+                    val next = TextSpeech.nextSpeakable(doc.paragraphs, index)
+                    if (next == null) {
+                        stopAloud()
+                        scope.launch { snackbarHostState.showSnackbar("已经读到文件末尾") }
+                    } else if (!playParagraph(next)) {
+                        stopAloud()
+                        scope.launch { snackbarHostState.showSnackbar("系统朗读引擎不可用") }
+                    }
+                }
+            }
         }
     }
 
