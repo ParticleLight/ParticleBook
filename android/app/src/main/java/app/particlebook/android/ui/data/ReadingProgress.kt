@@ -89,6 +89,10 @@ object ReadingProgress {
      *
      * 不调 [pageObserver]：段落不是「页」，段落级变化会让阅读统计把一次滚动记成几十次翻页。
      * 文本的阅读时长由会话记录器按打开/关闭时间统计，与翻页数无关。
+     *
+     * 单段文档照样落库（`totalPages = 1`）：段落数不等于屏数，一篇没有空行的 1.9 万字 txt 只有
+     * 一段、却要滚几十屏。以前这里 `paragraphs <= 1` 早退，结果是「读了半本，重开回到顶部、
+     * 书架也不记这本」；显示层按 `hasProgress()`（totalPages > 1）自己决定要不要露百分比即可。
      */
     fun saveTextProgress(
         context: Context,
@@ -97,7 +101,7 @@ object ReadingProgress {
         paragraph: Int,
         paragraphs: Int,
     ) {
-        if (paragraphs <= 1) return
+        if (paragraphs <= 0) return
         val index = paragraph.coerceIn(0, paragraphs - 1)
         save(bookId, locator, index, paragraphs)
     }

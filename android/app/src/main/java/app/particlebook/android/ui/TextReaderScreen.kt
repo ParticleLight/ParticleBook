@@ -67,6 +67,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import app.particlebook.android.reader.AnnotationStore
 import app.particlebook.android.reader.ReaderAnnotation
 import app.particlebook.android.reader.ReaderAnnotationType
@@ -84,6 +87,8 @@ import app.particlebook.android.reader.text.TextSearchEngine
 import app.particlebook.android.reader.text.TextSearchHit
 import app.particlebook.android.reader.text.TextFileDecoder
 import app.particlebook.android.reader.text.TextParagraph
+import app.particlebook.android.reader.text.TextProgressJump
+import app.particlebook.android.reader.text.TextProgressTarget
 import app.particlebook.android.reader.text.TextSpeech
 import app.particlebook.android.reader.tts.AndroidTtsSpeaker
 import app.particlebook.android.reader.tts.TtsPlayback
@@ -93,6 +98,7 @@ import app.particlebook.android.ui.data.Book
 import app.particlebook.android.ui.data.BookFormat
 import app.particlebook.android.ui.data.ReadingProgress
 import java.io.File
+import kotlin.math.roundToInt
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -202,20 +208,24 @@ internal fun TextReaderScreen(
 
     val paragraphCount = document?.paragraphs?.size ?: 0
 
-    // 起始位置：搜索命中（字符偏移）优先，否则回上次读到的段落下标。
+    // 起始位置：显式跳转（书内搜索命中）按字符偏移反查；正常打开则直接用上次保存的段落下标。
+    //
+    // 顺序不能反：图片段没有文本，charOffsets 会跟它后面那段共用同一个偏移
+    // （"上/图/下" → [0, 1, 1]），从偏移反查永远落到靠后的那段，停在插图退出、重开会跳过整张图。
+    // 保存侧写的 paragraph 是精确下标，只有它才分得清「图」与「图之后」。
     val startIndex = remember(document, initialLocator) {
         val doc = document
-        if (doc == null || doc.paragraphs.isEmpty()) {
-            0
-        } else {
-            val offset = (initialLocator as? ReaderLocator.Text)?.offset
-            val fromLocator = if (offset != null && offset >= 0) {
-                TextAnnotations.paragraphIndexOfOffset(doc, offset)
-            } else {
-                null
+        when {
+            doc == null || doc.paragraphs.isEmpty() -> 0
+            else -> {
+                val explicit = initialLocator as? ReaderLocator.Text
+                val fromLocator = explicit?.takeIf { it.offset >= 0 }?.let {
+                    TextAnnotations.paragraphIndexOfOffset(doc, it.offset)
+                }
+                fromLocator
+                    ?: ReadingProgress.savedPage(context, book.id)?.coerceIn(0, doc.paragraphs.lastIndex)
+                    ?: 0
             }
-            fromLocator ?: ReadingProgress.savedPage(context, book.id)
-                ?.coerceIn(0, doc.paragraphs.lastIndex) ?: 0
         }
     }
     LaunchedEffect(document) {
@@ -252,28 +262,16 @@ internal fun TextReaderScreen(
         document?.let { TextAnnotations.byParagraph(it, annotations) } ?: emptyMap()
     }
 
-    // 进度落库：滚停 600ms 只写一次。一次拖动可能连过几十段，逐段落库既费 IO 也没有信息量。
-    LaunchedEffect(document) {
-        val doc = document
-        if (doc == null || doc.paragraphs.size <= 1) return@LaunchedEffect
-        snapshotFlow { listState.firstVisibleItemIndex }.collectLatest { index ->
-            delay(ProgressSaveDelayMillis)
-            ReadingProgress.saveTextProgress(
-                context = context,
-                bookId = book.id,
-                locator = ReaderLocator.Text(offset = doc.charOffsets.getOrElse(index) { 0 }, length = 0),
-                paragraph = index,
-                paragraphs = doc.paragraphs.size,
-            )
-        }
-    }
-
-    // 离开阅读器时补落一次：防抖窗口（600ms）里按返回时，collectLatest 会被取消，
-    // 最后一次位置就再也写不进去了。onDispose 里同步入队（saveTextProgress 本身只是 enqueue）。
-    DisposableEffect(book.filePath) {
-        onDispose {
-            val doc = document
-            if (doc != null && doc.paragraphs.size > 1) {
+    // 当前可见段落 → 落库。防抖、切后台、离开阅读器三处共用同一份口径，
+    // 免得「最后一屏算哪一段」在三个地方各算一遍（差一段就够让恢复跳错）。
+    //
+    // latestDocument 走 rememberUpdatedState：DisposableEffect / 生命周期观察者的闭包
+    // 只建一次，直接捕获 document 会永远读到首帧的 null。
+    val latestDocument by rememberUpdatedState(document)
+    val persistVisibleProgress: () -> Unit = remember(book.id) {
+        {
+            val doc = latestDocument
+            if (doc != null && doc.paragraphs.isNotEmpty()) {
                 val index = listState.firstVisibleItemIndex.coerceIn(0, doc.paragraphs.lastIndex)
                 ReadingProgress.saveTextProgress(
                     context = context,
@@ -284,6 +282,33 @@ internal fun TextReaderScreen(
                 )
             }
         }
+    }
+
+    // 进度落库：滚停 600ms 只写一次。一次拖动可能连过几十段，逐段落库既费 IO 也没有信息量。
+    // 单段文档也照写：段落数不是屏数，一篇没有空行的长 txt 只有一段却要滚几十屏。
+    LaunchedEffect(document) {
+        if (document == null) return@LaunchedEffect
+        snapshotFlow { listState.firstVisibleItemIndex }.collectLatest {
+            delay(ProgressSaveDelayMillis)
+            persistVisibleProgress()
+        }
+    }
+
+    // 切后台补落一次：EPUB 与 PDF 在同一个事件上补存，文本这条链路原先只有防抖，
+    // 「滚完立刻按 Home、随后进程被杀」会整段丢掉。
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner, book.filePath) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP) persistVisibleProgress()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    // 离开阅读器时补落一次：防抖窗口（600ms）里按返回时，collectLatest 会被取消，
+    // 最后一次位置就再也写不进去了。onDispose 里同步入队（saveTextProgress 本身只是 enqueue）。
+    DisposableEffect(book.filePath) {
+        onDispose { persistVisibleProgress() }
     }
 
     // 搜什么都要先停一下：整本 indexOf 是 O(n·m)，逐键在组合阶段同步跑会在长文本上直接卡住主线程。
@@ -694,11 +719,24 @@ internal fun TextReaderScreen(
         }
     }
 
+    // 与「跳到位置」面板同一个口径：已读段数 / 总段数，四舍五入。
+    // 原来用整数截断，4 段读到第 2 段时顶栏 50%、面板 50%，但 3 段时顶栏 66%、面板 67% —— 同屏两个数字。
     val percent by remember(document) {
         derivedStateOf {
             val total = document?.paragraphs?.size ?: 0
-            if (total <= 0) 0 else ((listState.firstVisibleItemIndex + 1) * 100 / total).coerceIn(0, 100)
+            if (total <= 0) 0 else (((listState.firstVisibleItemIndex + 1) * 100f) / total).roundToInt().coerceIn(0, 100)
         }
+    }
+
+    // 「跳到位置」面板：打开时把目标段落定死，拖动只更新文案。
+    // TextProgressSheet 的 Slider 以 paragraphIndex 为 remember key，换段落会在拖动中被重建，
+    // 所以预览阶段必须保持 paragraphIndex 不变（只换 fraction / 文案 / 章名）。
+    var progressOpen by remember(book.filePath) { mutableStateOf(false) }
+    var progressTarget by remember(book.filePath) { mutableStateOf<TextProgressTarget?>(null) }
+    fun openProgress() {
+        val doc = document ?: return
+        progressTarget = TextProgressJump.targetOfParagraph(doc, outline, visibleParagraph)
+        progressOpen = true
     }
 
     Scaffold(
@@ -713,12 +751,17 @@ internal fun TextReaderScreen(
                 actions = {
                     if (paragraphCount > 1) {
                         // 进度只写「12%」：带「已读」两个字会把标题挤没。
-                        Text(
-                            text = percent.toString() + "%",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        Spacer(Modifier.width(Spacing.xs))
+                        // 同时是「跳到位置」的入口——几百段的书里，想回到第三章只能一路狂滚。
+                        TextButton(
+                            onClick = { openProgress() },
+                            contentPadding = PaddingValues(horizontal = Spacing.xs),
+                        ) {
+                            Text(
+                                text = percent.toString() + "%",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     }
                     if (outline.isNotEmpty()) {
                         IconButton(onClick = { tocOpen = true }) {
@@ -903,6 +946,49 @@ internal fun TextReaderScreen(
                 scope.launch { listState.animateScrollToItem(picked.paragraphIndex) }
             },
             onDismiss = { searchOpen = false },
+        )
+    }
+
+    val progressDoc = document
+    val shownProgress = progressTarget
+    if (progressOpen && progressDoc != null && shownProgress != null) {
+        TextProgressSheet(
+            target = shownProgress,
+            canGoPreviousChapter = TextProgressJump
+                .chapterStep(progressDoc, outline, shownProgress.paragraphIndex, -1) != null,
+            canGoNextChapter = TextProgressJump
+                .chapterStep(progressDoc, outline, shownProgress.paragraphIndex, 1) != null,
+            // 拖动只换文案：Slider 以 paragraphIndex 为 key，换段会在拖动中把滑块重建掉。
+            onSeek = { fraction ->
+                val preview = TextProgressJump.targetOf(progressDoc, outline, fraction)
+                progressTarget = shownProgress.copy(
+                    fraction = preview.fraction,
+                    percentLabel = preview.percentLabel,
+                    positionLabel = preview.positionLabel,
+                    chapterTitle = preview.chapterTitle,
+                    chapterIndex = preview.chapterIndex,
+                )
+            },
+            onJump = { fraction ->
+                val landed = TextProgressJump.targetOf(progressDoc, outline, fraction)
+                progressOpen = false
+                progressTarget = landed
+                dismissAnnotationTools()
+                stopAloud()
+                scope.launch { listState.scrollToItem(landed.paragraphIndex) }
+            },
+            onChapterStep = { direction ->
+                val landed = TextProgressJump
+                    .chapterStep(progressDoc, outline, shownProgress.paragraphIndex, direction)
+                if (landed != null) {
+                    progressOpen = false
+                    progressTarget = landed
+                    dismissAnnotationTools()
+                    stopAloud()
+                    scope.launch { listState.scrollToItem(landed.paragraphIndex) }
+                }
+            },
+            onDismiss = { progressOpen = false },
         )
     }
 
