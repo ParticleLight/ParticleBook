@@ -65,6 +65,9 @@ interface LibraryRepository {
     }
     fun search(query: String, limit: Int = 50): List<SearchHit>
 
+    /** 仅搜索指定的 canonical SQLite 书籍 ID，作用域过滤先于 limit。 */
+    fun searchInBooks(query: String, bookIds: Set<Long>, limit: Int = 50): List<SearchHit>
+
     fun <T> transaction(block: (LibraryRepository) -> T): T
     fun close()
 }
@@ -177,6 +180,12 @@ class SqliteLibraryRepository(private val db: SQLiteDatabase) : LibraryRepositor
     override fun search(query: String, limit: Int): List<SearchHit> {
         val match = SearchTokenizer.ftsMatch(query) ?: return emptyList()
         return searchDao.search(match, limit)
+    }
+
+    override fun searchInBooks(query: String, bookIds: Set<Long>, limit: Int): List<SearchHit> {
+        if (bookIds.isEmpty() || limit <= 0) return emptyList()
+        val match = SearchTokenizer.ftsMatch(query) ?: return emptyList()
+        return searchDao.searchInBooks(match, bookIds, limit)
     }
 
     // ---------------------------------------------------------------------

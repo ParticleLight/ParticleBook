@@ -157,14 +157,23 @@ internal class TestLibraryRepository : LibraryRepository {
         )
     }
 
-    override fun search(query: String, limit: Int): List<SearchHit> = searchMap.values
+    override fun search(query: String, limit: Int): List<SearchHit> =
+        matchingSearchHits(query).take(limit).toList()
+
+    override fun searchInBooks(query: String, bookIds: Set<Long>, limit: Int): List<SearchHit> {
+        if (bookIds.isEmpty() || limit <= 0) return emptyList()
+        return matchingSearchHits(query)
+            .filter { it.bookId in bookIds }
+            .take(limit)
+            .toList()
+    }
+
+    private fun matchingSearchHits(query: String): Sequence<SearchHit> = searchMap.values
         .asSequence()
         .filter { (_, document) -> TestFts.matches(document.indexedText, query) }
-        .take(limit)
         .map { (_, document) ->
             SearchHit(document.bookId, document.docType, document.locator, document.rawText.take(160))
         }
-        .toList()
 
     override fun <T> transaction(block: (LibraryRepository) -> T): T {
         val bookSnapshot = LinkedHashMap(bookMap)

@@ -93,6 +93,7 @@ import app.particlebook.android.ui.about.LicensesScreen
 import app.particlebook.android.ui.data.Book
 import app.particlebook.android.ui.data.BookFormat
 import app.particlebook.android.ui.shelf.ShelfSelectionScope
+import app.particlebook.android.ui.data.LibraryCatalogBridge
 import app.particlebook.android.ui.data.LibraryStore
 import app.particlebook.android.ui.data.ReadingProgress
 import app.particlebook.android.ui.discover.BooklistDetailScreen
@@ -296,8 +297,12 @@ fun ParticleBookApp() {
     // P1.5 发现面：数据源由 discover 包提供（zlib 落地前是“接入中”占位，不造假数据）。
     val discoverRepository = remember(appContext) { DiscoverRepositoryProvider.create(appContext) }
     // 跨书全文搜索：查的是 search_documents（书被打开过一次后由 EpubSearchIndexing 建索引）。
-    val searchViewModel = remember(scope, appContext) {
-        SearchViewModel(scope, { LibraryRuntime.repository(appContext) })
+    val searchViewModel = remember(scope, appContext, store) {
+        SearchViewModel(
+            scope,
+            { LibraryRuntime.repository(appContext) },
+            shelfRows = { LibraryCatalogBridge.bookRows(store.books) },
+        )
     }
     // 阅读统计：页码只在 ReadingProgress 的落库路径汇总，记录器订阅那一个观察点，
     // 三个阅读器都不用改。会话随「打开/关闭书」开始与结束，期间每 60s 落一段，
@@ -365,6 +370,10 @@ fun ParticleBookApp() {
         pushRoute("login")
     }
     val books: List<Book> = store.books
+    // 搜索层存续期间书架变化也要作废旧请求，避免已移除书籍的迟到命中重新出现。
+    LaunchedEffect(searchOpen, books) {
+        if (searchOpen) searchViewModel.updateQuery(searchViewModel.query)
+    }
     val openBook = remember(books, openBookId) { books.firstOrNull { it.id == openBookId } }
     // 图片保存接收器挂在阅读器的**根层**：这里无条件注册，launcher 与 pending 快照就不会随
     // 查看器关闭 / 切图 / TextReaderScreen 子树重建而注销——进程被系统回收后返回也还能续上。

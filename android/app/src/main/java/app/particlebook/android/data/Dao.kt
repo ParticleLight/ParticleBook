@@ -89,6 +89,7 @@ interface ReadingSessionDao {
 interface SearchDao {
     fun replaceDocument(bookId: Long, docType: String, locator: String, rawText: String, indexedText: String)
     fun search(matchExpression: String, limit: Int): List<SearchHit>
+    fun searchInBooks(matchExpression: String, bookIds: Set<Long>, limit: Int): List<SearchHit>
 
     /** 批量替换；默认逐条调用，Sqlite 实现覆盖为单事务，避免每条文档各自开事务。 */
     fun replaceDocuments(bookId: Long, documents: List<SearchDocumentRow>) {
@@ -576,10 +577,21 @@ class SqliteSearchDao(private val db: SQLiteDatabase) : SearchDao {
         arrayOf(bookId.toString(), docType),
     )
 
-    override fun search(matchExpression: String, limit: Int): List<SearchHit> = db.rawQuery(
+    override fun search(matchExpression: String, limit: Int): List<SearchHit> =
+        queryHits(matchExpression, limit, null)
+
+    override fun searchInBooks(matchExpression: String, bookIds: Set<Long>, limit: Int): List<SearchHit> {
+        if (bookIds.isEmpty() || limit <= 0) return emptyList()
+        return queryHits(matchExpression, limit, bookIds)
+    }
+
+    private fun queryHits(matchExpression: String, limit: Int, bookIds: Set<Long>?): List<SearchHit> = db.rawQuery(
         "SELECT d.book_id, d.doc_type, d.locator, d.raw_text " +
             "FROM search_fts f JOIN search_documents d ON d.id = f.rowid " +
-            "WHERE search_fts MATCH ? ORDER BY d.id LIMIT ?",
+            "WHERE search_fts MATCH ?" +
+            // Long 数字字面量避免大书架超出绑定变量数；MATCH 和 limit 仍独立绑定。
+            (bookIds?.let { " AND d.book_id IN (" + it.joinToString(",") + ")" } ?: "") +
+            " ORDER BY d.id LIMIT ?",
         arrayOf(matchExpression, limit.toString()),
     ).use { cursor ->
         buildList {

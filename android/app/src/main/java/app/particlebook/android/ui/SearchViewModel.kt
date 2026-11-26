@@ -3,6 +3,8 @@ package app.particlebook.android.ui
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import app.particlebook.android.data.BookRow
+import app.particlebook.android.data.CatalogSync
 import app.particlebook.android.data.LibraryRepository
 import app.particlebook.android.data.SearchHit
 import app.particlebook.android.reader.ReaderLocator
@@ -17,7 +19,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
- * 跨书全文搜索的 UI 状态机（消费 `LibraryRepository.search(query, limit): List<SearchHit>`）。
+ * 当前书架的跨书全文搜索状态机（消费 [LibraryRepository.searchInBooks]）。
  *
  * 设计约束（与 task-31 的接线契约一一对应）：
  * - 普通类，不是 androidx ViewModel：项目没有 androidx.lifecycle:viewmodel 依赖（离线环境不能加），
@@ -34,11 +36,10 @@ import kotlinx.coroutines.withContext
  * 一律放到 [ioDispatcher] 上跑，主线程只读状态。
  *
  * ## 分组与排序（纯函数 [groupSearchHits]，可单测）
- * - 组顺序 = 命中在仓库结果里第一次出现的顺序。FTS 的 ORDER BY 是文档写入顺序，同一本书的命中
- *   天然相邻，按首次出现排就是「最相关的书排在前面」，比按书名重排更接近搜索结果页的预期。
+ * - 组顺序 = 命中在仓库结果里第一次出现的顺序（FTS 按文档写入顺序返回）。
  * - 组内顺序 = 阅读位置（EPUB：章节 href → blockIndex → charOffset；PDF：页 → y → x）。
  *   locator 解不出来时排在组尾并保持仓库原顺序（稳定排序）。
- * - 组头书名取 `books()`；书已删除时显示 [UNKNOWN_BOOK_TITLE]，不吞掉命中。
+ * - 查询域按当前书架的 stable_key 解析为 SQLite id；命中回映射当前首个 UI 别名，书名取同一份书架快照。
  *
  * ## 截断
  * 一次最多取 [SEARCH_LIMIT] 条。命中数达到上限就把 [SearchUiState.Results.truncated] 置真，
@@ -97,12 +98,14 @@ data class HighlightSpan(val start: Int, val endExclusive: Int)
  * @param scope 页面级协程作用域（生产是 composition scope，测试用 Unconfined）。
  * @param repositoryProvider 每次查询时解析仓库（生产传 `{ LibraryRuntime.repository(context) }`）；
  *   返回同步实现的 [LibraryRepository]，调用点负责切到 IO。
+ * @param shelfRows 当前书架行；每次查询在切到 IO 前复制快照，空书架不解析仓库。
  * @param debounceMillis 防抖窗口，默认 [DEFAULT_DEBOUNCE_MS]；测试注入更小的值。
  * @param ioDispatcher 查库用的 dispatcher，默认 [Dispatchers.IO]。
  */
 class SearchViewModel(
     private val scope: CoroutineScope,
     private val repositoryProvider: () -> LibraryRepository,
+    private val shelfRows: () -> List<BookRow>,
     private val debounceMillis: Long = DEFAULT_DEBOUNCE_MS,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) {
@@ -188,15 +191,31 @@ class SearchViewModel(
     }
 
     private suspend fun load(trimmed: String): SearchOutcome = try {
-        withContext(ioDispatcher) {
-            val repository = repositoryProvider()
-            val hits = repository.search(trimmed, SEARCH_LIMIT)
-            val bookIds = hits.mapTo(HashSet()) { it.bookId }
-            // 只为命中的书取书名；books() 是一次全表读，过滤后传进分组函数。
-            val titles = repository.books()
-                .filter { it.id in bookIds }
-                .associate { it.id to it.title }
-            SearchOutcome.Found(hits, titles)
+        val rows = shelfRows().toList()
+        if (rows.isEmpty()) {
+            SearchOutcome.Found(emptyList(), emptyMap())
+        } else {
+            withContext(ioDispatcher) {
+                val repository = repositoryProvider()
+                val resolvedIds = CatalogSync.resolveBookIds(repository, rows)
+                val canonicalBooks = linkedMapOf<Long, BookRow>()
+                for (row in rows) {
+                    if (row.stableKey.isBlank()) continue
+                    val dbId = resolvedIds[row.id] ?: continue
+                    // 同一 canonical id 的多个 UI 别名沿用书架首次出现者。
+                    canonicalBooks.getOrPut(dbId) { row }
+                }
+                if (canonicalBooks.isEmpty()) {
+                    return@withContext SearchOutcome.Found(emptyList(), emptyMap())
+                }
+                val hits = repository.searchInBooks(trimmed, canonicalBooks.keys, SEARCH_LIMIT)
+                    .mapNotNull { hit ->
+                        val row = canonicalBooks[hit.bookId] ?: return@mapNotNull null
+                        hit.copy(bookId = row.id)
+                    }
+                val titles = canonicalBooks.values.associate { it.id to it.title }
+                SearchOutcome.Found(hits, titles)
+            }
         }
     } catch (cancellation: CancellationException) {
         // 取消不是失败：必须原样抛给协程，不能落成 Failed。
@@ -217,7 +236,7 @@ class SearchViewModel(
         /** 单次查询上限；命中数达到它即认为「可能还有更多」。 */
         const val SEARCH_LIMIT: Int = 200
 
-        /** 书已从书架删除但索引还在时的组头兜底，不吞掉命中。 */
+        /** 缺失或空白标题的通用分组兜底。 */
         const val UNKNOWN_BOOK_TITLE: String = "未命名书籍"
     }
 }

@@ -65,7 +65,10 @@ class SearchViewModelTest {
 
     @Test
     fun `输入回显保留原样但检索用 trim 后的词`() {
-        val repository = RecordingRepository(hits = listOf(hit(1L, pdfLocator(0))))
+        val repository = RecordingRepository(
+            hits = listOf(hit(1L, pdfLocator(0))),
+            titles = listOf(book(1L, "深空")),
+        )
         val model = viewModel { repository }
         try {
             model.updateQuery("  记忆  ")
@@ -85,7 +88,10 @@ class SearchViewModelTest {
 
     @Test
     fun `防抖窗口内只回显不查询`() {
-        val repository = RecordingRepository(hits = listOf(hit(1L, pdfLocator(0))))
+        val repository = RecordingRepository(
+            hits = listOf(hit(1L, pdfLocator(0))),
+            titles = listOf(book(1L, "深空")),
+        )
         val model = viewModel(repositoryProvider = { repository }, debounceMillis = 60L)
         try {
             model.updateQuery("记忆")
@@ -100,7 +106,10 @@ class SearchViewModelTest {
 
     @Test
     fun `连续输入只保留最后一次查询`() {
-        val repository = RecordingRepository(hits = listOf(hit(1L, pdfLocator(0))))
+        val repository = RecordingRepository(
+            hits = listOf(hit(1L, pdfLocator(0))),
+            titles = listOf(book(1L, "深空")),
+        )
         val model = viewModel(repositoryProvider = { repository }, debounceMillis = 60L)
         try {
             model.updateQuery("记")
@@ -115,7 +124,10 @@ class SearchViewModelTest {
 
     @Test
     fun `dispose 会取消还没发起的防抖任务`() {
-        val repository = RecordingRepository(hits = listOf(hit(1L, pdfLocator(0))))
+        val repository = RecordingRepository(
+            hits = listOf(hit(1L, pdfLocator(0))),
+            titles = listOf(book(1L, "深空")),
+        )
         val model = viewModel(repositoryProvider = { repository }, debounceMillis = 80L)
         model.updateQuery("记忆")
         assertEquals(SearchUiState.Editing("记忆"), model.state)
@@ -215,15 +227,14 @@ class SearchViewModelTest {
     }
 
     @Test
-    fun `书名查不到时用占位书名而不是丢掉命中`() {
+    fun `当前书架为空时历史命中不出现且不发起搜索`() {
         val repository = RecordingRepository(hits = listOf(hit(42L, pdfLocator(0))))
         val model = viewModel { repository }
         try {
             model.updateQuery("记忆")
-            val group = (model.state as SearchUiState.Results).groups.single()
-            assertEquals(42L, group.bookId)
-            assertEquals(SearchViewModel.UNKNOWN_BOOK_TITLE, group.title)
-            assertEquals(1, group.hits.size)
+            assertEquals(SearchUiState.Empty("记忆"), model.state)
+            assertEquals("记忆", model.lastCommittedQuery)
+            assertTrue("空书架应短路历史索引查询", repository.searchedQueries().isEmpty())
         } finally {
             model.dispose()
         }
@@ -231,11 +242,12 @@ class SearchViewModelTest {
 
     @Test
     fun `没有命中时进入 Empty`() {
-        val repository = RecordingRepository(hits = emptyList())
+        val repository = RecordingRepository(hits = emptyList(), titles = listOf(book(1L, "深空")))
         val model = viewModel { repository }
         try {
             model.updateQuery("不存在的词")
             assertEquals(SearchUiState.Empty("不存在的词"), model.state)
+            assertEquals(listOf("不存在的词"), repository.searchedQueries())
         } finally {
             model.dispose()
         }
@@ -283,7 +295,10 @@ class SearchViewModelTest {
 
     @Test
     fun `仓库抛错进入 Failed 并保留原始原因`() {
-        val repository = RecordingRepository(failure = IllegalStateException("database is locked"))
+        val repository = RecordingRepository(
+            titles = listOf(book(1L, "深空")),
+            failure = IllegalStateException("database is locked"),
+        )
         val model = viewModel { repository }
         try {
             model.updateQuery("记忆")
@@ -299,7 +314,10 @@ class SearchViewModelTest {
 
     @Test
     fun `没有异常信息的失败给兜底文案`() {
-        val repository = RecordingRepository(failure = RuntimeException())
+        val repository = RecordingRepository(
+            titles = listOf(book(1L, "深空")),
+            failure = RuntimeException(),
+        )
         val model = viewModel { repository }
         try {
             model.updateQuery("记忆")
@@ -311,7 +329,13 @@ class SearchViewModelTest {
 
     @Test
     fun `解析不出仓库时进入 Failed 而不是崩溃`() {
-        val model = viewModel(repositoryProvider = { throw IllegalStateException("db not ready") })
+        val model = SearchViewModel(
+            scope = CoroutineScope(Dispatchers.Unconfined),
+            repositoryProvider = { throw IllegalStateException("db not ready") },
+            shelfRows = { listOf(book(1L, "深空")) },
+            debounceMillis = 0L,
+            ioDispatcher = Dispatchers.Unconfined,
+        )
         try {
             model.updateQuery("记忆")
             val state = model.state as SearchUiState.Failed
@@ -323,7 +347,10 @@ class SearchViewModelTest {
 
     @Test
     fun `失败后重试用上次提交的词并重新出结果`() {
-        val repository = RecordingRepository(failure = IllegalStateException("disk I/O error"))
+        val repository = RecordingRepository(
+            titles = listOf(book(1L, "深空")),
+            failure = IllegalStateException("disk I/O error"),
+        )
         val model = viewModel { repository }
         try {
             model.updateQuery("记忆")
@@ -414,6 +441,13 @@ class SearchViewModelTest {
     }
 
     @Test
+    fun `分组函数把缺失书名换成占位名`() {
+        val groups = groupSearchHits(listOf(hit(5L, pdfLocator(0))), emptyMap())
+        assertEquals(5L, groups.single().bookId)
+        assertEquals(SearchViewModel.UNKNOWN_BOOK_TITLE, groups.single().title)
+    }
+
+    @Test
     fun `分组函数把空白书名换成占位名`() {
         val groups = groupSearchHits(listOf(hit(5L, pdfLocator(0))), mapOf(5L to "   "))
         assertEquals(SearchViewModel.UNKNOWN_BOOK_TITLE, groups.single().title)
@@ -479,6 +513,7 @@ private fun viewModel(
 ): SearchViewModel = SearchViewModel(
     scope = scope,
     repositoryProvider = repositoryProvider,
+    shelfRows = { repositoryProvider().books() },
     debounceMillis = debounceMillis,
     ioDispatcher = ioDispatcher,
 )
@@ -510,7 +545,7 @@ private fun waitUntil(message: String, timeoutMs: Long = 5_000L, predicate: () -
 /**
  * 记录调用并允许注入结果的假仓库。
  *
- * 只覆盖 [LibraryRepository.search] / [LibraryRepository.books]，其余方法（书架、标注、下载、
+ * 覆盖两种搜索入口与 [LibraryRepository.books]，其余方法（书架、标注、下载、
  * 事务）全部委托给 [TestLibraryRepository]，避免为测试重抄一遍接口。
  */
 private class RecordingRepository(
@@ -532,15 +567,25 @@ private class RecordingRepository(
 
     fun searchedLimits(): List<Int> = synchronized(lock) { limits.toList() }
 
-    override fun search(query: String, limit: Int): List<SearchHit> {
+    override fun search(query: String, limit: Int): List<SearchHit> = recordedHits(query, limit).take(limit)
+
+    override fun searchInBooks(query: String, bookIds: Set<Long>, limit: Int): List<SearchHit> {
+        if (bookIds.isEmpty() || limit <= 0) return emptyList()
+        return recordedHits(query, limit)
+            .asSequence()
+            .filter { it.bookId in bookIds }
+            .take(limit)
+            .toList()
+    }
+
+    private fun recordedHits(query: String, limit: Int): List<SearchHit> {
         synchronized(lock) {
             queries.add(query)
             limits.add(limit)
         }
         onSearch?.invoke(query)
         failure?.let { throw it }
-        val source = hitsByQuery[query] ?: hits
-        return source.take(limit)
+        return hitsByQuery[query] ?: hits
     }
 
     override fun books(): List<BookRow> = titles

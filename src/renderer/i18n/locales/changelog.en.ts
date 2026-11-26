@@ -1,5 +1,7 @@
 export const enChangelog: Record<string, string> = {
   // Android P1 · unreleased
+  // ── 2026-11-26：全文搜索书架范围 ──
+  '修复安卓版跨书全文搜索范围：只显示当前书架的书，已移除书籍的旧索引不再占用结果上限；按当前书架身份匹配书名与打开目标，书架变化时自动刷新当前查询。': 'Fixed cross-book full-text search on Android: results are limited to the current library, and old indexes for removed books no longer consume the result limit. Titles and open targets use current library identities, and library changes refresh the current query.',
   // ── 2026-11-26：EPUB 搜索位置接管 ──
   '修复安卓版 EPUB 全文搜索跳转后的进度保存：旧位置失效时，点击有效命中并显示目标页后会保存新位置；普通恢复仍保留原始进度记录。': 'Fixed progress saving after opening an EPUB from full-text search on Android: when the old position is invalid, tapping a valid hit saves the new position once its page is displayed. Passive recovery still preserves the original progress record.',
   // ── 2026-11-26：文本恢复保护 ──
