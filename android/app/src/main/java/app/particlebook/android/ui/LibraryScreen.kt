@@ -108,6 +108,7 @@ import app.particlebook.android.ui.data.Book
 import app.particlebook.android.ui.data.BookFormat
 import app.particlebook.android.ui.data.ReadingProgress
 import app.particlebook.android.ui.shelf.ShelfList
+import app.particlebook.android.ui.shelf.ShelfSelectionScope
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -158,7 +159,7 @@ fun LibraryScreen(
     onOpenBook: (Book) -> Unit,
     onEnterSelection: (Book) -> Unit,
     onToggleSelection: (Book) -> Unit,
-    onSelectAll: () -> Unit,
+    onReplaceSelection: (Set<Long>) -> Unit,
     onExitSelection: () -> Unit,
     onStartSelectionMode: () -> Unit,
     onImportClick: () -> Unit,
@@ -209,7 +210,25 @@ fun LibraryScreen(
     val visible = remember(books, query, sort, formatFilter) {
         filterBooks(books = books, query = query, sort = sort, filter = formatFilter)
     }
+    val visibleIds = remember(visible) { ShelfSelectionScope.idsOf(visible) }
+    LaunchedEffect(selectionMode, selectedIds, visibleIds) {
+        if (selectionMode) {
+            val retained = ShelfSelectionScope.retain(selectedIds, visibleIds)
+            if (retained != selectedIds) onReplaceSelection(retained)
+        }
+    }
     val filterActive = formatFilter != FormatFilter.All
+    val resultsFiltered = query.isNotBlank() || filterActive
+    val resultsTitle = when {
+        query.isNotBlank() -> "搜索结果"
+        filterActive -> "筛选结果"
+        else -> "全部书籍"
+    }
+    val selectAllLabel = if (resultsFiltered) {
+        "全选当前结果，共${visibleIds.size}本"
+    } else {
+        "全选书架，共${visibleIds.size}本"
+    }
 
     // Hero：有进度的书里挑最近读过的（last_read_<id>）；老数据没有时间戳时取第一本有进度的。
     val heroBook = remember(books, progressEpoch) {
@@ -217,11 +236,12 @@ fun LibraryScreen(
             .maxByOrNull { ReadingProgress.lastReadAt(context, it.id) }
             ?: books.firstOrNull { ReadingProgress.hasProgress(context, it.id) }
     }
+    val showHero = heroBook != null && !selectionMode
     val readingCount = remember(books, progressEpoch) {
         books.count { ReadingProgress.hasProgress(context, it.id) }
     }
-    val recentBooks = remember(books) {
-        books.sortedWith(
+    val recentBooks = remember(visible) {
+        visible.sortedWith(
             compareByDescending<Book> { it.addedAt ?: "" }.thenByDescending { it.id },
         ).take(8)
     }
@@ -298,7 +318,9 @@ fun LibraryScreen(
                 selectionMode -> ContextualTopBar(
                     selectedCount = selectedIds.size,
                     onClose = onExitSelection,
-                    onSelectAll = onSelectAll,
+                    onSelectAll = { onReplaceSelection(visibleIds) },
+                    selectAllLabel = selectAllLabel,
+                    selectAllEnabled = visibleIds.isNotEmpty(),
                 )
 
                 searchActive -> SearchTopBar(
@@ -367,12 +389,8 @@ fun LibraryScreen(
 
                 compactLandscape -> ShelfList(
                     books = visible,
-                    headerTitle = when {
-                        query.isNotBlank() -> "搜索结果"
-                        filterActive -> "筛选结果"
-                        else -> "全部书籍"
-                    },
-                    headerCount = if (query.isNotBlank() || filterActive) visible.size else books.size,
+                    headerTitle = resultsTitle,
+                    headerCount = visible.size,
                     filterLabel = if (filterActive) formatFilter.label else null,
                     selectionMode = selectionMode,
                     selectedIds = selectedIds,
@@ -388,7 +406,7 @@ fun LibraryScreen(
                 else -> {
                     // 「全部书籍」段头在网格里的下标（用于「全部 →」跳转）。
                     val allBooksHeaderIndex = 1 +
-                        (if (heroBook != null) 1 else 0) +
+                        (if (showHero) 1 else 0) +
                         (if (recentBooks.isNotEmpty()) 2 else 0)
                     LazyVerticalGrid(
                         columns = gridColumns,
@@ -406,7 +424,7 @@ fun LibraryScreen(
                         item(span = { GridItemSpan(maxLineSpan) }) {
                             ShelfTitleBlock(bookCount = books.size, readingCount = readingCount)
                         }
-                        if (heroBook != null) {
+                        if (showHero) {
                             item(span = { GridItemSpan(maxLineSpan) }) {
                                 ShelfHeroCard(
                                     book = heroBook,
@@ -440,10 +458,10 @@ fun LibraryScreen(
                         }
                         item(span = { GridItemSpan(maxLineSpan) }) {
                             SectionHeader(
-                                title = if (query.isNotBlank()) {
-                                    "搜索结果 · " + visible.size + " 本"
+                                title = if (resultsFiltered) {
+                                    resultsTitle + " · " + visible.size + " 本"
                                 } else {
-                                    "全部书籍"
+                                    resultsTitle
                                 },
                                 modifier = Modifier.padding(top = Spacing.xs),
                             )
@@ -935,16 +953,21 @@ private fun ContextualTopBar(
     selectedCount: Int,
     onClose: () -> Unit,
     onSelectAll: () -> Unit,
+    selectAllLabel: String,
+    selectAllEnabled: Boolean,
 ) {
     TopAppBar(
         navigationIcon = {
-            IconButton(onClick = onClose) {
+            IconButton(
+                onClick = onClose,
+                modifier = Modifier.size(Spacing.minTouchTarget),
+            ) {
                 Icon(Icons.Filled.Close, contentDescription = "退出选择")
             }
         },
         title = {
             Text(
-                text = "已选 " + selectedCount + " 项",
+                text = "已选" + selectedCount + "本",
                 style = MaterialTheme.typography.titleLarge,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -952,8 +975,12 @@ private fun ContextualTopBar(
             )
         },
         actions = {
-            IconButton(onClick = onSelectAll) {
-                Icon(Icons.Outlined.SelectAll, contentDescription = "全选")
+            IconButton(
+                onClick = onSelectAll,
+                enabled = selectAllEnabled,
+                modifier = Modifier.size(Spacing.minTouchTarget),
+            ) {
+                Icon(Icons.Outlined.SelectAll, contentDescription = selectAllLabel)
             }
         },
     )

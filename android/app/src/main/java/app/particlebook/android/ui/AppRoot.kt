@@ -92,6 +92,7 @@ import app.particlebook.android.ui.about.ChangelogScreen
 import app.particlebook.android.ui.about.LicensesScreen
 import app.particlebook.android.ui.data.Book
 import app.particlebook.android.ui.data.BookFormat
+import app.particlebook.android.ui.shelf.ShelfSelectionScope
 import app.particlebook.android.ui.data.LibraryStore
 import app.particlebook.android.ui.data.ReadingProgress
 import app.particlebook.android.ui.discover.BooklistDetailScreen
@@ -433,6 +434,7 @@ fun ParticleBookApp() {
     fun exitSelection() {
         selectionMode = false
         selectedIds = emptySet()
+        deleteDialogOpen = false
     }
 
     val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
@@ -464,9 +466,13 @@ fun ParticleBookApp() {
         )
     }
 
-    val confirmDelete: () -> Unit = {
-        val ids = selectedIds
+    val confirmDelete: () -> Unit = confirm@{
+        val ids = ShelfSelectionScope.retain(selectedIds, ShelfSelectionScope.idsOf(books))
         deleteDialogOpen = false
+        if (ids.isEmpty()) {
+            exitSelection()
+            return@confirm
+        }
         scope.launch {
             store.removeBooks(ids)
                 .onSuccess { removedCount ->
@@ -504,7 +510,8 @@ fun ParticleBookApp() {
             onTabSelected = { tabIndex = it },
             snackbarHostState = snackbarHostState,
             selectionMode = selectionMode,
-            onDelete = { deleteDialogOpen = true },
+            canDelete = selectedIds.isNotEmpty(),
+            onDelete = { if (selectedIds.isNotEmpty()) deleteDialogOpen = true },
             onBookInfo = selectedIds.singleOrNull()?.let { id ->
                 { detailBookId = id }
             },
@@ -536,7 +543,14 @@ fun ParticleBookApp() {
                             selectedIds = next
                         }
                     },
-                    onSelectAll = { selectedIds = books.map { it.id }.toSet() },
+                    onReplaceSelection = { ids ->
+                        val retained = ShelfSelectionScope.retain(ids, ShelfSelectionScope.idsOf(books))
+                        if (retained.isEmpty()) {
+                            exitSelection()
+                        } else {
+                            selectedIds = retained
+                        }
+                    },
                     onExitSelection = { exitSelection() },
                     onStartSelectionMode = {
                         selectionMode = true
@@ -999,14 +1013,14 @@ fun ParticleBookApp() {
         }
     }
 
-    if (deleteDialogOpen) {
+    if (deleteDialogOpen && selectedIds.isNotEmpty()) {
         ParticleBookTheme(mode = themeMode) {
             AlertDialog(
                 onDismissRequest = { deleteDialogOpen = false },
                 title = { Text("删除 " + selectedIds.size + " 本书？") },
-                text = { Text("会从书架移除，不会删除手机上的文件。此操作不可撤销。") },
+                text = { Text("会移除书架记录、应用内书籍副本、阅读进度和关联下载记录。导入源文件与已完成下载的原文件会保留。此操作不可撤销。") },
                 confirmButton = {
-                    TextButton(onClick = confirmDelete) {
+                    TextButton(onClick = confirmDelete, enabled = selectedIds.isNotEmpty()) {
                         Text("删除", color = MaterialTheme.colorScheme.error)
                     }
                 },
@@ -1064,6 +1078,7 @@ private fun AppShell(
     onTabSelected: (Int) -> Unit,
     snackbarHostState: SnackbarHostState,
     selectionMode: Boolean,
+    canDelete: Boolean,
     onDelete: () -> Unit,
     /** 单选时的「书籍信息」动作；多选或空选传 null（按钮禁用，不隐藏，避免底栏宽度跳动）。 */
     onBookInfo: (() -> Unit)?,
@@ -1110,7 +1125,7 @@ private fun AppShell(
                 // 横屏 rail 布局没有悬浮胶囊：Snackbar 只避让系统导航条 + 16dp。
                 snackbarHost = { AppSnackbarHost(snackbarHostState, aboveCapsule = false) },
                 bottomBar = {
-                    if (selectionMode) SelectionBar(onDelete = onDelete, onBookInfo = onBookInfo)
+                    if (selectionMode) SelectionBar(onDelete = onDelete, onBookInfo = onBookInfo, canDelete = canDelete)
                 },
             ) { innerPadding ->
                 Box(
@@ -1130,7 +1145,7 @@ private fun AppShell(
             // 竖屏主 tab 有悬浮胶囊：Snackbar 底边落在胶囊上沿 + 8dp（132/140dp，已含导航条）。
             snackbarHost = { AppSnackbarHost(snackbarHostState, aboveCapsule = true) },
             bottomBar = {
-                if (selectionMode) SelectionBar(onDelete = onDelete, onBookInfo = onBookInfo)
+                if (selectionMode) SelectionBar(onDelete = onDelete, onBookInfo = onBookInfo, canDelete = canDelete)
             },
         ) { innerPadding ->
             Box(
@@ -1304,7 +1319,7 @@ private fun readAsset(context: Context, path: String): String = runCatching {
  * 放在行尾远离左侧拇指起点）。早前的「加入书柜 / 更多」是无对应模型的禁用占位，已移除。
  */
 @Composable
-private fun SelectionBar(onDelete: () -> Unit, onBookInfo: (() -> Unit)?) {
+private fun SelectionBar(onDelete: () -> Unit, onBookInfo: (() -> Unit)?, canDelete: Boolean) {
     Surface(color = MaterialTheme.colorScheme.surfaceContainer) {
         Row(
             modifier = Modifier
@@ -1321,8 +1336,14 @@ private fun SelectionBar(onDelete: () -> Unit, onBookInfo: (() -> Unit)?) {
             TextButton(onClick = onBookInfo ?: {}, enabled = onBookInfo != null) {
                 Text("书籍信息")
             }
-            TextButton(onClick = onDelete) {
-                Text("删除", color = MaterialTheme.colorScheme.error)
+            TextButton(
+                onClick = onDelete,
+                enabled = canDelete,
+                colors = androidx.compose.material3.ButtonDefaults.textButtonColors(
+                    contentColor = MaterialTheme.colorScheme.error,
+                ),
+            ) {
+                Text("删除")
             }
         }
     }

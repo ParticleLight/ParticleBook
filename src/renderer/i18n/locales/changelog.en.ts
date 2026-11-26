@@ -1,5 +1,7 @@
 export const enChangelog: Record<string, string> = {
   // Android P1 · unreleased
+  // ── 2026-11-26：书架多选范围 ──
+  '修复安卓版书架搜索和格式筛选后的多选范围：全选只选择当前完整结果，最近添加同步筛选；切换筛选会移除结果外的选择，多选时收起继续阅读卡片。空选时禁用删除，确认弹窗说明应用内副本、阅读进度和下载记录的清理范围，保留导入源文件及已完成下载的原文件。': 'Fixed multi-selection after searching or filtering the Android library: Select all now uses the complete current result set, and Recently added follows the same filters. Changing a filter removes selections outside the results, and Continue reading cards are hidden during selection. Delete is disabled with no selection. The confirmation explains removal of app-managed copies, reading progress and download records while preserving import sources and completed download files.',
   // ── 2026-11-26：朗读定时停止 ──
   '安卓版 EPUB / PDF / TXT / Markdown / FB2 / HTML 朗读新增定时停止：控制条可选 5、15、30 或 60 分钟，显示剩余倒计时；暂停时继续计时，重新选择从当前时刻重计，选「不定时」只取消计时，手动停止或离开书籍会一并取消，到时停止朗读和文本自动续段。': 'Read aloud in the Android EPUB / PDF / TXT / Markdown / FB2 / HTML readers now has a sleep timer. Choose 5, 15, 30 or 60 minutes from the playback bar and see the remaining time. The countdown continues while paused, choosing a duration again restarts it, and Off cancels only the timer. Stopping playback or leaving the book also cancels it; expiry stops speech and automatic paragraph continuation.',
   // ── 2026-11-26：插图保存 ──
