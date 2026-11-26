@@ -189,6 +189,7 @@ internal fun TextReaderScreen(
     // 否则 stop() 同步刷出的 Idle 会被续段逻辑当成"自然念完"而接着念。
     var aloudFollowing by remember(book.filePath) { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
+    val sleepTimer = rememberReaderSleepTimer(book.filePath)
     // 失焦回调要拿到 playback，而 playback 又需要 speaker：用持有者打破这个循环。
     // SideEffect 在组合提交后赋值，真正的音频焦点变化只会发生在更晚。
     val ttsPlaybackHolder = remember { mutableStateOf<TtsPlayback?>(null) }
@@ -389,11 +390,17 @@ internal fun TextReaderScreen(
     }
 
     fun stopAloud() {
+        sleepTimer.cancel()
         // 顺序是契约：先关「续读」再停引擎。stop() 会同步把状态刷成 Idle，
         // 反序会被续段逻辑当成"自然念完"接着念下一段。
         aloudFollowing = false
         aloudParagraph = -1
         ttsPlayback.stop()
+    }
+
+    ReaderSleepTimerEffect(sleepTimer) {
+        stopAloud()
+        scope.launch { snackbarHostState.showSnackbar("朗读定时已结束") }
     }
 
     /**
@@ -902,6 +909,8 @@ internal fun TextReaderScreen(
                     state = ttsState,
                     rate = ttsRate,
                     progressUnit = ParagraphProgressUnit,
+                    sleepTimerLabel = { sleepTimer.label },
+                    onSleepTimer = sleepTimer::open,
                     onPlayPause = {
                         if (ttsState is TtsPlaybackState.Playing) ttsPlayback.pause() else ttsPlayback.resume()
                     },
@@ -920,6 +929,8 @@ internal fun TextReaderScreen(
             }
         }
     }
+
+    ReaderSleepTimerSheet(sleepTimer)
 
     if (tocOpen && outline.isNotEmpty()) {
         TextTocSheet(

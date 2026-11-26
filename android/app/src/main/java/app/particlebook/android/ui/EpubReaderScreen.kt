@@ -246,6 +246,15 @@ fun EpubReaderScreen(
             },
         )
     }
+    val sleepTimer = rememberReaderSleepTimer(book.filePath)
+    ReaderSleepTimerEffect(sleepTimer) {
+        ttsPlayback.stop()
+        notify("朗读定时已结束")
+    }
+    // EPUB 按页朗读；本页结束就取消计划。文本阅读器的段间 Idle 则不能这样处理。
+    LaunchedEffect(ttsState, sleepTimer) {
+        if (ttsState is TtsPlaybackState.Idle) sleepTimer.cancel()
+    }
     SideEffect { ttsPlaybackHolder.value = ttsPlayback }
     DisposableEffect(ttsPlayback) {
         onDispose { ttsPlayback.shutdown() }
@@ -406,6 +415,8 @@ fun EpubReaderScreen(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
     val leaveReader: () -> Unit = {
+        sleepTimer.cancel()
+        ttsPlayback.stop()
         saveDisplayedProgress()
         onBack()
     }
@@ -821,6 +832,8 @@ fun EpubReaderScreen(
                 TtsBar(
                     state = ttsState,
                     rate = ttsRate,
+                    sleepTimerLabel = { sleepTimer.label },
+                    onSleepTimer = sleepTimer::open,
                     onPlayPause = {
                         if (ttsState is TtsPlaybackState.Playing) ttsPlayback.pause() else ttsPlayback.resume()
                     },
@@ -833,6 +846,7 @@ fun EpubReaderScreen(
                     },
                     onStop = {
                         // stop() 会同步回调 onSentence(null)，锚点在那条路径上一起清掉。
+                        sleepTimer.cancel()
                         ttsPlayback.stop()
                     },
                     modifier = Modifier
@@ -842,6 +856,8 @@ fun EpubReaderScreen(
             }
         }
     }
+
+    ReaderSleepTimerSheet(sleepTimer)
 
     if (settingsOpen) {
         ReaderSettingsSheet(

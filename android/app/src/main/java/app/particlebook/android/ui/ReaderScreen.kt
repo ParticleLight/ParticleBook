@@ -97,6 +97,7 @@ import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.contentDescription
@@ -582,6 +583,7 @@ private fun PdfReadingPane(
     var ttsPage by remember { mutableStateOf<PdfTtsPage?>(null) }
     var ttsRects by remember { mutableStateOf<List<PdfNormalizedRect>>(emptyList()) }
     var ttsRate by remember { mutableStateOf(1.0f) }
+    var ttsBarHeightPx by remember(book.filePath) { mutableIntStateOf(0) }
     // 与 EPUB 侧同一套做法：焦点回调需要 playback，用持有者打破循环。
     val ttsPlaybackHolder = remember { mutableStateOf<TtsPlayback?>(null) }
     val ttsSpeaker = remember(context) {
@@ -607,6 +609,14 @@ private fun PdfReadingPane(
     val snackbarHostState = remember { SnackbarHostState() }
     val notify: (String) -> Unit = { message ->
         scope.launch { snackbarHostState.showSnackbar(message) }
+    }
+    val sleepTimer = rememberReaderSleepTimer(book.filePath)
+    ReaderSleepTimerEffect(sleepTimer) {
+        ttsPlayback.stop()
+        notify("朗读定时已结束")
+    }
+    LaunchedEffect(ttsState, sleepTimer) {
+        if (ttsState is TtsPlaybackState.Idle) sleepTimer.cancel()
     }
 
     LaunchedEffect(annotationStore, book.id, annotationVersion) {
@@ -763,6 +773,8 @@ private fun PdfReadingPane(
         }
     }
     val leaveReader: () -> Unit = {
+        sleepTimer.cancel()
+        ttsPlayback.stop()
         saveVisibleProgress()
         onBack()
     }
@@ -791,11 +803,11 @@ private fun PdfReadingPane(
     }
     LaunchedEffect(
         chromeVisible, chromeTick, tocOpen, moreMenuOpen, detailsOpen, pageJumpOpen, sliderDragging, searchOpen,
-        annotationsOpen, exportOpen,
+        annotationsOpen, exportOpen, sleepTimer.sheetOpen,
     ) {
         if (
             chromeVisible && !tocOpen && !moreMenuOpen && !detailsOpen && !pageJumpOpen && !sliderDragging &&
-            !searchOpen && !annotationsOpen && !exportOpen
+            !searchOpen && !annotationsOpen && !exportOpen && !sleepTimer.sheetOpen
         ) {
             delay(CHROME_AUTO_HIDE_MS)
             chromeVisible = false
@@ -1233,13 +1245,18 @@ private fun PdfReadingPane(
                 )
             }
         }
+        // 按实际控制条高度避让，双行定时条和系统大字号都不遮住选区动作或提示。
+        val overlayBottom = if (ttsState !is TtsPlaybackState.Idle) {
+            val minimumBarHeight = Spacing.minTouchTarget * 2 + Spacing.xxs * 3 + Spacing.md
+            maxOf(with(LocalDensity.current) { ttsBarHeightPx.toDp() }, minimumBarHeight) + Spacing.xs
+        } else 96.dp
         val activePdfSelection = selectionState?.selection?.takeIf { it.hasText }
         if (selectionState != null && activePdfSelection != null) {
             PdfSelectionToolbar(
                 state = selectionState,
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
-                    .padding(bottom = 96.dp),
+                    .padding(bottom = overlayBottom),
             )
         }
         if (ttsState !is TtsPlaybackState.Idle) {
@@ -1248,6 +1265,8 @@ private fun PdfReadingPane(
             TtsBar(
                 state = ttsState,
                 rate = ttsRate,
+                sleepTimerLabel = { sleepTimer.label },
+                onSleepTimer = sleepTimer::open,
                 onPlayPause = {
                     if (ttsState is TtsPlaybackState.Playing) ttsPlayback.pause() else ttsPlayback.resume()
                 },
@@ -1258,9 +1277,13 @@ private fun PdfReadingPane(
                     ttsRate = next
                     ttsPlayback.setRate(next)
                 },
-                onStop = { ttsPlayback.stop() },
+                onStop = {
+                    sleepTimer.cancel()
+                    ttsPlayback.stop()
+                },
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
+                    .onSizeChanged { ttsBarHeightPx = it.height }
                     .padding(bottom = Spacing.md),
             )
         } else {
@@ -1299,9 +1322,11 @@ private fun PdfReadingPane(
             hostState = snackbarHostState,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .padding(bottom = 96.dp),
+                .padding(bottom = overlayBottom),
         )
     }
+
+    ReaderSleepTimerSheet(sleepTimer)
 
     if (searchOpen) {
         PdfSearchSheet(
