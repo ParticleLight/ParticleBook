@@ -30,11 +30,11 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import app.particlebook.android.reader.text.TextImage
+import app.particlebook.android.reader.text.TextImageBytes
 import app.particlebook.android.reader.text.TextImageSampling
 import android.graphics.BitmapFactory
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import java.io.File
 
 /**
  * 插图解码结果。
@@ -128,7 +128,13 @@ internal fun decodeTextImage(
     image: TextImage,
     maxEdgePx: Int = TextImageSampling.MAX_EDGE_PX,
 ): TextImageLoadState {
-    val bytes = image.bytes ?: readImageFile(image.path)
+    // BitmapFactory 只读输入；显示借用已有内嵌数组，只有导出才复制原图快照。
+    val embedded = image.bytes
+    val bytes = if (embedded == null) {
+        TextImageBytes.readFile(image.path)
+    } else {
+        embedded.takeIf { it.isNotEmpty() && it.size <= TextImage.MAX_BYTES }
+    }
     if (bytes == null || bytes.isEmpty()) {
         return TextImageLoadState(failed = true)
     }
@@ -148,13 +154,4 @@ internal fun decodeTextImage(
         .getOrNull()
         ?: return TextImageLoadState(aspectRatio = aspect, failed = true)
     return TextImageLoadState(bitmap = bitmap.asImageBitmap(), aspectRatio = aspect)
-}
-
-/** 本地文件图：先看大小再读，超限的图连字节都不读。 */
-internal fun readImageFile(path: String?): ByteArray? {
-    if (path.isNullOrBlank()) return null
-    val file = File(path)
-    val length = runCatching { file.length() }.getOrDefault(0L)
-    if (length <= 0L || length > TextImage.MAX_BYTES) return null
-    return runCatching { file.readBytes() }.getOrNull()
 }

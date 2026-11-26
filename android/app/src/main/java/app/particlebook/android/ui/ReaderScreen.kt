@@ -234,7 +234,7 @@ private fun pageCacheLimitBytes(): Int {
  * 进入即切沉浸（隐藏系统栏），退出恢复。
  */
 @Composable
-fun ReaderScreen(
+internal fun ReaderScreen(
     book: Book,
     onBack: () -> Unit,
     annotationStore: AnnotationStore? = null,
@@ -250,6 +250,14 @@ fun ReaderScreen(
     lineHeightMultiplier: Float = ReaderTypographySpec.DEFAULT_LINE_HEIGHT,
     onFontSizeChange: (Float) -> Unit = {},
     onLineHeightChange: (Float) -> Unit = {},
+    /**
+     * 图片保存接收器：由 [ParticleBookApp] 根层无条件注册（launcher + pending 快照都在那里），
+     * 这里只透传给文本阅读器。PDF / EPUB 没有该入口，传 null 即可。
+     *
+     * 用可空参数而不是 CompositionLocal：类型仍然精确（[TextImageSaveAction]），
+     * 调用链看得见来源，阅读器子树不重建也能拿到根层同一个实例。
+     */
+    imageSaveAction: TextImageSaveAction? = null,
 ) {
     BackHandler(onBack = onBack)
     when (book.format) {
@@ -279,6 +287,7 @@ fun ReaderScreen(
             lineHeightMultiplier = lineHeightMultiplier,
             onFontSizeChange = onFontSizeChange,
             onLineHeightChange = onLineHeightChange,
+            imageSaveAction = imageSaveAction,
         )
         BookFormat.Unsupported -> UnsupportedReaderScreen(book = book, onBack = onBack)
     }

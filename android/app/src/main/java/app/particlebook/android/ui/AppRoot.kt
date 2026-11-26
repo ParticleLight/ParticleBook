@@ -365,6 +365,10 @@ fun ParticleBookApp() {
     }
     val books: List<Book> = store.books
     val openBook = remember(books, openBookId) { books.firstOrNull { it.id == openBookId } }
+    // 图片保存接收器挂在阅读器的**根层**：这里无条件注册，launcher 与 pending 快照就不会随
+    // 查看器关闭 / 切图 / TextReaderScreen 子树重建而注销——进程被系统回收后返回也还能续上。
+    // 文本阅读器不再自己 remember，只通过参数拿到同一个实例。
+    val imageSaveAction = rememberTextImageSaveAction(openBook?.title.orEmpty())
     val annotationStore = remember(appContext) { LibraryRuntime.lazyAnnotationStore(appContext) }
 
     DisposableEffect(openBook?.id) {
@@ -453,7 +457,10 @@ fun ParticleBookApp() {
     }
     val launchImport: () -> Unit = {
         importLauncher.launch(
-            arrayOf("application/pdf", "application/epub+zip", "application/octet-stream"),
+            (BookFormat.entries.filter { it.isReadable }.map { it.mime } +
+                listOf("application/octet-stream", "application/xhtml+xml", "application/xml", "text/xml", "text/x-markdown"))
+                .distinct()
+                .toTypedArray(),
         )
     }
 
@@ -948,6 +955,7 @@ fun ParticleBookApp() {
                                     }
                                 }
                             },
+                            imageSaveAction = imageSaveAction,
                         )
                     } else {
                         BackHandler { closeReader() }

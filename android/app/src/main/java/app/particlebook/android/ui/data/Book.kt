@@ -19,7 +19,7 @@ enum class BookFormat(val label: String, val mime: String, val raw: String) {
 
     /**
      * FB2（FictionBook 2.0）：XML，由 [app.particlebook.android.reader.fb2.Fb2Parser] 解析出
-     * 章节标题与正文段落，再走同一个滚动式阅读器。内嵌图片暂不显示。
+     * 章节标题、正文段落与内嵌图片，再走同一个滚动式阅读器。
      */
     Fb2("FB2", "application/x-fictionbook+xml", "fb2"),
 

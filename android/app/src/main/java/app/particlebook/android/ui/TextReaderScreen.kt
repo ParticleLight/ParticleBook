@@ -81,7 +81,6 @@ import app.particlebook.android.reader.text.TextAnnotations
 import app.particlebook.android.reader.text.TextDocument
 import app.particlebook.android.reader.text.TextDocumentParser
 import app.particlebook.android.reader.text.TextOutline
-import app.particlebook.android.reader.text.TextImage
 import app.particlebook.android.reader.text.TextImageCatalog
 import app.particlebook.android.reader.text.TextSearchEngine
 import app.particlebook.android.reader.text.TextSearchHit
@@ -132,6 +131,17 @@ internal fun TextReaderScreen(
     lineHeightMultiplier: Float = ReaderTypographySpec.DEFAULT_LINE_HEIGHT,
     onFontSizeChange: (Float) -> Unit = {},
     onLineHeightChange: (Float) -> Unit = {},
+    /**
+     * 图片保存接收器：**必须由上层（[ReaderScreen] → [ParticleBookApp]）传入**，本屏不再自己 remember。
+     *
+     * 原因见本轮真实复现：接收器原先注册在这里，长按保存时系统选择器把阅读器压到后台，
+     * 进程被回收后重建的是「书架 → 阅读器 → 文本屏」这棵新树，本屏的 launcher 与 pending
+     * token 都随旧树消失，picker 确认回来写的是 0 字节。把注册点上提到 AppRoot 根层后，
+     * 同一棵根树持有 launcher → pending → 快照，重建也要走同一条恢复路径。
+     *
+     * null 表示宿主没有提供（例如预览 / 未来别的入口），此时保存按钮不出现、长按不触发。
+     */
+    imageSaveAction: TextImageSaveAction? = null,
 ) {
     ImmersiveSystemBars()
     val context = LocalContext.current
@@ -845,7 +855,9 @@ internal fun TextReaderScreen(
                     speechEnd = ttsSentence?.endChar ?: -1,
                     annotations = annotationsByParagraph,
                     onLongPress = { index -> openAnnotationTools(index) },
-                    onImageClick = { image -> imageIndex = TextImageCatalog.indexOfKey(current, image.key) ?: -1 },
+                    onImageClick = { paragraphIndex ->
+                        imageIndex = TextImageCatalog.indexOfParagraph(current, paragraphIndex) ?: -1
+                    },
                 )
             }
             // 标注工具条：长按某段后浮在底部。与朗读控制条互斥（长按会先停朗读），
@@ -997,6 +1009,9 @@ internal fun TextReaderScreen(
             images = images,
             initialIndex = imageIndex,
             onDismiss = { imageIndex = -1 },
+            // 保存入口跟随根层接收器：没有实例就整条入口隐藏（TextImageViewer 对 null 的处理）。
+            onSave = imageSaveAction?.onSave,
+            saveEnabled = imageSaveAction?.enabled == true,
         )
     }
 
@@ -1127,7 +1142,7 @@ private fun TextFlow(
     speechEnd: Int,
     annotations: Map<Int, List<ReaderAnnotation>>,
     onLongPress: (Int) -> Unit,
-    onImageClick: (TextImage) -> Unit,
+    onImageClick: (Int) -> Unit,
 ) {
     val sizeSp = normalizeFontSize(fontSizeSp)
     val lineHeightSp = normalizeLineHeight(lineHeightMultiplier) * sizeSp
@@ -1169,7 +1184,7 @@ private fun TextFlow(
                     TextImageBlock(
                         image = image,
                         modifier = Modifier.padding(vertical = Spacing.xs),
-                        onClick = { onImageClick(image) },
+                        onClick = { onImageClick(index) },
                     )
                 } else {
                     TextParagraphView(

@@ -10,15 +10,20 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.outlined.SaveAlt
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearWavyProgressIndicator
@@ -48,8 +53,10 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.onLongClick
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -74,6 +81,9 @@ private const val SwipeSwitchMaxScale = 1.05f
 /** 水平快滑的切换阈值：低于 96dp 多半是想点按或者误触。 */
 private val SwipeSwitchThreshold = 96.dp
 
+/** 保存入口的名字：顶栏按钮的 contentDescription 与读屏长按操作共用，改一处两边同步。 */
+private const val SaveImageLabel = "保存图片"
+
 /**
  * 全屏图片查看器：从正文里点开一张插图，按「书内插图的顺序」前后翻。
  *
@@ -91,12 +101,19 @@ private val SwipeSwitchThreshold = 96.dp
  * @param images 书内所有插图（与正文同一次遍历的结果），查看器按这个顺序前后翻。
  * @param initialIndex 打开时停在哪一张（0 起算）；越界会夹到最近的一张。
  * @param onDismiss 关闭回调；返回键与关闭按钮都走它，查看器自己不收尾别的东西。
+ * @param onSave 保存「当前这张图」的请求，第二个参数是它在 [images] 里的 0 基序号；null 表示宿主
+ *   不提供保存，顶栏右侧的保存按钮不出现、图片长按也不生效。查看器自己不做文件 IO、不碰 SAF：
+ *   要哪一张是查看器的知识，写到哪、写不写得成是宿主的。
+ * @param saveEnabled 宿主正忙（导出中 / 写盘中）时传 false：入口仍然可见但置灰、长按不触发，
+ *   避免连点拉起两个系统选择器、也避免「按了没反应」被当成失灵。
  */
 @Composable
 internal fun TextImageViewer(
     images: List<TextImage>,
     initialIndex: Int,
     onDismiss: () -> Unit,
+    onSave: ((TextImage, Int) -> Unit)? = null,
+    saveEnabled: Boolean = true,
 ) {
     if (images.isEmpty()) return
     var index by remember(images) { mutableIntStateOf(initialIndex.coerceIn(images.indices)) }
@@ -139,6 +156,8 @@ internal fun TextImageViewer(
                     onDismiss = onDismiss,
                     onPrevious = { if (index > 0) index -= 1 },
                     onNext = { if (index < images.lastIndex) index += 1 },
+                    onSave = onSave,
+                    saveEnabled = saveEnabled,
                 )
             }
         }
@@ -160,6 +179,8 @@ private fun ImageViewerPage(
     onDismiss: () -> Unit,
     onPrevious: () -> Unit,
     onNext: () -> Unit,
+    onSave: ((TextImage, Int) -> Unit)?,
+    saveEnabled: Boolean,
 ) {
     var loadState by remember { mutableStateOf(TextImageLoadState()) }
     // IO 线程：读盘 + BitmapFactory 都是同步阻塞的，放主线程会卡掉一次转场。
@@ -179,6 +200,22 @@ private fun ImageViewerPage(
             fittedImageSize(IntSize(bitmap.width, bitmap.height), viewSize)
         } ?: IntSize.Zero,
     )
+    // 双击放大只在解出图之后有意义；同样用 rememberUpdatedState 读，别让它停在「还没解完」那一刻。
+    val currentHasBitmap = rememberUpdatedState(loadState.bitmap != null)
+    // 保存要同时满足三件事：宿主给了回调、宿主没在忙、这张图真的解出来了（解码中/失败都不给存）。
+    // 三者都在按下那一刻读最新值——pointerInput 只在 image.key 变化时重挂，捕获普通变量会停在首次组合；
+    // 另外同一个 key 可能在书里出现两次（目录不去重），换到同 key 的另一处时位置变了但页面不重建。
+    val saveCallback: ((TextImage, Int) -> Unit)? = onSave
+    val saveRequest: (() -> Unit)? =
+        if (saveEnabled && loadState.bitmap != null && saveCallback != null) {
+            { saveCallback(image, position) }
+        } else {
+            null
+        }
+    val currentSave = rememberUpdatedState(saveRequest)
+    // 这次手势里长按是否已经触发过保存：detectSwipeSwitch 只读事件、从不消费，
+    // 所以「按住 → 拖动 → 抬手」剩下的水平位移本来会被它当成一次快滑翻页。
+    val longPressFired = remember { GestureFlag() }
 
     val transformState = rememberTransformableState { zoomChange, panChange, _ ->
         // 还没解出图时缩放没有意义，却会把 scale 顶过 1.05、顺手废掉左右滑切换。
@@ -205,11 +242,24 @@ private fun ImageViewerPage(
                 .pointerInput(image.key) {
                     detectTapGestures(
                         onDoubleTap = {
-                            if (loadState.bitmap != null) {
+                            if (currentHasBitmap.value) {
                                 // 只看「现在是不是 1 倍」：捏合停在 1.7 倍时双击先回 1 倍，
                                 // 再双击才放大，和相册的习惯一致。
-                                scale = if (scale <= MinImageScale) DoubleTapImageScale else MinImageScale
+                                scale = if (currentScale.value <= MinImageScale) {
+                                    DoubleTapImageScale
+                                } else {
+                                    MinImageScale
+                                }
                                 offset = Offset.Zero
+                            }
+                        },
+                        onLongPress = {
+                            // 长按与顶栏按钮走同一个 saveRequest：条件（回调/忙碌/解码态）已经在里面判定过。
+                            val save = currentSave.value
+                            if (save != null) {
+                                // 先立抑制标记再回调：宿主会拉起系统文件选择器，用户在那之后才抬指。
+                                longPressFired.value = true
+                                save()
                             }
                         },
                     )
@@ -217,6 +267,8 @@ private fun ImageViewerPage(
                 .pointerInput(total) {
                     detectSwipeSwitch(
                         enabled = { total > 1 && currentScale.value <= SwipeSwitchMaxScale },
+                        switchSuppressed = { longPressFired.value },
+                        clearSuppressed = { longPressFired.value = false },
                         thresholdPx = SwipeSwitchThreshold.toPx(),
                         onSwipeLeft = onNext,
                         onSwipeRight = onPrevious,
@@ -229,7 +281,7 @@ private fun ImageViewerPage(
             when {
                 bitmap != null -> Image(
                     bitmap = bitmap,
-                    contentDescription = image.alt.takeIf { it.isNotBlank() },
+                    contentDescription = image.alt.ifBlank { "插图" },
                     contentScale = ContentScale.Fit,
                     modifier = Modifier
                         .fillMaxSize()
@@ -238,7 +290,24 @@ private fun ImageViewerPage(
                             scaleY = scale
                             translationX = offset.x
                             translationY = offset.y
-                        },
+                        }
+                        // TalkBack 的双指长按走的是语义动作、不经过 pointerInput：给图片节点挂一个同名的
+                        // 长按操作，读屏用户从「操作」菜单里也能保存；顶栏按钮是另一条等价入口。
+                        .then(
+                            if (saveRequest != null) {
+                                Modifier.semantics {
+                                    // 位置参数：第一个是读屏「操作」菜单里的动作名，第二个才是动作本身。
+                                    onLongClick(SaveImageLabel) {
+                                        currentSave.value?.let { save ->
+                                            save()
+                                            true
+                                        } ?: false
+                                    }
+                                }
+                            } else {
+                                Modifier
+                            },
+                        ),
                 )
 
                 loadState.failed -> ImageUnavailable(alt = image.alt)
@@ -250,6 +319,10 @@ private fun ImageViewerPage(
             position = position,
             total = total,
             onDismiss = onDismiss,
+            // 有回调就出现入口（是否可点另说）：忙态下按钮消失会让人以为功能没了。
+            saveVisible = onSave != null,
+            saveEnabled = saveRequest != null,
+            onSave = { currentSave.value?.invoke() },
             modifier = Modifier.align(Alignment.TopCenter),
         )
 
@@ -278,15 +351,25 @@ private fun ImageViewerPage(
     }
 }
 
-/** 顶栏：左关闭、中间计数（只有一张时不显示计数）。 */
+/**
+ * 顶栏：左关闭、中间计数（只有一张时不显示计数）、右保存。
+ *
+ * 中间计数用 Row 的 weight 占住两侧之间的剩余宽度，而不是靠 Box 居中叠在按钮上：
+ * 200% 字号下「1 / 共 128 张」会宽到压住按钮，weight 让它只能拿剩下的宽度，再配
+ * maxLines = 1 + Ellipsis，宁可截文案也不盖按钮。保存入口不存在时补一个同宽的 Spacer，
+ * 计数仍然落在屏幕正中（左右两侧留白对称）。
+ */
 @Composable
 private fun ViewerTopBar(
     position: Int,
     total: Int,
     onDismiss: () -> Unit,
+    saveVisible: Boolean,
+    saveEnabled: Boolean,
+    onSave: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Box(
+    Row(
         modifier = modifier
             .fillMaxWidth()
             // 白图标压在浅色扫描件上会看不见：顶部一道很淡的黑色渐变只为可读性，不做装饰。
@@ -297,25 +380,67 @@ private fun ViewerTopBar(
             )
             .statusBarsPadding()
             .padding(horizontal = Spacing.xs, vertical = Spacing.xs),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        IconButton(
+        ViewerTopBarButton(
+            icon = Icons.Filled.Close,
+            contentDescription = "关闭",
             onClick = onDismiss,
-            modifier = Modifier.align(Alignment.CenterStart),
-        ) {
-            Icon(
-                imageVector = Icons.Filled.Close,
-                contentDescription = "关闭",
-                tint = Color.White,
-            )
-        }
+        )
         if (total > 1) {
             Text(
                 text = (position + 1).toString() + " / 共 " + total + " 张",
                 style = MaterialTheme.typography.titleMedium,
                 color = Color.White,
-                modifier = Modifier.align(Alignment.Center),
+                textAlign = TextAlign.Center,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(horizontal = Spacing.xxs),
             )
+        } else {
+            Spacer(Modifier.weight(1f))
         }
+        if (saveVisible) {
+            ViewerTopBarButton(
+                icon = Icons.Outlined.SaveAlt,
+                contentDescription = SaveImageLabel,
+                onClick = onSave,
+                enabled = saveEnabled,
+            )
+        } else {
+            Spacer(Modifier.size(Spacing.minTouchTarget))
+        }
+    }
+}
+
+/**
+ * 顶栏图标按钮：显式把触区钉在 [Spacing.minTouchTarget]（48dp），不靠 24dp 的图标本身。
+ *
+ * 图标与可读名称成对传入、在这里渲染：m3-audit 的 icon-missing-label 只认 IconButton 自己
+ * 体里的 contentDescription，把内容当 lambda 参数转发出去会让「有按钮就有标签」这条断言消失。
+ */
+@Composable
+private fun ViewerTopBarButton(
+    icon: ImageVector,
+    contentDescription: String,
+    onClick: () -> Unit,
+    enabled: Boolean = true,
+) {
+    IconButton(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = Modifier.sizeIn(
+            minWidth = Spacing.minTouchTarget,
+            minHeight = Spacing.minTouchTarget,
+        ),
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = contentDescription,
+            tint = if (enabled) Color.White else Color.White.copy(alpha = 0.38f),
+        )
     }
 }
 
@@ -385,9 +510,15 @@ private fun ImageUnavailable(alt: String) {
  * 没用 detectHorizontalDragGestures：它在 change 被消费后立即取消，而 transformable 一过
  * 触摸斜率就会消费拖动（哪怕当前是 1 倍、画面并不动），两者叠在一起会一次都收不到。
  * 这里只读 position、从不消费事件，因此和缩放、双击互不干扰。
+ *
+ * 代价是它也「看不见」长按：手指按住 500ms 触发保存后再拖出一段，抬手时一样满足阈值，
+ * 会被当成翻页。所以由调用方用 [switchSuppressed] 把「这次手势里长按已经处理过」告诉它，
+ * 抬手时跳过切换；[clearSuppressed] 在每次按下的开头清掉，标记只属于触发它的那一次手势。
  */
 private suspend fun PointerInputScope.detectSwipeSwitch(
     enabled: () -> Boolean,
+    switchSuppressed: () -> Boolean,
+    clearSuppressed: () -> Unit,
     thresholdPx: Float,
     onSwipeLeft: () -> Unit,
     onSwipeRight: () -> Unit,
@@ -397,6 +528,8 @@ private suspend fun PointerInputScope.detectSwipeSwitch(
             val event = awaitPointerEvent()
             if (event.changes.count { it.pressed } > 1) continue
             val down = event.changes.firstOrNull { it.changedToDown() } ?: continue
+            // 新手势从按下重新计数：上一次长按留下的标记不能漏到这一次上。
+            clearSuppressed()
             var latestX = down.position.x
             var multiTouch = false
             var pressed = true
@@ -407,7 +540,8 @@ private suspend fun PointerInputScope.detectSwipeSwitch(
                 latestX = change.position.x
                 pressed = change.pressed
             }
-            if (multiTouch || !enabled()) continue
+            // 长按已经处理过这次手势：之后的位移是「按完顺手挪一下」，不是翻页。
+            if (multiTouch || switchSuppressed() || !enabled()) continue
             val dx = latestX - down.position.x
             when {
                 // 手指往左划 = 看下一张，与翻页的直觉一致。
@@ -417,6 +551,15 @@ private suspend fun PointerInputScope.detectSwipeSwitch(
         }
     }
 }
+
+/**
+ * 一次手势内的一次性标记：[detectSwipeSwitch] 与长按检测是两个独立的 pointerInput，
+ * 只能靠共享对象交接「这次长按已经处理过」。
+ *
+ * 用普通 var 而不是 mutableStateOf：它只被手势回调读写，没人从组合里读它，
+ * 做成快照状态只会多一次无意义的失效通知；pointerInput 要的是「同一个对象、内容可变」。
+ */
+private class GestureFlag(var value: Boolean = false)
 
 /**
  * ContentScale.Fit 之后图片在容器里实际占的尺寸。
