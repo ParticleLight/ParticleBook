@@ -99,6 +99,46 @@ class EpubProgressStateTest {
         assertNull(restored.state.pageShown(visible(page = 3), false).writable)
     }
 
+    @Test fun externalLocatorAfterMissingHrefTakesOverOnlyAfterFirstTargetPageIsShown() {
+        val layout = restoreLayout()
+        val saved = ReaderLocator.Epub("removed.xhtml", 9, 14)
+        val restored = restore(saved.encode(), page = 1, chapter = null)
+        val target = ReaderLocator.Epub(layout.chapterHref, 7, 2)
+        val page = requireNotNull(EpubPageIndex.pageForLocator(layout, target))
+        val shown = EpubVisibleProgress(
+            requireNotNull(EpubPageIndex.locatorForPage(layout, page)), page, layout.pageCount,
+        )
+        assertNull(restored.locator)
+        assertTrue(restored.state.preserveSavedRaw)
+        assertNull(restored.state.writable)
+
+        val laidOut = restored.state.initialLayoutApplied(layout, target, true)
+        assertTrue(laidOut.preserveSavedRaw)
+        assertNull(laidOut.displayed)
+        assertNull(laidOut.writable)
+
+        val displayed = laidOut.pageShown(shown, true)
+        assertFalse(displayed.preserveSavedRaw)
+        assertEquals(shown, displayed.writable)
+        assertEquals(target.copy(charOffset = 0), displayed.writable?.locator)
+    }
+
+    @Test fun passiveLayoutAfterMissingHrefKeepsRawEvenForResolvableTarget() {
+        val layout = restoreLayout()
+        val saved = ReaderLocator.Epub("removed.xhtml", 9, 14)
+        val restored = restore(saved.encode(), page = 1, chapter = null)
+        val target = ReaderLocator.Epub(layout.chapterHref, 7, 2)
+        val page = requireNotNull(EpubPageIndex.pageForLocator(layout, target))
+        val shown = EpubVisibleProgress(
+            requireNotNull(EpubPageIndex.locatorForPage(layout, page)), page, layout.pageCount,
+        )
+
+        val state = restored.state.initialLayoutApplied(layout, target, false).pageShown(shown, false)
+        assertEquals(shown, state.displayed)
+        assertTrue(state.preserveSavedRaw)
+        assertNull(state.writable)
+    }
+
     @Test fun validHrefRestoresResolvedChapterAndLocator() {
         val saved = ReaderLocator.Epub("chapter7.xhtml#anchor", 9, 14)
         val restored = EpubProgressRestore.from(saved.encode(), saved, 4) { href ->

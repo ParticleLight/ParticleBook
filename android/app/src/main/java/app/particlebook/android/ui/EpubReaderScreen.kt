@@ -130,11 +130,12 @@ private data class TtsSentenceAnchor(
             this.layoutRevision == layoutRevision
 }
 
+// 来源必须显式填写：外部搜索也是用户跳转，被动恢复则须保留异常旧进度。
 private data class ChapterRequest(
     val chapterIndex: Int,
     val page: Int?,
     val locator: ReaderLocator.Epub? = null,
-    val userInitiated: Boolean = false,
+    val userInitiated: Boolean,
 )
 
 /** 新建笔记时捕获的选区；对话框打开期间选区状态可能变化，必须先快照。 */
@@ -344,13 +345,19 @@ fun EpubReaderScreen(
             pageIndex = 0
             progressState = opened.progress.state
             if (jump != null) {
-                chapterRequest = ChapterRequest(chapterIndex = chapterIndex, page = 0, locator = jump)
+                chapterRequest = ChapterRequest(
+                    chapterIndex = chapterIndex,
+                    page = 0,
+                    locator = jump,
+                    userInitiated = true,
+                )
                 requestVersion += 1
             } else if (opened.progress.locator != null || opened.progress.page != null) {
                 chapterRequest = ChapterRequest(
                     chapterIndex = opened.progress.chapterIndex,
                     page = opened.progress.page ?: 0,
                     locator = opened.progress.locator,
+                    userInitiated = false,
                 )
                 requestVersion += 1
             }

@@ -1,5 +1,7 @@
 export const enChangelog: Record<string, string> = {
   // Android P1 · unreleased
+  // ── 2026-11-26：EPUB 搜索位置接管 ──
+  '修复安卓版 EPUB 全文搜索跳转后的进度保存：旧位置失效时，点击有效命中并显示目标页后会保存新位置；普通恢复仍保留原始进度记录。': 'Fixed progress saving after opening an EPUB from full-text search on Android: when the old position is invalid, tapping a valid hit saves the new position once its page is displayed. Passive recovery still preserves the original progress record.',
   // ── 2026-11-26：文本恢复保护 ──
   '修复安卓版 TXT / Markdown / FB2 / HTML 阅读位置恢复保护：旧位置失效或正文缩短时，静置、后台和退出都会保留原进度；实际移到新段落，或在更多菜单选择「使用当前阅读位置」后才更新。返回书架前先保存已显示位置，避免快速退出丢掉最后一段。': 'Fixed reading-position recovery in the Android TXT / Markdown / FB2 / HTML readers: when a saved position is invalid or the document has become shorter, waiting, backgrounding and leaving preserve the original progress. Progress updates only after moving to a different paragraph or choosing "Use current reading position" from the more menu. The visible position is queued before returning to the library so a quick exit does not lose the last paragraph.',
   // ── 2026-11-26：书架多选范围 ──
