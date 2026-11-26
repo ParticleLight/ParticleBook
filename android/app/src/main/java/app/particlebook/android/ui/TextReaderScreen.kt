@@ -38,6 +38,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -53,6 +54,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -101,8 +103,11 @@ import kotlin.math.roundToInt
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 
 /**
@@ -145,6 +150,8 @@ internal fun TextReaderScreen(
 ) {
     ImmersiveSystemBars()
     val context = LocalContext.current
+    // 首次入队前冻结原快照；保留未经旧 totalPages 夹取的原始 page。
+    val savedProgress = remember(book.id, book.filePath) { ReadingProgress.snapshot(book.id) }
 
     var document by remember(book.filePath) { mutableStateOf<TextDocument?>(null) }
     var failure by remember(book.filePath) { mutableStateOf<String?>(null) }
@@ -219,28 +226,42 @@ internal fun TextReaderScreen(
 
     val paragraphCount = document?.paragraphs?.size ?: 0
 
-    // 起始位置：显式跳转（书内搜索命中）按字符偏移反查；正常打开则直接用上次保存的段落下标。
-    //
-    // 顺序不能反：图片段没有文本，charOffsets 会跟它后面那段共用同一个偏移
-    // （"上/图/下" → [0, 1, 1]），从偏移反查永远落到靠后的那段，停在插图退出、重开会跳过整张图。
-    // 保存侧写的 paragraph 是精确下标，只有它才分得清「图」与「图之后」。
-    val startIndex = remember(document, initialLocator) {
-        val doc = document
-        when {
-            doc == null || doc.paragraphs.isEmpty() -> 0
-            else -> {
-                val explicit = initialLocator as? ReaderLocator.Text
-                val fromLocator = explicit?.takeIf { it.offset >= 0 }?.let {
-                    TextAnnotations.paragraphIndexOfOffset(doc, it.offset)
-                }
-                fromLocator
-                    ?: ReadingProgress.savedPage(context, book.id)?.coerceIn(0, doc.paragraphs.lastIndex)
-                    ?: 0
-            }
+    // 普通打开优先段号：图片与后文可共享 offset，重新反查会跳过图片。
+    val progressSession = remember(book.id, book.filePath, document, initialLocator) {
+        document?.let { doc ->
+            TextReaderProgressSession(
+                document = doc,
+                restore = TextProgressRestore.from(
+                    document = doc,
+                    rawLocator = savedProgress?.locatorJson,
+                    savedLocator = savedProgress?.locator(),
+                    savedParagraph = savedProgress?.page,
+                    requestedLocator = initialLocator,
+                ),
+            )
         }
     }
-    LaunchedEffect(document) {
-        if (document != null && startIndex > 0) listState.scrollToItem(startIndex)
+    LaunchedEffect(progressSession) {
+        val session = progressSession ?: return@LaunchedEffect
+        if (session.document.paragraphs.isEmpty()) return@LaunchedEffect
+        // 正文进入列表后才恢复；取消或离场时不在 finally 中打开保存闸门。
+        snapshotFlow { listState.layoutInfo.totalItemsCount }
+            .first { it == session.document.paragraphs.size }
+        try {
+            listState.scrollToItem(session.restore.paragraphIndex)
+        } catch (cancelled: CancellationException) {
+            // 用户拖动优先于初次 scroll；真离场仍取消，活会话等手势结束后确认实际显示。
+            currentCoroutineContext().ensureActive()
+            snapshotFlow { listState.isScrollInProgress }.first { !it }
+        }
+        snapshotFlow {
+            val layout = listState.layoutInfo
+            layout.totalItemsCount == session.document.paragraphs.size &&
+                layout.visibleItemsInfo.any { it.index == listState.firstVisibleItemIndex }
+        }.first { it }
+        currentCoroutineContext().ensureActive()
+        session.show(listState.firstVisibleItemIndex, userInitiated = false)
+        session.restorationApplied = true
     }
 
     // 标注读取：与 PDF 面板同一套纪律 —— 失败要记下来，否则 0 条会冒充「这本书没有标注」。
@@ -273,40 +294,83 @@ internal fun TextReaderScreen(
         document?.let { TextAnnotations.byParagraph(it, annotations) } ?: emptyMap()
     }
 
-    // 当前可见段落 → 落库。防抖、切后台、离开阅读器三处共用同一份口径，
-    // 免得「最后一屏算哪一段」在三个地方各算一遍（差一段就够让恢复跳错）。
-    //
-    // latestDocument 走 rememberUpdatedState：DisposableEffect / 生命周期观察者的闭包
-    // 只建一次，直接捕获 document 会永远读到首帧的 null。
-    val latestDocument by rememberUpdatedState(document)
-    val persistVisibleProgress: () -> Unit = remember(book.id) {
-        {
-            val doc = latestDocument
-            if (doc != null && doc.paragraphs.isNotEmpty()) {
-                val index = listState.firstVisibleItemIndex.coerceIn(0, doc.paragraphs.lastIndex)
-                ReadingProgress.saveTextProgress(
-                    context = context,
-                    bookId = book.id,
-                    locator = ReaderLocator.Text(offset = doc.charOffsets.getOrElse(index) { 0 }, length = 0),
-                    paragraph = index,
-                    paragraphs = doc.paragraphs.size,
-                )
+    // 防抖、后台、返回与离场都只写已显示且通过恢复保护的同一份快照。
+    val latestProgressSession by rememberUpdatedState(progressSession)
+    val persistVisibleProgress: () -> Unit = remember(book.id, book.filePath, listState) {
+        persist@{
+            val session = latestProgressSession ?: return@persist
+            if (!session.restorationApplied) return@persist
+            session.show(
+                listState.firstVisibleItemIndex,
+                userInitiated = session.userGestureToken != null || session.navigationToken != null,
+            )
+            val writable = session.state.writable ?: return@persist
+            ReadingProgress.saveTextProgress(
+                context = context,
+                bookId = book.id,
+                locator = writable.locator,
+                paragraph = writable.paragraph,
+                paragraphs = writable.paragraphs,
+            )
+        }
+    }
+
+    // 五类明确导航集中标记来源；自动恢复、重排与朗读跟随不经过这里。
+    fun navigateToParagraph(index: Int, animate: Boolean = true) {
+        val session = progressSession ?: return
+        if (!session.restorationApplied || index !in session.document.paragraphs.indices) return
+        scope.launch {
+            val token = Any()
+            session.navigationToken = token
+            try {
+                if (animate) listState.animateScrollToItem(index) else listState.scrollToItem(index)
+            } finally {
+                // 前一次动画取消时，不能清掉后一次导航刚建立的来源。
+                if (session.navigationToken === token) {
+                    session.show(listState.firstVisibleItemIndex, userInitiated = true)
+                    session.navigationToken = null
+                }
             }
         }
     }
 
-    // 进度落库：滚停 600ms 只写一次。一次拖动可能连过几十段，逐段落库既费 IO 也没有信息量。
-    // 单段文档也照写：段落数不是屏数，一篇没有空行的长 txt 只有一段却要滚几十屏。
-    LaunchedEffect(document) {
-        if (document == null) return@LaunchedEffect
-        snapshotFlow { listState.firstVisibleItemIndex }.collectLatest {
+    fun acceptCurrentProgress() {
+        val session = progressSession ?: return
+        if (!session.restorationApplied) return
+        session.show(listState.firstVisibleItemIndex, userInitiated = false)
+        session.state = session.state.acceptDisplayed()
+        persistVisibleProgress()
+    }
+
+    val restorationPreserved = progressSession?.let {
+        it.restorationApplied && it.state.preserveSavedRaw
+    } == true
+    LaunchedEffect(progressSession, restorationPreserved) {
+        if (restorationPreserved) {
+            snackbarHostState.showSnackbar(
+                message = "上次位置未能精确恢复，原进度已保留。移到新段落后更新，也可在更多菜单中使用当前阅读位置。",
+                duration = SnackbarDuration.Long,
+            )
+        }
+    }
+
+    LaunchedEffect(progressSession) {
+        val session = progressSession ?: return@LaunchedEffect
+        snapshotFlow {
+            if (session.restorationApplied) {
+                Triple(listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset, listState.isScrollInProgress)
+            } else null
+        }.collectLatest { position ->
+            if (position == null) return@collectLatest
+            session.show(
+                listState.firstVisibleItemIndex,
+                userInitiated = session.userGestureToken != null || session.navigationToken != null,
+            )
             delay(ProgressSaveDelayMillis)
             persistVisibleProgress()
         }
     }
 
-    // 切后台补落一次：EPUB 与 PDF 在同一个事件上补存，文本这条链路原先只有防抖，
-    // 「滚完立刻按 Home、随后进程被杀」会整段丢掉。
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner, book.filePath) {
         val observer = LifecycleEventObserver { _, event ->
@@ -315,9 +379,6 @@ internal fun TextReaderScreen(
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
-
-    // 离开阅读器时补落一次：防抖窗口（600ms）里按返回时，collectLatest 会被取消，
-    // 最后一次位置就再也写不进去了。onDispose 里同步入队（saveTextProgress 本身只是 enqueue）。
     DisposableEffect(book.filePath) {
         onDispose { persistVisibleProgress() }
     }
@@ -669,7 +730,7 @@ internal fun TextReaderScreen(
             return
         }
         stopAloud()
-        scope.launch { listState.animateScrollToItem(index) }
+        navigateToParagraph(index)
     }
 
     fun copyParagraph(text: String) {
@@ -695,6 +756,7 @@ internal fun TextReaderScreen(
     // 那段时间引擎仍在出声，用户已经看到书架了还能听见朗读尾巴。
     val leaveReader: () -> Unit = {
         stopAloud()
+        persistVisibleProgress()
         onBack()
     }
     BackHandler(onBack = leaveReader)
@@ -730,9 +792,33 @@ internal fun TextReaderScreen(
     // 只能再拿一个布尔标志猜"这次是谁发起的"；而相邻段短于一次滚动动画时，
     // 上一轮 effect 的 finally 会把新一轮刚置上的标志清掉，朗读就这样被自己停掉。
     // 程序滚动（animateScrollToItem）不产生 DragInteraction，天然不用猜来源。
-    LaunchedEffect(listState) {
+    LaunchedEffect(listState, progressSession) {
         listState.interactionSource.interactions.collect { interaction ->
-            if (interaction is DragInteraction.Start) stopAloud()
+            when (interaction) {
+                is DragInteraction.Start -> {
+                    progressSession?.takeIf { it.restorationApplied }?.userGestureToken = interaction
+                    stopAloud()
+                }
+                is DragInteraction.Stop, is DragInteraction.Cancel -> {
+                    val session = progressSession ?: return@collect
+                    val start = when (interaction) {
+                        is DragInteraction.Stop -> interaction.start
+                        is DragInteraction.Cancel -> interaction.start
+                        else -> return@collect
+                    }
+                    launch {
+                        // Stop 之后还可能开始 fling；下一帧起等真正停止，再清本次来源。
+                        withFrameNanos { }
+                        snapshotFlow { listState.isScrollInProgress }.first { !it }
+                        if (session.userGestureToken === start) {
+                            if (session.restorationApplied) {
+                                session.show(listState.firstVisibleItemIndex, userInitiated = true)
+                            }
+                            session.userGestureToken = null
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -817,6 +903,15 @@ internal fun TextReaderScreen(
                                     searchOpen = true
                                 },
                             )
+                            if (restorationPreserved) {
+                                DropdownMenuItem(
+                                    text = { Text("使用当前阅读位置") },
+                                    onClick = {
+                                        overflowOpen = false
+                                        acceptCurrentProgress()
+                                    },
+                                )
+                            }
                             DropdownMenuItem(
                                 text = { Text("阅读设置") },
                                 onClick = {
@@ -942,7 +1037,7 @@ internal fun TextReaderScreen(
                 // 工具条同理：它记的是原来那一段，留着就能对屏幕外的段落动手。
                 dismissAnnotationTools()
                 stopAloud()
-                scope.launch { listState.animateScrollToItem(chapter.paragraphIndex) }
+                navigateToParagraph(chapter.paragraphIndex)
             },
             onDismiss = { tocOpen = false },
         )
@@ -966,7 +1061,7 @@ internal fun TextReaderScreen(
                 stopAloud()
                 // 段落是排版单位：滚到该段首（段内精确到字符需要 TextLayoutResult，收益不值这个复杂度），
                 // 段内命中位置靠行内高亮标出来。
-                scope.launch { listState.animateScrollToItem(picked.paragraphIndex) }
+                navigateToParagraph(picked.paragraphIndex)
             },
             onDismiss = { searchOpen = false },
         )
@@ -998,7 +1093,7 @@ internal fun TextReaderScreen(
                 progressTarget = landed
                 dismissAnnotationTools()
                 stopAloud()
-                scope.launch { listState.scrollToItem(landed.paragraphIndex) }
+                navigateToParagraph(landed.paragraphIndex, animate = false)
             },
             onChapterStep = { direction ->
                 val landed = TextProgressJump
@@ -1008,7 +1103,7 @@ internal fun TextReaderScreen(
                     progressTarget = landed
                     dismissAnnotationTools()
                     stopAloud()
-                    scope.launch { listState.scrollToItem(landed.paragraphIndex) }
+                    navigateToParagraph(landed.paragraphIndex, animate = false)
                 }
             },
             onDismiss = { progressOpen = false },
@@ -1111,6 +1206,26 @@ internal fun TextReaderScreen(
             onFontSizeChange = onFontSizeChange,
             onLineHeightChange = onLineHeightChange,
             onDismiss = { settingsOpen = false },
+        )
+    }
+}
+
+/** 仅承载当前正文的宿主状态，原始恢复判定由 TextProgressRestore 统一处理。 */
+private class TextReaderProgressSession(
+    val document: TextDocument,
+    val restore: TextProgressRestore,
+) {
+    var state by mutableStateOf(restore.state)
+    var restorationApplied by mutableStateOf(false)
+    var userGestureToken: DragInteraction.Start? = null
+    var navigationToken: Any? = null
+
+    fun show(index: Int, userInitiated: Boolean) {
+        if (index !in document.paragraphs.indices) return
+        val offset = document.charOffsets.getOrNull(index) ?: return
+        state = state.paragraphShown(
+            TextVisibleProgress(ReaderLocator.Text(offset, 0), index, document.paragraphs.size),
+            userInitiated = userInitiated,
         )
     }
 }

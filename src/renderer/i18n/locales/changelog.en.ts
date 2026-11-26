@@ -1,5 +1,7 @@
 export const enChangelog: Record<string, string> = {
   // Android P1 · unreleased
+  // ── 2026-11-26：文本恢复保护 ──
+  '修复安卓版 TXT / Markdown / FB2 / HTML 阅读位置恢复保护：旧位置失效或正文缩短时，静置、后台和退出都会保留原进度；实际移到新段落，或在更多菜单选择「使用当前阅读位置」后才更新。返回书架前先保存已显示位置，避免快速退出丢掉最后一段。': 'Fixed reading-position recovery in the Android TXT / Markdown / FB2 / HTML readers: when a saved position is invalid or the document has become shorter, waiting, backgrounding and leaving preserve the original progress. Progress updates only after moving to a different paragraph or choosing "Use current reading position" from the more menu. The visible position is queued before returning to the library so a quick exit does not lose the last paragraph.',
   // ── 2026-11-26：书架多选范围 ──
   '修复安卓版书架搜索和格式筛选后的多选范围：全选只选择当前完整结果，最近添加同步筛选；切换筛选会移除结果外的选择，多选时收起继续阅读卡片。空选时禁用删除，确认弹窗说明应用内副本、阅读进度和下载记录的清理范围，保留导入源文件及已完成下载的原文件。': 'Fixed multi-selection after searching or filtering the Android library: Select all now uses the complete current result set, and Recently added follows the same filters. Changing a filter removes selections outside the results, and Continue reading cards are hidden during selection. Delete is disabled with no selection. The confirmation explains removal of app-managed copies, reading progress and download records while preserving import sources and completed download files.',
   // ── 2026-11-26：朗读定时停止 ──
